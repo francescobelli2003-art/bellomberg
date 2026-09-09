@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="900" viewBox="0 0 1280 900" role="img" aria-labelledby="title desc">
+<title id="title">F7 Factor Lab — synthetic DEMO illustration</title>
+<desc id="desc">Original explanatory mockup, not a screenshot. All values, names, instruments and research text are invented. No user portfolio data.</desc>
+<style>text{font-family:Segoe UI,Arial,sans-serif} .mono{font-family:Consolas,monospace}</style>
+<rect x="0" y="0" width="1280" height="900" rx="0" fill="#10151d"/>
+<rect x="0" y="0" width="1280" height="64" rx="0" fill="#141c26"/>
+<text x="28" y="41" font-size="24" fill="#eef2f7" font-weight="650" text-anchor="start">Bellomberg</text>
+<text x="207" y="39" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Research terminal</text>
+<rect x="490" y="18" width="390" height="31" rx="4" fill="#10151d" stroke="#344250"/>
+<text x="504" y="39" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Cerca pagina o ticker</text>
+<text x="866" y="39" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="end">Ctrl + K</text>
+<text x="1250" y="39" font-size="13" fill="#e2bf72" font-weight="650" text-anchor="end">DEMO • Dati interamente sintetici</text>
+<rect x="0" y="64" width="1280" height="67" rx="0" fill="#18212c"/>
+<g id="navigation" aria-label="Navigation F1 to F19">
+<text x="44" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F1</text>
+<text x="44" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">DASH</text>
+<text x="110" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F2</text>
+<text x="110" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">PERF</text>
+<text x="176" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F3</text>
+<text x="176" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FAVS</text>
+<text x="242" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F4</text>
+<text x="242" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MKT</text>
+<text x="308" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F5</text>
+<text x="308" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">NEWS</text>
+<text x="374" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F6</text>
+<text x="374" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FUND</text>
+<rect x="408" y="68" width="64" height="59" rx="3" fill="#2c3541"/>
+<rect x="408" y="125" width="64" height="3" rx="0" fill="#e2bf72"/>
+<text x="440" y="87" font-size="12" fill="#e2bf72" font-weight="400" text-anchor="middle">F7</text>
+<text x="440" y="111" font-size="12" fill="#eef2f7" font-weight="600" text-anchor="middle">FCTR</text>
+<text x="506" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F8</text>
+<text x="506" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MTC</text>
+<text x="572" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F9</text>
+<text x="572" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">VOLS</text>
+<text x="638" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F10</text>
+<text x="638" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">EDGE</text>
+<text x="704" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F11</text>
+<text x="704" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">CHAT</text>
+<text x="770" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F12</text>
+<text x="770" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">LIVE</text>
+<text x="836" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F13</text>
+<text x="836" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">SCORE</text>
+<text x="902" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F14</text>
+<text x="902" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MEMO</text>
+<text x="968" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F15</text>
+<text x="968" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">DECN</text>
+<text x="1034" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F16</text>
+<text x="1034" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">TRADE</text>
+<text x="1100" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F17</text>
+<text x="1100" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MOVES</text>
+<text x="1166" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F18</text>
+<text x="1166" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MNDT</text>
+<text x="1232" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F19</text>
+<text x="1232" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">CONFIG</text>
+</g>
+<line x1="0" y1="132" x2="1280" y2="132" stroke="#344250" stroke-width="1"/>
+<text x="28.0" y="172" font-size="30" fill="#eef2f7" font-weight="650" text-anchor="start">Factor Lab</text>
+<text x="28.0" y="202" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Esposizioni comuni e qualita del campione</text>
+<text x="28.0" y="864" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">DEMO  /  Illustration only. Not a screenshot, recommendation or measured result.</text>
+<rect x="28.0" y="234" width="804.6215139442231" height="400" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="49.94422310756972" y="264" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Esposizioni stimate • DEMO</text>
+<text x="53.60159362549801" y="317" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Mercato</text>
+<line x1="371.79282868525894" y1="298" x2="371.79282868525894" y2="327" stroke="#adbac9" stroke-width="1"/>
+<rect x="371.79282868525894" y="301" width="329.89482071713144" height="22" rx="2" fill="#63cddb"/>
+<text x="778.9800796812749" y="317" font-size="14" fill="#adbac9" font-weight="400" text-anchor="end">+0.82</text>
+<text x="53.60159362549801" y="376" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Value</text>
+<line x1="371.79282868525894" y1="357" x2="371.79282868525894" y2="386" stroke="#adbac9" stroke-width="1"/>
+<rect x="371.79282868525894" y="360" width="140.80876494023903" height="22" rx="2" fill="#63cddb"/>
+<text x="778.9800796812749" y="376" font-size="14" fill="#adbac9" font-weight="400" text-anchor="end">+0.35</text>
+<text x="53.60159362549801" y="435" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Qualita</text>
+<line x1="371.79282868525894" y1="416" x2="371.79282868525894" y2="445" stroke="#adbac9" stroke-width="1"/>
+<rect x="371.79282868525894" y="419" width="221.2709163346614" height="22" rx="2" fill="#63cddb"/>
+<text x="778.9800796812749" y="435" font-size="14" fill="#adbac9" font-weight="400" text-anchor="end">+0.55</text>
+<text x="53.60159362549801" y="494" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Momentum</text>
+<line x1="371.79282868525894" y1="475" x2="371.79282868525894" y2="504" stroke="#adbac9" stroke-width="1"/>
+<rect x="267.1920318725099" y="478" width="104.600796812749" height="22" rx="2" fill="#e2bf72"/>
+<text x="778.9800796812749" y="494" font-size="14" fill="#adbac9" font-weight="400" text-anchor="end">-0.26</text>
+<text x="53.60159362549801" y="553" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Cambio</text>
+<line x1="371.79282868525894" y1="534" x2="371.79282868525894" y2="563" stroke="#adbac9" stroke-width="1"/>
+<rect x="198.799203187251" y="537" width="172.993625498008" height="22" rx="2" fill="#e2bf72"/>
+<text x="778.9800796812749" y="553" font-size="14" fill="#adbac9" font-weight="400" text-anchor="end">-0.43</text>
+<rect x="857.0039840637451" y="234" width="394.996015936255" height="400" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="878.9482071713147" y="264" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Qualita della stima</text>
+<text x="883.8247011952192" y="311" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Finestra: DEMO</text>
+<text x="883.8247011952192" y="353" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Copertura: parziale</text>
+<text x="883.8247011952192" y="395" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Metodo: da leggere</text>
+<text x="883.8247011952192" y="437" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start"></text>
+<text x="883.8247011952192" y="479" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Una relazione statistica</text>
+<text x="883.8247011952192" y="521" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">non prova causalita.</text>
+<rect x="28.0" y="654" width="1224.0" height="174" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="49.94422310756972" y="684" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Riconciliazione beta</text>
+<text x="54.820717131474105" y="720" font-size="17" fill="#adbac9" font-weight="400" text-anchor="start">Confrontare la stessa finestra, gli stessi strumenti e lo stesso metodo.</text>
+<text x="54.820717131474105" y="760" font-size="17" fill="#adbac9" font-weight="400" text-anchor="start">Campioni brevi e fattori correlati rendono instabili le stime.</text>
+</svg>

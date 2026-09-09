@@ -1,0 +1,94 @@
+# CI Bellomberg (§9-bis n.7, piano ok PM 21/07):
+#   1) compile-check del package src/bellomberg, launcher e strumenti pubblici;
+#      archivio privato e directory runtime esclusi;
+#   2) suite pytest OFFLINE in tests/ (zero rete/API/DB vivo:
+#      la ANTHROPIC_API_KEY qui e' un dummy dichiarato, mai una chiave vera).
+# NB: in locale il progetto gira su Python 3.14; qui 3.12 per la copertura
+# dei wheel binari (chromadb/arch/scipy) — differenza DICHIARATA, non tacita.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: dummy-ci-offline
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Dipendenze
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . pytest
+
+      - name: Compile package and operational tools
+        run: >
+          python -m compileall -q src/bellomberg tools/ops tools/migrations
+          bellomberg_api.py consigliere_multi.py price_updater.py
+          briefing_engine.py regenerate_memo.py
+
+      - name: Suite offline
+        run: pytest tests/ -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.2"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Frontend TypeScript
+        working-directory: app
+        run: |
+          npm ci
+          npx tsc --noEmit
+
+      - name: Frontend release contracts and production bundles
+        working-directory: app
+        run: |
+          npm run test:release
+          npm run build:bundles
+
+      - name: Contratti puri mandato
+        working-directory: app
+        run: |
+          npx tsc -p tests/mandato/tsconfig.json
+          node tests/mandato/.tmp/tests/mandato/contratti.mjs
+
+      # 05/09 (voce 7, criterio (4) del PM): il cancello PARZIALE anche in CI — vietate, esclusi,
+      # dimensione sul perimetro dell'allowlist. Senza DB, senza .env e senza gitleaks (il download
+      # pinnato e' il solo .exe): lo script lo DICHIARA riga per riga. Gira solo dove esistono le
+      # liste private (il repo di lavoro): nel repo pubblico, generato dall'export, la directory
+      # tools/release/policy/ non c'e' e il passo si salta invece di fallire per un file assente.
+      - name: Cancello parziale (senza DB) — solo nel repo di lavoro
+        if: hashFiles('tools/release/policy/ALLOWLIST.txt') != ''
+        run: python tools/release/cancello_hook.py --fase ci
+
+  desktop-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.2"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install and test desktop bundles with a synthetic backend
+        working-directory: app
+        run: |
+          npm ci
+          npm run desktop:install
+          npm run build:bundles
+          npm run test:release
+          npm run test:desktop
+      - name: Build Windows installer (external Python backend)
+        working-directory: app
+        run: npx electron-builder --win nsis --publish never

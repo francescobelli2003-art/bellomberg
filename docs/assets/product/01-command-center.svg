@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="900" viewBox="0 0 1280 900" role="img" aria-labelledby="title desc">
+<title id="title">F1 Command Center — synthetic DEMO illustration</title>
+<desc id="desc">Original explanatory mockup, not a screenshot. All values, names, instruments and research text are invented. No user portfolio data.</desc>
+<style>text{font-family:Segoe UI,Arial,sans-serif} .mono{font-family:Consolas,monospace}</style>
+<rect x="0" y="0" width="1280" height="900" rx="0" fill="#10151d"/>
+<rect x="0" y="0" width="1280" height="64" rx="0" fill="#141c26"/>
+<text x="28" y="41" font-size="24" fill="#eef2f7" font-weight="650" text-anchor="start">Bellomberg</text>
+<text x="207" y="39" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Research terminal</text>
+<rect x="490" y="18" width="390" height="31" rx="4" fill="#10151d" stroke="#344250"/>
+<text x="504" y="39" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Cerca pagina o ticker</text>
+<text x="866" y="39" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="end">Ctrl + K</text>
+<text x="1250" y="39" font-size="13" fill="#e2bf72" font-weight="650" text-anchor="end">DEMO • Dati interamente sintetici</text>
+<rect x="0" y="64" width="1280" height="67" rx="0" fill="#18212c"/>
+<g id="navigation" aria-label="Navigation F1 to F19">
+<rect x="12" y="68" width="64" height="59" rx="3" fill="#2c3541"/>
+<rect x="12" y="125" width="64" height="3" rx="0" fill="#e2bf72"/>
+<text x="44" y="87" font-size="12" fill="#e2bf72" font-weight="400" text-anchor="middle">F1</text>
+<text x="44" y="111" font-size="12" fill="#eef2f7" font-weight="600" text-anchor="middle">DASH</text>
+<text x="110" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F2</text>
+<text x="110" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">PERF</text>
+<text x="176" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F3</text>
+<text x="176" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FAVS</text>
+<text x="242" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F4</text>
+<text x="242" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MKT</text>
+<text x="308" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F5</text>
+<text x="308" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">NEWS</text>
+<text x="374" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F6</text>
+<text x="374" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FUND</text>
+<text x="440" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F7</text>
+<text x="440" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FCTR</text>
+<text x="506" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F8</text>
+<text x="506" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MTC</text>
+<text x="572" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F9</text>
+<text x="572" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">VOLS</text>
+<text x="638" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F10</text>
+<text x="638" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">EDGE</text>
+<text x="704" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F11</text>
+<text x="704" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">CHAT</text>
+<text x="770" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F12</text>
+<text x="770" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">LIVE</text>
+<text x="836" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F13</text>
+<text x="836" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">SCORE</text>
+<text x="902" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F14</text>
+<text x="902" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MEMO</text>
+<text x="968" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F15</text>
+<text x="968" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">DECN</text>
+<text x="1034" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F16</text>
+<text x="1034" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">TRADE</text>
+<text x="1100" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F17</text>
+<text x="1100" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MOVES</text>
+<text x="1166" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F18</text>
+<text x="1166" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MNDT</text>
+<text x="1232" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F19</text>
+<text x="1232" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">CONFIG</text>
+</g>
+<line x1="0" y1="132" x2="1280" y2="132" stroke="#344250" stroke-width="1"/>
+<text x="28.0" y="172" font-size="30" fill="#eef2f7" font-weight="650" text-anchor="start">Command Center</text>
+<text x="28.0" y="202" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Portafoglio e contesto</text>
+<text x="28.0" y="864" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">DEMO  /  Illustration only. Not a screenshot, recommendation or measured result.</text>
+<rect x="28.0" y="234" width="394.996015936255" height="108" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="49.94422310756972" y="264" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Patrimonio DEMO</text>
+<text x="49.94422310756972" y="299" font-size="27" fill="#e2bf72" font-weight="600" text-anchor="start">25 000 EUR</text>
+<text x="49.94422310756972" y="323" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Capitale e mercato</text>
+<rect x="442.50199203187253" y="234" width="394.996015936255" height="108" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="464.44621513944224" y="264" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Posizioni DEMO</text>
+<text x="464.44621513944224" y="299" font-size="27" fill="#eef2f7" font-weight="600" text-anchor="start">3 strumenti</text>
+<text x="464.44621513944224" y="323" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Nomi inventati</text>
+<rect x="857.0039840637451" y="234" width="394.996015936255" height="108" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="878.9482071713147" y="264" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Dati del book</text>
+<text x="878.9482071713147" y="299" font-size="27" fill="#eef2f7" font-weight="600" text-anchor="start">Parziale</text>
+<text x="878.9482071713147" y="323" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Una quotazione non disponibile</text>
+<rect x="28.0" y="362" width="760.7330677290837" height="314" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="49.94422310756972" y="392" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Portafoglio</text>
+<text x="52.38247011952191" y="426" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Titolo</text>
+<text x="344.9721115537849" y="426" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Peso DEMO</text>
+<text x="540.0318725099602" y="426" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Prezzo</text>
+<line x1="52.38247011952191" y1="440" x2="759.4741035856574" y2="440" stroke="#344250" stroke-width="1"/>
+<text x="52.38247011952191" y="472" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Demo equity A</text>
+<text x="344.9721115537849" y="472" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">40%</text>
+<text x="540.0318725099602" y="472" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">100,00 EUR</text>
+<line x1="52.38247011952191" y1="487" x2="759.4741035856574" y2="487" stroke="#344250" stroke-width="1"/>
+<text x="52.38247011952191" y="516" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Demo equity B</text>
+<text x="344.9721115537849" y="516" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">32%</text>
+<text x="540.0318725099602" y="516" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">80,00 EUR</text>
+<line x1="52.38247011952191" y1="531" x2="759.4741035856574" y2="531" stroke="#344250" stroke-width="1"/>
+<text x="52.38247011952191" y="560" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Demo fund C</text>
+<text x="344.9721115537849" y="560" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">18%</text>
+<text x="540.0318725099602" y="560" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">n.d.</text>
+<line x1="52.38247011952191" y1="575" x2="759.4741035856574" y2="575" stroke="#344250" stroke-width="1"/>
+<text x="52.38247011952191" y="604" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Cassa</text>
+<text x="344.9721115537849" y="604" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">10%</text>
+<text x="540.0318725099602" y="604" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">2 500 EUR</text>
+<line x1="52.38247011952191" y1="619" x2="759.4741035856574" y2="619" stroke="#344250" stroke-width="1"/>
+<rect x="813.1155378486055" y="362" width="438.8844621513944" height="314" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="835.0597609561753" y="392" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Curva della quota • DEMO</text>
+<line x1="839.9362549800796" y1="435.0" x2="1212.988047808765" y2="435.0" stroke="#344250" stroke-width="1"/>
+<line x1="839.9362549800796" y1="472.5" x2="1212.988047808765" y2="472.5" stroke="#344250" stroke-width="1"/>
+<line x1="839.9362549800796" y1="510.0" x2="1212.988047808765" y2="510.0" stroke="#344250" stroke-width="1"/>
+<line x1="839.9362549800796" y1="547.5" x2="1212.988047808765" y2="547.5" stroke="#344250" stroke-width="1"/>
+<line x1="839.9362549800796" y1="585.0" x2="1212.988047808765" y2="585.0" stroke="#344250" stroke-width="1"/>
+<line x1="839.9362549800796" y1="435" x2="839.9362549800796" y2="585" stroke="#344250" stroke-width="1"/>
+<polyline points="839.9,549.0 854.9,553.8 869.8,554.0 884.7,547.8 899.6,537.3 914.5,527.3 929.5,522.0 944.4,523.1 959.3,528.1 974.2,532.5 989.2,531.8 1004.1,524.8 1019.0,514.0 1033.9,504.4 1048.8,500.1 1063.8,502.0 1078.7,507.3 1093.6,511.1 1108.5,509.5 1123.5,501.7 1138.4,490.8 1153.3,481.7 1168.2,478.3 1183.1,481.0 1198.1,486.4 1213.0,489.6" fill="none" stroke="#63cddb" stroke-width="3"/>
+<text x="839.9362549800796" y="608" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Inizio</text>
+<text x="1212.988047808765" y="608" font-size="12" fill="#adbac9" font-weight="400" text-anchor="end">Fine periodo DEMO</text>
+<rect x="837.4980079681275" y="628" width="109.7211155378486" height="30" rx="4" fill="#24303c"/>
+<text x="852.1274900398406" y="648" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">Quota</text>
+<rect x="959.410358565737" y="628" width="152.39043824701196" height="30" rx="4" fill="#24303c"/>
+<text x="974.0398406374502" y="648" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Patrimonio</text>
+<rect x="28.0" y="696" width="1224.0" height="132" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="49.94422310756972" y="726" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Prima di avviare il Consigliere</text>
+<text x="52.38247011952191" y="758" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Controlla cassa, fonti e mandato. La ricerca utilizza i servizi configurati.</text>
+<text x="52.38247011952191" y="784" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Il memo e una proposta: la decisione rimane tua.</text>
+<rect x="981.3545816733068" y="720" width="243.82470119521912" height="30" rx="4" fill="#24303c"/>
+<text x="995.98406374502" y="740" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">Run Consigliere</text>
+</svg>

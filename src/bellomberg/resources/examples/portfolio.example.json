@@ -1,0 +1,4 @@
+{
+  "_leggimi": "Copia questo file in portfolio.json (stessa cartella, NON committarlo: .gitignore lo esclude). E' la cassa operativa in EUR: parte da 0 e si muove dalla pagina Cassa (VERSAMENTO / PRELIEVO) e dai trade. Le posizioni NON stanno qui: vivono nel DB SQLite (data/consigliere.db), creato al primo avvio del backend, e si aprono con i trade.",
+  "cash_disponibile_eur": 0
+}

@@ -1,0 +1,422 @@
+/* ============================================================
+   F7 TRADE ENTRY "LA CASSA" — impianto scelto dal PM 27/07 sui PNG
+   di mockup_f7_trade (opzione A, contro B "il precedente" e
+   C "la forma del libro").
+
+   NON dipende da .obsx apposta. Il vestito comune porta
+   `th, td { white-space: nowrap }` (dashboard-command.css:106) e
+   l'allineamento a destra di tutte le colonne tranne la prima
+   (:99-100): qui servono celle che vanno a capo e un allineamento
+   scelto colonna per colonna. Tutto scoped sotto .f7c.
+
+   I TRE GRADINI, e la regola semantica che li assegna (lotto 0):
+     dato #ECF1FA · etichetta #8D9FC4 · nota #73829F (peso 600, mai <9px)
+   La domanda non e' "che grigio?" ma "questo testo e' davvero una
+   NOTA?". Un conteggio, una cifra, la chiave di una coppia
+   chiave/valore, l'asse di un grafico, il valore di una cella sono
+   ETICHETTE. Sul gradino della nota resta solo la prosa esplicativa.
+   (Review avversariale 27/07: la dottrina era scritta in tre commenti
+   e contraddetta in nove punti. Qui il passaggio e' finito.)
+
+   Scala unica: 8 · 9 · 10 · 11 · 12 · 14 · 17 · 22 · 26 · 34
+   ============================================================ */
+
+.f7c{
+  --bd:#1A2440; --bd2:#2A3760; --bd3:#3D4F8A; --lo:#04060B;
+  --tx:#ECF1FA;   /* dato */
+  --et:#8D9FC4;   /* etichetta */
+  --no:#73829F;   /* nota — SEMPRE peso 600, mai sotto 9px */
+  --am:#FFA51E; --am-hi:#FFC555; --cy:#29D3F2;
+  --em:#21E0A0; --cr:#FF3D60; --vi:#9B7BFF;
+  /* stessa strategia di memo-banco.css (F9) e movimenti.css (F14): altezza
+     piena e nessun padding proprio — il riquadro del Layout ha gia' il suo. */
+  display:flex;gap:9px;height:100%;min-height:0;
+  font-family:'JetBrains Mono','IBM Plex Mono',Consolas,monospace;
+  font-size:12px;line-height:1.45;color:var(--tx);
+}
+/* dichiarato invece che ereditato dal preflight di Tailwind: tutte le altezze
+   fisse qui sotto lo danno per scontato, e una dipendenza implicita e' un
+   difetto in attesa */
+.f7c,.f7c *{box-sizing:border-box}
+/* In una colonna flex i figli si RESTRINGONO per stare dentro: il
+   contenitore NON comprime, il contenuto scorre dentro il suo riquadro. */
+.f7c > *{flex-shrink:0}
+.f7c .num{font-variant-numeric:tabular-nums}
+.f7c .t-no{color:var(--no);font-weight:600}
+.f7c .t-et{color:var(--et)}
+
+/* ── le due colonne ───────────────────────────────────────── */
+.f7c .colonna{display:flex;flex-direction:column;gap:9px;min-width:0;min-height:0}
+.f7c .colonna > *{flex-shrink:0}
+.f7c .sx{flex:0 0 34%}
+.f7c .dx{flex:1 1 0}
+
+/* ── i riquadri ───────────────────────────────────────────── */
+.f7c .rq{position:relative;border:1px solid var(--bd);background:rgba(255,255,255,.014);
+  display:flex;flex-direction:column;min-height:0;min-width:0}
+.f7c .rq.cresce{flex:1 1 0}
+.f7c .sq{position:absolute;width:8px;height:8px;pointer-events:none;z-index:3}
+.f7c .sq.tl{top:-1px;left:-1px;border-top:1px solid var(--am);border-left:1px solid var(--am)}
+.f7c .sq.br{bottom:-1px;right:-1px;border-bottom:1px solid var(--am);border-right:1px solid var(--am)}
+/* height:24px e NON i 27px di F6: sotto c'e' il riquadro del binario,
+   inchiodato a flex:'0 0 214px' in TradeEntryPage.tsx:1352, dove il margine
+   misurato e' 4,9px con una .gate accesa e gia' negativo con due. A 10px la
+   line box e' 14,5px, e il vano interno e' 23px (24 meno il bordo inferiore):
+   ci sta con 8,5px di respiro. */
+.f7c .ph{height:24px;flex-shrink:0;display:flex;align-items:center;gap:9px;padding:0 11px;
+  border-bottom:1px solid var(--bd);font-size:10px;font-weight:600;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--et);white-space:nowrap;overflow:hidden}
+.f7c .ph h1,.f7c .ph h2{font:inherit;margin:0;padding:0;color:inherit;letter-spacing:inherit;
+  min-width:0;overflow:hidden;text-overflow:ellipsis}
+.f7c .ph.a{color:var(--am)} .f7c .ph.c{color:var(--cy)} .f7c .ph.r{color:var(--cr)}
+/* La riga di destra porta CONTEGGI e cifre: sono etichette, non note. */
+.f7c .ph .side{margin-left:auto;color:var(--et);font-weight:600;letter-spacing:.1em;
+  min-width:0;overflow:hidden;text-overflow:ellipsis}
+.f7c .pb{flex:1;min-height:0;padding:9px 11px}
+.f7c .pb.nopad{padding:0}
+.f7c .pb.scorre{overflow-y:auto}
+.f7c .pb.scorre::-webkit-scrollbar{width:8px}
+.f7c .pb.scorre::-webkit-scrollbar-track{background:var(--lo)}
+.f7c .pb.scorre::-webkit-scrollbar-thumb{background:#22304F;border:1px solid var(--bd)}
+
+/* ── IL TAGLIANDO: F7 e' l'unica pagina in cui il PM SCRIVE ──── */
+.f7c .verbi{display:flex;border:1px solid var(--bd)}
+.f7c .verbi button{flex:1;background:transparent;border:none;border-right:1px solid var(--bd);
+  padding:7px 0;font-family:inherit;font-size:10px;font-weight:700;letter-spacing:.14em;
+  color:var(--et);cursor:pointer}
+.f7c .verbi button:last-child{border-right:none}
+.f7c .verbi button[aria-checked="true"]{background:rgba(41,211,242,.10);color:var(--cy);
+  box-shadow:inset 0 -2px 0 0 var(--cy)}
+.f7c .verbi button:hover[aria-checked="false"]{background:rgba(255,255,255,.03);color:var(--tx)}
+.f7c .verbi button:focus-visible{outline:2px solid var(--am);outline-offset:-2px}
+
+.f7c .campi{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.f7c .campo{display:flex;flex-direction:column;gap:3px;min-width:0}
+.f7c .campo.largo{grid-column:1/-1}
+.f7c .campo > label{font-size:10px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--et)}
+.f7c .campo .box{display:flex;align-items:center;border:1px solid var(--bd2);
+  background:var(--lo);height:32px;padding:0 9px;gap:7px;min-width:0}
+.f7c .campo .box:focus-within{border-color:var(--am);box-shadow:0 0 0 1px rgba(255,165,30,.25)}
+.f7c .campo .box.rotto{border-color:var(--cr);box-shadow:0 0 0 1px rgba(255,61,96,.3)}
+.f7c .campo .box input,.f7c .campo .box select{flex:1;min-width:0;background:transparent;
+  border:none;outline:none;color:var(--tx);font-family:inherit;font-size:14px;
+  font-variant-numeric:tabular-nums}
+.f7c .campo .box select{font-size:12px;letter-spacing:.08em;cursor:pointer}
+.f7c .campo .box select:disabled{opacity:.55;cursor:default}
+.f7c .campo .box select option{background:#0A0E19;color:var(--tx)}
+/* il suffisso porta IN BOOK/NUOVO e il tasso di cambio: dati, non note */
+.f7c .campo .box .suf{font-size:10px;font-weight:600;color:var(--et);letter-spacing:.12em;
+  flex-shrink:0}
+/* la riga sotto il campo porta quantita' posseduta, carico e prezzo live:
+   sono i numeri su cui si decide il prezzo da battere */
+.f7c .campo .aiuto{font-size:12px;font-weight:600;color:var(--et)}
+.f7c .campo .aiuto.male{color:var(--cr)}
+.f7c .campo textarea,.f7c .campo input.testo{background:var(--lo);border:1px solid var(--bd2);
+  color:var(--tx);font-family:'Inter','Segoe UI',system-ui,sans-serif;font-size:12px;
+  padding:7px 9px;resize:none;outline:none}
+.f7c .campo textarea:focus,.f7c .campo input.testo:focus{border-color:var(--am)}
+
+/* il bottone che scrive nel portafoglio UFFICIALE: si vede che pesa */
+.f7c .spara{height:40px;border:1px solid var(--am);background:rgba(255,165,30,.10);
+  color:var(--am);font-family:inherit;font-size:12px;font-weight:700;letter-spacing:.22em;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;gap:9px}
+.f7c .spara:hover:not(:disabled){background:rgba(255,165,30,.17)}
+.f7c .spara:focus-visible{outline:2px solid var(--am-hi);outline-offset:2px}
+.f7c .spara:disabled{opacity:.5;cursor:default}
+/* non copre: il bottone lo dice, ma NON blocca — in F7 si registra un ordine
+   gia' eseguito al broker, e impedirlo impedirebbe di registrare la realta'. */
+.f7c .spara.sfora{border-color:var(--cr);background:rgba(255,61,96,.10);color:var(--cr)}
+
+/* il bottone piccolo dentro l'intestazione di un riquadro */
+.f7c .ph .mini{margin-left:12px;flex-shrink:0;height:20px;padding:0 9px;
+  border:1px solid var(--bd2);background:transparent;color:var(--et);font-family:inherit;
+  font-size:10px;font-weight:600;letter-spacing:.14em;cursor:pointer;
+  display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.f7c .ph .mini:hover:not(:disabled){border-color:var(--am);color:var(--am)}
+.f7c .ph .mini:focus-visible{outline:2px solid var(--am);outline-offset:1px}
+.f7c .ph .mini[aria-busy="true"]{opacity:.6}
+
+/* ── LA CATENA DEL CAMBIO ─────────────────────────────────── */
+.f7c .catena{border:1px solid var(--bd);background:rgba(255,255,255,.014);padding:9px 11px}
+.f7c .catena .oggi{font-size:10px;font-weight:600;letter-spacing:.14em;color:var(--no);
+  margin-bottom:5px;text-transform:uppercase}
+.f7c .catena .oggi b{color:var(--cr);font-weight:600}
+.f7c .catena .anelli{display:flex;align-items:center;flex-wrap:wrap;gap:7px;font-size:12px}
+.f7c .catena .an{color:var(--tx);white-space:nowrap}
+.f7c .catena .op{color:var(--no);font-weight:600}
+.f7c .catena .fx{color:var(--cy)}
+.f7c .catena .out{color:var(--am);font-size:14px;font-weight:600;white-space:nowrap}
+.f7c .catena .rotta{color:var(--cr);font-size:12px}
+.f7c .catena .src{display:block;font-size:9px;font-weight:600;color:var(--no);
+  letter-spacing:.1em;margin-top:5px;line-height:1.5}
+.f7c .catena .src b{color:var(--et);font-weight:600}
+
+/* ── IL BINARIO DELLA CASSA: l'oggetto-firma ──────────────── */
+.f7c .binario{position:relative;height:88px;margin:16px 0 10px 0;
+  border:1px solid var(--bd2);background:var(--lo);overflow:hidden}
+.f7c .binario .morso{position:absolute;top:0;bottom:0;
+  background:linear-gradient(180deg,rgba(255,165,30,.30),rgba(185,122,0,.16));
+  border-right:2px solid var(--am)}
+.f7c .binario.sfora .morso{background:repeating-linear-gradient(135deg,
+    rgba(255,61,96,.34) 0 7px,rgba(160,24,56,.16) 7px 14px);
+  border-right-color:var(--cr)}
+/* TRIM/SELL/DIVIDEND: la cassa SALE. Il pezzo si attacca in coda ed e' verde —
+   disegnare un morso qui sarebbe il contrario di quello che succede. */
+.f7c .binario.entrata .morso{
+  background:linear-gradient(180deg,rgba(33,224,160,.28),rgba(15,120,86,.16));
+  border-right:none;border-left:2px solid var(--em)}
+.f7c .binario.entrata .etm{color:var(--em)}
+.f7c .binario .resto{position:absolute;top:0;bottom:0;right:0;display:flex;align-items:center;
+  justify-content:flex-end;padding-right:11px}
+.f7c .binario .resto span{font-size:17px;color:var(--tx)}
+.f7c .binario .etm{position:absolute;top:8px;left:11px;font-size:10px;color:var(--am);
+  white-space:nowrap}
+.f7c .binario.sfora .etm{color:var(--cr)}
+.f7c .binario .etm b{font-size:17px;font-weight:600;display:block;line-height:1.2}
+
+.f7c .tacche{position:relative;height:26px;margin-top:-1px}
+/* bersaglio da 9px con la riga visibile da 1px al centro: prima era un
+   bersaglio di 1x11 px fra 68 vicini, cioe' interazione solo sulla carta */
+.f7c .tacche button.tc{position:absolute;top:0;width:9px;height:13px;padding:0;border:none;
+  background:transparent;transform:translateX(-50%);cursor:default}
+.f7c .tacche button.tc::before{content:'';position:absolute;left:4px;top:0;width:1px;
+  height:9px;background:rgba(141,159,196,.42)}
+.f7c .tacche button.tc:hover::before,.f7c .tacche button.tc:focus-visible::before{
+  background:var(--am);height:13px}
+.f7c .tacche button.tc:focus-visible{outline:2px solid var(--am);outline-offset:0}
+.f7c .tacche .rif{position:absolute;top:0;width:1px;height:15px;background:var(--cy)}
+.f7c .tacche .lb{position:absolute;top:14px;font-size:9px;font-weight:600;color:var(--et);
+  transform:translateX(-50%);white-space:nowrap}
+
+.f7c .leg{display:flex;align-items:center;gap:16px;font-size:9px;font-weight:600;
+  color:var(--no);flex-wrap:wrap}
+.f7c .leg i{font-style:normal;display:inline-flex;align-items:center;gap:5px}
+.f7c .leg b{color:var(--et);font-weight:600}      /* i numeri dentro la legenda */
+.f7c .leg .sw{display:inline-block;width:12px;height:8px;flex-shrink:0}
+.f7c .leg .sw.mo{background:rgba(255,165,30,.30);border-right:2px solid var(--am)}
+.f7c .leg .sw.mo.in{background:rgba(33,224,160,.28);border-right:none;
+  border-left:2px solid var(--em)}
+.f7c .leg .sw.tc{width:1px;height:11px;background:rgba(141,159,196,.42)}
+.f7c .leg .sw.md{width:1px;height:11px;background:var(--cy)}
+
+/* ── IL LIBRETTO DELLA CASSA (F37) ────────────────────────────
+   Impianto C, scelto dal PM 20/08 sulla rosa IN SITU. Riusa tutto
+   quello che il tagliando ha gia' (.verbi, .campi, .campo, .spara,
+   .avv, .uo, .gate): l'unica cosa nuova e' il COLORE del verbo
+   scelto. Ambra e non ciano apposta — il ciano in questa pagina
+   dice "ordine", l'ambra dice "cassa", ed e' lo stesso ambra
+   dell'intestazione e del binario. */
+/* ⚠ TUTTO scoped sotto `.lb-rq` e non sotto `.lbm`: al primo giro
+   `.f7c .lbm .tk{width:112px}` era (0,3,0) come `.f7c .uo .tk{width:74px}`
+   di :296 — stessa specificita', e vinceva quella che sta DOPO nel file.
+   La regola era MORTA e il commento accanto affermava una larghezza che il
+   browser non applicava (misurata 74px su 13 finestre da un confutatore).
+   `.lb-rq` porta un livello in piu' e la controversia finisce. */
+.f7c .pb.lb{display:flex;flex-direction:column;gap:10px}
+.f7c .pb.lb form{display:flex;flex-direction:column;gap:10px}
+.f7c .verbi.cassa button[aria-checked="true"]{background:rgba(255,165,30,.10);
+  color:var(--am);box-shadow:inset 0 -2px 0 0 var(--am)}
+.f7c .lb-esito{display:flex;flex-direction:column;gap:7px}
+.f7c .lb-esito:empty{display:none}
+/* La live region NON e' il blocco visibile (che si monta e smonta): un
+   `aria-live` che entra nell'albero INSIEME al testo non viene annunciato, e
+   con `:empty{display:none}` non ci entrava affatto. Qui c'e' un annunciatore
+   sempre presente e invisibile, e gli avvisi sono markup normale — cosi' i
+   BOTTONI non finiscono dentro una live region che alcuni lettori rileggono
+   per intero a ogni mutazione. */
+.f7c .lb-annuncio{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+  overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+/* La conferma e l'annullo hanno la STESSA larghezza, e il fuoco va su ANNULLA.
+   Al primo giro CONFERMO era `flex:1` e ANNULLA 132px: 1565 contro 132 px a
+   `intero`, cioe' 12:1 a favore del bottone che spegne ENTRAMBE le guardie.
+   Il commento diceva «le due strade sono pari» e la geometria diceva il
+   contrario; ha ragione la geometria, quindi cambia la geometria. */
+.f7c .lb-conf{display:flex;gap:9px;align-items:stretch}
+.f7c .lb-conf > *{flex:1 1 0;min-width:0}
+.f7c .lb-ann{border:1px solid var(--bd2);background:transparent;
+  color:var(--et);font-family:inherit;font-size:11px;font-weight:700;letter-spacing:.18em;
+  cursor:pointer;height:40px}
+.f7c .lb-ann:hover:not(:disabled){border-color:var(--am);color:var(--am)}
+.f7c .lb-ann:focus-visible{outline:2px solid var(--am);outline-offset:2px}
+.f7c .lb-ann:disabled{opacity:.5;cursor:default}
+/* le righe gia' scritte: sono le .uo degli ultimi ordini, con la colonna del
+   tipo piu' larga (VERSAMENTO e' 10 caratteri contro i 5-8 di un ticker: il
+   suo inchiostro misura 72px in una scatola da 74, 2px di franco) e una
+   colonna in piu' per il cumulato dei flussi.
+   ⚠ IL TETTO serve solo all'ERGONOMIA, non piu' a evitare che la colonna
+   schiacci qualcuno: da quando `.colonna.sx` scorre sempre (v. in fondo),
+   nessun riquadro cede piu' altezza. 220px = ~7 righe. */
+.f7c .lb-rq .lbm{border-top:1px solid var(--bd);max-height:220px;overflow-y:auto}
+.f7c .lb-rq .lbm::-webkit-scrollbar{width:8px}
+.f7c .lb-rq .lbm::-webkit-scrollbar-track{background:var(--lo)}
+.f7c .lb-rq .lbm::-webkit-scrollbar-thumb{background:#22304F;border:1px solid var(--bd)}
+.f7c .lb-rq .lbm .uo{padding-left:0;padding-right:0}
+.f7c .lb-rq .lbm .tk{width:112px}
+/* 148px e non 132: l'inchiostro di "flussi 50.000 €" e' 108px misurati (non i
+   118 che avevo calcolato), ma il cumulato puo' arrivare a 8 cifre —
+   "flussi 12.500.000 €" chiede 137px — e `.ev` e' flex-shrink:0 SENZA
+   overflow:hidden, quindi sfonderebbe verso l'importo invece di troncare. */
+.f7c .lb-rq .lbm .ev.fl{width:148px;color:var(--et);font-weight:600;
+  overflow:hidden;text-overflow:ellipsis}
+.f7c .lb-rq .lbm .uo.qui .ev.fl{color:var(--am)}
+
+/* ── PRIMA → DOPO ─────────────────────────────────────────── */
+.f7c .pd{display:flex;flex-direction:column}
+.f7c .pd .rg{display:flex;align-items:baseline;gap:9px;padding:7px 0;flex-wrap:wrap;
+  border-bottom:1px solid rgba(26,36,64,.5)}
+.f7c .pd .rg:last-child{border-bottom:none}
+.f7c .pd .rg .k{font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--et);width:132px;flex-shrink:0}
+/* il valore PRIMA e' un DATO, non una nota: e' meta' della coppia per cui
+   questo riquadro esiste. Resta un gradino sotto al DOPO, non due. */
+.f7c .pd .rg .a{font-size:12px;color:var(--et);font-weight:600;min-width:84px;text-align:right}
+.f7c .pd .rg .fr{color:var(--no);font-size:12px}
+.f7c .pd .rg .b{font-size:14px;color:var(--tx);min-width:94px;text-align:right}
+.f7c .pd .rg .dl{margin-left:auto;font-size:12px;font-weight:600;color:var(--et);
+  text-align:right;white-space:nowrap}
+.f7c .pd .rg .dl.giu{color:var(--em)} .f7c .pd .rg .dl.su{color:var(--cr)}
+.f7c .pd .rg.grosso .b{font-size:17px;color:var(--am)}
+.f7c .pd .rg.grosso.sfora .b{color:var(--cr)}
+/* il segnale "questo numero non esiste, non l'ho stimato" DEVE vincere sul
+   colore del dato: prima perdeva per specificita' e si rendeva bianco a 15px,
+   cioe' col vestito identico a un valore misurato */
+.f7c .pd .rg .b.muto{color:var(--vi);font-size:12px}
+
+/* ── AVVISI: quando la pagina ha qualcosa da dire ─────────── */
+.f7c .avv{display:flex;align-items:flex-start;gap:8px;padding:7px 10px;font-size:12px;
+  border-left:2px solid;line-height:1.5}
+.f7c .avv .ic{font-size:12px;line-height:1;flex-shrink:0;margin-top:1px}
+.f7c .avv b{font-weight:600}
+.f7c .avv.giallo{border-color:var(--am);background:rgba(255,165,30,.055);color:var(--tx)}
+.f7c .avv.giallo b{color:var(--am)}
+.f7c .avv.rosso{border-color:var(--cr);background:rgba(255,61,96,.06);color:var(--tx)}
+.f7c .avv.rosso b{color:var(--cr)}
+.f7c .avv.viola{border-color:var(--vi);background:rgba(155,123,255,.05);color:var(--tx)}
+.f7c .avv.viola b{color:var(--vi)}
+.f7c .avv.verde{border-color:var(--em);background:rgba(33,224,160,.055);color:var(--tx)}
+.f7c .avv.verde b{color:var(--em)}
+.f7c .avv.calmo{border-color:var(--bd3);background:rgba(255,255,255,.014);color:var(--et)}
+.f7c .avv.calmo b{color:var(--tx)}
+/* la nota del backend si rende VERBATIM: e' la sua voce, non la nostra */
+.f7c .avv .verbatim{display:block;margin-top:4px;font-family:inherit;font-size:12px;
+  color:var(--et);word-break:break-word}
+
+/* ── GLI ULTIMI ORDINI ────────────────────────────────────── */
+.f7c .uo{display:flex;align-items:center;gap:9px;padding:6px 11px;
+  border-bottom:1px solid rgba(26,36,64,.5)}
+.f7c .uo:last-child{border-bottom:none}
+/* la data e' la chiave di riga, cioe' l'asse della lista: etichetta */
+.f7c .uo .dt{font-size:10px;font-weight:600;color:var(--et);width:42px;flex-shrink:0}
+.f7c .uo .tk{font-size:12px;color:var(--tx);width:74px;flex-shrink:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.f7c .uo .ba{flex:1;min-width:0;height:9px;background:var(--lo);border:1px solid var(--bd);
+  position:relative;overflow:hidden}
+.f7c .uo .ba i{position:absolute;left:0;top:0;bottom:0;background:rgba(255,165,30,.34)}
+.f7c .uo .ba i.q{background:rgba(255,165,30,.85)}
+/* 108px e non 86: `cambio GBX n.d.` (15 caratteri) a 12px chiede 108px, e
+   .nd deve stare a 12 perche' PRENDE IL POSTO dell'importo — un buco che si
+   legge peggio del valore che sostituisce si comporta come un buco taciuto.
+   I 22px li cede la barra (.ba, flex:1), che all'inquadratura piu' stretta
+   del collaudo resta a 272px. La larghezza e' incondizionata perche' nel
+   markup .ev e' sempre `ev num`: una condizione su .nd non e' scrivibile
+   dal css, e una garanzia non scrivibile e' una garanzia finta. */
+.f7c .uo .ev{font-size:12px;color:var(--et);width:108px;text-align:right;flex-shrink:0}
+.f7c .uo.qui .tk,.f7c .uo.qui .ev{color:var(--am)}
+.f7c .uo .nd{font-size:12px;font-weight:600;color:var(--vi)}
+
+/* ── IL BOOK ──────────────────────────────────────────────── */
+.f7c table{border-collapse:collapse;width:100%}
+/* l'intestazione di colonna e' la CHIAVE di una coppia chiave/valore */
+.f7c th{font-size:10px;font-weight:600;letter-spacing:.16em;color:var(--et);
+  text-transform:uppercase;text-align:left;padding:5px 9px;
+  border-bottom:1px solid var(--bd);position:sticky;top:0;background:#0A0E19;z-index:2;
+  white-space:nowrap}
+.f7c td{font-size:12px;padding:8px 9px;border-bottom:1px solid rgba(26,36,64,.5);
+  color:var(--et);vertical-align:top;white-space:normal}
+.f7c td.d{color:var(--tx)}
+.f7c td.r,.f7c th.r{text-align:right}
+.f7c tbody tr:hover td{background:rgba(255,255,255,.022)}
+.f7c tr.mira td{background:rgba(255,165,30,.09);box-shadow:inset 2px 0 0 0 var(--am)}
+/* il ticker e' un comando vero, non una riga che risponde ai tasti di
+   nascosto: cosi' INVIO e SPAZIO fanno la stessa cosa e si sa perche' */
+.f7c td button.usa{all:unset;cursor:pointer;color:var(--tx);font:inherit;
+  border-bottom:1px dotted rgba(141,159,196,.4)}
+.f7c td button.usa:hover{color:var(--am);border-bottom-color:var(--am)}
+.f7c td button.usa:focus-visible{outline:2px solid var(--am);outline-offset:2px}
+.f7c td .su{color:var(--cr);font-weight:600}
+.f7c td .giu{color:var(--em);font-weight:600}
+/* "al suo posto" e "in pari" sono VALORI di cella, non note */
+.f7c td .zero{color:var(--et);font-weight:600}
+.f7c td .pos{color:var(--em)} .f7c td .neg{color:var(--cr)} .f7c td .pari{color:var(--et)}
+
+/* ── il tooltip: lettura numerica esatta, regola di casa ──── */
+/* sta SOPRA le tacche, dentro il riquadro: sotto usciva dal pannello e
+   copriva l'intestazione del book */
+.f7c .tip{position:absolute;z-index:30;padding:6px 10px;white-space:nowrap;
+  background:#070A12;border:1px solid var(--bd3);box-shadow:0 8px 26px rgba(0,0,0,.72);
+  font-size:12px;color:var(--tx);pointer-events:none;bottom:20px}
+.f7c .tip.sx{transform:translateX(0)}
+.f7c .tip.cx{transform:translateX(-50%)}
+.f7c .tip.dx{transform:translateX(-100%)}
+.f7c .tip b{color:var(--am);font-weight:600}
+.f7c .tip .kv{display:flex;gap:14px;justify-content:space-between}
+/* chiave di una coppia chiave/valore: etichetta, come i th */
+.f7c .tip .kv span:first-child{color:var(--et);font-weight:600}
+.f7c .tip .kv span:last-child{color:var(--tx)}
+
+/* ── il cancello: dato che non c'e', dichiarato ───────────── */
+.f7c .gate{border:1px dashed rgba(155,123,255,.5);background:rgba(155,123,255,.05);
+  color:var(--vi);font-size:9px;font-weight:600;letter-spacing:.1em;padding:2px 7px}
+.f7c .vuoto{display:flex;align-items:center;justify-content:center;height:100%;
+  padding:12px 8%;text-align:center;font-size:12px;color:var(--et);line-height:1.6}
+
+/* ── ALTEZZE CORTE — il 150% di Windows e' 960px utili ─────────────────
+   Misurato dalla review sui pixel: a 3413x960 la colonna sinistra chiede
+   ~1274px e ne ha 800. `.rq.cresce` era l'unico a poter cedere e cedeva a
+   zero: "GLI ULTIMI ORDINI" spariva, e la nota di PRIMA→DOPO restava
+   tranciata a meta'. Qui la colonna SCORRE invece di schiacciare — che e'
+   la stessa cura del `> *{flex-shrink:0}`, applicata all'asse giusto. */
+/* ⚠ LA SOGLIA D'ALTEZZA E' STATA TOLTA (F37, 20/08) — e la prima versione di
+   questa cura era SBAGLIATA, vale la pena scrivere come.
+   Il libretto aggiunge 371px alla colonna (401 a `terzo`, dove gli aiuti
+   vanno a capo). Avevo alzato la soglia da 1150 a 1300 perche' a 1152 — il
+   49" del PM con Windows al 125% — «GLI ULTIMI ORDINI» finiva AMPUTATO a 0px
+   su 364. Il ragionamento era: le altezze possibili sono 1440·1152·960, non
+   ce n'e' nessuna in mezzo, quindi 1300 basta. La premessa era vera e la
+   conclusione no: sopra la soglia il regime che COMPRIME restava, ed e' li'
+   che vive il default del PM. Misurato sul corpo di «GLI ULTIMI ORDINI»
+   (contenuto 364px), con la soglia a 1300:
+       senza libretto  a riposo  +guardia  +guardia e 5 movimenti
+     terzo   1440   652      250       65        0
+     meta    1440   652      268      101       11
+     intero  1440   652      281      145       56     (UTILE_MIN di qa_app = 60)
+   cioe' l'amputazione non era tolta, era SPOSTATA da 1152 a 1440, dove il
+   cancello non la vede perche' campiona l'unico stato che ancora ci sta.
+   Ora la colonna scorre SEMPRE: `.rq.cresce` non cede piu' altezza a
+   nessuna finestra, e nessun riquadro si schiaccia. E' la stessa dottrina
+   del `> *{flex-shrink:0}` di :50, applicata all'asse verticale. */
+.f7c .colonna.sx{overflow-y:auto}
+.f7c .colonna.sx::-webkit-scrollbar{width:8px}
+.f7c .colonna.sx::-webkit-scrollbar-track{background:var(--lo)}
+.f7c .colonna.sx::-webkit-scrollbar-thumb{background:#22304F;border:1px solid var(--bd)}
+.f7c .colonna.sx > .rq.cresce{flex:0 0 auto}
+.f7c .colonna.sx > .rq.cresce .pb.scorre{overflow:visible}
+/* il binario resta alla soglia sua: rimpicciolire l'oggetto-firma a s125,
+   dove non serve, sarebbe un effetto collaterale che nessuno ha chiesto.
+   (Sta nella colonna DESTRA, quindi le regole qui sopra non lo toccavano
+   comunque — verificato.) */
+@media (max-height:1150px){
+  .f7c .binario{height:64px;margin:12px 0 10px 0}
+}
+/* larghezze strette: la riga di PRIMA→DOPO chiede ~482px e sotto i ~1450px
+   di finestra sfondava a destra fuori dal riquadro */
+@media (max-width:1500px){
+  .f7c .pd .rg .k{width:100%}
+  .f7c .pd .rg .a{min-width:0}
+  .f7c .pd .rg .b{min-width:0}
+  /* .dl e' nowrap con min-width:auto: o ci sta, o esce dal riquadro. La
+     frase piu' lunga di perche() e' 51 caratteri = 367px a 12px, che sotto
+     i ~1141px di finestra non entrano piu' nella colonna. */
+  .f7c .pd .rg .dl{white-space:normal;min-width:0}
+}

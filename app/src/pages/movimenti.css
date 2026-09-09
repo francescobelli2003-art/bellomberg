@@ -1,0 +1,376 @@
+/* ============================================================
+   F14 MOVIMENTI v4 "TRE VISTE" — impianto scelto dal PM 27/07 sui
+   PNG di mockup_f14_movements (opzione B, contro A "le scie" e
+   C "due pagine"). Le SCIE non sono state scartate: sono una delle
+   tre viste.
+
+   NON dipende da .obsx apposta. Il vestito comune porta
+   `th,td{white-space:nowrap}` (dashboard-command.css:106): qui le
+   celle contengono PROSA — i commenti del PM arrivano a 358
+   caratteri — e con quella regola sbordano (su F9 era misurato
+   373px fuori). Tutto scoped sotto .f14m.
+
+   Colori: i tre gradini del lotto 0 — dato #ECF1FA, etichetta
+   #8D9FC4, nota #73829F sempre in peso 600 e mai sotto 9px.
+   Scala unica: 8 · 9 · 10 · 11 · 12 · 14 · 17 · 22 · 26 · 34
+   ============================================================ */
+
+.f14m{
+  --bd:#1A2440; --bd2:#2A3760; --bd3:#3D4F8A; --lo:#04060B;
+  --tx:#ECF1FA;   /* dato */
+  --et:#8D9FC4;   /* etichetta */
+  --no:#73829F;   /* nota — SEMPRE peso 600, mai sotto 9px */
+  --am:#FFA51E; --cy:#29D3F2; --gd:#D4AF37; --em:#21E0A0; --cr:#FF3D60; --vi:#9B7BFF;
+  /* stessa strategia di memo-banco.css (F9): altezza piena e nessun padding
+     proprio — il riquadro del Layout ha gia' il suo p-4. Niente
+     position:absolute, che scavalcherebbe quel padding. */
+  display:flex;flex-direction:column;gap:9px;height:100%;min-height:0;
+  font-family:'JetBrains Mono','IBM Plex Mono',Consolas,monospace;
+  font-size:12px;line-height:1.45;color:var(--tx);
+}
+.f14m .ph h1{font:inherit;margin:0;padding:0;color:inherit;letter-spacing:inherit}
+/* In una colonna flex i figli si RESTRINGONO per stare dentro: su F11 i
+   riquadri si schiacciavano a 53px col contenuto 167px sotto. Qui il
+   contenitore NON comprime, e la vista scorre dentro il suo riquadro. */
+.f14m > *{flex-shrink:0}
+.f14m .num{font-variant-numeric:tabular-nums}
+.f14m .pro{font-family:'Inter','Segoe UI',system-ui,sans-serif}
+.f14m .t-no{color:var(--no);font-weight:600}
+.f14m .t-et{color:var(--et)}
+
+/* ── il commutatore delle viste ───────────────────────────── */
+.f14m .cmd{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.f14m .vst{display:flex;align-items:stretch;border:1px solid var(--bd2);background:var(--lo)}
+.f14m .vst button{font-family:inherit;background:transparent;border:none;cursor:pointer;
+  padding:0 20px;height:30px;font-size:10px;font-weight:600;letter-spacing:.2em;
+  color:var(--et);border-right:1px solid var(--bd);display:flex;align-items:center;gap:8px}
+.f14m .vst button:last-child{border-right:none}
+/* Il conteggio accanto al nome della vista NON e' una nota: e' il dato che
+   dice quanto c'e' dentro quella vista. Va sul gradino ETICHETTA — a 9px il
+   grigio della nota misurava 4,23:1 contro i 4,5 richiesti (cancello 27/07).
+   E' la correzione SEMANTICA del §14, non un cambio di palette. */
+.f14m .vst button .k{font-size:10px;color:var(--et);font-weight:600;letter-spacing:.1em}
+.f14m .vst button[aria-pressed="true"]{background:rgba(255,165,30,.12);color:var(--am);
+  box-shadow:inset 0 -2px 0 0 var(--am)}
+.f14m .vst button:hover[aria-pressed="false"]{background:rgba(255,255,255,.03);color:var(--tx)}
+.f14m .vst button:focus-visible{outline:2px solid var(--am);outline-offset:-2px}
+
+/* ── i filtri ─────────────────────────────────────────────── */
+/* ⚠️ `flex:1 1 0;min-width:0` — CHI cede quando lo spazio manca.
+   Senza, `.fil` era rigido: a stringere cedeva l'INTERA plancia (`.cmd` ha
+   `flex-wrap`), la fascia dei numeri finiva su una seconda riga e il corpo
+   perdeva 46px. Misurato a `terzo` (1706x1440, un terzo del 49" del PM):
+   `.cmd` da 51,7 a 97,7px, corpo utile da 1190 a 1144. Il chip CASSA e la
+   tessera Flussi di questo lotto avevano spostato la soglia dell'a-capo da
+   1590 a 1820, e 1706 ci cade in mezzo — la trappola del 20/08 rifatta: il
+   guasto si sposta dove il cancello non guarda (un a-capo non e' ne' una
+   sovrapposizione ne' un taglio ne' un testo minuscolo, quindi passa 0/0/0).
+   Ora a cedere sono i chip, che sanno gia' andare a capo fra loro. */
+.f14m .fil{display:flex;gap:6px;flex-wrap:wrap;flex:1 1 0;min-width:0}
+.f14m .fil button{font-family:inherit;cursor:pointer;font-size:10px;font-weight:600;
+  letter-spacing:.1em;padding:4px 10px;border:1px solid var(--bd2);
+  background:transparent;color:var(--et)}
+.f14m .fil button[aria-pressed="true"]{border-color:var(--am);color:var(--am);
+  background:rgba(255,165,30,.08)}
+.f14m .fil button:focus-visible{outline:2px solid var(--am);outline-offset:1px}
+/* Spento SI', illeggibile NO: `opacity:.4` su questo fondo scendeva a 2,05:1
+   (lezione gia' pagata su F1). Il grigio della nota resta sopra i 4,5:1 e
+   l'aria di "disattivato" la da' il bordo, non la trasparenza. */
+.f14m .fil button:disabled{color:var(--no);border-color:var(--bd);
+  background:transparent;cursor:default}
+
+/* ── i contatori ──────────────────────────────────────────── */
+/* `align-items:baseline` allineava il testo dei contatori ma lasciava il
+   bottone AGGIORNA 10,5px piu' in alto del gruppo: la sua baseline e' quella
+   della sua riga, non del numero a 17px accanto. Il gruppo si allinea in
+   fondo, e il bottone ci si siede sopra (review 27/07, BASSA). */
+.f14m .kpi{margin-left:auto;display:flex;gap:22px;align-items:flex-end}
+.f14m .kpi div{text-align:right}
+.f14m .kpi .azioni{display:flex;align-items:flex-end;padding-bottom:1px}
+.f14m .kpi .k{font-size:9px;font-weight:600;letter-spacing:.14em;color:var(--no);
+  text-transform:uppercase;display:block}
+.f14m .kpi .v{font-size:17px;color:var(--tx)}
+.f14m .kpi .v.gate{font-size:12px;color:var(--vi);font-weight:600}
+/* la numerosita' che accompagna la somma: gradino ETICHETTA perche' e' il
+   dato che qualifica la cifra, non una didascalia */
+.f14m .kpi .sub{display:block;font-size:9px;font-weight:600;letter-spacing:.1em;
+  color:var(--et);margin-top:1px}
+/* il chip che toglie la scelta della corsia: si distingue dai filtri */
+.f14m .fil button.tolg{border-color:rgba(255,165,30,.55);color:var(--am);
+  background:rgba(255,165,30,.10)}
+.f14m .kpi .v.su{color:var(--em)} .f14m .kpi .v.giu{color:var(--cr)}
+
+/* ── AGGIORNA ─────────────────────────────────────────────── */
+.f14m .agg{display:inline-flex;align-items:center;gap:7px;font-family:inherit;cursor:pointer;
+  font-size:10px;font-weight:600;letter-spacing:.14em;padding:6px 11px;
+  border:1px solid var(--bd2);background:transparent;color:var(--et)}
+.f14m .agg:hover{color:var(--am);border-color:rgba(255,165,30,.5)}
+.f14m .agg:focus-visible{outline:2px solid var(--am);outline-offset:1px}
+@keyframes f14spin{to{transform:rotate(360deg)}}
+.f14m .spin{animation:f14spin 1s linear infinite}
+
+/* ── il riquadro della vista ──────────────────────────────── */
+.f14m .p{position:relative;border:1px solid var(--bd);background:rgba(255,255,255,.014);
+  display:flex;flex-direction:column;min-height:0;min-width:0;flex:1 1 0}
+.f14m .sq{position:absolute;width:8px;height:8px;pointer-events:none;z-index:3}
+.f14m .sq.tl{top:-1px;left:-1px;border-top:1px solid var(--am);border-left:1px solid var(--am)}
+.f14m .sq.tr{top:-1px;right:-1px;border-top:1px solid var(--am);border-right:1px solid var(--am)}
+.f14m .sq.bl{bottom:-1px;left:-1px;border-bottom:1px solid var(--am);border-left:1px solid var(--am)}
+.f14m .sq.br{bottom:-1px;right:-1px;border-bottom:1px solid var(--am);border-right:1px solid var(--am)}
+/* 27px e non 24: e' la stessa scatola che F6 tiene per un .ph a 10px
+   (factor-riconciliazione.css:88-90). I 3px li paga .pb, che ha flex:1. */
+.f14m .ph{height:27px;flex-shrink:0;display:flex;align-items:center;gap:9px;padding:0 11px;
+  border-bottom:1px solid var(--bd);font-size:10px;font-weight:600;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--am);white-space:nowrap;overflow:hidden}
+/* ⚠ IL PREZZO DEI 10px SU QUESTA RIGA, MISURATO in Chromium (non stimato).
+   La coda che ho misurato e' quella che la pagina rende OGGI: righe rese +
+   la riga del cancello P&L + l'avviso ⚠ sulle ore segnaposto, 209 caratteri.
+   A 1600px di finestra chiede 1.364px in una scatola da 1.266: ~98px, cioe'
+   ~14 caratteri, finiscono nei puntini. A 9px ci stava.
+   ⚠️ E NON E' IL CASO PEGGIORE: con un filtro attivo la base cresce di 16
+   caratteri, e l'avviso `finestra` (che oggi non si rende, perche' vale solo
+   sopra i 100 movimenti e l'archivio ne ha 69) ne aggiungerebbe altri 80. La
+   prima stesura di questo commento diceva «due avvisi ⚠» descrivendo una
+   combinazione che oggi non puo' esistere: il numero era della coda vera, la
+   descrizione no. Trovato dalla review del 28/07.
+   Il taglio e' DICHIARATO (l'ellissi si vede), non muto: `overflow:hidden` su
+   un flex item porta gia' `min-width:auto` a zero, quindi la scatola si
+   stringe e i puntini compaiono da soli — verificato in Chromium, aggiungere
+   `min-width:0` non cambia un pixel. Se la riga va letta INTERA, la cura non
+   e' rimpicciolire il testo: e' accorciarlo, o spostare i due ⚠ in una riga-
+   nota sotto l'intestazione (registro istituzionale). Decisione del PM. */
+.f14m .ph .side{margin-left:auto;color:var(--no);font-weight:600;letter-spacing:.1em;
+  overflow:hidden;text-overflow:ellipsis}
+.f14m .pb{flex:1;min-height:0;overflow:auto}
+.f14m .pb.pad{padding:9px 11px}
+.f14m .pb::-webkit-scrollbar{width:8px;height:8px}
+.f14m .pb::-webkit-scrollbar-track{background:var(--lo)}
+.f14m .pb::-webkit-scrollbar-thumb{background:#22304F;border:1px solid var(--bd)}
+
+/* ── stati: caricamento / errore / vuoto ──────────────────────
+   Tre stati DIVERSI e tre rese diverse. Oggi un errore del backend si
+   legge come "Nessun movimento registrato": un buco muto travestito da
+   vuoto legittimo (regola 14/07, e finding false-empty dell'audit). */
+.f14m .stato{display:flex;flex-direction:column;gap:6px;padding:26px;text-align:center;
+  align-items:center;justify-content:center;height:100%}
+.f14m .stato .tt{font-size:12px;letter-spacing:.16em;text-transform:uppercase;font-weight:600}
+.f14m .stato .tx{font-size:12px;color:var(--et);max-width:62ch;line-height:1.55}
+.f14m .stato.ko .tt{color:var(--cr)}
+.f14m .stato.ko .tx b{color:var(--tx);font-weight:600}
+.f14m .stato.vuoto .tt{color:var(--et)}
+.f14m .stato.load .tt{color:var(--no)}
+/* l'avviso "aggiornamento fallito" sta SOTTO la vista, non dentro: e' una
+   striscia, non uno stato a tutto riquadro */
+.f14m .stato.avviso{height:auto;padding:7px 11px;text-align:left;align-items:flex-start;
+  border:1px solid rgba(255,61,96,.42);background:rgba(255,61,96,.06)}
+.f14m .stato.avviso .tx{max-width:none}
+
+/* ── chip e verbi ─────────────────────────────────────────── */
+.f14m .act{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.14em;
+  padding:1px 6px;border:1px solid;white-space:nowrap}
+.f14m .act.BUY{color:var(--am);border-color:rgba(255,165,30,.45);background:rgba(255,165,30,.08)}
+.f14m .act.ADD{color:var(--cy);border-color:rgba(41,211,242,.40);background:rgba(41,211,242,.07)}
+.f14m .act.TRIM{color:var(--cr);border-color:rgba(255,61,96,.45);background:rgba(255,61,96,.08)}
+.f14m .act.SELL{color:var(--cr);border-color:rgba(255,61,96,.45);background:rgba(255,61,96,.08)}
+.f14m .act.DIVIDEND{color:var(--gd);border-color:rgba(212,175,55,.40);background:rgba(212,175,55,.06)}
+
+/* IL CANCELLO: dato che esiste in tabella e che l'endpoint non consegna.
+   Non si finge che ci sia, non si finge che non esista: si dichiara. */
+.f14m .gate{display:inline-block;border:1px dashed rgba(155,123,255,.55);
+  background:rgba(155,123,255,.06);color:var(--vi);font-size:10px;font-weight:600;
+  letter-spacing:.1em;padding:1px 6px;white-space:nowrap}
+
+/* ── tabella (REGISTRO) ───────────────────────────────────── */
+.f14m table{border-collapse:collapse;width:100%}
+/* altezza FISSA, cosi' il separatore di mese ci si appiccica esatto sotto:
+   con l'altezza dedotta dal contenuto restava una fessura costante di 2,55px
+   da cui si vedevano scorrere le righe (review 27/07, BASSA) */
+.f14m th{font-size:10px;font-weight:600;letter-spacing:.16em;color:var(--no);
+  text-transform:uppercase;text-align:left;padding:0 9px;height:27px;
+  box-sizing:border-box;border-bottom:1px solid var(--bd);
+  position:sticky;top:0;background:#0A0E19;z-index:2;white-space:nowrap}
+.f14m td{font-size:12px;padding:5px 9px;border-bottom:1px solid rgba(26,36,64,.5);
+  color:var(--et);vertical-align:top}
+.f14m td.d{color:var(--tx)}
+.f14m td.r,.f14m th.r{text-align:right}
+/* nowrap SOLO sulle celle di NUMERI, mai su quelle di prosa: e' la
+   correzione mirata della regola globale di dashboard-command.css */
+.f14m td.nw{white-space:nowrap}
+/* `font-variant-numeric:normal` sovrascrive una regola GLOBALE su `td` che
+   mette le cifre tabulari: giusto sui numeri, sbagliato sulla prosa, dove
+   spaziava le cifre dentro le frasi del PM in modo diverso dal DIARIO che
+   rende lo stesso testo (review 27/07, BASSA). */
+.f14m td.cm{font-family:'Inter','Segoe UI',system-ui,sans-serif;font-size:12px;
+  color:var(--et);line-height:1.45;font-variant-numeric:normal}
+/* il secondo testo e' contenuto, non una didascalia: gradino ETICHETTA
+   (il grigio della nota qui usciva anche senza il peso 600 di regola) */
+.f14m td.cm .due{display:block;color:var(--et);opacity:.82;margin-top:3px}
+.f14m tbody tr:hover td{background:rgba(255,255,255,.022)}
+.f14m tr.uscita td:first-child{box-shadow:inset 2px 0 0 0 var(--vi)}
+.f14m tr.uscita td{background:rgba(155,123,255,.045)}
+.f14m tr.uscita:hover td{background:rgba(155,123,255,.075)}
+
+/* ── la cassa nel registro ────────────────────────────────────
+   Una riga di cassa non e' un altro VERBO: e' un'altra SPECIE, e si
+   distingue per FORMA, non per colore.
+   ⚠️ Non e' una scelta di gusto, e' una scelta obbligata: in questa pagina
+   NON resta un colore libero. Ambra = BUY + vista scelta + angoli del
+   riquadro; viola = uscite + cancello; rosso/ciano/oro = TRIM/ADD/DIVIDENDO;
+   verde e rosso = il SEGNO del P&L. Prendere in prestito uno di quelli
+   direbbe il falso — un versamento non e' un guadagno, e un prelievo non e'
+   una perdita. Quindi: binario chiaro a sinistra, verbo tratteggiato in
+   bianco, freccia di direzione.
+   ⚠️ SULLE SPECIFICITA', e la prima versione di questo commento diceva il falso:
+   `.f14m tbody tr:hover td` non e' (0,2,2) ma **(0,2,3)** — `:hover` conta come
+   una classe, e gli elementi sono tre (tbody, tr, td). Contro `.f14m tr.cassa td`
+   (0,2,2) l'hover generico **vince per SPECIFICITA', non per ordine**: l'unica
+   ragione per cui la riga di cassa resta sua anche sotto il mouse e' che esiste
+   `.f14m tr.cassa:hover td` (0,3,2). Provato togliendola dal CSSOM a pagina
+   viva: il fondo torna a `rgba(255,255,255,.024)`, quello generico.
+   Quindi NON e' una riga ridondante da potare — e' la riga portante. */
+.f14m tr.cassa td{background:rgba(236,241,250,.028)}
+.f14m tr.cassa td:first-child{box-shadow:inset 2px 0 0 0 rgba(236,241,250,.45)}
+.f14m tr.cassa:hover td{background:rgba(236,241,250,.055)}
+.f14m .flx{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.14em;
+  padding:1px 6px;white-space:nowrap;color:var(--tx);
+  border:1px dashed rgba(236,241,250,.42);background:rgba(236,241,250,.05)}
+
+/* separatore di mese: la cadenza si legge anche senza un grafico */
+.f14m tr.msep td{background:#0A0E19;border-bottom:1px solid var(--bd2);padding:5px 9px;
+  position:sticky;top:27px;z-index:1}
+.f14m tr.msep:hover td{background:#0A0E19}
+.f14m tr.msep .mm{font-size:10px;font-weight:700;letter-spacing:.24em;color:var(--am);
+  text-transform:uppercase}
+/* Idem per la riga del mese: "23 MOVIMENTI · 16 TITOLI · 9 TRIM" e' la
+   cadenza misurata, cioe' il contenuto del separatore — non una didascalia. */
+.f14m tr.msep .mn{font-size:10px;font-weight:600;letter-spacing:.12em;color:var(--et);margin-left:12px}
+/* ⚠️ La classe `pl su`/`pl giu` sta sullo <span> DENTRO la cella, non sulla
+   <td>: il vecchio selettore `td.pl.su` non ha mai colorato niente e guadagno
+   e perdita sarebbero usciti identici il giorno in cui il cancello si apre —
+   un selettore morto che nessuno vede finche' non serve (review 27/07). */
+.f14m .pl.su{color:var(--em)} .f14m .pl.giu{color:var(--cr)}
+/* esattamente zero non e' un guadagno: colore neutro, non verde */
+.f14m .pl.pari{color:var(--et)}
+
+/* ── SCIE ─────────────────────────────────────────────────── */
+.f14m .scie{position:relative;height:100%;display:flex;flex-direction:column;
+  padding:6px 12px 0 12px;min-height:0}
+/* A pannello basso (ctrl+scroll spinto, o finestra piccola) 27 corsie da
+   min-height 14px non ci stanno: senza `overflow-y:auto` le ultime uscivano
+   SOPRA l'asse dei mesi invece di rendersi raggiungibili — misurato a
+   1180x470: 46,4px di sbordo, 3 corsie interamente dietro l'asse
+   (review 27/07). Il contenitore scorre, non comprime. */
+.f14m .corsie{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;
+  position:relative;z-index:1}
+.f14m .corsie::-webkit-scrollbar{width:7px}
+.f14m .corsie::-webkit-scrollbar-track{background:var(--lo)}
+.f14m .corsie::-webkit-scrollbar-thumb{background:#22304F;border:1px solid var(--bd)}
+.f14m .lane{flex:1;min-height:14px;display:flex;align-items:stretch;gap:8px;
+  border-bottom:1px solid rgba(26,36,64,.34)}
+.f14m .lane:last-child{border-bottom:none}
+.f14m .lane.sel{background:rgba(255,165,30,.055);box-shadow:inset 2px 0 0 0 var(--am)}
+.f14m .lane .lk{width:104px;flex-shrink:0;display:flex;align-items:center;gap:6px;
+  padding-left:6px;overflow:hidden;background:transparent;border:none;cursor:pointer;
+  font-family:inherit;text-align:left}
+.f14m .lane .lk:focus-visible{outline:2px solid var(--am);outline-offset:-2px}
+.f14m .lane .lk .tk{font-size:10px;color:var(--et);letter-spacing:.04em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.f14m .lane.sel .lk .tk{color:var(--am);font-weight:600}
+.f14m .lane .lk .vl{font-size:9px;font-weight:600;color:var(--no);flex-shrink:0}
+/* corsia con piu' di una valuta: l'etichetta lo dice invece di scegliere
+   la prima e tacere sul resto */
+.f14m .lane .lk .vl.mista{color:var(--gd)}
+.f14m .lane .ln{width:20px;flex-shrink:0;text-align:right;font-size:10px;font-weight:600;
+  color:var(--no);align-self:center}
+
+/* la corsia: linea di galleggiamento al 62%, si entra sopra e si esce sotto */
+.f14m .lane .lt{flex:1;min-width:0;position:relative}
+.f14m .lane .lt::before{content:'';position:absolute;left:0;right:0;top:62%;height:1px;
+  background:rgba(61,79,138,.34)}
+.f14m .lane.sel .lt::before{background:rgba(255,165,30,.34)}
+
+.f14m .mk{position:absolute;transform:translateX(-50%);padding:0;border-radius:0;
+  cursor:pointer;font:inherit}
+/* Il bersaglio VERO e' piu' grande di quello disegnato: un ADD minuscolo e'
+   un rettangolo da 5x3px, sotto qualunque soglia di puntamento. L'area utile
+   si allarga con uno pseudo-elemento trasparente, ma solo di 3px per lato:
+   di piu' farebbe sovrapporre bersagli di corsie adiacenti (le corsie sono
+   ~25px) e ruberebbe i click al vicino. Resta sotto i 24x24 raccomandati —
+   e' un limite fisico di 69 segni su 172 giorni, non una svista: il bersaglio
+   grande per la tastiera e' il bottone della CORSIA, che e' 104x25px. */
+.f14m .mk::after{content:'';position:absolute;inset:-6px -3px;pointer-events:auto}
+.f14m .mk:focus-visible{outline:2px solid var(--am);outline-offset:2px;z-index:12}
+.f14m .mk.in{bottom:38%;width:5px;background:linear-gradient(180deg,var(--am),rgba(185,122,0,.55));
+  border:1px solid var(--am);border-bottom:none;min-height:3px}
+.f14m .mk.in.ADD{background:linear-gradient(180deg,var(--cy),rgba(11,94,115,.55));border-color:var(--cy)}
+/* USCITE — scendono. Sono nove su 69 e non devono sparire: corpo minimo
+   10px e cappello pieno. Tratteggio viola = P&L dietro il cancello. */
+.f14m .mk.out{top:62%;width:7px;background:rgba(155,123,255,.20);
+  border:1px dashed rgba(155,123,255,.9);border-top:none;min-height:10px;
+  box-shadow:0 -1px 0 0 var(--vi)}
+/* col cancello APERTO le uscite prendono il colore del loro esito, da sole */
+.f14m .mk.out.su{background:rgba(33,224,160,.22);border:1px solid var(--em);border-top:none;
+  box-shadow:0 -1px 0 0 var(--em)}
+.f14m .mk.out.giu{background:rgba(255,61,96,.22);border:1px solid var(--cr);border-top:none;
+  box-shadow:0 -1px 0 0 var(--cr)}
+.f14m .mk.div{top:62%;transform:translate(-50%,-50%) rotate(45deg);width:6px;height:6px;
+  background:var(--gd);border:1px solid var(--gd)}
+.f14m .mk:hover{filter:brightness(1.6)}
+
+/* ⚠️ GUIDE E ASSE DEVONO COPRIRE ESATTAMENTE LA CORSIA, non il riquadro.
+   A sinistra: 12 (padding) + 104 (.lk) + 8 (gap) = 124. A DESTRA la corsia
+   finisce prima, perche' dopo di lei ci sono il gap (8) e la colonna del
+   conteggio (.ln, 20): 12 + 20 + 8 = 40. Con `right:12px` guide e segni
+   mappavano la stessa frazione su due larghezze diverse — errore nullo a
+   sinistra e crescente fino a 28px a destra, cioe' oltre 4 giorni di
+   calendario letti male su un arco di 172 (review 27/07, misurato a
+   1600x900: guide 1430,4px contro 1402,4px di corsia). */
+.f14m .guide{position:absolute;top:0;bottom:18px;left:124px;right:40px;z-index:0;pointer-events:none}
+.f14m .guide .gm{position:absolute;top:0;bottom:0;width:1px;background:rgba(61,79,138,.17)}
+.f14m .asse{height:18px;flex-shrink:0;position:relative;margin-left:112px;margin-right:28px}
+.f14m .asse .gm{position:absolute;font-size:9px;font-weight:600;letter-spacing:.16em;
+  color:var(--no);transform:translateX(-50%);white-space:nowrap}
+
+/* legenda: dice la REGOLA della scala, non solo i colori */
+.f14m .leg{display:flex;align-items:center;gap:14px;font-size:9px;font-weight:600;color:var(--no)}
+.f14m .leg i{font-style:normal;display:inline-flex;align-items:center;gap:5px}
+.f14m .leg .sw{display:inline-block;width:4px;height:11px}
+.f14m .leg .sw.in{background:var(--am)} .f14m .leg .sw.add{background:var(--cy)}
+.f14m .leg .sw.out{background:rgba(155,123,255,.2);border:1px dashed rgba(155,123,255,.85)}
+.f14m .leg .sw.dv{width:6px;height:6px;background:var(--gd);transform:rotate(45deg)}
+
+/* ── la lettura numerica esatta: regola di casa sui grafici ─ */
+.f14m .tip{display:none;position:absolute;z-index:30;padding:6px 10px;white-space:nowrap;
+  background:#070A12;border:1px solid var(--bd3);box-shadow:0 8px 26px rgba(0,0,0,.72);
+  font-size:12px;color:var(--tx);pointer-events:none;transform:translateX(-50%)}
+/* si apre col mouse E col fuoco da tastiera: un grafico raggiungibile solo
+   col puntatore non e' raggiungibile (regola di casa sui grafici) */
+.f14m .mk:hover + .tip,.f14m .mk:focus-visible + .tip{display:block}
+/* vicino ai bordi il riquadro si ancora dal lato giusto, invece di uscire */
+.f14m .tip.dx{transform:translateX(-100%)}
+.f14m .tip.sx{transform:translateX(0)}
+.f14m .tip b{color:var(--am);font-weight:600}
+.f14m .tip i{display:block;font-style:normal;font-size:9px;font-weight:600;color:var(--no);
+  margin-top:3px;white-space:normal;max-width:46ch}
+.f14m .tip .kv{display:flex;gap:14px}
+.f14m .tip .kv span:first-child{color:var(--no);font-weight:600}
+.f14m .tip .kv span:last-child{margin-left:auto;color:var(--tx)}
+
+/* ── DIARIO ───────────────────────────────────────────────── */
+.f14m .voce{padding:9px 12px;border-bottom:1px solid rgba(26,36,64,.5)}
+.f14m .voce:last-child{border-bottom:none}
+.f14m .voce:hover{background:rgba(255,255,255,.018)}
+.f14m .voce .cap{display:flex;align-items:center;gap:9px;margin-bottom:5px;flex-wrap:wrap}
+.f14m .voce .cap .tkn{font-size:12px;color:var(--tx)}
+.f14m .voce .cap .dt{font-size:12px;color:var(--et)}
+.f14m .voce .cap .dt em{font-style:normal;color:var(--no);font-weight:600;font-size:9px}
+.f14m .voce .cap .qp{margin-left:auto;font-size:12px;color:var(--tx)}
+.f14m .voce .tx{font-family:'Inter','Segoe UI',system-ui,sans-serif;font-size:12px;
+  color:var(--tx);line-height:1.55;max-width:104ch}
+.f14m .voce .tx.due{color:var(--et);margin-top:4px}
+.f14m .voce .tx .et{font-size:10px;font-weight:600;letter-spacing:.14em;color:var(--no);
+  text-transform:uppercase;margin-right:8px;font-family:'JetBrains Mono',monospace}
+
+@media (prefers-reduced-motion:reduce){
+  .f14m *{animation:none !important;transition:none !important}
+}

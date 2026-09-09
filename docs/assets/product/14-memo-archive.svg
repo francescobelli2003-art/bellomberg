@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="900" viewBox="0 0 1280 900" role="img" aria-labelledby="title desc">
+<title id="title">F14 Memo Archive — synthetic DEMO illustration</title>
+<desc id="desc">Original explanatory mockup, not a screenshot. All values, names, instruments and research text are invented. No user portfolio data.</desc>
+<style>text{font-family:Segoe UI,Arial,sans-serif} .mono{font-family:Consolas,monospace}</style>
+<rect x="0" y="0" width="1280" height="900" rx="0" fill="#10151d"/>
+<rect x="0" y="0" width="1280" height="64" rx="0" fill="#141c26"/>
+<text x="28" y="41" font-size="24" fill="#eef2f7" font-weight="650" text-anchor="start">Bellomberg</text>
+<text x="207" y="39" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Research terminal</text>
+<rect x="490" y="18" width="390" height="31" rx="4" fill="#10151d" stroke="#344250"/>
+<text x="504" y="39" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Cerca pagina o ticker</text>
+<text x="866" y="39" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="end">Ctrl + K</text>
+<text x="1250" y="39" font-size="13" fill="#e2bf72" font-weight="650" text-anchor="end">DEMO • Dati interamente sintetici</text>
+<rect x="0" y="64" width="1280" height="67" rx="0" fill="#18212c"/>
+<g id="navigation" aria-label="Navigation F1 to F19">
+<text x="44" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F1</text>
+<text x="44" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">DASH</text>
+<text x="110" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F2</text>
+<text x="110" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">PERF</text>
+<text x="176" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F3</text>
+<text x="176" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FAVS</text>
+<text x="242" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F4</text>
+<text x="242" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MKT</text>
+<text x="308" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F5</text>
+<text x="308" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">NEWS</text>
+<text x="374" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F6</text>
+<text x="374" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FUND</text>
+<text x="440" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F7</text>
+<text x="440" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FCTR</text>
+<text x="506" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F8</text>
+<text x="506" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MTC</text>
+<text x="572" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F9</text>
+<text x="572" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">VOLS</text>
+<text x="638" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F10</text>
+<text x="638" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">EDGE</text>
+<text x="704" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F11</text>
+<text x="704" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">CHAT</text>
+<text x="770" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F12</text>
+<text x="770" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">LIVE</text>
+<text x="836" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F13</text>
+<text x="836" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">SCORE</text>
+<rect x="870" y="68" width="64" height="59" rx="3" fill="#2c3541"/>
+<rect x="870" y="125" width="64" height="3" rx="0" fill="#e2bf72"/>
+<text x="902" y="87" font-size="12" fill="#e2bf72" font-weight="400" text-anchor="middle">F14</text>
+<text x="902" y="111" font-size="12" fill="#eef2f7" font-weight="600" text-anchor="middle">MEMO</text>
+<text x="968" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F15</text>
+<text x="968" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">DECN</text>
+<text x="1034" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F16</text>
+<text x="1034" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">TRADE</text>
+<text x="1100" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F17</text>
+<text x="1100" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MOVES</text>
+<text x="1166" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F18</text>
+<text x="1166" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MNDT</text>
+<text x="1232" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F19</text>
+<text x="1232" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">CONFIG</text>
+</g>
+<line x1="0" y1="132" x2="1280" y2="132" stroke="#344250" stroke-width="1"/>
+<text x="28.0" y="172" font-size="30" fill="#eef2f7" font-weight="650" text-anchor="start">Memo Archive</text>
+<text x="28.0" y="202" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">La storia della ricerca</text>
+<text x="28.0" y="864" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">DEMO  /  Illustration only. Not a screenshot, recommendation or measured result.</text>
+<rect x="28.0" y="234" width="353.54581673306774" height="594" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="49.94422310756972" y="264" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Archivio memo</text>
+<text x="54.820717131474105" y="306" font-size="19" fill="#e2bf72" font-weight="600" text-anchor="start">Run DEMO C</text>
+<text x="54.820717131474105" y="336" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start">Sintesi disponibile</text>
+<line x1="54.820717131474105" y1="365" x2="354.7250996015936" y2="365" stroke="#344250" stroke-width="1"/>
+<text x="54.820717131474105" y="432" font-size="19" fill="#eef2f7" font-weight="600" text-anchor="start">Run DEMO B</text>
+<text x="54.820717131474105" y="462" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start">Testo + PDF</text>
+<line x1="54.820717131474105" y1="491" x2="354.7250996015936" y2="491" stroke="#344250" stroke-width="1"/>
+<text x="54.820717131474105" y="558" font-size="19" fill="#eef2f7" font-weight="600" text-anchor="start">Run DEMO A</text>
+<text x="54.820717131474105" y="588" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start">Solo testo</text>
+<line x1="54.820717131474105" y1="617" x2="354.7250996015936" y2="617" stroke="#344250" stroke-width="1"/>
+<text x="54.820717131474105" y="788" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start">Cerca: Ctrl + Shift + F</text>
+<rect x="405.9282868525896" y="234" width="846.0717131474104" height="594" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="427.87250996015933" y="264" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Memo del comitato • DEMO</text>
+<text x="437.62549800796813" y="308" font-size="26" fill="#e2bf72" font-weight="600" text-anchor="start">Sintesi e domande aperte</text>
+<text x="437.62549800796813" y="357" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Questo testo e interamente inventato.</text>
+<text x="437.62549800796813" y="383" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Illustra la struttura di un memo, non una raccomandazione.</text>
+<text x="437.62549800796813" y="450" font-size="19" fill="#eef2f7" font-weight="600" text-anchor="start">Scenario centrale</text>
+<text x="437.62549800796813" y="481" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Ipotesi, orizzonte e fonti da verificare.</text>
+<line x1="437.62549800796813" y1="510" x2="1217.8645418326694" y2="510" stroke="#344250" stroke-width="1"/>
+<text x="437.62549800796813" y="547" font-size="19" fill="#eef2f7" font-weight="600" text-anchor="start">Rischi e tesi contraria</text>
+<text x="437.62549800796813" y="578" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Condizioni che invaliderebbero il ragionamento.</text>
+<line x1="437.62549800796813" y1="607" x2="1217.8645418326694" y2="607" stroke="#344250" stroke-width="1"/>
+<text x="437.62549800796813" y="644" font-size="19" fill="#eef2f7" font-weight="600" text-anchor="start">Decisioni collegate</text>
+<text x="437.62549800796813" y="675" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">La risposta del PM rimane separata dal trade.</text>
+<line x1="437.62549800796813" y1="704" x2="1217.8645418326694" y2="704" stroke="#344250" stroke-width="1"/>
+<rect x="437.62549800796813" y="767" width="225.5378486055777" height="30" rx="4" fill="#24303c"/>
+<text x="452.2549800796813" y="787" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">Apri decisioni</text>
+<rect x="681.4501992031873" y="767" width="256.0159362549801" height="30" rx="4" fill="#24303c"/>
+<text x="696.0796812749004" y="787" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">PDF se disponibile</text>
+</svg>

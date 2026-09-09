@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="900" viewBox="0 0 1280 900" role="img" aria-labelledby="title desc">
+<title id="title">F10 Edge Scanner — synthetic DEMO illustration</title>
+<desc id="desc">Original explanatory mockup, not a screenshot. All values, names, instruments and research text are invented. No user portfolio data.</desc>
+<style>text{font-family:Segoe UI,Arial,sans-serif} .mono{font-family:Consolas,monospace}</style>
+<rect x="0" y="0" width="1280" height="900" rx="0" fill="#10151d"/>
+<rect x="0" y="0" width="1280" height="64" rx="0" fill="#141c26"/>
+<text x="28" y="41" font-size="24" fill="#eef2f7" font-weight="650" text-anchor="start">Bellomberg</text>
+<text x="207" y="39" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Research terminal</text>
+<rect x="490" y="18" width="390" height="31" rx="4" fill="#10151d" stroke="#344250"/>
+<text x="504" y="39" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Cerca pagina o ticker</text>
+<text x="866" y="39" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="end">Ctrl + K</text>
+<text x="1250" y="39" font-size="13" fill="#e2bf72" font-weight="650" text-anchor="end">DEMO • Dati interamente sintetici</text>
+<rect x="0" y="64" width="1280" height="67" rx="0" fill="#18212c"/>
+<g id="navigation" aria-label="Navigation F1 to F19">
+<text x="44" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F1</text>
+<text x="44" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">DASH</text>
+<text x="110" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F2</text>
+<text x="110" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">PERF</text>
+<text x="176" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F3</text>
+<text x="176" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FAVS</text>
+<text x="242" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F4</text>
+<text x="242" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MKT</text>
+<text x="308" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F5</text>
+<text x="308" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">NEWS</text>
+<text x="374" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F6</text>
+<text x="374" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FUND</text>
+<text x="440" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F7</text>
+<text x="440" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FCTR</text>
+<text x="506" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F8</text>
+<text x="506" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MTC</text>
+<text x="572" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F9</text>
+<text x="572" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">VOLS</text>
+<rect x="606" y="68" width="64" height="59" rx="3" fill="#2c3541"/>
+<rect x="606" y="125" width="64" height="3" rx="0" fill="#e2bf72"/>
+<text x="638" y="87" font-size="12" fill="#e2bf72" font-weight="400" text-anchor="middle">F10</text>
+<text x="638" y="111" font-size="12" fill="#eef2f7" font-weight="600" text-anchor="middle">EDGE</text>
+<text x="704" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F11</text>
+<text x="704" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">CHAT</text>
+<text x="770" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F12</text>
+<text x="770" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">LIVE</text>
+<text x="836" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F13</text>
+<text x="836" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">SCORE</text>
+<text x="902" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F14</text>
+<text x="902" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MEMO</text>
+<text x="968" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F15</text>
+<text x="968" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">DECN</text>
+<text x="1034" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F16</text>
+<text x="1034" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">TRADE</text>
+<text x="1100" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F17</text>
+<text x="1100" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MOVES</text>
+<text x="1166" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F18</text>
+<text x="1166" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MNDT</text>
+<text x="1232" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F19</text>
+<text x="1232" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">CONFIG</text>
+</g>
+<line x1="0" y1="132" x2="1280" y2="132" stroke="#344250" stroke-width="1"/>
+<text x="28.0" y="172" font-size="30" fill="#eef2f7" font-weight="650" text-anchor="start">Edge Scanner</text>
+<text x="28.0" y="202" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Segnali da verificare</text>
+<text x="28.0" y="864" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">DEMO  /  Illustration only. Not a screenshot, recommendation or measured result.</text>
+<rect x="28.0" y="234" width="280.398406374502" height="30" rx="4" fill="#24303c"/>
+<text x="42.62948207171315" y="254" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">Tutte le categorie</text>
+<rect x="323.0278884462151" y="234" width="243.82470119521912" height="30" rx="4" fill="#24303c"/>
+<text x="337.6573705179283" y="254" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Forza minima</text>
+<rect x="28.0" y="286" width="1224.0" height="374" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="49.94422310756972" y="316" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Segnali sintetici</text>
+<text x="54.820717131474105" y="358" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Strumento</text>
+<text x="401.0517928286853" y="358" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Categoria</text>
+<text x="702.1752988047808" y="358" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Forza DEMO</text>
+<text x="963.0677290836653" y="358" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Copertura</text>
+<line x1="54.820717131474105" y1="372" x2="1182.5099601593627" y2="372" stroke="#344250" stroke-width="1"/>
+<text x="54.820717131474105" y="404" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Demo equity A</text>
+<text x="401.0517928286853" y="404" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Valutazione</text>
+<text x="702.1752988047808" y="404" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Alta</text>
+<text x="963.0677290836653" y="404" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Parziale</text>
+<line x1="54.820717131474105" y1="419" x2="1182.5099601593627" y2="419" stroke="#344250" stroke-width="1"/>
+<text x="54.820717131474105" y="476" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Demo equity B</text>
+<text x="401.0517928286853" y="476" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Evento</text>
+<text x="702.1752988047808" y="476" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Media</text>
+<text x="963.0677290836653" y="476" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Disponibile</text>
+<line x1="54.820717131474105" y1="491" x2="1182.5099601593627" y2="491" stroke="#344250" stroke-width="1"/>
+<text x="54.820717131474105" y="548" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Demo fund C</text>
+<text x="401.0517928286853" y="548" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Opzioni</text>
+<text x="702.1752988047808" y="548" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">n.d.</text>
+<text x="963.0677290836653" y="548" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Fonte KO</text>
+<line x1="54.820717131474105" y1="563" x2="1182.5099601593627" y2="563" stroke="#344250" stroke-width="1"/>
+<rect x="28.0" y="680" width="1224.0" height="148" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="49.94422310756972" y="710" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Dalla graduatoria alla ricerca</text>
+<text x="54.820717131474105" y="748" font-size="17" fill="#adbac9" font-weight="400" text-anchor="start">Apri le fonti. Verifica liquidita, costi e compatibilita con il mandato.</text>
+<text x="54.820717131474105" y="780" font-size="17" fill="#adbac9" font-weight="400" text-anchor="start">La forza del segnale non e una probabilita di profitto.</text>
+</svg>

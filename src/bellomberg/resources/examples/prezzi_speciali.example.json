@@ -1,0 +1,10 @@
+{
+  "_leggimi": "Copia questo file in data/prezzi_speciali.json e mettici i TUOI simboli. Il file in data/ e' privato e non viene mai pubblicato. `senza_yfinance`: i simboli che NON hanno una serie prezzi utile su yfinance (crypto custom, token di un DEX); i motori di portafoglio (analytics, factors, garch, montecarlo, risk, attribution) li escludono dai download e lo DICHIARANO. `coingecko`: simbolo -> id CoinGecko (minuscolo, cifre e trattini, come nell'URL dell'API), letto da price_updater come ULTIMA fonte dopo yfinance. Le due sezioni sono INDIPENDENTI: un id CoinGecko NON implica lo skip nei motori (i proxy crypto generici di price_updater hanno una serie yfinance e vanno scaricati), e un simbolo saltato puo' non avere nessuna fonte. Negozio assente o illeggibile: nessun simbolo saltato e nessun id, e la cosa si DICHIARA — analytics, risk e montecarlo si fermano con un KO (senza la lista i loro numeri in euro cambierebbero base), factors e garch calcolano e lo scrivono nel payload, price_updater lo stampa nel log a ogni giro. Le chiavi con `_` davanti sono note.",
+  "senza_yfinance": [
+    "KRYPTO",
+    "GAMMA"
+  ],
+  "coingecko": {
+    "KRYPTO": "krypto-coin"
+  }
+}

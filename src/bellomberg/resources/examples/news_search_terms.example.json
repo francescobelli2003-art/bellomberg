@@ -1,0 +1,7 @@
+{
+  "_leggimi": "Copia questo file in data/news_search_terms.json e mettici le TUE societa'. Il file in data/ e' privato e non viene mai pubblicato. Ogni voce e' TICKER -> lista di termini di ricerca: NOMI, non ticker (le API news non trovano i simboli europei, e un simbolo corto prende qualsiasi omonimo). Una voce null esclude il simbolo dal giro news e dagli eventi societari SEC, in modo dichiarato (es. un token crypto senza fonti news). Un simbolo assente da questo file si cerca col ticker nudo, e il log lo dichiara.",
+  "ACME.MI": ["Acme Manifatture", "Acme"],
+  "BETA.DE": ["Beta Industrie"],
+  "GAMMA": ["Gamma Robotics"],
+  "KRYPTO": null
+}

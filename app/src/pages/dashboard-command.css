@@ -1,0 +1,329 @@
+﻿/* ============================================================
+   F1 v3 "OBSIDIAN COMMAND" - stili della Dashboard ridisegnata
+   (design approvato dal PM 23/07, mockup_f1_command/v2_obsidian_command.html).
+   Tutto scoped sotto .f1c per non toccare le altre pagine.
+   Disciplina B-UI15/19: 9-12px, tabular-nums, glow solo su stati.
+   ============================================================ */
+.f1c{display:grid;grid-template-columns:302px minmax(0,1fr) 402px;gap:8px;height:100%;min-height:620px;font-family:'JetBrains Mono',monospace}
+:is(.f1c,.obsx) *{box-sizing:border-box}
+:is(.f1c,.obsx) .col{display:flex;flex-direction:column;gap:8px;min-height:0;min-width:0}
+:is(.f1c,.obsx) .num{font-variant-numeric:tabular-nums}
+
+/* pannello con profondita + tick angolari */
+:is(.f1c,.obsx) .p3{background:linear-gradient(180deg,#0D1322,#0A0F1C);border:1px solid #1A2440;box-shadow:inset 0 1px 0 rgba(255,255,255,.035),0 8px 26px rgba(0,0,0,.35);display:flex;flex-direction:column;min-height:0;position:relative}
+:is(.f1c,.obsx) .p3.hero{border-left:2px solid rgba(255,165,30,.55);background:radial-gradient(120% 60% at 20% 0%,rgba(255,165,30,.05),transparent 55%),linear-gradient(180deg,#0D1322,#0A0F1C)}
+:is(.f1c,.obsx) .p3.cy{border-left:2px solid rgba(41,211,242,.4)}
+:is(.f1c,.obsx) .p3.vi{border-left:2px solid rgba(155,123,255,.4)}
+:is(.f1c,.obsx) .p3h{height:26px;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid #1A2440;background:rgba(255,255,255,.015);flex-shrink:0;font-size:10px;letter-spacing:.22em;color:#8D9FC4;text-transform:uppercase;white-space:nowrap;overflow:hidden}
+:is(.f1c,.obsx) .p3h.am{color:#FFA51E}
+:is(.f1c,.obsx) .p3h.vi{color:#9B7BFF}
+:is(.f1c,.obsx) .p3h .side{margin-left:auto;color:#73829F;font-weight:600;letter-spacing:.12em;font-size:9px}
+:is(.f1c,.obsx) .p3h .n{color:#73829F;font-weight:600}
+:is(.f1c,.obsx) .tick{position:absolute;width:7px;height:7px;pointer-events:none}
+:is(.f1c,.obsx) .tick.tl{top:-1px;left:-1px;border-top:1px solid #3D4F8A;border-left:1px solid #3D4F8A}
+:is(.f1c,.obsx) .tick.tr{top:-1px;right:-1px;border-top:1px solid #3D4F8A;border-right:1px solid #3D4F8A}
+:is(.f1c,.obsx) .tick.bl{bottom:-1px;left:-1px;border-bottom:1px solid #3D4F8A;border-left:1px solid #3D4F8A}
+:is(.f1c,.obsx) .tick.br{bottom:-1px;right:-1px;border-bottom:1px solid #3D4F8A;border-right:1px solid #3D4F8A}
+
+/* strumento NAV */
+:is(.f1c,.obsx) .navv{padding:10px 14px 8px}
+:is(.f1c,.obsx) .navv .v{font-size:34px;font-weight:300;letter-spacing:.015em;color:#ECF1FA;line-height:1.05;text-shadow:0 0 30px rgba(41,211,242,.12)}
+:is(.f1c,.obsx) .navv .v small{font-size:17px;color:#8D9FC4;font-weight:300}
+:is(.f1c,.obsx) .navv .sub{font-size:9px;color:#8D9FC4;margin-top:4px;letter-spacing:.06em}
+/* (F40) LA CIMA: occhiello + TIMBRO sopra la cifra, riga che la spiega sotto.
+   Il timbro e' l'orologio della cifra grande: sui giorni PASSATI e' una
+   chiusura, sull'ultimo dice «IN CORSO» perche' lo snapshot di oggi viene
+   riscritto a ogni giro dell'updater (misurato il 21/08: quasi tre decimi
+   di quota fra le 16:13 e le 16:23, stessa data e stesso regime).
+   ⚠️ CRENATURA .08em E NON .14em, ed e' una MISURA a 1440x900 (la finestra con
+   cui si apre Electron): questa colonna da' **237px** utili in JetBrains Mono
+   10px — non 265, che e' la larghezza del riquadro PADDING COMPRESO, ed e' il
+   numero con cui avevo sbagliato la prima volta. L'occhiello chiede 341px a
+   .08em (376 a .14em): va a capo comunque, ma a .08em la seconda riga resta
+   abbastanza vuota da ospitare il timbro a costo zero. Appeso invece alla
+   riga della spiegazione la portava da due capi a TRE (548px -> 695px).
+   Niente ellissi: un'etichetta troncata («VALO…») rende illeggibile la cifra
+   che dovrebbe spiegare, e due righe sono meglio di mezza parola. */
+:is(.f1c,.obsx) .navv .occhiello{font-size:10px;letter-spacing:.08em;color:#FFA51E;text-transform:uppercase;margin-bottom:3px}
+:is(.f1c,.obsx) .navv .occhiello .timbro{color:#8D9FC4;font-weight:600}
+:is(.f1c,.obsx) .navv .sub.spiega{color:#29D3F2;margin-top:5px}
+/* il rimpiazzo NON e' uno stato normale e si deve vedere: la cifra grande
+   cambia colore, non solo un'etichetta in un angolo */
+:is(.f1c,.obsx) .navv .v.allarme{color:#FFA51E;text-shadow:0 0 30px rgba(255,165,30,.18)}
+:is(.f1c,.obsx) .navv .sub.spiega.allarme{color:#FFA51E}
+:is(.f1c,.obsx) .chips{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+:is(.f1c,.obsx) .chip{font-size:10px;padding:2px 8px;border:1px solid;letter-spacing:.05em;white-space:nowrap}
+:is(.f1c,.obsx) .chip.g{color:#21E0A0;border-color:rgba(33,224,160,.35);background:rgba(33,224,160,.07)}
+:is(.f1c,.obsx) .chip.r{color:#FF3D60;border-color:rgba(255,61,96,.35);background:rgba(255,61,96,.06)}
+:is(.f1c,.obsx) .chip.n{color:#8D9FC4;border-color:#2A3760;background:rgba(255,255,255,.02)}
+:is(.f1c,.obsx) .chip.a{color:#FFA51E;border-color:rgba(255,165,30,.4);background:rgba(255,165,30,.07)}
+/* chip dentro header pannello e celle tabella: taglia ridotta */
+:is(.f1c,.obsx) .p3h .chip{font-size:9px;padding:1px 6px;letter-spacing:.08em}
+:is(.f1c,.obsx) td .chip{font-size:8px;padding:0 5px}
+/* P&L GG dell'intero portafoglio: metrica in vetrina accanto al gauge INVESTITO */
+:is(.f1c,.obsx) .kside .kvx{font-size:14px;font-weight:700;letter-spacing:.01em}
+:is(.f1c,.obsx) .kside .kvx .kvs{font-size:10px;font-weight:600}
+/* MACRO PULSE: x di rimozione dei pick personali (aggiunti da F15) */
+:is(.f1c,.obsx) .pxdel{color:#73829F;font-weight:700;cursor:pointer;padding:0 2px}
+:is(.f1c,.obsx) .pxdel:hover{color:#FF3D60}
+:is(.f1c,.obsx) .gaugebox{display:flex;align-items:center;gap:14px;padding:8px 14px 10px;border-top:1px solid #1A2440}
+:is(.f1c,.obsx) .gauge{position:relative;width:116px;height:116px;flex-shrink:0}
+:is(.f1c,.obsx) .gauge svg{position:absolute;inset:0;overflow:visible}
+:is(.f1c,.obsx) .gauge .in{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+:is(.f1c,.obsx) .gauge .gk{font-size:9px;letter-spacing:.22em;color:#73829F;font-weight:600}
+:is(.f1c,.obsx) .gauge .gv{font-size:17px;font-weight:600;color:#FFA51E}
+:is(.f1c,.obsx) .gauge .gs{font-size:9px;color:#8D9FC4}
+:is(.f1c,.obsx) .kside{display:flex;flex-direction:column;gap:7px;flex:1;min-width:0}
+:is(.f1c,.obsx) .krow{display:flex;justify-content:space-between;align-items:baseline}
+:is(.f1c,.obsx) .krow .kk{color:#73829F;font-weight:600;letter-spacing:.14em;text-transform:uppercase;font-size:9px;white-space:nowrap}
+:is(.f1c,.obsx) .krow .kv{font-weight:500;font-size:11px;white-space:nowrap;color:#ECF1FA}
+:is(.f1c,.obsx) .meter{height:3px;background:rgba(26,36,64,.9);margin-top:2px;position:relative}
+:is(.f1c,.obsx) .meter i{position:absolute;left:0;top:0;bottom:0}
+
+/* azioni */
+:is(.f1c,.obsx) .acts{display:flex;gap:6px;padding:8px 12px;border-top:1px solid #1A2440}
+:is(.f1c,.obsx) .abtn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;font-size:9px;letter-spacing:.16em;padding:6px 4px;border:1px solid;cursor:pointer;background:transparent;font-family:inherit;text-transform:uppercase}
+:is(.f1c,.obsx) .abtn.cy{color:#29D3F2;border-color:rgba(41,211,242,.4)}
+:is(.f1c,.obsx) .abtn.cy:hover{background:rgba(41,211,242,.08)}
+:is(.f1c,.obsx) .abtn.am{color:#FFA51E;border-color:rgba(255,165,30,.45)}
+:is(.f1c,.obsx) .abtn.am:hover{background:rgba(255,165,30,.1)}
+:is(.f1c,.obsx) .abtn:disabled{opacity:.45;cursor:default}
+
+/* AI desk */
+:is(.f1c,.obsx) .dk{display:flex;align-items:center;gap:9px;padding:3px 12px;font-size:9px;letter-spacing:.1em}
+:is(.f1c,.obsx) .dk .nm{width:76px;color:#8D9FC4;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:is(.f1c,.obsx) .dk .st{margin-left:auto;font-size:9px;letter-spacing:.14em;color:#73829F;font-weight:600;text-transform:uppercase}
+:is(.f1c,.obsx) .sysrow{display:flex;align-items:center;justify-content:space-between;font-size:9px;letter-spacing:.14em;color:#8D9FC4;padding:4px 12px;text-transform:uppercase}
+
+/* led (glow SOLO qui: sono stati) */
+:is(.f1c,.obsx) .ld{width:6px;height:6px;border-radius:50%;display:inline-block;flex-shrink:0}
+:is(.f1c,.obsx) .ld.g{background:#21E0A0;box-shadow:0 0 7px rgba(33,224,160,.85)}
+:is(.f1c,.obsx) .ld.a{background:#FFA51E;box-shadow:0 0 7px rgba(255,165,30,.85)}
+:is(.f1c,.obsx) .ld.r{background:#FF3D60;box-shadow:0 0 7px rgba(255,61,96,.85)}
+:is(.f1c,.obsx) .ld.off{background:#3D4763}
+
+/* toolbar grafico stile TradingView */
+:is(.f1c,.obsx) .tbar{min-height:26px;display:flex;align-items:center;gap:3px;padding:2px 8px;border-bottom:1px solid #1A2440;font-size:9px;color:#8D9FC4;flex-shrink:0;letter-spacing:.08em;flex-wrap:wrap}
+:is(.f1c,.obsx) .tfg{display:flex;border:1px solid #2A3760}
+:is(.f1c,.obsx) .tfg .tb{border:0;border-right:1px solid #1A2440;padding:3px 8px}
+:is(.f1c,.obsx) .tfg .tb:last-child{border-right:0}
+:is(.f1c,.obsx) .tb{padding:2px 7px;border:1px solid transparent;cursor:pointer;background:transparent;color:inherit;font-family:inherit;font-size:9px;letter-spacing:.08em}
+:is(.f1c,.obsx) .tb:hover{color:#8D9FC4}
+:is(.f1c,.obsx) .tb.on{color:#FFC555;background:rgba(255,165,30,.14)}
+:is(.f1c,.obsx) .tb.ind{color:#74E6FF}
+:is(.f1c,.obsx) .tb.ind.off{color:#73829F;font-weight:600}
+:is(.f1c,.obsx) .tsep{width:1px;height:12px;background:#1A2440;margin:0 4px}
+
+/* tabelle blotter */
+:is(.f1c,.obsx) table{width:100%;border-collapse:collapse;font-size:10px}
+:is(.f1c,.obsx) th{font-size:9px;letter-spacing:.18em;color:#73829F;text-transform:uppercase;text-align:right;padding:4px 10px;border-bottom:1px solid #1A2440;font-weight:400;position:sticky;top:0;background:#0B101D;z-index:2}
+:is(.f1c,.obsx) th:first-child,:is(.f1c,.obsx) td:first-child{text-align:left}
+:is(.f1c,.obsx) td{padding:3px 10px;text-align:right;border-bottom:1px solid rgba(26,36,64,.4)}
+:is(.f1c,.obsx) td.tk{color:#D4AF37;font-weight:500;cursor:pointer;text-decoration:underline dotted rgba(212,175,55,.45);text-underline-offset:3px}
+:is(.f1c,.obsx) td.tk:hover{color:#EED27E}
+:is(.f1c,.obsx) tr:hover td{background:rgba(255,165,30,.05)}
+/* i numeri non vanno mai a capo a meta' cifra; se il pannello e' piu' stretto
+   del minimo delle colonne visibili resta lo scroll orizzontale del .tscroll */
+:is(.f1c,.obsx) th,:is(.f1c,.obsx) td{white-space:nowrap}
+/* priorita' di colonna del blotter (container query sul PANNELLO, non sulla
+   finestra): sotto soglia spariscono PRIMA le colonne meno critiche â€” Ticker,
+   Live, GG%, P/L EUR restano SEMPRE. Cosi' lo zoom ctrl+scroll non taglia mai
+   i numeri a destra fuori dal box. */
+:is(.f1c,.obsx) .tscroll{container-type:inline-size;container-name:blotwrap}
+/* il blotter e' denso per natura: padding celle ridotto per far vivere le 9
+   colonne anche nella colonna destra della griglia (384px a 1920) */
+:is(.f1c,.obsx) .blot td,:is(.f1c,.obsx) .blot th{padding:3px 5px}
+/* soglie CALIBRATE sulle larghezze misurate (9 colonne piene ~480px):
+   sotto si spengono in ordine Qty -> Val EUR -> WT -> P/L% -> P/L GG */
+@container blotwrap (max-width:500px){ :is(.f1c,.obsx) .c-qty{display:none} }
+@container blotwrap (max-width:460px){ :is(.f1c,.obsx) .c-val{display:none} }
+@container blotwrap (max-width:385px){ :is(.f1c,.obsx) .c-wt{display:none} }
+@container blotwrap (max-width:345px){ :is(.f1c,.obsx) .c-plpct{display:none} }
+@container blotwrap (max-width:290px){ :is(.f1c,.obsx) .c-plg{display:none} }
+
+/* decisioni */
+:is(.f1c,.obsx) .dec{display:flex;align-items:center;gap:8px;padding:5px 12px;border-bottom:1px solid rgba(26,36,64,.5);font-size:10px;cursor:pointer}
+:is(.f1c,.obsx) .dec:hover{background:rgba(255,165,30,.04)}
+:is(.f1c,.obsx) .dec .act{width:70px;font-weight:700;font-size:9px;letter-spacing:.08em;flex-shrink:0}
+:is(.f1c,.obsx) .dec .act.res{color:#29D3F2}
+:is(.f1c,.obsx) .dec .act.hold{color:#FFA51E}
+:is(.f1c,.obsx) .dec .act.buy{color:#21E0A0}
+:is(.f1c,.obsx) .dec .act.sell,:is(.f1c,.obsx) .dec .act.trim{color:#FF3D60}
+:is(.f1c,.obsx) .dec .tkk{width:66px;font-weight:500;color:#ECF1FA;flex-shrink:0}
+:is(.f1c,.obsx) .dec .note{color:#8D9FC4;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:9px}
+:is(.f1c,.obsx) .dec .id{color:#73829F;font-weight:600;font-size:9px;flex-shrink:0}
+
+/* telemetria rischio */
+:is(.f1c,.obsx) .ab{display:flex;align-items:center;gap:9px;font-size:9px;padding:0 12px}
+:is(.f1c,.obsx) .ab .k{width:70px;letter-spacing:.12em;color:#73829F;font-weight:600;text-transform:uppercase;flex-shrink:0}
+:is(.f1c,.obsx) .ab .bar{flex:1;height:4px;background:rgba(26,36,64,.85);position:relative}
+:is(.f1c,.obsx) .ab .bar i{position:absolute;left:0;top:0;bottom:0}
+:is(.f1c,.obsx) .ab .v{width:56px;text-align:right;font-size:10px;color:#ECF1FA}
+
+/* heat compatta (una riga) */
+:is(.f1c,.obsx) .heat{display:flex;gap:2px;padding:6px 8px;min-height:0;overflow:hidden}
+:is(.f1c,.obsx) .hcell{flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:4px 7px;border:1px solid;min-width:72px;cursor:pointer;transition:transform .12s}
+:is(.f1c,.obsx) .hcell:hover{transform:scale(1.03);z-index:2}
+:is(.f1c,.obsx) .hcell .t{font-size:9px;font-weight:700;letter-spacing:.03em;color:#ECF1FA}
+:is(.f1c,.obsx) .hcell .r2{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
+/* la cella e' TINTA di verde o rosso e la tinta si carica con la performance:
+   li' dentro #8D9FC4 misura 2,30:1 sui casi forti. Il fondo dichiara gia' il
+   segno, quindi la gerarchia fra peso/ticker/P&L la portano corpo e peso —
+   8px/400 contro 9px/700 contro 10px/600 — non un grigio piu' spento. */
+:is(.f1c,.obsx) .hcell .w{font-size:8px;color:#ECF1FA}
+:is(.f1c,.obsx) .hcell .pl{font-size:10px;font-weight:600;color:#ECF1FA}
+
+/* scrollbar sottile istituzionale (solo dentro f1c) */
+:is(.f1c,.obsx) ::-webkit-scrollbar{width:5px;height:5px}
+:is(.f1c,.obsx) ::-webkit-scrollbar-thumb{background:#26335C}
+:is(.f1c,.obsx) ::-webkit-scrollbar-track{background:rgba(10,15,28,.6)}
+
+:is(.f1c,.obsx) .up{color:#21E0A0;font-weight:600}
+:is(.f1c,.obsx) .dn{color:#FF3D60;font-weight:600}
+:is(.f1c,.obsx) .runline{grid-column:1 / -1;font-size:10px;color:#29D3F2;border:1px solid rgba(41,211,242,.35);background:rgba(41,211,242,.05);padding:4px 10px;letter-spacing:.08em;display:flex;align-items:center;gap:8px}
+
+/* wrapper generico per le altre pagine col linguaggio OBSIDIAN COMMAND (F15 MKT, ...) */
+.obsx{display:flex;flex-direction:column;gap:8px;font-family:'JetBrains Mono',monospace}
+
+/* ============ hardening responsive F1 (resize, zoom ctrl+scroll, ultrawide G9) ============ */
+/* colonne che SCALANO col viewport: 1/3 di G9 (~1700) fino a full 5120 */
+.f1c{grid-template-columns:clamp(268px,16vw,430px) minmax(0,1fr) clamp(330px,20vw,560px)}
+:is(.f1c,.obsx) .tlab{font-size:9px;color:#73829F;font-weight:600;letter-spacing:.16em;margin:0 2px;text-transform:uppercase;white-space:nowrap}
+/* uno stato DISATTIVO non e' uno stato invisibile: al 35% di opacita' il
+   grigio etichetta passa da 7,08:1 a 1,90:1 nominali e il bottone sparisce.
+   Il disattivo e' una NOTA, e si scrive col colore della nota. */
+:is(.f1c,.obsx) .tb.dis{color:#73829F;cursor:default}
+:is(.f1c,.obsx) .tb.dis:hover{color:inherit}
+/* altezze garantite: nessun pannello puo' collassare invisibile */
+.f1c .mkchart{flex:1 1 auto;min-height:340px}
+.f1c .heatp{flex:none}
+.f1c .heat{min-height:58px}
+.f1c .hcell{min-height:46px}
+.f1c .blot{min-height:220px}
+.f1c .eqp{flex:none}
+/* schermi stretti: colonne piu' snelle */
+@media (max-width:1400px){
+  .f1c{grid-template-columns:minmax(250px,272px) minmax(0,1fr) minmax(296px,340px)}
+}
+/* sotto ~1160px di viewport effettivo (anche da zoom): la plancia si impila, la pagina scorre */
+@media (max-width:1160px){
+  .f1c{display:flex;flex-direction:column;height:auto;min-height:0}
+  .f1c .col{min-height:0;flex:none}
+  .f1c .mkchart{min-height:460px}
+  .f1c .blot{min-height:360px}
+}
+
+/* ============ F2 TEARSHEET (v3): regime ribbon + heatmap mensile ============ */
+/* banda-fonte del dato sotto il grafico TWR: ambra = serie ricostruita (chiusure),
+   verde = ufficiale (snapshot NAV). Il gradiente e' costruito runtime dai regimes. */
+:is(.f1c,.obsx) .ribx{position:relative;height:18px;margin:2px 8px 0}
+:is(.f1c,.obsx) .ribx .band{position:absolute;left:0;right:0;top:5px;height:7px}
+:is(.f1c,.obsx) .ribx .rlab{position:absolute;top:3px;font-size:8px;letter-spacing:.18em;text-transform:uppercase;white-space:nowrap;pointer-events:none}
+:is(.f1c,.obsx) .ribx .rdiv{position:absolute;top:1px;bottom:1px;width:1px;background:#21E0A0}
+/* heatmap dei rendimenti mensili (TWR GIPS): righe per anno, colonna YTD */
+:is(.f1c,.obsx) table.hmx{table-layout:fixed}
+:is(.f1c,.obsx) .hmx th{text-align:center;padding:4px 8px}
+:is(.f1c,.obsx) .hmx th:first-child{width:118px;text-align:left}
+:is(.f1c,.obsx) .hmx th.ytdh{width:150px;border-left:1px solid #2A3760}
+:is(.f1c,.obsx) .hmx td{padding:0;border:1px solid rgba(7,11,20,.95);text-align:center;height:42px;white-space:nowrap}
+:is(.f1c,.obsx) .hmx td .pv{font-size:12px;font-weight:600}
+:is(.f1c,.obsx) .hmx td .pl{font-size:8px;letter-spacing:.16em;color:rgba(236,241,250,.55);text-transform:uppercase;margin-top:1px}
+:is(.f1c,.obsx) .hmx td.rowlab{font-size:9px;letter-spacing:.12em;color:#8D9FC4;text-transform:uppercase;background:rgba(255,255,255,.015);border-right:1px solid #1A2440;text-align:left;padding-left:12px}
+:is(.f1c,.obsx) .hmx td.rowlab small{display:block;color:#73829F;font-weight:600;font-size:9px;letter-spacing:.14em}
+:is(.f1c,.obsx) .hmx td.ytdc{border-left:1px solid #2A3760}
+
+/* ============ F8 NEWS v3 (F5): SIGNAL DECK ============ */
+/* accensione sequenziale dei pannelli ("systems online"): delay per pannello
+   via --bd inline; spenta del tutto con prefers-reduced-motion */
+@keyframes obsxBoot{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+.obsx.bootx .p3{animation:obsxBoot .45s cubic-bezier(.2,.7,.3,1) both;animation-delay:var(--bd,0s)}
+@media (prefers-reduced-motion:reduce){.obsx.bootx .p3{animation:none}}
+/* scanline CRT sottilissima, SOLO sull'hero (pointer-events none, quasi invisibile) */
+:is(.f1c,.obsx) .scanx::after{content:'';position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(180deg,rgba(255,255,255,.026) 0 1px,transparent 1px 3px)}
+/* istogramma flusso per ora (24 barre, dati veri dal feed caricato) */
+:is(.f1c,.obsx) .fbx{display:flex;align-items:flex-end;gap:2px;height:26px}
+:is(.f1c,.obsx) .fbx i{flex:1;min-width:3px;display:block;background:rgba(255,165,30,.22)}
+:is(.f1c,.obsx) .fbx i.on{background:rgba(255,165,30,.62)}
+:is(.f1c,.obsx) .fbx i.now{background:#FFC555;box-shadow:0 0 6px rgba(255,197,85,.55)}
+/* matrice canali provider (LED vivo/muto + barra volume) */
+:is(.f1c,.obsx) .chx{display:flex;align-items:center;gap:6px;font-size:9px;padding:2px 0}
+:is(.f1c,.obsx) .chx .nm{width:66px;color:#8D9FC4;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0}
+:is(.f1c,.obsx) .chx .bar{flex:1;height:3px;background:rgba(26,36,64,.9);position:relative;min-width:20px}
+:is(.f1c,.obsx) .chx .bar i{position:absolute;left:0;top:0;bottom:0;background:#29D3F2}
+:is(.f1c,.obsx) .chx .ct{width:26px;text-align:right;color:#8D9FC4;flex-shrink:0}
+:is(.f1c,.obsx) .chx .mt{font-size:9px;color:#FF3D60;letter-spacing:.08em;flex-shrink:0}
+/* coda priorita' MARKET MOVING: rank numerato (ordine = materiality vera) */
+:is(.f1c,.obsx) .rkn{font-size:9px;color:#FFA51E;width:17px;flex-shrink:0;letter-spacing:.04em}
+/* RADAR SCOPE: contatti 24h su quadrante polare (SVG, ogni blip = news vera).
+   .scbox scala con l'altezza del viewport: sotto 1000/840px il quadrante si
+   stringe e lascia respirare MARKET MOVING e CANALI nella stessa colonna. */
+:is(.f1c,.obsx) .scpx .scwrap{display:flex;justify-content:center;padding:6px 0 2px}
+:is(.f1c,.obsx) .scpx .scbox{position:relative;width:244px}
+:is(.f1c,.obsx) .scpx .scbox svg{width:100%;height:auto;display:block;overflow:visible}
+@media (max-height:1000px){:is(.f1c,.obsx) .scpx .scbox{width:200px}}
+@media (max-height:840px){:is(.f1c,.obsx) .scpx .scbox{width:164px}}
+:is(.f1c,.obsx) .scpx .swp{position:absolute;left:10.7%;top:10.7%;width:78.6%;height:78.6%;border-radius:50%;pointer-events:none;background:conic-gradient(from 0deg,rgba(41,211,242,.20) 0deg,rgba(41,211,242,.06) 24deg,transparent 52deg);animation:obsxSweep 9s linear infinite}
+@keyframes obsxSweep{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){:is(.f1c,.obsx) .scpx .swp{animation:none;opacity:.3}}
+:is(.f1c,.obsx) .blip{cursor:pointer}
+:is(.f1c,.obsx) .blip.hot{filter:drop-shadow(0 0 3px rgba(255,165,30,.75))}
+:is(.f1c,.obsx) .scpx .scleg{font-size:9px;color:#73829F;font-weight:600;letter-spacing:.1em;text-transform:uppercase;padding:2px 12px 7px;text-align:center}
+/* COMM TAPE: nastro headline scorrevole (contenuto x2 per loop; hover=pausa) */
+:is(.f1c,.obsx) .tapex{height:24px;display:flex;align-items:center;overflow:hidden;border:1px solid #1A2440;background:linear-gradient(180deg,#0D1322,#0A0F1C);flex-shrink:0}
+:is(.f1c,.obsx) .tapein{display:inline-flex;align-items:center;gap:16px;white-space:nowrap;padding-left:12px;animation:obsxTape 90s linear infinite;will-change:transform}
+:is(.f1c,.obsx) .tapex:hover .tapein{animation-play-state:paused}
+@keyframes obsxTape{to{transform:translateX(-50%)}}
+@media (prefers-reduced-motion:reduce){:is(.f1c,.obsx) .tapein{animation:none}}
+:is(.f1c,.obsx) .tapein .tt{color:#73829F;font-weight:600;font-size:9px}
+:is(.f1c,.obsx) .tapein .tk{color:#D4AF37;font-size:9px;font-weight:700}
+:is(.f1c,.obsx) .tapein .tl{color:#8D9FC4;font-size:10px}
+:is(.f1c,.obsx) .tapein .sep{color:#73829F;font-weight:600;font-size:9px}
+/* viewport stretti / zoom alti (idioma F1 <1160): le colonne del wire e del desk
+   si impilano e la vista scorre â€” il nastro non si strizza mai a una parola per riga */
+@media (max-width:1100px){
+  :is(.f1c,.obsx) .nwir{flex-wrap:wrap;overflow-y:auto}
+  :is(.f1c,.obsx) .nwir .nwmain{min-width:430px;min-height:420px}
+  :is(.f1c,.obsx) .nwir .nwright{width:100%;flex-direction:row;flex:none;height:340px}
+  :is(.f1c,.obsx) .nwir .nwright>.p3{flex:1 1 0;max-height:none!important;min-width:0}
+  :is(.f1c,.obsx) .nwdesk{display:flex;flex-direction:column;overflow-y:auto}
+  :is(.f1c,.obsx) .nwdesk>*{min-height:380px;flex:none}
+}
+
+/* ============ anti-sbordamento (schermo a 1/3 di G9, zoom alti) ============ */
+/* nessun contenuto puo' uscire dal proprio pannello */
+:is(.f1c,.obsx) .p3{overflow:hidden}
+/* ...ma il taglio non deve essere MUTO. Sondata l'app viva, i soli tagli veri
+   rimasti stanno tutti sull'intestazione di pannello, che ha gia'
+   `white-space:nowrap;overflow:hidden` ma `text-overflow:clip`: il contenuto
+   non esce, viene amputato, e un taglio muto si legge come "ho mostrato tutto".
+   `min-width:0` non e' decorativo: senza, un figlio flex NON scende sotto la
+   larghezza del proprio contenuto e l'ellissi non ha modo di comparire. */
+:is(.f1c,.obsx) .p3h{text-overflow:ellipsis}
+:is(.f1c,.obsx) .p3h>*{min-width:0;overflow:hidden;text-overflow:ellipsis}
+:is(.f1c,.obsx) .tick.tl{top:0;left:0}
+:is(.f1c,.obsx) .tick.tr{top:0;right:0}
+:is(.f1c,.obsx) .tick.bl{bottom:0;left:0}
+:is(.f1c,.obsx) .tick.br{bottom:0;right:0}
+/* colonna NAV stretta: il blocco indicatori scende sotto il gauge invece di sbordare */
+:is(.f1c,.obsx) .gaugebox{flex-wrap:wrap}
+:is(.f1c,.obsx) .kside{flex:1 1 170px;min-width:170px}
+:is(.f1c,.obsx) .krow .kv{overflow:hidden;text-overflow:ellipsis;max-width:100%}
+/* tabelle: scroll orizzontale interno quando la colonna e' piu' stretta del contenuto */
+:is(.f1c,.obsx) .tscroll{overflow:auto;min-height:0}
+@media (max-width:1400px){
+  :is(.f1c,.obsx) td{padding:3px 6px}
+  :is(.f1c,.obsx) th{padding:4px 6px}
+}
+
+/* ===== F12 VOL DECK (v4 OBSIDIAN, 25/07) â€” CSS ADDITIVO, zero selettori esistenti toccati ===== */
+/* griglia: colonna strumenti a destra come F8; sotto 1160px si impila (idioma F1) */
+.obsx .vsxgrid{display:grid;grid-template-columns:minmax(0,1fr) 344px;gap:10px;align-items:start}
+@media (max-width:1160px){.obsx .vsxgrid{grid-template-columns:1fr}}
+.obsx .vsxrail{display:flex;flex-direction:column;gap:10px;min-width:0}
+.obsx .vsxsvg{width:100%;height:auto;display:block}
+/* legenda a pie' di strumento: stessa voce dei footer F8 */
+.obsx .vsxleg{font-size:9px;color:#73829F;font-weight:600;letter-spacing:.1em;text-transform:uppercase;padding:4px 10px 7px;line-height:1.7}
+/* barre inline nella tabella term structure */
+.obsx .vsxbar{display:inline-block;height:5px;background:rgba(41,211,242,.55);vertical-align:middle;border-radius:0}
+.obsx .vsxbip{display:inline-flex;width:62px;height:5px;vertical-align:middle;position:relative;background:rgba(26,36,64,.7)}
+.obsx .vsxbip>i{position:absolute;top:0;bottom:0}

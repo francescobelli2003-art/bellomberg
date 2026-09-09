@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="900" viewBox="0 0 1280 900" role="img" aria-labelledby="title desc">
+<title id="title">F18 Mandato e Diario — synthetic DEMO illustration</title>
+<desc id="desc">Original explanatory mockup, not a screenshot. All values, names, instruments and research text are invented. No user portfolio data.</desc>
+<style>text{font-family:Segoe UI,Arial,sans-serif} .mono{font-family:Consolas,monospace}</style>
+<rect x="0" y="0" width="1280" height="900" rx="0" fill="#10151d"/>
+<rect x="0" y="0" width="1280" height="64" rx="0" fill="#141c26"/>
+<text x="28" y="41" font-size="24" fill="#eef2f7" font-weight="650" text-anchor="start">Bellomberg</text>
+<text x="207" y="39" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Research terminal</text>
+<rect x="490" y="18" width="390" height="31" rx="4" fill="#10151d" stroke="#344250"/>
+<text x="504" y="39" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Cerca pagina o ticker</text>
+<text x="866" y="39" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="end">Ctrl + K</text>
+<text x="1250" y="39" font-size="13" fill="#e2bf72" font-weight="650" text-anchor="end">DEMO • Dati interamente sintetici</text>
+<rect x="0" y="64" width="1280" height="67" rx="0" fill="#18212c"/>
+<g id="navigation" aria-label="Navigation F1 to F19">
+<text x="44" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F1</text>
+<text x="44" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">DASH</text>
+<text x="110" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F2</text>
+<text x="110" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">PERF</text>
+<text x="176" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F3</text>
+<text x="176" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FAVS</text>
+<text x="242" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F4</text>
+<text x="242" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MKT</text>
+<text x="308" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F5</text>
+<text x="308" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">NEWS</text>
+<text x="374" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F6</text>
+<text x="374" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FUND</text>
+<text x="440" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F7</text>
+<text x="440" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FCTR</text>
+<text x="506" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F8</text>
+<text x="506" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MTC</text>
+<text x="572" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F9</text>
+<text x="572" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">VOLS</text>
+<text x="638" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F10</text>
+<text x="638" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">EDGE</text>
+<text x="704" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F11</text>
+<text x="704" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">CHAT</text>
+<text x="770" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F12</text>
+<text x="770" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">LIVE</text>
+<text x="836" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F13</text>
+<text x="836" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">SCORE</text>
+<text x="902" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F14</text>
+<text x="902" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MEMO</text>
+<text x="968" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F15</text>
+<text x="968" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">DECN</text>
+<text x="1034" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F16</text>
+<text x="1034" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">TRADE</text>
+<text x="1100" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F17</text>
+<text x="1100" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MOVES</text>
+<rect x="1134" y="68" width="64" height="59" rx="3" fill="#2c3541"/>
+<rect x="1134" y="125" width="64" height="3" rx="0" fill="#e2bf72"/>
+<text x="1166" y="87" font-size="12" fill="#e2bf72" font-weight="400" text-anchor="middle">F18</text>
+<text x="1166" y="111" font-size="12" fill="#eef2f7" font-weight="600" text-anchor="middle">MNDT</text>
+<text x="1232" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F19</text>
+<text x="1232" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">CONFIG</text>
+</g>
+<line x1="0" y1="132" x2="1280" y2="132" stroke="#344250" stroke-width="1"/>
+<text x="28.0" y="172" font-size="30" fill="#eef2f7" font-weight="650" text-anchor="start">Mandato e Diario</text>
+<text x="28.0" y="202" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Le tue regole e la storia delle tue tesi</text>
+<text x="28.0" y="864" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">DEMO  /  Illustration only. Not a screenshot, recommendation or measured result.</text>
+<rect x="28.0" y="230" width="195.0597609561753" height="30" rx="4" fill="#24303c"/>
+<text x="42.62948207171315" y="250" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Mandato</text>
+<rect x="237.68924302788844" y="230" width="176.77290836653387" height="30" rx="4" fill="#24303c"/>
+<text x="252.3187250996016" y="250" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">Diario</text>
+<rect x="28.0" y="280" width="348.66932270916334" height="548" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="49.94422310756972" y="310" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Le tue note</text>
+<rect x="52.38247011952191" y="340" width="298.68525896414343" height="30" rx="4" fill="#24303c"/>
+<text x="67.01195219123505" y="360" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">+ Nuova nota</text>
+<text x="52.38247011952191" y="422" font-size="19" fill="#e2bf72" font-weight="600" text-anchor="start">Demo equity A</text>
+<text x="52.38247011952191" y="454" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Tesi titolo • versione 3</text>
+<text x="52.38247011952191" y="492" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Origine: utente</text>
+<text x="52.38247011952191" y="530" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start"></text>
+<text x="52.38247011952191" y="568" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Scenario macro</text>
+<text x="52.38247011952191" y="606" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Nota • versione 1</text>
+<text x="52.38247011952191" y="644" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start"></text>
+<text x="52.38247011952191" y="682" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Mostra archiviate</text>
+<rect x="401.0517928286853" y="280" width="850.9482071713147" height="548" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="422.996015936255" y="310" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Tesi e revisioni • DEMO</text>
+<text x="430.31075697211156" y="349" font-size="24" fill="#eef2f7" font-weight="600" text-anchor="start">La condizione che cambia la tesi</text>
+<text x="430.31075697211156" y="382" font-size="14" fill="#e2bf72" font-weight="400" text-anchor="start">SYN-A   •   Tesi titolo   •   Versione 3</text>
+<text x="430.31075697211156" y="435" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">La societa e inventata. Il testo illustra un metodo:</text>
+<text x="430.31075697211156" y="468" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start"></text>
+<text x="430.31075697211156" y="501" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Tesi: spiegare quale ipotesi sto facendo.</text>
+<text x="430.31075697211156" y="534" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Evidenza: distinguere fatti e interpretazioni.</text>
+<text x="430.31075697211156" y="567" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Invalidazione: scrivere cosa mi farebbe cambiare idea.</text>
+<text x="430.31075697211156" y="600" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start"></text>
+<text x="430.31075697211156" y="633" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Le note non vengono inviate automaticamente agli agenti.</text>
+<line x1="430.31075697211156" y1="680" x2="1221.5219123505976" y2="680" stroke="#344250" stroke-width="1"/>
+<text x="430.31075697211156" y="717" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Storico: v1 → v2 → v3</text>
+<rect x="430.31075697211156" y="759" width="225.5378486055777" height="30" rx="4" fill="#24303c"/>
+<text x="444.9402390438247" y="779" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">Salva versione</text>
+<rect x="676.5737051792829" y="759" width="182.86852589641435" height="30" rx="4" fill="#24303c"/>
+<text x="691.203187250996" y="779" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Cronologia</text>
+<rect x="880.1673306772908" y="759" width="170.67729083665338" height="30" rx="4" fill="#24303c"/>
+<text x="894.796812749004" y="779" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Archivia</text>
+</svg>

@@ -1,0 +1,28 @@
+{
+  "_leggimi": "Copia questo file in data/fonti_guidance.json e mettici le TUE fonti. Il file in data/ e' privato e non viene mai pubblicato. I simboli qui sotto sono inventati.",
+  "ACME.MI": {
+    "nome": "Acme Manifatture SpA",
+    "tipo": "equity",
+    "ir_url": "https://example.invalid/investors",
+    "calendario_url": "https://example.invalid/investors/calendar",
+    "next_report_date": null,
+    "next_report_source": null,
+    "verificato_il": null,
+    "note": "voce di esempio: nessuna data, quindi finisce in con_fonte_senza_data"
+  },
+  "BETA.DE": {
+    "nome": "Beta Industrie AG",
+    "tipo": "equity",
+    "ir_url": "https://example.invalid/beta/investors",
+    "calendario_url": "https://example.invalid/beta/investors/calendar",
+    "next_report_date": "2026-11-05",
+    "next_report_source": "calendario finanziario IR di example.invalid",
+    "verificato_il": "2026-09-04",
+    "note": "voce di esempio con la data COMPLETA: una data viaggia SEMPRE con la sua fonte e col giorno in cui e' stata verificata, altrimenti e' un segnaposto. Questa voce e' anche cio' che il test d'igiene misura in un clone, dove il negozio privato non c'e'."
+  },
+  "ORO.MI": {
+    "nome": "Oro Fisico ETC",
+    "tipo": "etc",
+    "note": "tipo non applicabile: nessuna trimestrale da attendere"
+  }
+}

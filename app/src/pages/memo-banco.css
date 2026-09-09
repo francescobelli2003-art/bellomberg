@@ -1,0 +1,262 @@
+/* ============================================================
+   F9 v3 "IL BANCO DI LETTURA" — impianto scelto dal PM 27/07 sui
+   PNG di mockup_f9_memo (opzione B, contro A "la carta dell'archivio"
+   e C "l'interrogatorio").
+
+   Il difetto n.1 di F9 era che l'archivio dei memo NON faceva leggere
+   un memo: 59 righe che rendevano titolo, data e due link su 536.846
+   caratteri di testo. Qui il memo si legge per intero.
+
+   Il vestito comune (.p3 .p3h .tick .chip .col .num) arriva da
+   dashboard-command.css sotto .obsx: in questo file SOLO cio' che e'
+   di F9, tutto scoped sotto .f9b.
+
+   Coppia tipografica: JetBrains Mono per struttura e numeri, Inter per
+   la PROSA del memo. Colori: i tre gradini del lotto 0 — dato #ECF1FA,
+   etichetta #8D9FC4, nota #73829F sempre in peso 600 e mai sotto 9px.
+   ============================================================ */
+.f9b{display:flex;flex-direction:column;gap:8px;height:100%;min-height:0;
+  font-family:'JetBrains Mono',monospace}
+
+/* ── barra d'assetto ─────────────────────────────────────── */
+.f9b .bar{display:flex;align-items:center;gap:9px;padding:6px 11px;border:1px solid #1A2440;
+  background:linear-gradient(180deg,#0D1322,#0A0F1C);flex-shrink:0;flex-wrap:wrap}
+.f9b .bar .lab{font-size:10px;letter-spacing:.24em;color:#FFA51E;text-transform:uppercase;font-weight:700}
+.f9b .bar .sep{width:1px;height:13px;background:#1A2440;flex-shrink:0}
+/* ⚠ TRIAGE 03/08 (lotto chiarezza, scala di F6): etichette 9→10, dati 11→12,
+   note/messaggi che si leggono 10→12. A 9px resta SOLO la minuteria che annota
+   un numero piu' grande accanto (.verd .cap sotto il 34px). Ordine PM 27/07. */
+.f9b .bar .k{font-size:10px;letter-spacing:.14em;color:#73829F;font-weight:600;text-transform:uppercase}
+.f9b .bar .v{font-size:12px;color:#8D9FC4}
+.f9b .bar .v b{color:#ECF1FA;font-weight:600}
+.f9b .bar .ko{color:#FF3D60;font-weight:600}
+
+/* il richiamo alla ricerca: NON e' decorativo, apre l'overlay */
+.f9b .qcall{display:flex;align-items:center;gap:9px;padding:0 11px;height:26px;flex:1;
+  max-width:460px;border:1px solid #2A3760;background:#04060B;cursor:pointer}
+.f9b .qcall:hover{border-color:#3D4F8A}
+.f9b .qcall .ph{font-size:12px;color:#73829F;font-weight:600;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.f9b .qcall .kb{margin-left:auto;font-size:10px;color:#73829F;font-weight:600;letter-spacing:.1em;flex-shrink:0}
+
+/* ── corpo a tre colonne ─────────────────────────────────── */
+.f9b .body{display:flex;gap:8px;flex:1;min-height:0}
+.f9b .cIdx{width:clamp(250px,17vw,330px);flex-shrink:0;display:flex;flex-direction:column;gap:8px;min-height:0}
+.f9b .cMid{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
+.f9b .cDx{width:clamp(330px,22vw,440px);flex-shrink:0;display:flex;flex-direction:column;gap:8px;min-height:0}
+.f9b .scroll{overflow-y:auto;min-height:0}
+.f9b .scroll::-webkit-scrollbar{width:7px}
+.f9b .scroll::-webkit-scrollbar-track{background:#04060B}
+.f9b .scroll::-webkit-scrollbar-thumb{background:#22304F;border:1px solid #1A2440}
+
+/* ── indice dell'archivio ────────────────────────────────── */
+.f9b .mr{display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;
+  border-bottom:1px solid rgba(26,36,64,.55);border-left:2px solid transparent}
+.f9b .mr:hover{background:rgba(255,255,255,.022)}
+.f9b .mr.on{background:rgba(255,165,30,.08);border-left-color:#FFA51E}
+.f9b .mr .id{font-size:12px;font-weight:700;color:#FFA51E;width:26px;flex-shrink:0}
+.f9b .mr .mid{flex:1;min-width:0}
+.f9b .mr .dt{font-size:12px;color:#ECF1FA}
+/* la riga di dettaglio del memo e' un'ETICHETTA, non una nota: col grigio
+   della nota su una riga selezionata (fondo ambra all'8%) scende a 4,24:1
+   nominali, sotto la soglia. Misurato dal cancello, non stimato. */
+.f9b .mr .sub{font-size:10px;font-weight:600;color:#8D9FC4;margin-top:1px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.f9b .mr .nv{font-size:12px;color:#8D9FC4;text-align:right;flex-shrink:0}
+/* nastro degli esiti: una tacca per decisione, la stessa scala della tabella */
+.f9b .mr .nast{display:flex;height:4px;width:76px;margin-top:3px;gap:1px}
+.f9b .mr .nast i{display:block;height:4px;flex:1;border:1px solid}
+
+/* le run fallite: dichiarate SOTTO l'indice, mai taciute */
+.f9b .vuoti{padding:8px 10px;border-top:1px solid #1A2440;font-size:12px;
+  font-weight:600;color:#73829F;line-height:1.5;flex-shrink:0}
+.f9b .vuoti b{color:#FF3D60}
+
+/* ── la ACTION TABLE come STRUMENTO ──────────────────────── */
+/* ogni riga del memo porta accanto l'esito VERO della decisione che ne e'
+   nata: l'aggancio (memo_id, ticker, azione) tiene su 187 righe su 189,
+   e le 2 che non tengono lo scrivono invece di inventare un esito */
+/* ATTENZIONE: dashboard-command.css:106 impone `td{white-space:nowrap}` a
+   TUTTE le tabelle sotto .obsx. Va bene per una plancia di numeri corti, non
+   per un memo: qui dentro ci sono frasi intere, e senza questo scavalco
+   sbordano dalla loro colonna (misurato dal cancello: fino a 373px fuori). */
+.f9b table.at{border-collapse:collapse;width:100%;table-layout:fixed}
+/* e la riga 100 dello stesso file allinea a DESTRA tutte le td: giusto su una
+   plancia di numeri, sbagliato su una tabella di parole — il timing finiva
+   incollato alla colonna dopo, con un buco di 2.000px davanti */
+.f9b .at th,.f9b .at td,.f9b .doc .mdtab th,.f9b .doc .mdtab td{white-space:normal;text-align:left}
+.f9b .at td.eur{text-align:right}
+.f9b .at th{font-size:10px;font-weight:600;letter-spacing:.16em;color:#73829F;
+  text-transform:uppercase;text-align:left;padding:4px 9px;border-bottom:1px solid #1A2440}
+.f9b .at td{font-size:12px;padding:4px 9px;color:#8D9FC4;
+  border-bottom:1px solid rgba(26,36,64,.55);vertical-align:top}
+.f9b .at tr:hover td{background:rgba(255,255,255,.02)}
+.f9b .at tr.evap td{background:rgba(160,24,56,.06)}
+.f9b .at td.ac{font-weight:700;letter-spacing:.09em;font-size:10px;color:#8D9FC4}
+.f9b .at td.tk{color:#ECF1FA;font-weight:600;font-size:12px}
+/* la cella EUR porta anche stringhe come "~800 (debito netto)": va lasciata
+   andare a capo, altrimenti sborda a destra fuori dalla sua colonna */
+.f9b .at td.eur{text-align:right;color:#ECF1FA;font-variant-numeric:tabular-nums;
+  white-space:normal;overflow-wrap:anywhere}
+.f9b .at col.cAc{width:82px} .f9b .at col.cTk{width:108px}
+.f9b .at col.cEur{width:132px} .f9b .at col.cTm{width:380px}
+.f9b .at col.cCf{width:88px} .f9b .at col.cEs{width:156px}
+.f9b .at td{overflow-wrap:anywhere}
+.f9b .esito{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:700;letter-spacing:.1em}
+.f9b .esito i{width:9px;height:9px;border:1px solid;flex-shrink:0}
+
+/* la campitura degli esiti, una sola in tutta la pagina.
+   EXPIRED e' CAVA apposta: "non e' successo niente" si disegna col vuoto,
+   non con un colore triste. Un memo tutto cavo si vede da tre metri. */
+.f9b .ex-EXECUTED{background:#21E0A0;border-color:#21E0A0}
+.f9b .ex-PARTIAL {background:#D4AF37;border-color:#D4AF37}
+.f9b .ex-PENDING {background:#FFA51E;border-color:#FFA51E}
+.f9b .ex-SKIPPED {background:#5A6B92;border-color:#5A6B92}
+.f9b .ex-EXPIRED {background:transparent;border-color:#A01838}
+.f9b .ex-NONE    {background:transparent;border-color:#3D4763}
+
+/* ── spina delle sezioni ─────────────────────────────────── */
+.f9b .rail{width:clamp(168px,12vw,232px);flex-shrink:0}
+.f9b .sz{display:block;width:100%;text-align:left;background:none;border:0;
+  padding:4px 10px;font:400 10px 'JetBrains Mono',monospace;color:#8D9FC4;cursor:pointer;
+  border-left:2px solid transparent;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.f9b .sz:hover{background:rgba(255,255,255,.022)}
+.f9b .sz.h3{padding-left:24px;font-size:10px;font-weight:600;color:#73829F}
+.f9b .sz.on{border-left-color:#FFA51E;color:#FFA51E;background:rgba(255,165,30,.06)}
+
+/* ── il corpo del memo ───────────────────────────────────── */
+/* Su un 49" una colonna di lettura sola lascia nero mezzo schermo, e una riga
+   larga 3.000px non si legge: il memo scorre come un giornale — UNA colonna
+   sul terzo di schermo, fino a TRE sull'intero (`columns` fa da se' il conto).
+   Tabelle, elenchi e titoli non si spezzano fra due colonne. */
+.f9b .doc{padding:14px 24px 26px;columns:680px 3;column-gap:32px;column-rule:1px solid #1A2440}
+.f9b .doc h2{font:600 17px 'JetBrains Mono',monospace;letter-spacing:.14em;text-transform:uppercase;
+  color:#FFA51E;margin:20px 0 9px;padding-bottom:5px;border-bottom:1px solid #1A2440;break-after:avoid}
+.f9b .doc h2:first-child{margin-top:0}
+.f9b .doc h3{font:600 14px 'JetBrains Mono',monospace;letter-spacing:.04em;color:#29D3F2;
+  margin:16px 0 6px;break-after:avoid}
+.f9b .doc p{font:400 12px/1.68 'Inter','Segoe UI',system-ui,sans-serif;color:#8D9FC4;margin:0 0 9px}
+.f9b .doc strong{color:#ECF1FA;font-weight:600}
+.f9b .doc .mdul{margin:0 0 9px;padding-left:18px;break-inside:avoid}
+.f9b .doc .mdul li{font:400 12px/1.62 'Inter','Segoe UI',system-ui,sans-serif;color:#8D9FC4;margin:0 0 4px}
+/* le tabelle dentro il memo (Tabella Scenari) sono larghe: incolonnate a
+   larghezza fissa non possono sfondare la colonna e portarsi dietro una
+   barra di scorrimento orizzontale su tutto il documento */
+.f9b .doc .mdtab{border-collapse:collapse;width:100%;max-width:100%;table-layout:fixed;
+  margin:6px 0 12px;break-inside:avoid}
+.f9b .doc .mdtab th,.f9b .doc .mdtab td{overflow-wrap:anywhere}
+.f9b .doc .mdtab th{font-size:10px;font-weight:600;letter-spacing:.14em;color:#73829F;
+  text-transform:uppercase;text-align:left;padding:4px 8px;border-bottom:1px solid #1A2440}
+.f9b .doc .mdtab td{font-size:12px;padding:4px 8px;color:#8D9FC4;border-bottom:1px solid rgba(26,36,64,.5)}
+/* i due rimandi della lingua di casa, resi come oggetti */
+.f9b .mdsrc{display:inline-block;font:600 10px 'JetBrains Mono',monospace;letter-spacing:.06em;
+  color:#29D3F2;border:1px solid rgba(41,211,242,.32);background:rgba(41,211,242,.06);
+  padding:0 5px;margin:0 2px}
+.f9b .mdref{display:inline-block;font:700 10px 'JetBrains Mono',monospace;color:#FFA51E;
+  border-bottom:1px solid rgba(255,165,30,.45);margin:0 1px}
+
+/* ── verdetto del memo ───────────────────────────────────── */
+.f9b .verd{padding:11px 13px}
+.f9b .verd .big{font:700 34px 'JetBrains Mono',monospace;color:#ECF1FA;line-height:1;
+  font-variant-numeric:tabular-nums}
+.f9b .verd .big em{font-style:normal;font-size:17px;color:#73829F;font-weight:600}
+/* UNICO 9px superstite del triage 03/08: minuteria che annota il 34px sopra
+   di se' (il modello e' .eta di F6, 9px accanto a 17px). */
+.f9b .verd .cap{font-size:9px;font-weight:600;letter-spacing:.16em;color:#73829F;
+  text-transform:uppercase;margin-top:3px}
+.f9b .stk{display:flex;height:15px;margin:11px 0 6px;gap:1px}
+.f9b .stk i{display:block;height:15px;border:1px solid}
+.f9b .stkleg{display:flex;flex-wrap:wrap;gap:9px}
+.f9b .stkleg span{display:flex;align-items:center;gap:5px;font-size:10px;font-weight:600;
+  letter-spacing:.08em;color:#8D9FC4}
+.f9b .stkleg i{width:8px;height:8px;border:1px solid;flex-shrink:0}
+
+/* ── corredo ─────────────────────────────────────────────── */
+.f9b .kv{display:flex;align-items:baseline;gap:9px;padding:4px 13px;
+  border-bottom:1px solid rgba(26,36,64,.5)}
+/* 120 e non 106: a 10px la chiave piu' lunga («Esito di mercato», 16 char
+   mono a 6px + .13em) misura ~117px — con 106 sborderebbe sul valore. */
+.f9b .kv .k{font-size:10px;font-weight:600;letter-spacing:.13em;color:#73829F;
+  text-transform:uppercase;width:120px;flex-shrink:0}
+.f9b .kv .v{font-size:12px;color:#ECF1FA;font-variant-numeric:tabular-nums;min-width:0}
+.f9b .kv .v em{font-style:normal;color:#73829F;font-weight:600}
+.f9b .file{display:flex;align-items:center;gap:7px;padding:3px 13px;font-size:12px;color:#8D9FC4}
+.f9b .file .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.f9b .file .fg{font-size:10px;font-weight:700;color:#FF3D60;letter-spacing:.1em;flex-shrink:0}
+.f9b .nota{padding:8px 13px;font-size:12px;font-weight:600;color:#73829F;line-height:1.55;
+  border-top:1px solid #1A2440}
+.f9b .nota b{color:#FFA51E;font-weight:700}
+.f9b .apri{display:flex;gap:7px;padding:9px 13px}
+.f9b .apri a,.f9b .apri .off{flex:1;text-align:center;font-size:10px;font-weight:700;
+  letter-spacing:.12em;padding:6px;border:1px solid rgba(255,165,30,.42);color:#FFA51E;
+  background:rgba(255,165,30,.07);text-decoration:none}
+.f9b .apri a:hover{background:rgba(255,165,30,.14)}
+.f9b .apri .off{border-color:#2A3760;color:#73829F;background:rgba(255,255,255,.02);cursor:default}
+
+/* ── catena di custodia: su cosa si regge il memo ────────── */
+.f9b .srcrow{display:flex;align-items:center;gap:8px;padding:4px 13px;
+  border-bottom:1px solid rgba(26,36,64,.5)}
+.f9b .srcrow .nm{font-size:12px;color:#9B7BFF;flex:1;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.f9b .srcrow .bb{height:7px;background:rgba(155,123,255,.30);
+  border:1px solid rgba(155,123,255,.55);flex-shrink:0}
+.f9b .srcrow .ct{font-size:12px;color:#ECF1FA;width:24px;text-align:right;flex-shrink:0;
+  font-variant-numeric:tabular-nums}
+
+/* le targhette .side dei riquadri portano numeri che si LEGGONO (57.700 CHAR,
+   14 RIGHE, 68 CITAZIONI): a 9px sul gradino nota il tratto non arriva mai al
+   colore pieno — misurato dal cancello 4,25-4,50:1 su nominale 4,62 (la firma
+   di F3). Salgono a 10px sul gradino etichetta, SOLO dentro F9: la riga 20 di
+   dashboard-command.css e' condivisa e non si tocca da qui. */
+.f9b .p3h .side{font-size:10px;color:#8D9FC4}
+
+/* ── LA RICERCA (CTRL+K) ─────────────────────────────────── */
+/* interroga i chunk gia' embeddati e riporta al memo: /memos/search
+   esisteva da sempre e non lo chiamava nessuno */
+.f9b-scrim{position:fixed;inset:0;z-index:60;background:rgba(3,4,7,.80);
+  display:flex;align-items:flex-start;justify-content:center;padding-top:min(88px,9vh)}
+.f9b-modal{width:min(1180px,88vw);max-height:calc(100vh - 176px);display:flex;flex-direction:column;
+  background:linear-gradient(180deg,#0D1322,#080D18);border:1px solid #2A3760;
+  box-shadow:0 30px 90px rgba(0,0,0,.66),inset 0 1px 0 rgba(255,255,255,.05);
+  font-family:'JetBrains Mono',monospace}
+.f9b-modal .mh{display:flex;align-items:center;gap:10px;padding:0 16px;height:26px;flex-shrink:0;
+  border-bottom:1px solid #1A2440;font-size:10px;font-weight:600;letter-spacing:.22em;
+  text-transform:uppercase;color:#29D3F2}
+.f9b-modal .mh .side{margin-left:auto;color:#73829F;letter-spacing:.1em}
+.f9b-modal .mq{display:flex;align-items:center;gap:12px;padding:15px 20px 13px;flex-shrink:0}
+.f9b-modal .mq input{flex:1;min-width:0;background:transparent;border:0;outline:0;
+  font:400 22px 'JetBrains Mono',monospace;color:#ECF1FA;caret-color:#29D3F2}
+.f9b-modal .mq input::placeholder{color:#73829F;font-weight:600}
+.f9b-modal .mq .ms{font-size:12px;font-weight:600;color:#73829F;white-space:nowrap;flex-shrink:0}
+.f9b-modal .mq .ms b{color:#29D3F2;font-weight:700}
+.f9b-modal .masse{width:100%;height:104px;display:block;flex-shrink:0;
+  border-top:1px solid #1A2440;border-bottom:1px solid #1A2440}
+.f9b-modal .mres{overflow-y:auto;min-height:0}
+.f9b-modal .mres::-webkit-scrollbar{width:7px}
+.f9b-modal .mres::-webkit-scrollbar-track{background:#04060B}
+.f9b-modal .mres::-webkit-scrollbar-thumb{background:#22304F;border:1px solid #1A2440}
+.f9b-modal .mhit{display:flex;gap:14px;padding:9px 20px;cursor:pointer;
+  border-bottom:1px solid rgba(26,36,64,.55);border-left:2px solid transparent}
+.f9b-modal .mhit:hover{background:rgba(255,255,255,.022)}
+.f9b-modal .mhit.on{background:rgba(41,211,242,.08);border-left-color:#29D3F2}
+.f9b-modal .mhit .lft{width:134px;flex-shrink:0}
+.f9b-modal .mhit .mm{font-size:12px;font-weight:700;color:#29D3F2}
+.f9b-modal .mhit .dt{font-size:12px;color:#8D9FC4;margin-top:1px}
+.f9b-modal .mhit .ds{font-size:12px;color:#ECF1FA;margin-top:3px;font-variant-numeric:tabular-nums}
+.f9b-modal .mhit .rul{height:4px;margin-top:4px;background:rgba(26,36,64,.9)}
+.f9b-modal .mhit .rul i{display:block;height:4px;background:#29D3F2}
+.f9b-modal .mhit .sn{font:400 12px/1.58 'Inter','Segoe UI',system-ui,sans-serif;color:#8D9FC4;
+  flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.f9b-modal .mhit.on .sn{color:#ECF1FA}
+.f9b-modal .mf{display:flex;gap:18px;padding:8px 20px;flex-shrink:0;border-top:1px solid #1A2440;flex-wrap:wrap}
+.f9b-modal .mf span{font-size:10px;font-weight:600;letter-spacing:.1em;color:#73829F}
+.f9b-modal .mf b{color:#8D9FC4;font-weight:700}
+.f9b-modal .mvuoto{padding:22px 20px;font-size:12px;font-weight:600;color:#73829F;line-height:1.6}
+.f9b-modal .mvuoto b{color:#FF3D60}
+
+/* schermi bassi (49" al 150%: 960px logici): il modale non deve sfondare */
+@media (max-height:1000px){
+  .f9b-scrim{padding-top:34px}
+  .f9b-modal{max-height:calc(100vh - 68px)}
+  .f9b-modal .masse{height:88px}
+}

@@ -1,0 +1,10 @@
+{
+  "_leggimi": "Copia questo file in data/news_topics_tickers.json e mettici i TUOI temi. Il file in data/ e' privato e non viene mai pubblicato. Ogni voce e' ID DI UN TEMA di news_topics.TOPICS -> lista dei TUOI titoli che quel tema muove: e' la mappa che il news aggregator usa per attaccare i titoli alle notizie del tema, e che finisce nel payload dei desk. La chiave e' l'id del tema come sta nel registro, cioe' uno slug MINUSCOLO (`fed`, `oil`, ...): il lookup confronta `t['id']`, e una chiave maiuscola non verrebbe MAI trovata. I valori sono simboli MAIUSCOLI, senza spazi, senza doppioni, lista non vuota (per togliere un legame si toglie la voce, non si lascia la lista vuota). Negozio assente o illeggibile: NESSUN titolo viene attaccato a nessuna notizia, e la cosa si DICHIARA — `providers_blocked()` la porta fra le fonti mute, quindi il modello dei desk la vede accanto alle notizie invece di dedurre calma dal silenzio, e la NewsPage la rende come canale a 0 col suo motivo. Una voce il cui id non e' piu' un tema del registro viene dichiarata da `news_topics.temi_senza_riscontro()`: un legame che non si applica piu' a niente non deve sparire zitto. Le chiavi con `_` davanti sono note. Gli id e i simboli qui sotto sono INVENTATI.",
+  "tema_di_esempio": [
+    "KRYPTO",
+    "GAMMA.MI"
+  ],
+  "altro_tema_di_esempio": [
+    "KRYPTO"
+  ]
+}

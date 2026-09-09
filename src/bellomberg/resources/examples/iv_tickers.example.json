@@ -1,0 +1,7 @@
+{
+  "_leggimi": "Copia questo file in data/iv_tickers.json e mettici i TUOI simboli. Il file in data/ e' privato e non viene mai pubblicato. `tickers`: la lista DICHIARATA dei simboli di cui si fotografa ogni giorno la volatilita' implicita (iv_history) e su cui vol_cone risponde; un simbolo fuori lista e' un errore dichiarato, non un dato. Un benchmark di mercato ci sta bene accanto ai simboli con opzioni in book. Negozio assente = lista vuota dichiarata: nessuna foto e nessun cono.",
+  "tickers": [
+    "SPY",
+    "ACME"
+  ]
+}

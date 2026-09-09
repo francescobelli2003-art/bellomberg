@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="900" viewBox="0 0 1280 900" role="img" aria-labelledby="title desc">
+<title id="title">F9 Vol Deck — synthetic DEMO illustration</title>
+<desc id="desc">Original explanatory mockup, not a screenshot. All values, names, instruments and research text are invented. No user portfolio data.</desc>
+<style>text{font-family:Segoe UI,Arial,sans-serif} .mono{font-family:Consolas,monospace}</style>
+<rect x="0" y="0" width="1280" height="900" rx="0" fill="#10151d"/>
+<rect x="0" y="0" width="1280" height="64" rx="0" fill="#141c26"/>
+<text x="28" y="41" font-size="24" fill="#eef2f7" font-weight="650" text-anchor="start">Bellomberg</text>
+<text x="207" y="39" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Research terminal</text>
+<rect x="490" y="18" width="390" height="31" rx="4" fill="#10151d" stroke="#344250"/>
+<text x="504" y="39" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Cerca pagina o ticker</text>
+<text x="866" y="39" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="end">Ctrl + K</text>
+<text x="1250" y="39" font-size="13" fill="#e2bf72" font-weight="650" text-anchor="end">DEMO • Dati interamente sintetici</text>
+<rect x="0" y="64" width="1280" height="67" rx="0" fill="#18212c"/>
+<g id="navigation" aria-label="Navigation F1 to F19">
+<text x="44" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F1</text>
+<text x="44" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">DASH</text>
+<text x="110" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F2</text>
+<text x="110" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">PERF</text>
+<text x="176" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F3</text>
+<text x="176" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FAVS</text>
+<text x="242" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F4</text>
+<text x="242" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MKT</text>
+<text x="308" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F5</text>
+<text x="308" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">NEWS</text>
+<text x="374" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F6</text>
+<text x="374" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FUND</text>
+<text x="440" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F7</text>
+<text x="440" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FCTR</text>
+<text x="506" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F8</text>
+<text x="506" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MTC</text>
+<rect x="540" y="68" width="64" height="59" rx="3" fill="#2c3541"/>
+<rect x="540" y="125" width="64" height="3" rx="0" fill="#e2bf72"/>
+<text x="572" y="87" font-size="12" fill="#e2bf72" font-weight="400" text-anchor="middle">F9</text>
+<text x="572" y="111" font-size="12" fill="#eef2f7" font-weight="600" text-anchor="middle">VOLS</text>
+<text x="638" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F10</text>
+<text x="638" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">EDGE</text>
+<text x="704" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F11</text>
+<text x="704" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">CHAT</text>
+<text x="770" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F12</text>
+<text x="770" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">LIVE</text>
+<text x="836" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F13</text>
+<text x="836" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">SCORE</text>
+<text x="902" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F14</text>
+<text x="902" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MEMO</text>
+<text x="968" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F15</text>
+<text x="968" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">DECN</text>
+<text x="1034" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F16</text>
+<text x="1034" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">TRADE</text>
+<text x="1100" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F17</text>
+<text x="1100" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MOVES</text>
+<text x="1166" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F18</text>
+<text x="1166" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MNDT</text>
+<text x="1232" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F19</text>
+<text x="1232" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">CONFIG</text>
+</g>
+<line x1="0" y1="132" x2="1280" y2="132" stroke="#344250" stroke-width="1"/>
+<text x="28.0" y="172" font-size="30" fill="#eef2f7" font-weight="650" text-anchor="start">Vol Deck</text>
+<text x="28.0" y="202" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Scadenze, greche e laboratorio strategie</text>
+<text x="28.0" y="864" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">DEMO  /  Illustration only. Not a screenshot, recommendation or measured result.</text>
+<rect x="28.0" y="230" width="243.82470119521912" height="30" rx="4" fill="#24303c"/>
+<text x="42.62948207171315" y="250" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">Ticker: SYN-A</text>
+<rect x="284.0159362549801" y="230" width="188.9641434262948" height="30" rx="4" fill="#24303c"/>
+<text x="298.64541832669323" y="250" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">CATALOGO</text>
+<rect x="792.390438247012" y="230" width="231.63346613545818" height="30" rx="4" fill="#24303c"/>
+<text x="807.0199203187251" y="250" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">Chain–Strategie</text>
+<rect x="28.0" y="278" width="1224.0" height="140" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="49.94422310756972" y="308" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Scadenze e copertura</text>
+<rect x="52.38247011952191" y="329" width="262.1115537848606" height="30" rx="4" fill="#24303c"/>
+<text x="67.01195219123505" y="349" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">0 DTE</text>
+<text x="62.135458167330675" y="386" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start">Fuori mesh</text>
+<rect x="347.41035856573706" y="329" width="262.1115537848606" height="30" rx="4" fill="#24303c"/>
+<text x="362.0398406374502" y="349" font-size="13" fill="#63cddb" font-weight="600" text-anchor="start">14 DTE</text>
+<text x="357.1633466135458" y="386" font-size="14" fill="#63cddb" font-weight="400" text-anchor="start">Caricata</text>
+<rect x="642.4382470119522" y="329" width="262.1115537848606" height="30" rx="4" fill="#24303c"/>
+<text x="657.0677290836653" y="349" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">35 DTE</text>
+<text x="652.191235059761" y="386" font-size="14" fill="#e2bf72" font-weight="400" text-anchor="start">Parziale</text>
+<rect x="937.4661354581673" y="329" width="262.1115537848606" height="30" rx="4" fill="#24303c"/>
+<text x="952.0956175298804" y="349" font-size="13" fill="#e89999" font-weight="600" text-anchor="start">63 DTE</text>
+<text x="947.2191235059761" y="386" font-size="14" fill="#e89999" font-weight="400" text-anchor="start">Errore fonte</text>
+<rect x="28.0" y="438" width="502.2788844621514" height="390" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="49.94422310756972" y="468" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Gambe • DEMO</text>
+<text x="52.38247011952191" y="505" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Lato</text>
+<text x="154.78884462151393" y="505" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Tipo</text>
+<text x="262.0717131474104" y="505" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Strike</text>
+<text x="366.9163346613546" y="505" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Premio</text>
+<line x1="52.38247011952191" y1="519" x2="493.7051792828685" y2="519" stroke="#344250" stroke-width="1"/>
+<text x="52.38247011952191" y="551" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Buy</text>
+<text x="154.78884462151393" y="551" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Call</text>
+<text x="262.0717131474104" y="551" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">100</text>
+<text x="366.9163346613546" y="551" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">6</text>
+<line x1="52.38247011952191" y1="566" x2="493.7051792828685" y2="566" stroke="#344250" stroke-width="1"/>
+<text x="52.38247011952191" y="598" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Sell</text>
+<text x="154.78884462151393" y="598" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Call</text>
+<text x="262.0717131474104" y="598" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">110</text>
+<text x="366.9163346613546" y="598" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">2</text>
+<line x1="52.38247011952191" y1="613" x2="493.7051792828685" y2="613" stroke="#344250" stroke-width="1"/>
+<text x="52.38247011952191" y="674" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start">Dati sintetici: moltiplicatore 100</text>
+<text x="52.38247011952191" y="701" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start">Premio per unita • stessa scadenza</text>
+<text x="52.38247011952191" y="728" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start"></text>
+<text x="52.38247011952191" y="755" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start">Greche: ispeziona ogni contratto</text>
+<text x="52.38247011952191" y="782" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start">Fonti e timestamp restano separati</text>
+<rect x="554.6613545816733" y="438" width="697.3386454183267" height="390" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="576.605577689243" y="468" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Laboratorio strategie</text>
+<line x1="594.8924302788845" y1="525" x2="1209.3306772908365" y2="525" stroke="#344250" stroke-width="1"/>
+<line x1="594.8924302788845" y1="575" x2="1209.3306772908365" y2="575" stroke="#344250" stroke-width="1"/>
+<line x1="594.8924302788845" y1="625" x2="1209.3306772908365" y2="625" stroke="#344250" stroke-width="1"/>
+<line x1="594.8924302788845" y1="675" x2="1209.3306772908365" y2="675" stroke="#344250" stroke-width="1"/>
+<line x1="594.8924302788845" y1="625" x2="1209.3306772908365" y2="625" stroke="#adbac9" stroke-width="1"/>
+<polyline points="594.9,705.0 816.8,705.0 1017.9,511.0 1209.3,511.0" fill="none" stroke="#e2bf72" stroke-width="4"/>
+<polyline points="594.9,694.0 676.6,689.0 757.0,673.0 838.7,631.0 920.4,580.0 1000.9,543.0 1082.5,527.0 1209.3,522.0" fill="none" stroke="#63cddb" stroke-width="3"/>
+<polyline points="594.9,686.0 713.1,665.0 831.4,627.0 949.7,580.0 1067.9,550.0 1209.3,536.0" fill="none" stroke="#adbac9" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="594.8924302788845" y="744" font-size="14" fill="#e2bf72" font-weight="400" text-anchor="start">Scadenza</text>
+<text x="716.8047808764941" y="744" font-size="14" fill="#63cddb" font-weight="400" text-anchor="start">Scenario</text>
+<text x="832.6215139442231" y="744" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start">Oggi teorico</text>
+<text x="594.8924302788845" y="786" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start">BSM europeo • costi iniziali • nessun ordine</text>
+</svg>

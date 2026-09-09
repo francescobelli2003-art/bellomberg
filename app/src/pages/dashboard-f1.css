@@ -1,0 +1,134 @@
+/* ============================================================
+   F1 — REGISTRO ALLA SCALA DI F6 (lotto chiarezza, 03/08/2026, Fable 5)
+   Scavalco SCOPED di dashboard-command.css: ogni regola copia la CATENA
+   INTERA del condiviso con `.f1c.f1c` al posto di `:is(.f1c,.obsx)`
+   (handoff 28/07 §4: la forma corta pareggia o perde contro le regole
+   vive). Le pagine .obsx (F2/F8/F12/F15) non passano di qui.
+   Gradini (modello F9/F5): etichette 10 · dati 12 · 9 SOLO minuteria
+   col numero grande accanto. Colori di gradino, non ritocchi ad hoc:
+   il secondario sotto-contrasto sale #73829F -> #8D9FC4 (cura AXT di F5).
+
+   ECCEZIONE DICHIARATA — BLOTTER A CORPO 10 (decisione PM 03/08, rosa
+   (b) di MASTER §9-unquadragies-undecies): a corpo 12 si perdono
+   colonne a OGNI inquadratura del 49" (terzo 5->4, meta 9->7, resto
+   9->8 via Qty) e le soglie container di dashboard-command.css:117-121
+   sono calibrate sul corpo 10. Qui dentro il blotter resta 10 (th 9);
+   fuori dal blotter la pagina e' a registro pieno.
+   ============================================================ */
+
+/* ── etichette → 10 ── */
+.f1c.f1c .p3h .side{font-size:10px;color:#8D9FC4}
+.f1c.f1c .p3h .n{color:#8D9FC4}
+.f1c.f1c .gauge .gk{font-size:10px}
+.f1c.f1c .krow .kk{font-size:10px}
+.f1c.f1c .abtn{font-size:10px}
+.f1c.f1c .dk{font-size:10px}
+.f1c.f1c .dk .st{font-size:10px}
+/* misurato (sonda scatole 03/08): 'Options Flow'/'Fundamentals' a 10px
+   chiedono 84px — a 76 finivano in ellissi. La riga ha spazio: 86. */
+.f1c.f1c .dk .nm{width:86px}
+.f1c.f1c .sysrow{font-size:10px}
+.f1c.f1c .tbar{font-size:10px}
+.f1c.f1c .tlab{font-size:10px}
+.f1c.f1c .dec .act{font-size:10px}
+.f1c.f1c .ab{font-size:10px}
+
+/* strumenti del grafico: 10/600 — al peso 600 il colore-nota #73829F
+   regge il cancello (pattern statline di F5); il DISATTIVO resta
+   distinguibile dall'attivo per colore, non per un corpo fuori scala */
+.f1c.f1c .tb{font-size:10px;font-weight:600}
+
+/* ── dati e valori → 12 ── */
+.f1c.f1c .krow .kv{font-size:12px}
+/* vetrina P&L GG → 14 (decisione PM 12/08): dashboard-command.css:43 la
+   dichiara da sempre ma e' MORTA — pareggia 0,3,0 con `.krow .kv` (riga 58)
+   e perde per ordine, il P&L GG non e' MAI stato a 14px a schermo. Qui la
+   catena 0,4,0 vince davvero; il peso resta il 600 inline del tsx e il
+   .kvs resta minuteria a 10 (riga 44 del condiviso, intatta). */
+.f1c.f1c .kside .kvx{font-size:14px}
+.f1c.f1c table{font-size:12px}
+/* misurato: '-1.84%' a 12px chiede 56px ESATTI in 56 — zero margine; un
+   VaR/DD a due cifre ('-12.34%') chiederebbe ~64. La barra cede 8px. */
+.f1c.f1c .ab .v{font-size:12px;width:64px}
+.f1c.f1c .dec{font-size:12px}
+.f1c.f1c .runline{font-size:12px}
+
+/* ── note secondarie → 10 (modello .rcell .s di F5) ── */
+.f1c.f1c .navv .sub{font-size:10px}
+.f1c.f1c .dec .note{font-size:10px}
+.f1c.f1c .dec .id{font-size:10px;color:#8D9FC4}
+
+/* etichette telemetria: sul fondo del pannello (gradiente scuro + ombra)
+   #73829F/600 misura 4,44:1 — un pelo sotto il cancello. Gradino colore. */
+.f1c.f1c .ab .k{color:#8D9FC4}
+
+/* crimson di gradino per il corpo 10: #FF3D60 a 10px misura 3,9-4,4:1
+   sui fondi scuri (righe blotter, chip GG in header — misurato coi dati
+   vivi in rosso). Un passo di luce, la semantica non cambia. Fuori dal
+   corpo 10 (dati a 12) il crimson di casa regge e resta. */
+.f1c.f1c .blot .dn{color:#FF5C7A}
+.f1c.f1c .chip.r{color:#FF5C7A}
+/* stessa regola per l'azione SELL/TRIM delle decisioni (corpo 10): oggi
+   in coda non ce n'e', ma #FF3D60@10px e' gia' stato misurato sotto
+   soglia in baseline — il gradino vale per TUTTO il corpo 10 (reperto
+   del confutatore pre-commit, caso latente) */
+.f1c.f1c .dec .act.sell,.f1c.f1c .dec .act.trim{color:#FF5C7A}
+
+/* la riga CHIUSURA UFF va a capo a terzo: con nowrap ogni span resta
+   INTERO invece di spezzarsi su due righe — niente rect-unione che
+   copre il vicino (lezione 5 del 03/08: stessa famiglia del multicol).
+   NON inline-block (collasserebbe gli spazi); l'opportunita' di a-capo
+   fra il valore e lo span Δ e' lo spazio FUORI dagli span nel tsx —
+   senza quello i due formerebbero un'unita' inscindibile che a NAV a
+   7 cifre + BREACH sborderebbe muta (reperto del confutatore). */
+.f1c.f1c .navv .sub span{white-space:nowrap}
+
+/* heat: gerarchia per corpo/peso, un gradino su (8/9/10 -> 9/10/12) */
+.f1c.f1c .hcell .t{font-size:10px}
+.f1c.f1c .hcell .w{font-size:9px}
+.f1c.f1c .hcell .pl{font-size:12px}
+
+/* chip: 10 dovunque; dentro una cella il pavimento e' 9, mai 8.
+   Nell'header il chip porta un NUMERO (GG del blotter): a terzo veniva
+   ellissato a 52px mentre la .side (istruzione) restava intera — cede
+   prima la .side, il numero non si taglia (misurato: chiede 80px). */
+.f1c.f1c .p3h .chip{font-size:10px;flex-shrink:0}
+.f1c.f1c td .chip{font-size:9px}
+
+/* ── BLOTTER: eccezione dichiarata a corpo 10 (v. intestazione) ── */
+.f1c.f1c .blot table{font-size:10px}
+.f1c.f1c .blot th{font-size:9px;color:#8D9FC4}
+
+/* a terzo (1706) MACRO PULSE a corpo 12 sbordava di 14px esatti — la
+   colonna x dei pick del PM usciva dalla prima vista. Il padding celle
+   scende come gia' fa il condiviso sotto i 1400: 4 colonne x 8px = 32px
+   recuperati. Il blotter NON passa di qui (.p3:not(.blot)): il suo
+   passo celle resta quello calibrato sulle soglie container. */
+@media (max-width:1800px){
+  .f1c.f1c .p3:not(.blot) td{padding:3px 6px}
+}
+
+/* la utility text-3xs (8px, tailwind) dentro F1 sale al gradino nota:
+   footer/tooltip dell'equity curve, sottotitoli d'attesa e la legenda
+   del grafico (TerminalChart, componente CONDIVISO con F15: si scavalca
+   da qui, scoped — il componente non si tocca, F15 resta byte-identica) */
+.f1c.f1c .text-3xs{font-size:10px}
+
+
+/* ── (F41) L'INTERRUTTORE DELLE DUE VISTE DELLA CURVA ──────────────────────
+   Nel registro di questa pagina un comando e' una PAROLA, non un tasto
+   disegnato: la .side ospitava gia' un'istruzione ("CROSSHAIR SUL GRAFICO"),
+   qui ospita due parole di cui una accesa. Le regole stanno in questo foglio e
+   non nel condiviso: sono di F1 e basta, e il (F40) aveva lasciato a registro
+   il residuo opposto (cinque regole nuove finite fra le sorelle .navv).
+
+   Lo SPENTO non si limita a smorzare: il colore resta sopra la soglia (#73829F
+   contro il fondo del cappello e' ~4,5:1) e l'indisponibilita' la dice il tratto
+   sopra la parola piu' il title col motivo. Il 21/08 un tasto spento di F5
+   misurava 2,57:1: smorzare e basta e' come nascondere. */
+.f1c.f1c .p3h .curva-sw{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.f1c.f1c .p3h .curva-sw button{font:inherit;letter-spacing:inherit;text-transform:inherit;background:none;border:0;padding:0;color:#8D9FC4;cursor:pointer}
+.f1c.f1c .p3h .curva-sw button:hover:not(:disabled){color:#C9D4EA}
+.f1c.f1c .p3h .curva-sw button.on{color:#29D3F2;border-bottom:1px solid #29D3F2}
+.f1c.f1c .p3h .curva-sw button:disabled{color:#73829F;cursor:not-allowed;text-decoration:line-through}
+.f1c.f1c .p3h .curva-sw button:focus-visible{outline:1px solid #29D3F2;outline-offset:2px}

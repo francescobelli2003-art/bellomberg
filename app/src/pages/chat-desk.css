@@ -1,0 +1,309 @@
+/* ============================================================
+   F3 v3 "DESK CONVERSAZIONALE" — impianto scelto dal PM 26/07
+   sul mockup mockup_f3_chat/F3_MIX.png (Opus 5):
+   struttura a 3 colonne (opzione A) + NASTRO D'ESECUZIONE in
+   testa alla conversazione (opzione C) + richiami numerati nel
+   testo (opzione B). Il vestito comune (.p3 .p3h .tick .chip .ld)
+   arriva da dashboard-command.css sotto .obsx: qui SOLO cio' che
+   e' di F3.
+   Coppia tipografica: JetBrains Mono per struttura e numeri,
+   Inter per la PROSA dell'agente (le risposte sono lunghe e
+   vanno lette, non solo guardate).
+   Regola PM 26/07: strumenti INTERATTIVI, SVG misurato in pixel
+   reali (useBox), mai preserveAspectRatio="none" con testo dentro.
+   ============================================================ */
+.f3d{font-family:'JetBrains Mono',monospace;display:flex;flex-direction:column;gap:8px;height:100%;min-height:0;
+  /* corpo 12px come .f6r (factor-riconciliazione.css:44), che lo motiva:
+     «il testo minuto e' il primo nemico della leggibilita'». Prima qui non
+     c'era NESSUN font-size e ogni testo se lo dichiarava da se': un corpo
+     di pagina assente e' una dipendenza implicita dal preflight. */
+  font-size:12px;line-height:1.45}
+.f3d .num{font-variant-numeric:tabular-nums}
+
+/* ── barra d'assetto ─────────────────────────────────────── */
+.f3d .bar{display:flex;align-items:center;gap:8px;padding:6px 11px;border:1px solid #1A2440;
+  background:linear-gradient(180deg,#0D1322,#0A0F1C);flex-shrink:0;flex-wrap:wrap}
+.f3d .bar .lab{font-size:9px;letter-spacing:.24em;color:#FFA51E;text-transform:uppercase}
+.f3d .bar .sep{width:1px;height:13px;background:#1A2440}
+.f3d .bar .k{font-size:9px;letter-spacing:.14em;color:#8D9FC4;font-weight:600;text-transform:uppercase}
+.f3d .bar .v{font-size:12px;color:#8D9FC4;letter-spacing:.04em}
+.f3d .bar .v b{color:#ECF1FA;font-weight:500}
+.f3d .bar .ko{color:#FF3D60}
+
+.f3d .body{display:flex;gap:8px;flex:1;min-height:0}
+.f3d .cL{width:228px;display:flex;flex-direction:column;gap:8px;flex-shrink:0}
+.f3d .cM{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
+.f3d .cR{width:330px;display:flex;flex-direction:column;gap:8px;flex-shrink:0}
+
+/* ── desk dei 7 specialisti ──────────────────────────────── */
+.f3d .dk{display:flex;align-items:center;gap:8px;padding:5px 9px;border-left:2px solid transparent;
+  cursor:pointer;width:100%;background:none;border-top:0;border-right:0;border-bottom:0;text-align:left;
+  font-family:inherit;color:inherit}
+.f3d .dk:hover{background:rgba(255,255,255,.02)}
+.f3d .dk.on{background:rgba(255,255,255,.035)}
+.f3d .dk:focus-visible{outline:1px solid #FFA51E;outline-offset:-1px}
+.f3d .dk>span:nth-child(2){flex:1;min-width:0}
+.f3d .dk .nm{font-size:12px;letter-spacing:.08em;font-weight:500;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.f3d .dk .rl{font-size:9px;color:#8D9FC4;font-weight:600;letter-spacing:.04em;margin-top:1px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.f3d .dk .rt{margin-left:auto;text-align:right;flex-shrink:0}
+.f3d .dk .fdr{display:flex;align-items:flex-end;gap:1.5px;height:10px;justify-content:flex-end}
+.f3d .dk .fdr i{width:2.5px;background:#1E2A48}
+.f3d .dk .tl{font-size:9px;color:#8D9FC4;font-weight:600;letter-spacing:.06em;margin-top:2px;white-space:nowrap}
+.f3d .dk .tl b{color:#8D9FC4;font-weight:500}
+
+.f3d .p3h button.nuova{margin-left:8px;background:none;border:0;color:#FFA51E;cursor:pointer;padding:0;
+  line-height:0;opacity:.8}
+.f3d .p3h button.nuova:hover{opacity:1}
+.f3d .p3h button.nuova:focus-visible{outline:1px solid #FFA51E;outline-offset:2px}
+
+/* ── archivio ────────────────────────────────────────────── */
+.f3d .srch{display:flex;align-items:center;gap:7px;padding:4px 9px;border-bottom:1px solid #1A2440;
+  background:rgba(0,0,0,.25);flex-shrink:0}
+.f3d .srch input{flex:1;background:none;border:0;outline:none;font-family:inherit;font-size:12px;
+  color:#ECF1FA;letter-spacing:.06em;padding:2px 0;min-width:0}
+.f3d .srch input::placeholder{color:#73829F;font-weight:600}
+.f3d .srch .cnt{font-size:9px;color:#8D9FC4;font-weight:600;letter-spacing:.1em;white-space:nowrap}
+.f3d .arch{overflow-y:auto;flex:1;min-height:0}
+/* sezione per agente (ordine PM 26/07): l'archivio non e' piu' un mucchio unico */
+.f3d .grp{display:flex;align-items:center;gap:7px;width:100%;padding:5px 9px;background:rgba(255,255,255,.015);
+  border:0;border-top:1px solid #141E36;border-bottom:1px solid #141E36;cursor:pointer;font-family:inherit;
+  text-align:left;color:inherit;position:sticky;top:0;z-index:1}
+.f3d .grp:hover{background:rgba(255,255,255,.035)}
+.f3d .grp:focus-visible{outline:1px solid #FFA51E;outline-offset:-1px}
+.f3d .grp.on{background:linear-gradient(90deg,rgba(255,255,255,.05),rgba(255,255,255,.015))}
+.f3d .grp .gnm{font-size:10px;letter-spacing:.18em;color:#8D9FC4;font-weight:500;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.f3d .grp .gn{margin-left:auto;font-size:9px;color:#8D9FC4;font-weight:600;font-variant-numeric:tabular-nums}
+.f3d .grp .chev{font-size:9px;color:#8D9FC4;font-weight:600;width:8px}
+.f3d .grp .lg{flex-shrink:0}
+.f3d .sess{display:flex;gap:8px;padding:5px 9px;border-left:2px solid transparent;cursor:pointer;
+  width:100%;background:none;border-top:0;border-right:0;border-bottom:0;text-align:left;
+  font-family:inherit;color:inherit;position:relative}
+.f3d .sess:hover{background:rgba(255,255,255,.02)}
+.f3d .sess.on{background:rgba(255,165,30,.06);border-left-color:#FFA51E}
+.f3d .sess:focus-visible{outline:1px solid #FFA51E;outline-offset:-1px}
+.f3d .sess .ttl{font-size:12px;color:#C3CEE2;line-height:1.3;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.f3d .sess.on .ttl{color:#ECF1FA}
+.f3d .sess .ttl.gen{color:#73829F;font-weight:600}
+.f3d .sess .meta{font-size:9px;color:#8D9FC4;font-weight:600;letter-spacing:.08em;margin-top:2.5px;display:flex;gap:7px;
+  align-items:center;white-space:nowrap;overflow:hidden}
+.f3d .sess .meta .who{letter-spacing:.14em;overflow:hidden;text-overflow:ellipsis;max-width:92px}
+.f3d .sess-wrap{position:relative}
+.f3d .sess-wrap .del{position:absolute;right:4px;top:6px;opacity:0;color:#73829F;font-weight:600;background:none;border:0;
+  cursor:pointer;padding:2px;line-height:0}
+.f3d .sess-wrap:hover .del{opacity:1}
+.f3d .sess-wrap .del:hover{color:#FF3D60}
+.f3d .sess-wrap .del:focus-visible{opacity:1;outline:1px solid #FF3D60;outline-offset:1px}
+.f3d .lg{font-size:9px;letter-spacing:.1em;color:#B8975A;border:1px solid #3E3520;
+  background:rgba(212,175,55,.07);padding:0 3px}
+
+/* ── NASTRO D'ESECUZIONE (strumento-firma) ───────────────── */
+/* l'altezza la decide il componente, che sa quante corsie ha (NastroEsecuzione:
+   `Math.min(190, Math.max(116, 68 + corsie * LANE))`). Qui resta il minimo, per
+   non lasciare il riquadro senza altezza se un domani lo stile inline sparisce. */
+.f3d .tape{position:relative;min-height:116px;flex-shrink:0}
+.f3d .tapebox{position:relative;flex:1;min-height:0;min-width:0;overflow:hidden}
+/* SCORRONO LE CORSIE, NON L'ASSE. Oltre le ~8 corsie il nastro e' piu' alto della
+   scatola e stringere le corsie riporterebbe le tacche a toccarsi; ma se scorresse
+   tutto, l'asse del tempo finirebbe sotto la piega e le posizioni delle tacche
+   perderebbero significato (visto sul PNG con 14 corsie). Quindi: le corsie in un
+   riquadro che scorre, l'asse in una striscia fissa in fondo, alta ASSE=28px in
+   NastroEsecuzione.tsx. Orizzontale mai: la larghezza E' l'asse e si adatta. */
+.f3d .tapescroll{position:absolute;top:0;left:0;right:0;bottom:28px;
+  overflow-y:auto;overflow-x:hidden}
+.f3d .tapescroll::-webkit-scrollbar{width:7px}
+.f3d .tapescroll::-webkit-scrollbar-track{background:#04060B}
+.f3d .tapescroll::-webkit-scrollbar-thumb{background:#22304F;border:1px solid #1A2440}
+/* ⚠️ `.f3d .tapebox svg` qui sotto vale (0,2,1) e batteva `.f3d .tapeasse` (0,2,0)
+   imponendo `top:0`: la striscia dell'asse finiva IN CIMA, sopra le prime corsie.
+   Il metro non l'ha visto (per pochi pixel i testi non si toccavano) — l'ho visto
+   nel PNG. Serve la stessa specificita' del selettore che si vuole scavalcare,
+   piu' `top:auto` esplicito: `bottom` da solo non disfa un `top` gia' applicato. */
+.f3d .tapebox svg.tapeasse{position:absolute;top:auto;bottom:0;left:0;right:0;display:block}
+.f3d .tapebox svg{display:block;position:absolute;top:0;left:0}
+.f3d .rdo{position:absolute;border:1px solid rgba(41,211,242,.55);background:rgba(5,8,16,.97);
+  padding:5px 8px;font-size:10px;line-height:1.5;color:#8D9FC4;letter-spacing:.03em;
+  box-shadow:0 6px 18px rgba(0,0,0,.65);pointer-events:none}
+.f3d .rdo b{color:#29D3F2;font-weight:500}
+.f3d .rdo .kv{display:flex;gap:8px}
+.f3d .rdo .kv i{font-style:normal;color:#8D9FC4;font-weight:600;width:52px;flex-shrink:0}
+.f3d .rdo .kv u{text-decoration:none;color:#D6DEEC;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.f3d .rdo .pin{color:#21E0A0;font-size:9px;letter-spacing:.12em}
+.f3d .tapevuoto{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  text-align:center;padding:0 24px;font-size:12px;color:#73829F;font-weight:600;line-height:1.6;letter-spacing:.04em}
+.f3d .tapevuoto b{color:#8D9FC4;font-weight:500}
+
+/* ── conversazione ───────────────────────────────────────── */
+.f3d .conv{flex:1;min-height:0;overflow-y:auto;padding:11px 14px}
+.f3d .pmq{display:flex;gap:10px;margin-bottom:11px;align-items:flex-start}
+.f3d .pmq .tag{font-size:9px;letter-spacing:.16em;color:#29D3F2;opacity:.8;padding-top:5px;width:40px;
+  text-align:right;flex-shrink:0}
+.f3d .pmq .q{flex:1;min-width:0;border-left:2px solid rgba(41,211,242,.5);background:rgba(41,211,242,.045);
+  padding:6px 11px;font-family:'Inter',system-ui,sans-serif;font-size:12px;color:#CFE6EE;line-height:1.5;
+  white-space:pre-wrap;word-break:break-word}
+.f3d .ansh{display:flex;align-items:center;gap:8px;padding-bottom:6px;margin-bottom:8px;
+  border-bottom:1px solid #1A2440;flex-wrap:wrap}
+.f3d .ansh .nm{font-size:10px;letter-spacing:.2em;font-weight:500}
+.f3d .turn{margin-bottom:16px}
+
+/* prosa dell'agente */
+.f3d .prose{font-family:'Inter',system-ui,sans-serif;font-size:12px;line-height:1.58;color:#C9D4E6}
+.f3d .prose>*:first-child{margin-top:0}
+.f3d .prose p{margin:7px 0}
+.f3d .prose b,.f3d .prose strong{color:#ECF1FA;font-weight:600}
+.f3d .prose em{color:#8D9FC4}
+.f3d .prose h1,.f3d .prose h2,.f3d .prose h3,.f3d .prose h4{font-family:'JetBrains Mono',monospace;
+  font-size:10px;letter-spacing:.22em;color:#FFA51E;text-transform:uppercase;margin:13px 0 6px;
+  font-weight:500;display:flex;align-items:center;gap:8px}
+.f3d .prose h1::after,.f3d .prose h2::after,.f3d .prose h3::after,.f3d .prose h4::after{
+  content:'';flex:1;height:1px;background:#1A2440}
+.f3d .prose ul,.f3d .prose ol{margin:7px 0;padding-left:0;list-style:none}
+.f3d .prose li{position:relative;padding-left:14px;margin:5px 0}
+.f3d .prose li::before{content:'';position:absolute;left:2px;top:7px;width:4px;height:4px;
+  background:#414B68;transform:rotate(45deg)}
+.f3d .prose blockquote{border-left:2px solid rgba(255,165,30,.5);padding-left:10px;margin:8px 0;color:#8D9FC4}
+.f3d .prose hr{border:0;border-top:1px solid #1A2440;margin:10px 0}
+.f3d .prose a{color:#29D3F2;text-decoration:underline}
+.f3d .prose code{font-family:'JetBrains Mono',monospace;font-size:12px;color:#29D3F2;
+  border:1px solid #1A2440;background:#070B14;padding:1px 4px}
+.f3d .prose pre{border:1px solid #1A2440;background:#070B14;padding:7px 9px;margin:8px 0;overflow-x:auto}
+.f3d .prose pre code{border:0;background:none;padding:0;font-size:12px;color:#7FE3F5}
+.f3d .prose table{width:100%;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:12px;
+  font-variant-numeric:tabular-nums;margin:6px 0}
+.f3d .prose th{text-align:left;font-weight:500;font-size:9px;letter-spacing:.16em;color:#FFA51E;
+  text-transform:uppercase;padding:4px 8px;border-bottom:1px solid rgba(255,165,30,.28);
+  background:rgba(255,165,30,.03)}
+.f3d .prose td{padding:3.5px 8px;border-bottom:1px solid rgba(26,36,64,.75);color:#8D9FC4}
+.f3d .prose tbody tr:hover td{background:rgba(255,255,255,.02)}
+.f3d .prose td:nth-child(2){color:#ECF1FA}
+
+/* chip fonte scritto dall'agente: [src: tool] */
+.f3d .src{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.06em;color:#29D3F2;
+  border:1px solid rgba(41,211,242,.3);background:rgba(41,211,242,.07);padding:1px 5px;white-space:nowrap}
+.f3d .src.link{cursor:pointer}
+.f3d .src.hot{color:#050608;background:#29D3F2;border-color:#29D3F2;box-shadow:0 0 9px rgba(41,211,242,.6)}
+
+/* richiamo numerato [n]: sta nel punto dello stream in cui l'agente ha chiamato lo strumento */
+.f3d .refrow{display:flex;align-items:center;gap:5px;margin:9px 0;flex-wrap:wrap}
+.f3d .refrow .lb{font-size:9px;letter-spacing:.16em;color:#8D9FC4;font-weight:600;text-transform:uppercase}
+.f3d .ref{font-family:'JetBrains Mono',monospace;font-size:9px;color:#29D3F2;
+  border:1px solid rgba(41,211,242,.4);background:rgba(41,211,242,.08);padding:1px 6px;cursor:pointer;
+  display:inline-flex;align-items:center;gap:5px;letter-spacing:.04em}
+.f3d .ref.hot{color:#050608;background:#29D3F2;border-color:#29D3F2;box-shadow:0 0 10px rgba(41,211,242,.6)}
+.f3d .ref.ko{color:#FF3D60;border-color:rgba(255,61,96,.45);background:rgba(255,61,96,.08)}
+.f3d .ref.ko.hot{color:#050608;background:#FF3D60;box-shadow:0 0 10px rgba(255,61,96,.6)}
+
+/* ── composer ────────────────────────────────────────────── */
+.f3d .comp{border:1px solid #1A2440;background:linear-gradient(180deg,#0D1322,#0A0F1C);flex-shrink:0}
+.f3d .comp .field{display:flex;align-items:stretch;gap:10px;padding:8px 11px}
+.f3d .comp textarea{flex:1;background:#070B14;border:1px solid #1A2440;color:#ECF1FA;font-family:'Inter',
+  system-ui,sans-serif;font-size:12px;line-height:1.5;padding:6px 9px;resize:none;outline:none;min-width:0}
+.f3d .comp textarea:focus{border-color:rgba(255,165,30,.5)}
+.f3d .comp textarea::placeholder{color:#73829F;font-weight:600}
+.f3d .comp textarea:disabled{opacity:.55}
+.f3d .comp .send{display:flex;align-items:center;justify-content:center;gap:7px;padding:0 20px;font-size:10px;
+  letter-spacing:.2em;border:1px solid rgba(255,165,30,.45);color:#FFA51E;text-transform:uppercase;
+  background:rgba(255,165,30,.06);cursor:pointer;font-family:inherit;white-space:nowrap}
+.f3d .comp .send:hover:not(:disabled){background:rgba(255,165,30,.14)}
+.f3d .comp .send:disabled{opacity:.4;cursor:default}
+.f3d .comp .send.stop{border-color:rgba(255,61,96,.5);color:#FF3D60;background:rgba(255,61,96,.07)}
+.f3d .flow{display:flex;align-items:center;gap:8px;padding:4px 11px;border-top:1px solid #1A2440;
+  font-size:9px;color:#8D9FC4;font-weight:600;letter-spacing:.08em;flex-wrap:wrap}
+.f3d .flow .sp{display:flex;align-items:flex-end;gap:1.5px;height:11px;margin:0 2px}
+.f3d .flow .sp i{width:2.5px;background:rgba(41,211,242,.55)}
+.f3d .flow .r{margin-left:auto;display:flex;align-items:center;gap:8px}
+.f3d .flow b{color:#FFA51E;font-weight:500}
+
+/* ── catena di custodia ──────────────────────────────────── */
+.f3d .cat{flex:1;min-height:0;overflow-y:auto;padding:8px 9px;display:flex;flex-direction:column;gap:6px}
+.f3d .ev{border:1px solid #1A2440;background:rgba(7,11,20,.55);cursor:pointer;flex-shrink:0}
+.f3d .ev .r1{display:flex;align-items:center;gap:7px;padding:5px 8px}
+.f3d .ev .ix{font-size:9px;color:#29D3F2;width:15px;opacity:.85;flex-shrink:0}
+.f3d .ev .tn{font-size:12px;color:#CFD8EA;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.f3d .ev .kb{margin-left:auto;font-size:12px;color:#8D9FC4;letter-spacing:.06em;white-space:nowrap}
+.f3d .ev .r2{display:flex;align-items:center;gap:6px;padding:0 8px 5px 30px;font-size:9px;color:#8D9FC4;font-weight:600;
+  letter-spacing:.04em}
+.f3d .ev .r2 .arg{color:#29D3F2;opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.f3d .ev .r2 .rt{margin-left:auto;white-space:nowrap}
+.f3d .ev.hot{border-color:rgba(41,211,242,.6);background:rgba(41,211,242,.07);
+  box-shadow:inset 0 0 16px rgba(41,211,242,.09)}
+.f3d .ev.ko{border-color:rgba(255,61,96,.5);background:rgba(255,61,96,.05)}
+.f3d .ev .prev{margin:0 8px 7px 30px;padding:5px 7px;border:1px solid #22304F;background:#050810;
+  font-size:10px;line-height:1.5;color:#73829F;font-weight:600;word-break:break-all;max-height:66px;overflow:hidden}
+.f3d .ev .warn{margin:0 8px 6px 30px;font-size:10px;color:#FFA51E;letter-spacing:.04em;line-height:1.45}
+.f3d .catvuoto{font-size:12px;color:#73829F;font-weight:600;line-height:1.6;padding:10px 4px;letter-spacing:.03em}
+/* la seconda riga di uno stato vuoto: nota sul suo gradino, 10px come su F6 */
+.f3d .nota1{font-size:10px;color:#73829F;font-weight:600;letter-spacing:.04em;margin-top:5px}
+.f3d .catvuoto b{color:#FFA51E;font-weight:500}
+.f3d .catvuoto .ko{color:#FF3D60}
+
+/* arsenale: gli strumenti VERI dell'agente (meta.n_tools_available) */
+.f3d .ars{border-top:1px solid #1A2440;padding-top:7px;margin-top:auto;flex-shrink:0}
+.f3d .ars .h{display:flex;align-items:baseline;font-size:10px;letter-spacing:.18em;color:#8D9FC4;font-weight:600;
+  text-transform:uppercase}
+.f3d .ars .h b{margin-left:auto;color:#29D3F2;font-weight:500;letter-spacing:.08em}
+.f3d .ars .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:3px;margin-top:5px}
+.f3d .ars .grid i{height:13px;background:#0B1121;border:1px solid #1E2A48}
+.f3d .ars .grid i.on{background:rgba(41,211,242,.22);border-color:rgba(41,211,242,.75);
+  box-shadow:0 0 7px rgba(41,211,242,.3)}
+
+/* ── telemetria ──────────────────────────────────────────── */
+.f3d .tel{padding:7px 11px;display:flex;flex-direction:column;gap:6px}
+/* DUE CAMBI, e vengono da due ragioni diverse — la prima stesura di questo
+   commento le confondeva e affermava una cosa falsa.
+   (1) GRADINO: `Token in / out`, `Durata`, `Motore` sono le CHIAVI di coppie
+       chiave/valore, quindi stanno sull'ETICHETTA (#8D9FC4) e non sulla NOTA
+       (#73829F) dove erano. E' la dottrina dei tre gradini che F6 scrive nel
+       proprio css (factor-riconciliazione.css:129). ⚠️ Questo cambio NON ha
+       mosso il contrasto misurato di un centesimo: provato, `Motore` restava a
+       4,48:1. Sta qui perche' e' il gradino giusto, non perche' curi qualcosa.
+   (2) CORPO 9 -> 10px: QUESTA e' la cura del contrasto. Il cancello dichiarava
+       la causa `corpo/peso` e non `colore` — il nominale era gia' 4,86 e
+       passava, il RESO era 4,48: a 9px l'antialiasing non porta mai il tratto al
+       colore pieno, e cambiare colore non cambia il tratto. 10px e' anche il
+       gradino delle intestazioni di F6 (.ph), quindi non e' un numero scelto per
+       far passare un collaudo. */
+.f3d .telrow{display:flex;align-items:baseline;gap:8px;font-size:10px;color:#8D9FC4;font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase}
+/* ⚠️ `text-transform:none` sul VALORE: la chiave e' maiuscola perche' e'
+   un'etichetta, ma il valore no. Spostando il motore in una `.telrow` il nome del
+   modello veniva reso «CLAUDE-SONNET-5» invece di `claude-sonnet-5` — un
+   identificatore che l'app prende dal payload e che non si riscrive. L'ha visto
+   la review; le altre righe non lo mostravano perche' i loro valori sono cifre. */
+.f3d .telrow b{margin-left:auto;font-size:12px;color:#ECF1FA;font-weight:400;letter-spacing:0;
+  text-transform:none;
+  font-variant-numeric:tabular-nums}
+.f3d .telrow b.am{color:#FFA51E}
+.f3d .telrow b.nd{font-size:10px;color:#73829F;font-weight:600;letter-spacing:.08em}
+.f3d .iter{display:flex;gap:3px;margin-top:2px}
+.f3d .iter i{flex:1;height:5px;background:#141E36;border:1px solid #22304F}
+.f3d .iter i.on{background:rgba(255,165,30,.65);border-color:#FFA51E;box-shadow:0 0 6px rgba(255,165,30,.5)}
+.f3d .telnote{font-size:10px;color:#73829F;font-weight:600;line-height:1.5;border-top:1px solid #1A2440;padding-top:6px}
+.f3d .telnote b{color:#8D9FC4;font-weight:500}
+
+/* ── stati dichiarati (regola 14/07: mai un vuoto muto) ──── */
+.f3d .dec{border-left:2px solid rgba(255,165,30,.5);background:rgba(255,165,30,.05);padding:6px 9px;
+  font-size:10px;color:#D8C39A;line-height:1.5;margin:8px}
+.f3d .dec b{color:#FFA51E;font-weight:500}
+.f3d .dec.ko{border-left-color:rgba(255,61,96,.6);background:rgba(255,61,96,.06);color:#E3A9B4}
+.f3d .dec.ko b{color:#FF3D60}
+.f3d .vuoto{padding:18px 12px;text-align:center;font-size:12px;color:#73829F;font-weight:600;line-height:1.7}
+.f3d .vuoto b{color:#8D9FC4;font-weight:500}
+
+/* ── schermata d'ingresso ────────────────────────────────── */
+.f3d .intro{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:9px;padding:20px;text-align:center}
+.f3d .intro .big{font-size:14px;letter-spacing:.26em;text-transform:uppercase;font-weight:500}
+.f3d .intro .rl{font-size:10px;color:#8D9FC4;letter-spacing:.1em}
+.f3d .intro .hint{font-size:10px;color:#73829F;font-weight:600;letter-spacing:.06em;line-height:1.6;max-width:430px}
+.f3d .sug{display:grid;gap:5px;margin-top:8px;width:100%;max-width:470px}
+.f3d .sug button{border:1px solid #1A2440;background:rgba(13,19,34,.7);color:#8D9FC4;font-family:inherit;
+  font-size:12px;padding:6px 10px;text-align:left;cursor:pointer;letter-spacing:.02em;line-height:1.4}
+.f3d .sug button:hover{border-color:rgba(255,165,30,.45);color:#FFA51E;background:rgba(255,165,30,.05)}
+
+@media (prefers-reduced-motion:reduce){
+  .f3d *{animation:none!important;transition:none!important}
+}

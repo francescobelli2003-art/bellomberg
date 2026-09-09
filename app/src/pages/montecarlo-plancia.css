@@ -1,0 +1,209 @@
+/* ============================================================
+   F5 v3 "PLANCIA DI MISSIONE" — Monte Carlo ridisegnato
+   (design approvato dal PM 26/07 sull'opzione 2 dei mockup,
+    mockup_f5_montecarlo/f5_space.html — reso su dati VERI).
+   Il vestito comune (.p3 .p3h .tick .chip .ld) arriva da
+   dashboard-command.css sotto .obsx: qui SOLO cio' che e' di F5.
+   Scala 03/08 (lotto chiarezza, ordine PM 27/07, come F6): dati 12px,
+   etichette 10px, 9px SOLO alla minuteria che annota un numero piu'
+   grande accanto, MAI sotto 9. La vecchia disciplina B-UI15/19
+   («8-12px») e' decaduta: l'8px non esiste piu' in questo file.
+   Regola PM 26/07: i grafici sono INTERATTIVI e gli SVG misurano
+   il box in pixel reali -> nessun testo stirato.
+   ============================================================ */
+/* la pagina riempie il riquadro di Layout (p-4 h-full overflow-y-auto): quello che
+   avanza in verticale lo prende la plancia, non resta buco in fondo */
+/* gap 6 e non 8 SOLO sull'impilamento verticale (rasatura respiri 12/08: 3
+   interstizi = 6px); dentro .planc e .bottom il gap resta 8 */
+.f5p{font-family:'JetBrains Mono',monospace;display:flex;flex-direction:column;gap:6px;
+  min-height:100%}
+.f5p .num{font-variant-numeric:tabular-nums}
+
+/* ── barra assetto ───────────────────────────────────────── */
+.f5p .asst{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 11px;
+  border:1px solid #1A2440;background:linear-gradient(180deg,#0D1322,#0A0F1C)}
+.f5p .asst .lab{font-size:10px;letter-spacing:.24em;color:#FFA51E;text-transform:uppercase;margin-right:4px}
+.f5p .fld{display:flex;align-items:center;gap:5px}
+.f5p .fld .k{font-size:10px;letter-spacing:.14em;color:#73829F;font-weight:600;text-transform:uppercase}
+.f5p select{background:#070B14;border:1px solid #2A3760;color:#ECF1FA;font-family:inherit;
+  font-size:12px;padding:3px 5px;outline:none;letter-spacing:.04em}
+.f5p select:focus{border-color:#FFA51E}
+.f5p .go{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:10px;letter-spacing:.18em;
+  padding:5px 16px;border:1px solid rgba(255,165,30,.45);color:#FFA51E;text-transform:uppercase;
+  background:transparent;cursor:pointer;font-family:inherit}
+.f5p .go:hover:not(:disabled){background:rgba(255,165,30,.1)}
+.f5p .go:disabled{opacity:.45;cursor:default}
+
+/* le targhette .side dei riquadri portano numeri che si leggono (64 PUNTI,
+   il timbro d'orario, 10.000): a 9px sul gradino nota misuravano 4,26-4,29:1.
+   Stessa cura scoped di F9 — la riga 20 di dashboard-command.css e' condivisa
+   e non si tocca da qui (territorio F1). */
+.f5p .p3h .side{font-size:10px;color:#8D9FC4}
+
+/* ── impianto: strumenti | scope | arrivo ────────────────── */
+.f5p .planc{display:grid;grid-template-columns:310px minmax(0,1fr) 318px;gap:8px;
+  flex:1 1 auto;min-height:436px}
+.f5p .planc .col{display:flex;flex-direction:column;gap:8px;min-width:0;min-height:0}
+/* 140 e non 148: rasatura respiri 12/08 (MASTER §9-unquadragies-decies, scelta
+   (b) del PM) — a s150 la pagina scorreva di 26px e la colonna strumenti e'
+   rigida: gli 8 qui sono i piu' economici, il contenuto delle celle sta in
+   ~90px misurati e .notes scorre gia' per progetto */
+.f5p .bottom{display:grid;grid-template-columns:minmax(0,1fr) 310px 392px;gap:8px;
+  height:140px;flex:0 0 auto}
+.f5p .bottom .p3{min-height:0}
+
+/* ── numeri in vetrina ───────────────────────────────────── */
+.f5p .big{font-size:26px;font-weight:300;color:#ECF1FA;line-height:1.1;letter-spacing:.01em}
+.f5p .tesi{font-size:22px;font-weight:300;line-height:1.12;letter-spacing:.01em}
+.f5p .sub{font-size:12px;color:#8D9FC4;line-height:1.45;margin-top:2px}
+.f5p .sub b{color:#FFA51E;font-weight:500}
+.f5p .tk{font-size:10px;letter-spacing:.13em;color:#73829F;font-weight:600;text-transform:uppercase}
+/* 4/4 e non 7/6: rasatura respiri 12/08 — l'unico .hr sta nel pannello TESI
+   della colonna strumenti */
+.f5p .hr{height:1px;background:#1A2440;margin:4px 0 4px}
+
+/* riga statistiche a due colonne */
+/* 5+5 e non 9+7: rasatura respiri 12/08 — la statline vive nel pannello QUOTA
+   della colonna strumenti, quella che comanda l'altezza di .planc a s150 */
+.f5p .statline{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;margin-top:5px;
+  border-top:1px solid #1A2440;padding-top:5px}
+.f5p .statline span{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
+.f5p .statline i{font-style:normal;font-size:10px;letter-spacing:.1em;color:#73829F;font-weight:600;text-transform:uppercase}
+.f5p .statline b{font-size:12px;font-weight:500}
+
+/* ── celle rischio ───────────────────────────────────────── */
+.f5p .rcells{display:flex;flex:1;min-height:0}
+.f5p .rcell{padding:7px 10px;border-right:1px solid #1A2440;flex:1;min-width:0;display:flex;flex-direction:column}
+.f5p .rcell:last-child{border-right:0}
+.f5p .rcell .k{font-size:10px;letter-spacing:.14em;color:#73829F;font-weight:600;text-transform:uppercase;white-space:nowrap}
+.f5p .rcell .v{font-size:17px;color:#FF3D60;margin-top:3px;font-weight:300}
+/* 10 e non 12: le celle rischio sono larghe ~80-100px e a 12px la frase
+   d'aiuto andava a capo su 5+ righe spingendo la pagina fuori quadro a s150
+   (V+26 misurato dal cancello). 10 = gradino etichetta, sopra il pavimento. */
+.f5p .rcell .s{font-size:10px;color:#8D9FC4;line-height:1.45;margin-top:auto;padding-top:5px}
+
+/* ── scope ───────────────────────────────────────────────── */
+/* gli SVG misurati NON devono contribuire all'altezza del pannello, o il
+   ResizeObserver entra in retroazione (misura -> cresce -> rimisura): fuori dal
+   flusso con inset 0, il box lo decide la griglia */
+.f5p .scopewrap{position:relative;flex:1;min-height:0;min-width:0;overflow:hidden}
+.f5p .scopewrap svg{display:block;position:absolute;top:0;left:0}
+/* 196 e 66 al posto di 184 e 54: coi valori a 12px la colonna da 54 non tiene
+   «327.839 €» (9-10 char a 7,2px = ~68). Scatola +12 e colonna +12: la barra
+   centrale resta larga uguale (68px), misurato sulla griglia, non a occhio. */
+.f5p .readout{position:absolute;top:46px;right:10px;width:196px;
+  background:rgba(7,11,20,.92);border:1px solid #24325A;padding:6px 8px 5px;
+  backdrop-filter:blur(2px);pointer-events:none}
+.f5p .readout.sx{right:auto;left:76px}
+.f5p .readout .rhead{font-size:10px;letter-spacing:.16em;color:#FFA51E;text-transform:uppercase;
+  border-bottom:1px solid #1A2440;padding-bottom:4px;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.f5p .readout .pin{margin-left:auto;font-size:10px;letter-spacing:.12em;color:#21E0A0}
+.f5p .readout .rrow{display:grid;grid-template-columns:34px 1fr 66px;gap:6px;align-items:baseline;padding:1.5px 0}
+.f5p .readout .rrow.med{border-top:1px solid rgba(26,36,64,.9);border-bottom:1px solid rgba(26,36,64,.9);
+  padding:3px 0;margin:2px 0}
+.f5p .readout .rk{font-size:10px;letter-spacing:.12em;color:#73829F;font-weight:600}
+.f5p .readout .rrow.med .rk{color:#FFA51E}
+.f5p .readout .rv{font-size:12px;color:#ECF1FA;text-align:right;font-variant-numeric:tabular-nums}
+/* .rd resta 9px: e' il delta che annota il valore a 12px accanto (minuteria
+   legittima, il modello .eta di F6) */
+.f5p .readout .rd{font-size:9px;text-align:right;font-variant-numeric:tabular-nums}
+.f5p .readout .rfoot{font-size:10px;letter-spacing:.1em;color:#73829F;font-weight:600;margin-top:5px;
+  border-top:1px solid #1A2440;padding-top:4px}
+
+/* ── profilo d'arrivo ────────────────────────────────────── */
+.f5p .marg{flex:1;min-height:0}
+.f5p .margwrap{position:relative;flex:1;min-height:0;min-width:0;overflow:hidden}
+.f5p .margwrap svg{display:block;position:absolute;top:0;left:0}
+.f5p .margfoot{border-top:1px solid #1A2440;padding:4px 9px 5px;font-size:12px;color:#8D9FC4;
+  line-height:1.5;display:flex;flex-direction:column;gap:2px;letter-spacing:.04em}
+.f5p .margfoot .num{font-variant-numeric:tabular-nums}
+
+/* ── quote / profondita' ─────────────────────────────────── */
+.f5p .oddswrap,.f5p .depthwrap{position:relative;flex:1;min-height:0;min-width:0;overflow:hidden}
+.f5p .oddswrap svg,.f5p .depthwrap svg{display:block;position:absolute;top:0;left:0}
+
+/* ── tabelle ─────────────────────────────────────────────── */
+.f5p table{width:100%;border-collapse:collapse;font-size:12px}
+/* peso 600 e non 400: il colore nota vuole SEMPRE peso 600 (pavimento F6,
+   riga 33) — a 400 i th misuravano 4,47-4,49:1, sotto soglia per un pelo. */
+.f5p th{font-size:10px;letter-spacing:.14em;color:#73829F;text-transform:uppercase;
+  text-align:right;padding:4px 10px;font-weight:600;border-bottom:1px solid #1A2440}
+.f5p th:first-child{text-align:left}
+.f5p td{padding:2.5px 10px;text-align:right;border-bottom:1px solid rgba(26,36,64,.5)}
+.f5p td:first-child{text-align:left;color:#8D9FC4}
+.f5p tr:last-child td{border-bottom:0}
+.f5p tr.med td{background:rgba(255,165,30,.05)}
+.f5p tr.med td:first-child{color:#FFA51E}
+
+/* ── note del motore ─────────────────────────────────────── */
+.f5p .notes{padding:6px 10px;display:flex;flex-direction:column;gap:4px;overflow-y:auto;min-height:0}
+.f5p .note{font-size:12px;color:#8D9FC4;line-height:1.42}
+.f5p .note b{color:#8D9FC4;font-weight:500}
+.f5p .dec{border-left:2px solid rgba(255,165,30,.5);background:rgba(255,165,30,.05);
+  padding:4px 7px;font-size:12px;color:#D8C39A;line-height:1.42}
+.f5p .dec b{color:#FFA51E;font-weight:500}
+.f5p .dec.ko{border-left-color:rgba(255,61,96,.6);background:rgba(255,61,96,.06);color:#E3A9B4}
+.f5p .dec.ko b{color:#FF3D60;font-weight:600}
+
+/* ── banco di prova (what-if) ────────────────────────────── */
+.f5p .wif{display:grid;grid-template-columns:repeat(12,1fr);gap:8px;align-items:center;
+  padding:6px 11px;border-bottom:1px solid rgba(26,36,64,.6);font-size:12px}
+.f5p .wif input{background:#070B14;border:1px solid #2A3760;color:#ECF1FA;font-family:inherit;
+  font-size:12px;padding:3px 6px;outline:none;width:100%}
+.f5p .wif input:focus{border-color:#FFA51E}
+.f5p .wif select{width:100%}
+.f5p .tagact{display:inline-block;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  padding:2px 6px;border:1px solid}
+
+/* ── lo slot dei messaggi della riga ──────────────────────────
+   Portava la utility `text-3xs` (8px, tailwind.config.js:64) — misurato 8px
+   nel DOM vivo il 21/08. Ci vivono gli esiti di validazione e ora il verdetto
+   della riga: sotto il registro 12px ordinato dal PM il 27/07. Scelta PM
+   21/08: si sale a 12.
+   ⚠️ Il 12px lo fa l'AVER TOLTO `text-3xs` dall'elemento, non questa riga:
+   `.f5p .wif` e' gia' 12px e lo slot lo eredita (rilievo della review, e ha
+   ragione). La regola resta come guardia esplicita — un domani qualcuno
+   rimette una utility sull'elemento e qui c'e' scritto quanto deve valere —
+   ma le dichiarazioni che portano davvero peso sono `line-height` e
+   `min-width:0`, che tiene la colonna dentro la griglia invece di lasciarle
+   spingere le tracce `1fr`.
+   ⚠️ MISURATO, e non e' gratis: l'errore di validazione del backend e' lungo
+   84 caratteri («No price data found for 'X'. Check ticker (need suffix…)»)
+   e a 12px NON ci sta piu' su una riga sola sotto i ~2000px di finestra —
+   va a capo a `terzo` (1706) e a **1440x900, la finestra con cui si apre
+   Electron, che non e' fra le cinque inquadrature del cancello**. La riga
+   passa da 39px a 45px. Verificato che li' si ferma: riquadro 249px, la
+   pagina NON scorre e nessun vano interno scorre (`riga_f5.py`).
+   I suffissi EUR/% restano `text-3xs` a 8px: sono nelle altre colonne. */
+.f5p .wif .msg{font-size:12px;line-height:1.35;min-width:0}
+
+/* ── la riga INERTE (impianto B, scelto dal PM il 21/08) ──────
+   Terzo stato accanto a valida e illeggibile: la riga NON entra nel calcolo e
+   non e' un errore. Si distingue per FORMA — tratteggio e opacita' — e non per
+   colore: nella plancia l'ambra e' l'accento, l'emerald AGGIUNGI, il crimson
+   TOGLI, il ciano RIDUCI. Non c'era un colore libero, e prenderne uno in
+   prestito avrebbe detto il falso (un abbozzo non e' un guasto).
+   ⚠️ NIENTE OPACITA'. La prima versione smorzava la riga (`> *:not(.msg)` a
+   .6) e la review ne ha chiesto il conto su due fronti, tutti e due MISURATI
+   e tutti e due veri:
+   · CONTRASTO — `cancello_stati_f5.py` chiama ora `misura_contrasto` (i pixel
+     veri dello scatto, non il CSS): sulla riga inerte a `meta` «EUR» 9px
+     scendeva a 2,42:1, l'etichetta «aggiungi» a 4,01:1, «riduci» a 3,87:1, il
+     «20%» dello slider a 4,23:1 — quattro elementi sotto i 4,5:1. A riposo e
+     con una riga sana il banco misurava 0 sotto soglia: erano tutti miei.
+   · IL CAMPO DA USARE — `addMod` crea SEMPRE `ticker: ''`, quindi OGNI riga
+     appena aggiunta nasce inerte: lo smorzamento colpiva per primo il campo
+     ticker, cioe' l'unico controllo che fa uscire da quello stato, mentre
+     l'utente ci scrive dentro. E' la lezione «una cura che spegne lascia
+     acceso il peggio»: dopo ogni smorzamento, chiedersi quale comando resta
+     l'unico da usare su quella riga.
+   Il segno resta e sono tre, tutti di FORMA e nessuno di colore: il binario
+   tratteggiato, il bordo tratteggiato dell'etichetta, e la frase «◦ INERTE».
+   Bastano, e non tolgono contrasto a niente. */
+.f5p .wif.inerte{border-left:3px dashed #4A5878;padding-left:8px}   /* 11 - 3: allineamento invariato */
+.f5p .wif.inerte .tagact{border-style:dashed}
+.f5p .wif .msg .inerte{color:#8D9FC4}
+.f5p .xbtn{background:transparent;border:0;color:#73829F;font-weight:600;cursor:pointer;font-family:inherit;font-size:11px}
+.f5p .xbtn:hover{color:#FF3D60}
+.f5p .addb{display:inline-flex;align-items:center;gap:3px;font-size:10px;letter-spacing:.14em;
+  padding:2px 8px;border:1px solid;background:transparent;cursor:pointer;font-family:inherit;text-transform:uppercase}

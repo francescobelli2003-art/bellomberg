@@ -1,0 +1,280 @@
+/* ============================================================
+   F11 v4 "LA VEGLIA" — impianto scelto dal PM 27/07 sui PNG di
+   mockup_f11_settings (opzione A, contro B "la catena di custodia"
+   e C "la sala macchine"), col REGISTRO di B innestato come
+   secondo riquadro su sua indicazione.
+
+   F11 NON e' piu' una pagina: e' un pannello che scende dalla
+   rotellina in alto. Le altre 16 pagine non cambiano scorciatoia
+   (Layout.tsx ora deriva il tasto dal campo `key`, non dall'indice
+   dell'array), e F11 continua ad aprire le impostazioni.
+
+   NON dipende da .obsx apposta: il vestito comune porta
+   `th,td{white-space:nowrap}` (dashboard-command.css:106), che qui
+   manderebbe fuori le celle di prosa. Tutto scoped sotto .f11v.
+
+   Colori: i tre gradini del lotto 0 — dato #ECF1FA, etichetta
+   #8D9FC4, nota #73829F sempre in peso 600 e mai sotto 9px.
+   Scala unica: 8 · 9 · 10 · 11 · 12 · 14 · 17 · 22 · 26 · 34
+   ============================================================ */
+
+.f11-scrim{position:fixed;inset:0;z-index:40;background:rgba(3,5,9,.62);
+  backdrop-filter:blur(2px);animation:f11in .13s ease-out}
+@keyframes f11in{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){.f11-scrim{animation:none}}
+
+.f11v{position:fixed;z-index:41;top:118px;left:50%;transform:translateX(-50%);
+  width:min(1280px,94vw);max-height:calc(100vh - 146px);
+  display:flex;flex-direction:column;
+  background:linear-gradient(180deg,#0D1322,#080C17);border:1px solid #2A3760;
+  box-shadow:0 24px 90px rgba(0,0,0,.72),inset 0 1px 0 rgba(255,255,255,.045);
+  font-family:'JetBrains Mono','IBM Plex Mono',Consolas,monospace;
+  font-size:12px;line-height:1.45}
+/* dichiarato invece che ereditato dal preflight di Tailwind: le larghezze
+   fisse qui sotto (132/96/150/118/250/62/76/104/26px) lo danno tutte per
+   scontato, e una dipendenza implicita e' un difetto in attesa. Stessa
+   riga di F6 (factor-riconciliazione.css:49). Non cambia un pixel oggi. */
+.f11v,.f11v *{box-sizing:border-box}
+.f11v .num{font-variant-numeric:tabular-nums}
+
+/* squadre HUD: il segno di casa */
+.f11v .sq{position:absolute;width:8px;height:8px;pointer-events:none;z-index:3}
+.f11v .sq.tl{top:-1px;left:-1px;border-top:1px solid #FFA51E;border-left:1px solid #FFA51E}
+.f11v .sq.tr{top:-1px;right:-1px;border-top:1px solid #FFA51E;border-right:1px solid #FFA51E}
+.f11v .sq.bl{bottom:-1px;left:-1px;border-bottom:1px solid #FFA51E;border-left:1px solid #FFA51E}
+.f11v .sq.br{bottom:-1px;right:-1px;border-bottom:1px solid #FFA51E;border-right:1px solid #FFA51E}
+
+/* ── testata / corpo / piede ─────────────────────────────── */
+.f11v .phead{height:38px;flex-shrink:0;display:flex;align-items:center;gap:12px;
+  padding:0 14px;border-bottom:1px solid #1A2440;background:rgba(255,255,255,.018)}
+.f11v .phead .tt{font-size:12px;font-weight:700;letter-spacing:.26em;color:#FFA51E;
+  text-transform:uppercase}
+.f11v .phead .sub{font-size:10px;font-weight:600;letter-spacing:.16em;color:#8D9FC4;
+  text-transform:uppercase}
+.f11v .phead .x{margin-left:auto;display:flex;align-items:center;gap:6px;
+  font-size:10px;font-weight:600;letter-spacing:.14em;color:#8D9FC4;
+  border:1px solid #2A3760;padding:3px 9px;background:transparent;cursor:pointer;
+  font-family:inherit}
+.f11v .phead .x:hover{color:#FFA51E;border-color:rgba(255,165,30,.5)}
+.f11v .phead .x:focus-visible{outline:2px solid #FFA51E;outline-offset:1px}
+
+.f11v .pbody{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;
+  gap:9px;padding:11px}
+/* ⚠️ In una colonna flex i figli si RESTRINGONO per stare dentro. Senza questa
+   riga i riquadri si schiacciavano (misurato dal cancello: `.p` alto 53px con
+   i guardiani che uscivano 167px sotto). Il pannello deve SCORRERE, non
+   comprimere: il contenuto tiene la sua altezza e il corpo scorre. */
+.f11v .pbody > *{flex-shrink:0}
+.f11v .pbody::-webkit-scrollbar{width:8px}
+.f11v .pbody::-webkit-scrollbar-track{background:#04060B}
+.f11v .pbody::-webkit-scrollbar-thumb{background:#22304F;border:1px solid #1A2440}
+
+.f11v .pfoot{height:28px;flex-shrink:0;display:flex;align-items:center;gap:14px;
+  padding:0 14px;border-top:1px solid #1A2440;background:rgba(0,0,0,.28);
+  font-size:10px;font-weight:600;letter-spacing:.12em;color:#8D9FC4}
+.f11v .pfoot .dx{margin-left:auto}
+
+/* ── riquadri ────────────────────────────────────────────── */
+.f11v .p{position:relative;border:1px solid #1A2440;background:rgba(255,255,255,.014);
+  display:flex;flex-direction:column;min-height:0;min-width:0}
+/* height:22px e NON i 27px di F6: a 10px la riga e' 14,5px e qui dentro
+   avanzano 6,5px (22 meno la riga da 14,5 meno il bordo inferiore da 1).
+   Alzarla costringerebbe ad alzare anche il `height:300`
+   inline del riquadro "In cartella" (SettingsPanel.tsx:428), che e' il solo
+   tetto fisso del pannello: due file per un problema che non c'e'. */
+.f11v .ph{height:22px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 10px;
+  border-bottom:1px solid #1A2440;font-size:10px;font-weight:600;letter-spacing:.2em;
+  text-transform:uppercase;color:#8D9FC4;white-space:nowrap;overflow:hidden}
+.f11v .ph.a{color:#FFA51E} .f11v .ph.c{color:#29D3F2} .f11v .ph.r{color:#FF3D60}
+.f11v .ph .side{margin-left:auto;color:#8D9FC4;font-weight:600;letter-spacing:.1em;
+  font-size:10px;overflow:hidden;text-overflow:ellipsis}
+.f11v .pb{flex:1;min-height:0;padding:9px 10px}
+.f11v .pb.nopad{padding:0}
+.f11v .pb.scroll{overflow-y:auto}
+.f11v .pb.scroll::-webkit-scrollbar{width:7px}
+.f11v .pb.scroll::-webkit-scrollbar-track{background:#04060B}
+.f11v .pb.scroll::-webkit-scrollbar-thumb{background:#22304F;border:1px solid #1A2440}
+
+/* ── chip ────────────────────────────────────────────────── */
+.f11v .chip{display:inline-block;font-size:10px;font-weight:600;letter-spacing:.1em;
+  padding:2px 7px;border:1px solid;white-space:nowrap}
+.f11v .chip.n{color:#8D9FC4;border-color:#2A3760;background:rgba(255,255,255,.02)}
+.f11v .chip.a{color:#FFA51E;border-color:rgba(255,165,30,.42);background:rgba(255,165,30,.07)}
+.f11v .chip.c{color:#29D3F2;border-color:rgba(41,211,242,.36);background:rgba(41,211,242,.06)}
+.f11v .chip.g{color:#21E0A0;border-color:rgba(33,224,160,.36);background:rgba(33,224,160,.07)}
+.f11v .chip.r{color:#FF3D60;border-color:rgba(255,61,96,.42);background:rgba(255,61,96,.08)}
+.f11v .chip.o{color:#D4AF37;border-color:rgba(212,175,55,.36);background:rgba(212,175,55,.06)}
+.f11v .chip.m{color:#8D9FC4;border-color:#1A2440;background:transparent}
+
+/* ── I GUARDIANI ─────────────────────────────────────────── */
+.f11v .grd{display:flex;align-items:center;gap:11px;padding:7px 10px;
+  border-bottom:1px solid rgba(26,36,64,.5)}
+.f11v .grd:last-child{border-bottom:none}
+.f11v .grd.ko{background:rgba(255,61,96,.055);border-left:2px solid #FF3D60;padding-left:8px}
+.f11v .grd .nm{width:132px;flex-shrink:0;font-size:12px;color:#ECF1FA;font-weight:600}
+.f11v .grd .es{width:96px;flex-shrink:0}
+.f11v .grd .qd{flex:1;min-width:0;font-size:12px;font-weight:600;color:#8D9FC4;line-height:1.4}
+.f11v .grd .qd b{color:#ECF1FA;font-weight:600}
+/* 150px reggono. ⚠️ La stringa che li mette alla prova NON e' a 12px: `prossimo
+   28/07 23:00` sta dentro l'<i> della riga sotto (SettingsPanel.tsx:281), che
+   resta a 10px — 20 caratteri x 6px = 120px, avanzano 30. A 12px ci va il solo
+   `28/07 23:00` di questa riga: 11 caratteri x 7,2 = 79px. (La prima stesura di
+   questo commento misurava la stringa dell'<i> al corpo della <div>: due
+   elementi diversi, un conto solo. Trovato dalla review del 28/07.) */
+.f11v .grd .tm{width:150px;flex-shrink:0;text-align:right;font-size:12px;color:#8D9FC4}
+/* la riga di sotto resta un gradino indietro: annota la data di sopra, non
+   e' una seconda data di pari rango */
+.f11v .grd .tm i{display:block;font-style:normal;font-size:10px;font-weight:600;color:#8D9FC4}
+
+/* ── LA CONTRADDIZIONE — lo strumento-firma, parte 1 ──────
+   Compare SOLO quando la condizione tiene davvero: un lavoro
+   dichiara un esito != 0 E in cartella, quella notte, c'e' un
+   backup. Se la condizione non tiene, il riquadro NON si disegna:
+   un allarme che compare sempre e' un allarme spento. */
+.f11v .contro{display:flex;align-items:stretch;border:1px solid rgba(255,61,96,.42);
+  background:rgba(255,61,96,.05)}
+.f11v .contro .lato{flex:1;padding:8px 11px;min-width:0}
+.f11v .contro .lato + .lato{border-left:1px dashed rgba(255,61,96,.42)}
+.f11v .contro .k{font-size:10px;font-weight:600;letter-spacing:.16em;color:#8D9FC4;
+  text-transform:uppercase}
+.f11v .contro .v{font-size:12px;color:#ECF1FA;margin-top:3px;line-height:1.5;
+  overflow-wrap:anywhere}
+.f11v .contro .v b{color:#FF3D60} .f11v .contro .v em{font-style:normal;color:#21E0A0}
+
+/* ── IL PETTINE DELLE NOTTI — lo strumento-firma, parte 2 ── */
+.f11v .pettine{position:relative;display:flex;align-items:flex-end;gap:2px;height:120px;
+  padding:0 2px 20px 2px;border-bottom:1px solid #2A3760}
+.f11v .dente{position:relative;flex:1;min-width:5px;display:flex;flex-direction:column;
+  justify-content:flex-end;height:100%}
+.f11v .dente .st{width:100%;background:linear-gradient(180deg,#29D3F2,#0F6E86);
+  border:1px solid #29D3F2;border-bottom:none;min-height:3px}
+/* la notte SCOPERTA e' cava: il vuoto si disegna col vuoto, non con un colore triste */
+.f11v .dente.vuoto .st{background:transparent;border:1px dashed rgba(255,61,96,.55);
+  border-bottom:none;height:9px}
+/* i backup presi A MANO hanno un'altra natura (20-30 MB contro 3-9): si
+   distinguono, altrimenti l'occhio legge "grande = importante" ed e' falso */
+.f11v .dente.mano .st{background:linear-gradient(180deg,#5A6B92,#2A3760);border-color:#5A6B92}
+.f11v .dente.oggi .st{background:linear-gradient(180deg,#FFA51E,#8A5600);border-color:#FFA51E}
+.f11v .dente .gg{position:absolute;bottom:-17px;left:50%;transform:translateX(-50%);
+  font-size:9px;font-weight:600;color:#8D9FC4;white-space:nowrap}
+.f11v .dente:hover .st{filter:brightness(1.55)}
+/* lettura numerica ESATTA all'hover: regola di casa sui grafici */
+.f11v .dente .tip{display:none;position:absolute;bottom:calc(100% + 6px);left:50%;
+  transform:translateX(-50%);z-index:9;padding:5px 9px;white-space:nowrap;
+  background:#070A12;border:1px solid #3D4F8A;box-shadow:0 6px 20px rgba(0,0,0,.6);
+  font-size:12px;color:#ECF1FA}
+.f11v .dente .tip i{display:block;font-style:normal;font-size:9px;font-weight:600;color:#73829F}
+.f11v .dente .tip b.ko{color:#FF3D60}
+.f11v .dente:hover .tip,.f11v .dente:focus-within .tip{display:block}
+/* raggiungibile da tastiera: il pettine e' un grafico, non un ornamento */
+.f11v .dente:focus-visible{outline:2px solid #FFA51E;outline-offset:2px}
+
+.f11v .legenda{display:flex;gap:18px;margin-top:24px;align-items:baseline;flex-wrap:wrap}
+.f11v .legenda span{font-size:12px;font-weight:600;color:#8D9FC4}
+.f11v .legenda b{color:#ECF1FA;font-weight:600}
+.f11v .legenda b.ko{color:#FF3D60}
+.f11v .legenda .sw{display:inline-block;width:9px;height:9px;margin-right:5px;
+  vertical-align:-1px;border:1px solid}
+.f11v .legenda .sw.notte{background:#29D3F2;border-color:#29D3F2}
+.f11v .legenda .sw.mano{background:#5A6B92;border-color:#5A6B92}
+.f11v .legenda .sw.vuoto{background:transparent;border:1px dashed rgba(255,61,96,.75)}
+
+/* ── IL REGISTRO (innestato dall'opzione B) ──────────────── */
+.f11v table{border-collapse:collapse;width:100%}
+.f11v th{font-size:10px;font-weight:600;letter-spacing:.16em;color:#73829F;
+  text-transform:uppercase;text-align:left;padding:4px 8px;border-bottom:1px solid #1A2440}
+.f11v td{font-size:12px;padding:5px 8px;border-bottom:1px solid rgba(26,36,64,.5);
+  color:#8D9FC4;vertical-align:top}
+.f11v tr:last-child td{border-bottom:none}
+.f11v .reg td.st{width:118px}
+.f11v .reg td.af{color:#ECF1FA;width:250px}
+.f11v .reg td.no{font-size:12px;font-weight:600;color:#8D9FC4;line-height:1.5}
+.f11v .reg td.no b{color:#ECF1FA;font-weight:600}
+.f11v .reg td.no code{color:#8D9FC4;background:rgba(255,255,255,.03);padding:0 3px}
+
+/* ── LA CODA: cartella, macchina, cambi, motori ──────────── */
+.f11v .coda{display:flex;gap:9px;align-items:stretch}
+.f11v .coda > .p{flex:1;min-width:0}
+.f11v .kv{display:flex;justify-content:space-between;gap:10px;padding:3px 0;
+  border-bottom:1px solid rgba(26,36,64,.4)}
+.f11v .kv:last-child{border-bottom:none}
+/* si chiamano ETICHETTE: e' il gradino #8D9FC4, non quello della nota */
+.f11v .kv .k{font-size:10px;font-weight:600;letter-spacing:.12em;color:#8D9FC4;
+  text-transform:uppercase}
+.f11v .kv .v{font-size:12px;color:#ECF1FA;text-align:right;overflow-wrap:anywhere}
+.f11v .kv .v.ko{color:#FF3D60}
+/* (B10) l'unico link del pannello: l'attribuzione TradingView dovuta per
+   Lightweight Charts. Ciano come gli accenti, sottolineatura a filo che si
+   accende all'hover; il focus da tastiera e' quello del bottone ESC. */
+.f11v .kv .v a.lnk{color:#29D3F2;text-decoration:none;border-bottom:1px solid rgba(41,211,242,.45)}
+.f11v .kv .v a.lnk:hover{border-bottom-color:#29D3F2}
+.f11v .kv .v a.lnk:focus-visible{outline:2px solid #FFA51E;outline-offset:1px}
+/* 12px e non 9: sotto questo selettore non c'e' prosa metodologica, ci sono
+   UNDICI messaggi di stato, di vuoto e di buco dichiarato (regola 14/07) —
+   «lavori schedulati NON leggibili», «campo engines assente», «{n} non sono
+   elencabili da qui». Se il pannello deve gridare che un dato manca, non
+   puo' dirlo nel corpo piu' piccolo di se stesso. Il colore --no resta:
+   cambia la misura, non il gradino. (F6 tiene il suo .nota a 11px, ma li'
+   e' davvero prosa metodologica.) */
+.f11v .nota{font-size:12px;font-weight:600;color:#73829F;line-height:1.5;margin-top:6px}
+.f11v .nota b{color:#8D9FC4;font-weight:600}
+.f11v .nota b.ko{color:#FF3D60}
+
+/* ── l'elenco dei backup ─────────────────────────────────── */
+.f11v .bl{display:flex;align-items:center;gap:10px;padding:4px 10px;
+  border-bottom:1px solid rgba(26,36,64,.45)}
+.f11v .bl:last-child{border-bottom:none}
+.f11v .bl:hover{background:rgba(255,255,255,.022)}
+.f11v .bl .aut{width:62px;flex-shrink:0}
+.f11v .bl .fn{flex:1;min-width:0;font-size:12px;color:#8D9FC4;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.f11v .bl .mb{width:76px;text-align:right;font-size:12px;color:#FFA51E}
+.f11v .bl .dt{width:104px;text-align:right;font-size:12px;color:#8D9FC4}
+.f11v .bl .rm{width:26px;flex-shrink:0;text-align:right}
+.f11v .bl .rm button{background:none;border:none;color:#5A6B92;cursor:pointer;padding:2px;
+  line-height:0}
+.f11v .bl .rm button:hover{color:#FF3D60}
+.f11v .bl .rm button:focus-visible{outline:2px solid #FFA51E;outline-offset:1px}
+
+/* ── bottoni ─────────────────────────────────────────────── */
+.f11v .btn{font-family:inherit;font-size:10px;font-weight:600;letter-spacing:.14em;
+  text-transform:uppercase;padding:5px 12px;border:1px solid #2A3760;background:transparent;
+  color:#8D9FC4;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+.f11v .btn:hover:not(:disabled){color:#FFA51E;border-color:rgba(255,165,30,.5);
+  background:rgba(255,165,30,.06)}
+.f11v .btn:focus-visible{outline:2px solid #FFA51E;outline-offset:1px}
+.f11v .btn:disabled{opacity:.45;cursor:default}
+.f11v .btn.am{color:#FFA51E;border-color:rgba(255,165,30,.45)}
+
+/* esiti delle azioni: dichiarati, mai un pannello muto */
+.f11v .esito{padding:7px 11px;border-left:2px solid;font-size:12px;line-height:1.55;
+  overflow-wrap:anywhere}
+.f11v .esito.ok{border-color:#21E0A0;background:rgba(33,224,160,.06);color:#21E0A0}
+.f11v .esito.ko{border-color:#FF3D60;background:rgba(255,61,96,.06);color:#FF3D60}
+
+/* il buco DICHIARATO quando un fetch fallisce (regola 14/07) */
+.f11v .buco{padding:8px 11px;border:1px solid rgba(255,61,96,.45);
+  background:rgba(255,61,96,.05);font-size:12px;font-weight:600;color:#FF3D60;line-height:1.5}
+
+/* ── la conferma prima di cancellare ─────────────────────── */
+.f11-ask{position:fixed;inset:0;z-index:60;display:flex;align-items:center;
+  justify-content:center;background:rgba(3,5,9,.72)}
+.f11-ask .box{width:min(560px,92vw);border:1px solid #FF3D60;
+  background:linear-gradient(180deg,#0D1322,#080C17);
+  box-shadow:0 24px 90px rgba(0,0,0,.8);
+  font-family:'JetBrains Mono','IBM Plex Mono',Consolas,monospace}
+/* la testata era piu' PICCOLA del corpo che introduce (.bb, 12px):
+   gerarchia rovesciata sull'unica schermata distruttiva del pannello. */
+.f11-ask .bh{padding:10px 14px;border-bottom:1px solid #1A2440;font-size:12px;
+  font-weight:700;letter-spacing:.22em;color:#FF3D60;text-transform:uppercase}
+.f11-ask .bb{padding:14px;font-size:12px;color:#ECF1FA;line-height:1.6;overflow-wrap:anywhere}
+.f11-ask .bb .nota{margin-top:8px}
+.f11-ask .bf{padding:10px 14px;border-top:1px solid #1A2440;display:flex;gap:9px;
+  justify-content:flex-end}
+.f11-ask .btn{font-family:inherit;font-size:10px;font-weight:600;letter-spacing:.14em;
+  text-transform:uppercase;padding:6px 14px;border:1px solid #2A3760;background:transparent;
+  color:#8D9FC4;cursor:pointer}
+.f11-ask .btn:hover{color:#ECF1FA;border-color:#3D4F8A}
+.f11-ask .btn.ko{color:#FF3D60;border-color:rgba(255,61,96,.5)}
+.f11-ask .btn.ko:hover{background:rgba(255,61,96,.1)}
+.f11-ask .btn:focus-visible{outline:2px solid #FFA51E;outline-offset:1px}

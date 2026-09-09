@@ -1,0 +1,4 @@
+{
+  "_leggimi": "Copia questo file in data/lei_emittenti.json e mettici i TUOI emittenti. Il file in data/ e' privato e non viene mai pubblicato. Ogni voce e' SIMBOLO di listino -> LEI (20 caratteri, verificato su filings.xbrl.org/api/entities). Un simbolo assente si cerca per NOME sull'API, e la nota del payload lo dichiara. Le chiavi con `_` davanti sono note.",
+  "ACME.MI": "ESEMPIOLEI0000000010"
+}

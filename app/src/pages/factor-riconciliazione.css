@@ -1,0 +1,305 @@
+/* ============================================================
+   F6 FACTOR LAB "RICONCILIAZIONE" — impianto A scelto dal PM 27/07
+   sui PNG di mockup_f6_factors (contro B "atlante fattoriale" e
+   C "scomposizione settoriale").
+   Spec: docs/superpowers/specs/2026-07-27-f6-factor-lab-riconciliazione-design.md
+
+   NON dipende da .obsx apposta, come trade-cassa.css (F7). Il vestito
+   comune porta `th, td { white-space: nowrap }`
+   (dashboard-command.css:106) e l'allineamento a destra di tutte le
+   colonne tranne la prima (:99-100): qui servono definizioni che
+   vadano a capo e un allineamento scelto colonna per colonna.
+   Tutto scoped sotto .f6r.
+
+   REGISTRO — ordine PM 27/07: ISTITUZIONALE. Intestazioni nominali,
+   mai interrogative. Nessun paragrafo di commento: le note
+   metodologiche stanno in riga singola, prefissate (NOTA/BASE/METODO/
+   CACHE), come il piede di una tabella.
+
+   I TRE GRADINI, e la regola semantica che li assegna (lotto 0):
+     dato #ECF1FA · etichetta #8D9FC4 · nota #73829F (peso 600, mai <9px)
+   La domanda non e' "che grigio?" ma "questo testo e' davvero una
+   NOTA?". Un conteggio, una cifra, la chiave di una coppia
+   chiave/valore, l'asse di un grafico e il valore di una cella sono
+   ETICHETTE. Sul gradino della nota resta solo la prosa metodologica.
+
+   Scala unica: 8 · 9 · 10 · 11 · 12 · 14 · 17 · 22 · 26 · 34
+   ============================================================ */
+
+.f6r{
+  --bd:#1A2440; --bd2:#2A3760; --bd3:#3D4F8A; --lo:#04060B;
+  --tx:#ECF1FA;   /* dato */
+  --et:#8D9FC4;   /* etichetta */
+  --no:#73829F;   /* nota — SEMPRE peso 600, mai sotto 9px */
+  --am:#FFA51E; --am-hi:#FFC555; --cy:#29D3F2;
+  --em:#21E0A0; --cr:#FF3D60; --vi:#9B7BFF;
+  /* stessa strategia di memo-banco.css (F9), movimenti.css (F14) e
+     trade-cassa.css (F7): altezza piena e nessun padding proprio — il
+     riquadro del Layout ha gia' il suo. */
+  display:flex;flex-direction:column;gap:9px;height:100%;min-height:0;
+  font-family:'JetBrains Mono','IBM Plex Mono',Consolas,monospace;
+  /* ⚠ 12px e non 11. Ordine PM 27/07: «le pagine si devono capire
+     facilmente». Il testo minuto e' il primo nemico della leggibilita', e
+     questa pagina ha molte cifre da confrontare a colpo d'occhio. */
+  font-size:12px;line-height:1.45;color:var(--tx);
+}
+/* dichiarato invece che ereditato dal preflight di Tailwind: tutte le
+   altezze fisse qui sotto lo danno per scontato, e una dipendenza
+   implicita e' un difetto in attesa */
+.f6r,.f6r *{box-sizing:border-box}
+/* In una colonna flex i figli si RESTRINGONO per stare dentro: il
+   contenitore NON comprime, il contenuto scorre dentro il suo riquadro. */
+.f6r > *{flex-shrink:0}
+.f6r .num{font-variant-numeric:tabular-nums}
+.f6r .t-no{color:var(--no);font-weight:600}
+.f6r .t-et{color:var(--et)}
+.f6r .muto{color:var(--no);font-weight:600}
+.f6r .up{color:var(--em)} .f6r .dn{color:var(--cr)}
+.f6r .am{color:var(--am)} .f6r .cy{color:var(--cy)} .f6r .vi{color:var(--vi)}
+
+/* ── la testata di pagina ─────────────────────────────────── */
+.f6r .testa{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  border:1px solid var(--bd);background:rgba(255,255,255,.014);padding:8px 12px}
+.f6r .testa .marchio{font-size:14px;font-weight:600;letter-spacing:.26em;color:var(--am)}
+.f6r .testa .sotto{font-size:10px;letter-spacing:.16em;color:var(--et)}
+
+/* ── LA DICHIARAZIONE DI ETA' ─────────────────────────────────
+   Decisione PM 27/07: badge in testata e si disegna. I fattori
+   Kenneth French finiscono 59 giorni fa; una pagina che disegna beta
+   senza dirlo e' il fallback silenzioso vietato il 14/07. Sta in
+   testata, non in fondo, e non e' un ornamento. */
+.f6r .eta{display:flex;align-items:center;gap:8px;margin-left:auto;
+  border:1px solid var(--am);background:rgba(255,165,30,.09);padding:4px 10px}
+.f6r .eta .n{font-size:17px;font-weight:600;color:var(--am);line-height:1}
+.f6r .eta .d{font-size:9px;font-weight:600;letter-spacing:.14em;color:var(--am-hi);
+  text-transform:uppercase}
+/* la data e' un DATO, non una nota: gradino dell'etichetta */
+.f6r .eta .p{font-size:9px;font-weight:600;color:var(--et);letter-spacing:.06em}
+.f6r .eta.ko{border-color:var(--cr);background:rgba(255,61,96,.09)}
+.f6r .eta.ko .n,.f6r .eta.ko .d{color:var(--cr)}
+
+/* ── i riquadri ───────────────────────────────────────────── */
+.f6r .rq{position:relative;border:1px solid var(--bd);background:rgba(255,255,255,.014);
+  display:flex;flex-direction:column;min-height:0;min-width:0}
+.f6r .rq.cresce{flex:1 1 0}
+.f6r .sq{position:absolute;width:8px;height:8px;pointer-events:none;z-index:3}
+.f6r .sq.tl{top:-1px;left:-1px;border-top:1px solid var(--am);border-left:1px solid var(--am)}
+.f6r .sq.br{bottom:-1px;right:-1px;border-bottom:1px solid var(--am);border-right:1px solid var(--am)}
+.f6r .ph{height:27px;flex-shrink:0;display:flex;align-items:center;gap:9px;padding:0 11px;
+  border-bottom:1px solid var(--bd);font-size:10px;font-weight:600;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--et);white-space:nowrap;overflow:hidden}
+.f6r .ph h1,.f6r .ph h2{font:inherit;margin:0;padding:0;color:inherit;letter-spacing:inherit;
+  min-width:0;overflow:hidden;text-overflow:ellipsis}
+.f6r .ph.a{color:var(--am)} .f6r .ph.c{color:var(--cy)}
+.f6r .ph.r{color:var(--cr)} .f6r .ph.v{color:var(--vi)}
+/* La riga di destra porta CONTEGGI e cifre: sono etichette, non note. */
+.f6r .ph .side{margin-left:auto;color:var(--et);font-weight:600;letter-spacing:.1em;
+  min-width:0;overflow:hidden;text-overflow:ellipsis}
+.f6r .ph.divide{border-top:1px solid var(--bd)}
+.f6r .pb{flex:1;min-height:0;padding:9px 11px}
+.f6r .pb.nopad{padding:0}
+.f6r .pb.fisso{flex:0 0 auto}
+.f6r .pb.scorre{overflow-y:auto}
+.f6r .pb.scorre::-webkit-scrollbar{width:8px}
+.f6r .pb.scorre::-webkit-scrollbar-track{background:var(--lo)}
+.f6r .pb.scorre::-webkit-scrollbar-thumb{background:#22304F;border:1px solid var(--bd)}
+
+/* ── le colonne ───────────────────────────────────────────── */
+.f6r .fila{display:flex;gap:9px;flex:1 1 0;min-height:0}
+.f6r .fila > .rq{min-width:0}
+.f6r .col-1{flex:1 1 0}
+.f6r .col-base{flex:0 0 27%}
+
+/* ── IL CALIBRO: lo strumento-firma ───────────────────────────
+   Un righello solo, quattro lancette. La banda del consenso e' larga
+   quanto lo spread misurato fra le riconciliate; la finestra della
+   soglia e' larga `threshold` e CENTRATA SUL PUNTO MEDIO di [min,max]:
+   il guardrail giudica su max−min ≤ threshold (verdetto UNRELIABLE
+   oltre, non "DIVERGENT" — audit/24 B.8), e con questo centro «tutte
+   le lancette dentro» equivale al criterio (modulo l'arrotondamento:
+   il payload porta i beta a 3 decimali, lo spread e' calcolato sui
+   valori pieni — a cavallo di ±0,001 banda e verdetto possono divergere). La lancetta
+   che la pagina usa (finestra 1y) e' TRATTEGGIATA: non partecipa alla
+   riconciliazione, e disegnarla piena sarebbe la dodicesima bugia. */
+/* 148px e non 186: tolte le etichette dei nomi dal righello, la fascia sotto
+   le lancette era spazio morto. Il riquadro si stringe su cio' che disegna. */
+.f6r .calibro{position:relative;height:148px;margin:4px 2px 0}
+.f6r .calibro .riga{position:absolute;left:0;right:0;top:118px;height:2px;background:var(--bd2)}
+.f6r .calibro .banda{position:absolute;top:104px;height:30px;background:rgba(41,211,242,.10);
+  border-left:1px solid rgba(41,211,242,.5);border-right:1px solid rgba(41,211,242,.5)}
+.f6r .calibro .soglia{position:absolute;top:96px;height:46px;
+  border-left:1px dashed rgba(255,165,30,.45);border-right:1px dashed rgba(255,165,30,.45);
+  background:rgba(255,165,30,.035)}
+.f6r .calibro .tacca{position:absolute;top:118px;width:1px;height:7px;background:var(--bd2)}
+/* ⚠ I VALORI DELL'ASSE SONO ETICHETTE, NON NOTE. Dottrina dei tre gradini:
+   "l'asse di un grafico" sta sul gradino dell'ETICHETTA. La prima stesura li
+   metteva su quello della nota (#73829F) e il cancello li ha ripresi a
+   3,51:1 su 4,5 richiesti. Non era un problema di contrasto: era il gradino
+   sbagliato, e il contrasto e' stato il sintomo. */
+.f6r .calibro .tval{position:absolute;top:128px;font-size:9px;font-weight:600;color:var(--et);
+  transform:translateX(-50%);white-space:nowrap}
+
+.f6r .lanc{position:absolute;width:0;background:transparent;border:0;padding:0;
+  font:inherit;color:inherit;cursor:pointer}
+.f6r .lanc .gambo{position:absolute;left:-1px;width:2px;background:var(--cy)}
+.f6r .lanc .testina{position:absolute;left:-5px;width:11px;height:11px;transform:rotate(45deg);
+  background:var(--cy);border:1px solid #0A0E19}
+.f6r .lanc .val{position:absolute;transform:translateX(-50%);font-size:17px;font-weight:600;
+  color:var(--cy);white-space:nowrap;line-height:1}
+.f6r .lanc .chi{position:absolute;transform:translateX(-50%);font-size:9px;font-weight:600;
+  letter-spacing:.13em;text-transform:uppercase;color:var(--et);white-space:nowrap}
+.f6r .lanc.fuori .gambo{background:var(--am);border-left:1px dashed var(--am);width:0}
+.f6r .lanc.fuori .testina{background:transparent;border:1px dashed var(--am)}
+.f6r .lanc.fuori .val{color:var(--am)}
+.f6r .lanc.fuori .chi{color:var(--am-hi)}
+/* fuoco da tastiera VISIBILE: regola di casa, non un extra */
+.f6r .lanc:focus-visible{outline:none}
+.f6r .lanc:focus-visible .testina{box-shadow:0 0 0 3px rgba(255,255,255,.28)}
+.f6r .lanc:focus-visible .val,.f6r .lanc.on .val{text-shadow:0 0 12px currentColor}
+.f6r .lanc.on .testina{box-shadow:0 0 0 2px rgba(41,211,242,.35)}
+.f6r .lanc.fuori.on .testina{box-shadow:0 0 0 2px rgba(255,165,30,.35)}
+
+/* ⚠ NIENTE RIQUADRO DI LETTURA FLOTTANTE. La prima stesura ne aveva uno su
+   hover e su fuoco: il cancello l'ha ripreso sdraiato al 92% sopra la scheda
+   della lancetta accanto, e il PM l'ha visto per primo ("scritte che si
+   sovrappongono, soprattutto sulla linea in alto"). Era anche inutile: le
+   definizioni stanno gia' qui sotto, TUTTE E QUATTRO, permanenti. La lettura
+   esatta e' quella, e passare su una lancetta ACCENDE la sua scheda invece di
+   coprirne un'altra. Un tooltip che duplica una tabella visibile e' rumore. */
+.f6r .defs{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--bd);
+  border-top:1px solid var(--bd)}
+.f6r .defs > div{background:#080B14;padding:7px 10px;min-width:0;
+  border-top:1px solid transparent;transition:background .12s}
+.f6r .defs > div.on{background:#0C1220;border-top-color:var(--cy)}
+.f6r .defs > div.on.fuori{border-top-color:var(--am)}
+.f6r .defs .k{font-size:9px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--cy)}
+.f6r .defs .k.fuori{color:var(--am)}
+.f6r .defs .v{font-size:22px;font-weight:600;color:var(--tx);line-height:1.1;margin:1px 0 3px}
+/* 11px e non 10: a 10px il cancello misura 4,21:1 su 4,5 richiesti, e questa
+   e' la prosa che spiega da dove viene ogni numero — non e' una didascalia */
+.f6r .defs .d{font-size:11px;color:var(--no);font-weight:600;line-height:1.45}
+
+/* ── LE MISURE DISCORDANTI ────────────────────────────────── */
+.f6r .duello{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;
+  padding:8px 4px;border-bottom:1px solid rgba(26,36,64,.5)}
+.f6r .duello:last-child{border-bottom:0}
+.f6r .duello .lato{min-width:0}
+.f6r .duello .lato.dx{text-align:right}
+.f6r .duello .cifra{font-size:26px;font-weight:600;line-height:1}
+.f6r .duello .fonte{font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--et);margin-top:3px}
+.f6r .duello .come{font-size:11px;color:var(--no);font-weight:600;margin-top:3px;line-height:1.4}
+.f6r .duello .mezzo{text-align:center;padding:0 6px;
+  border-left:1px solid var(--bd);border-right:1px solid var(--bd)}
+.f6r .duello .mezzo .et{font-size:9px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--no)}
+.f6r .duello .mezzo .sc{font-size:14px;font-weight:600;color:var(--am);white-space:nowrap}
+
+/* ── tabelle ──────────────────────────────────────────────── */
+.f6r table{border-collapse:collapse;width:100%}
+.f6r th{font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--et);text-align:left;padding:4px 7px;border-bottom:1px solid var(--bd);
+  position:sticky;top:0;background:#0A0E19;z-index:2}
+.f6r td{padding:3px 7px;border-bottom:1px solid rgba(26,36,64,.5);font-size:12px;color:var(--tx)}
+.f6r td.n,.f6r th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* una data non va a capo in mezzo: "2026-05-" / "29" non e' una data */
+.f6r td.data,.f6r th.data{white-space:nowrap;text-align:right}
+/* l'ultima riga di uno scroller non deve finire tagliata a meta' contro il
+   piede dell'app: il fondo si tiene il suo respiro */
+.f6r .pb.scorre{padding-bottom:10px}
+.f6r .pb.scorre.nopad{padding:0 0 10px}
+/* ⚠ UNA CIFRA NON E' MAI UNA NOTA. La prima stesura spegneva le righe non
+   significative fino al gradino della nota (#73829F) per dire "questo e'
+   rumore": ma il gradino della nota e' semantico, non un livello di enfasi, e
+   il cancello ha ripreso quei numeri a 4,17:1. La non-significativita' la
+   dice il BAFFO, che attraversa lo zero; qui basta il gradino dell'etichetta. */
+.f6r tr.ns td{color:var(--et)}
+.f6r tbody tr:hover td{background:rgba(41,211,242,.045)}
+.f6r tr.piede td{border-bottom:0;padding:8px 7px;font-size:9px;font-weight:600;
+  color:var(--no);letter-spacing:.04em;line-height:1.55}
+.f6r tr.piede td b{color:var(--et)}
+.f6r tr.piede td b.am{color:var(--am)}
+
+/* ── il baffo di confidenza ───────────────────────────────────
+   IL RISCHIO ESTETICO DI QUESTA PAGINA, approvato dal PM sui PNG.
+   Il punto e' piccolo, il baffo e' l'oggetto: un coefficiente il cui
+   intervallo comprende lo zero viene disegnato MENTRE lo comprende,
+   e non si puo' vestire da segnale. La regola di prima (|beta|>=0,2 ->
+   verde/rosso) coloriva 129 celle su 162, di cui 58 con |t| < 1,96. */
+/* ⚠ `text-transform:uppercase` non ha una maiuscola per α e β: le mappa su
+   Α e Β (alfa e beta MAIUSCOLI greci), che a schermo sono indistinguibili da
+   A e B. La colonna dell'alpha si intitolava «A ANN.» e il conteggio dei beta
+   diceva «162 CELLE B». I due glifi vivono qui dentro. */
+.f6r .sym{text-transform:none}
+
+.f6r .baffo{position:relative;height:13px}
+/* il baffo e' focalizzabile: la sua lettura numerica non deve vivere solo
+   nel tooltip del mouse */
+.f6r .baffo:focus-visible{outline:1px solid var(--cy);outline-offset:2px}
+.f6r .baffo .asse{position:absolute;top:6px;left:0;right:0;height:1px;background:var(--bd)}
+.f6r .baffo .zero{position:absolute;top:0;bottom:0;width:1px;background:var(--bd3)}
+.f6r .baffo .ic{position:absolute;top:5px;height:3px;border-radius:2px}
+.f6r .baffo .pt{position:absolute;top:2px;width:3px;height:9px;border-radius:1px}
+.f6r .baffo.sig .ic{background:rgba(41,211,242,.42)}
+.f6r .baffo.sig .pt{background:var(--cy)}
+.f6r .baffo.ns .ic{background:rgba(115,130,159,.30)}
+.f6r .baffo.ns .pt{background:var(--no)}
+
+/* le due finestre: due punti sullo stesso righello, uniti */
+.f6r .duefin{position:relative;height:13px}
+.f6r .duefin .asse{position:absolute;top:6px;left:0;right:0;height:1px;background:var(--bd)}
+.f6r .duefin .zero{position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--bd3)}
+.f6r .duefin .arco{position:absolute;top:5px;height:3px;background:rgba(255,165,30,.45)}
+.f6r .duefin .p1{position:absolute;top:2px;width:3px;height:9px;background:var(--cy)}
+.f6r .duefin .p3{position:absolute;top:2px;width:3px;height:9px;background:var(--am)}
+
+/* ── la base di calcolo ───────────────────────────────────── */
+/* line-height 1 su 34px fa toccare la cifra all'etichetta sotto: il cancello
+   l'ha ripreso al 18% e al 20%. La cifra si tiene la sua riga. */
+.f6r .grande{font-size:34px;font-weight:600;line-height:1.12;margin-bottom:2px}
+.f6r .sotto-grande{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--et)}
+.f6r .nota{font-size:11px;font-weight:600;color:var(--no);letter-spacing:.02em;line-height:1.55}
+.f6r .nota b{color:var(--et)}
+.f6r .nota b.am{color:var(--am)}
+.f6r .sep{margin-top:10px;padding-top:8px;border-top:1px solid var(--bd)}
+
+/* ── stati: errore, attesa ───────────────────────────────────
+   Mai uno spinner muto: durante l'attesa si scrive CHE COSA si sta
+   ricalcolando, perche' qui l'attesa e' di 7 secondi e ha una causa
+   nota (la cache a chiave singola del motore fattoriale). */
+.f6r .avviso{display:flex;align-items:flex-start;gap:9px;padding:7px 11px;
+  border:1px solid var(--cr);background:rgba(255,61,96,.07);
+  font-size:10px;font-weight:600;color:var(--cr);line-height:1.5}
+.f6r .attesa{padding:26px 11px;text-align:center}
+.f6r .attesa .t{font-size:12px;color:var(--et);letter-spacing:.14em;text-transform:uppercase}
+.f6r .attesa .s{font-size:10px;font-weight:600;color:var(--no);margin-top:5px;line-height:1.5}
+.f6r .bt{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;
+  border:1px solid var(--bd2);background:transparent;color:var(--et);
+  font:inherit;font-size:9px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+  cursor:pointer}
+.f6r .bt:hover:not(:disabled){border-color:var(--am);color:var(--am)}
+.f6r .bt:focus-visible{outline:1px solid var(--am);outline-offset:1px}
+.f6r .bt:disabled{opacity:.45;cursor:default}
+
+/* segno discreto sulla riga che porta il caveat sul cambio: 21 righe
+   su 27, l'83,76% del capitale. Renderlo e' obbligatorio. */
+.f6r .fx{color:var(--vi);font-weight:600;cursor:help}
+
+/* ── ALTEZZE CORTE ────────────────────────────────────────────
+   ⚠ Con `> * {flex-shrink:0}` il pannello con `flex:1 1 0` e' l'unico
+   a poter cedere, e cede FINO A ZERO. A 960px utili e' dove le pagine
+   di questa casa si rompono: sotto quella soglia la colonna scorre
+   invece di comprimere. Stessa cura di trade-cassa.css (F7), che e'
+   stato il primo css di pagina della casa a prendere media query. */
+@media (max-height:1150px){
+  .f6r .calibro{height:150px}
+  .f6r .defs .v{font-size:17px}
+  .f6r .duello .cifra{font-size:22px}
+  .f6r .grande{font-size:26px}
+}
+@media (max-height:900px){
+  .f6r{overflow-y:auto}
+  .f6r .fila{flex:0 0 auto;min-height:420px}
+  .f6r .calibro{height:132px}
+}

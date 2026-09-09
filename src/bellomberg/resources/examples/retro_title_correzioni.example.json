@@ -1,0 +1,18 @@
+{
+  "_leggimi": "Copia questo file in data/retro_title_correzioni.json e mettici le TUE correzioni. Il file in data/ e' privato e non viene mai pubblicato. `correzioni`: id di sessione -> {titolo: il titolo corretto a mano, cosa_c_era: il titolo generato che si sostituisce (lo script si ferma se il piano e' cambiato), perche: il motivo dell'audit, deve_contenere: parole che il titolo corretto deve avere (opzionale)}. `intatti`: id -> parole che il titolo generato deve conservare (le espansioni GIUSTE non si correggono: regola del PM). Un id non puo' stare in entrambe.",
+  "correzioni": {
+    "12": {
+      "titolo": "Acme Manifatture: notizie",
+      "cosa_c_era": "Posizione ACMX in portafoglio",
+      "perche": "ACMX non esiste: in book c'e' ACME.MI, e la domanda chiedeva news, non la posizione",
+      "deve_contenere": [
+        "Acme"
+      ]
+    }
+  },
+  "intatti": {
+    "13": [
+      "ACME.MI"
+    ]
+  }
+}

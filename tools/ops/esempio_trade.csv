@@ -1,0 +1,4 @@
+data,ticker,azione,quantita,prezzo,valuta,note
+2026-01-15,ABCD.MI,BUY,10,12.50,EUR,ESEMPIO (ticker finto): solo dry-run o --db di prova
+2026-01-16,WXYZ,BUY,3,101.20,USD,ESEMPIO (ticker finto): titolo in USD
+2026-02-01,ABCD.MI,SELL,4,13.00,EUR,ESEMPIO (ticker finto): vendita parziale

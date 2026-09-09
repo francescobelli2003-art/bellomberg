@@ -1,0 +1,541 @@
+/* ============================================================
+   F4 v3 "PLANCIA ORBITALE" — Agents Live ridisegnato
+   (impianto scelto dal PM il 26/07 su mockup_f4_agents/opzione_2.html,
+    collaudato da mockup_f4_agents/qa.py: TUTTO PULITO sulle tre
+    inquadrature del 49" — qui reso su dati VERI di GET /agents/live).
+   Il disegno viene da quel mockup: <style> di opzione_2.html +
+   f4_base.css + f4_space.css, riscritti nella convenzione di casa.
+   Il vestito COMUNE (.p3 .p3h .tick .chip .ld .tb) arriva da
+   dashboard-command.css sotto .obsx: qui SOLO cio' che e' della plancia.
+   Disciplina B-UI15/19: 8-12px (7,5px il pavimento della minuteria,
+   soglia di collaudo 7px), tabular-nums sui numeri, glow SOLO sugli
+   stati. Nessun !important.
+   Regola PM 26/07: lo strumento e' INTERATTIVO e l'SVG misura il box in
+   pixel veri (useBox) -> mai preserveAspectRatio="none" con testo dentro.
+   Data: 26/07/2026 · modello che ha lavorato: Opus 5.
+   ============================================================ */
+
+/* ── 1. RADICE E MANOPOLE DI TARATURA ──────────────────────────────────
+   Layout.tsx da' alla pagina un riquadro `p-4 h-full overflow-y-auto`.
+   Su un 49" a 1440 l'altezza utile e' 1440 − 128 di cromatura app
+   (header 40 + nav 32 + nastro 28 + footer 28) − 32 di padding ≈ 1276px:
+   circa 60px MENO del palco su cui e' stato collaudato il mockup (1338).
+   L'ALTEZZA MINIMA DI UNA RIGA DENSA, misurata e non stimata: il collaudo
+   confronta i rettangoli di INCHIOSTRO (Range.getBoundingClientRect), e
+   quel rettangolo NON segue il line-height — vale ascendente+discendente
+   del carattere, cioe' ~1,41 volte il corpo (12px per un testo da 8,5px).
+   Quindi due righe adiacenti si "sovrappongono" appena stanno piu' vicine
+   di ~10,6px, e il line-height non e' una leva: l'unica leva e' l'altezza
+   della riga. Da qui la fascia bassa a 296px (a 288 le righe di DOVE HA
+   GUARDATO scendevano a 10,4px e il collaudo segnalava 45 sovrapposizioni)
+   e il PAVIMENTO di 9px sulle griglie: se un giorno gli strumenti o gli
+   agenti raddoppiano, il pannello SCORRE — e si vede — invece di
+   schiacciare le righe fino a farle collidere in silenzio.
+   Zero-scroll di PAGINA resta la regola; lo scorrimento, se serve, sta
+   DENTRO il pannello. */
+.f4p{font-family:'JetBrains Mono',monospace;display:flex;flex-direction:column;gap:8px;
+  height:100%;min-height:0;
+  /* le manopole stanno qui, non sparse fra le regole: il PM tara a occhio
+     sul suo monitor e deve trovarle in un posto solo */
+  /* la fascia bassa e' alta ESATTAMENTE quanto le serve: 12px per riga di
+     DOVE HA GUARDATO (il pavimento anti-collisione misurato qui sopra) +
+     82px fra testata, legenda dei sigilli e padding. Cosi' se un giorno gli
+     strumenti aumentano e' la fascia a crescere e il quadrante a cedere
+     altezza, invece di una griglia in vetrina che comincia a scorrere.
+     Se la legenda dei sigilli passa le due righe, la costante va alzata. */
+  --f4rowb:calc(var(--f4attr2) * 12px + 82px);
+  --f4ca:348px;     /* colonna dei dati di run                            */
+  --f4cb:444px;     /* colonna che si apre a meta' schermo                 */
+  --f4attr2:21;     /* righe di DOVE HA GUARDATO su 2 colonne (= ceil(n/2))*/
+  --f4attr1:41;     /* righe di DOVE HA GUARDATO su 1 colonna (= n)        */
+  --f4logr:87}      /* righe del nastro su 3 colonne (= ceil(chiamate/3))  */
+/* il vestito comune la porta gia', ma la pagina deve reggere anche senza:
+   una cifra proporzionale in una colonna di numeri e' un difetto visibile */
+.f4p .num{font-variant-numeric:tabular-nums}
+/* corpo del pannello: il vestito comune si ferma a .p3/.p3h, il corpo e' di F4.
+   min-height/min-width 0 = il figlio misurato non gonfia il pannello, quindi
+   il ResizeObserver di useBox non entra in retroazione. */
+.f4p .p3b{flex:1;min-height:0;min-width:0;position:relative;overflow:hidden}
+/* tinte di testata che mancano al vestito comune (che ha gia' .am e .vi) */
+.f4p .p3h.cy{color:#29D3F2}
+.f4p .p3h.cr{color:#FF3D60}
+
+/* ── 2. BARRA DI ASSETTO ───────────────────────────────────────────────
+   La riga di stato della run: celle a colonna (chiave / valore / nota),
+   separate da un filo. E' la stessa barra dei mockup F4 (f4_base.css),
+   non quella compatta di F5: qui i valori sono grandi e si leggono da
+   lontano, perche' e' la prima cosa che si guarda entrando in pagina. */
+.f4p .asst{display:flex;align-items:stretch;flex-shrink:0;border:1px solid #1A2440;
+  background:linear-gradient(180deg,#0D1322,#0A0F1C);position:relative;overflow:hidden}
+.f4p .asst .cell{padding:7px 13px;border-right:1px solid #1A2440;display:flex;
+  flex-direction:column;justify-content:center;gap:2px;min-width:0}
+.f4p .asst .cell:last-child{border-right:0}
+.f4p .asst .k{font-size:9px;letter-spacing:.16em;color:#73829F;font-weight:600;text-transform:uppercase;
+  white-space:nowrap}
+.f4p .asst .v{font-size:14px;font-weight:300;line-height:1.1;letter-spacing:.01em;
+  color:#ECF1FA}
+.f4p .asst .v.sm{font-size:11px}
+/* niente nowrap sui sub (blocco B, 31/08): quando la barra si stringe (o il
+   font di ripiego e' piu' largo) la riga va a capo DENTRO la cella invece di
+   sforare a destra sopra la cella accanto — misurati 5 sfori fino a 8,3px */
+.f4p .asst .s{font-size:8px;color:#8D9FC4;letter-spacing:.04em}
+.f4p .asst .id{display:flex;align-items:center;gap:9px;padding:0 14px;
+  border-right:1px solid #1A2440;flex-shrink:0}
+.f4p .asst .id .t{font-size:11px;letter-spacing:.26em;color:#FFA51E;white-space:nowrap}
+.f4p .asst .grow{flex:1;border-right:1px solid #1A2440;min-width:0}
+/* la cella "quadrante" (la scala dello strumento) e' un di piu': al terzo di
+   schermo la barra e' gia' piena e la spingerebbe a sovrapporsi. Torna a meta'. */
+.f4p .asst .qcell{display:none}
+.f4p .asst .go{display:flex;align-items:center;gap:7px;font-size:10px;letter-spacing:.2em;
+  padding:0 20px;border:0;border-left:1px solid rgba(255,165,30,.3);color:#FFA51E;
+  text-transform:uppercase;background:rgba(255,165,30,.06);cursor:pointer;
+  font-family:inherit;white-space:nowrap;flex-shrink:0}
+.f4p .asst .go:hover:not(:disabled){background:rgba(255,165,30,.14)}
+.f4p .asst .go:disabled{opacity:.45;cursor:default}
+.f4p .asst .go:focus-visible{outline:1px solid #FFA51E;outline-offset:-3px}
+/* fermare una run e' un'azione distruttiva: non deve avere lo stesso vestito
+   del bottone che la lancia */
+.f4p .asst .go.stop{color:#FF3D60;border-left-color:rgba(255,61,96,.3);
+  background:rgba(255,61,96,.06)}
+.f4p .asst .go.stop:hover:not(:disabled){background:rgba(255,61,96,.14)}
+
+/* ── 3. LA BARRA AMBRA DEI BUCHI DICHIARATI ────────────────────────────
+   Regola d'onesta' n.3 (PM 14/07): i buchi stanno in VETRINA, non nei
+   tooltip. Qui ci vanno i desk in api_error e i soldi che hanno bruciato.
+   flex-wrap: sulla pagina vera il testo non e' fisso come nel mockup — se
+   e' piu' lungo va a capo, non viene tagliato dal bordo (un taglio si
+   legge come "ho mostrato tutto"). */
+.f4p .warn{display:flex;align-items:center;gap:8px;padding:5px 13px;flex-shrink:0;
+  flex-wrap:wrap;border:1px solid rgba(255,165,30,.34);background:rgba(255,165,30,.055);
+  font-size:9px;letter-spacing:.05em;color:#FFA51E;line-height:1.5}
+.f4p .warn b{color:#FFD27A;font-weight:500}
+.f4p .warn .sep{color:rgba(255,165,30,.4)}
+/* lo stesso oggetto in rosso quando non e' un avviso ma un guasto (backend
+   irraggiungibile, payload assente): il colore dice la gravita', il testo il fatto */
+.f4p .warn.ko{border-color:rgba(255,61,96,.4);background:rgba(255,61,96,.06);color:#FF8FA3}
+.f4p .warn.ko b{color:#FF3D60;font-weight:600}
+
+/* ── 4. IMPIANTO AD AREE ───────────────────────────────────────────────
+   Ordine del PM 26/07 ("la volevo con meno scorrimento, riposiziona i box"):
+   nessun pannello deve scorrere dentro se' stesso per far stare il proprio
+   contenuto. Lo scorrimento interno era il ripiego di un impianto a COLONNE,
+   dove tre pannelli di appetito diverso si spartivano la stessa altezza.
+   Qui ogni pannello e' una CELLA con la sua area, e le aree si riassegnano a
+   ogni inquadratura: la larghezza in piu' va al dato, e l'altezza va dove
+   serve. Il DOM non cambia mai — cambia solo dove atterra ogni cella.
+
+   L'altezza utile e' SEMPRE ~1276px; la larghezza va da 1706 a 5120.
+   La fascia bassa e' CALCOLATA sul contenuto vero, non fissata a occhio:
+   il rettangolo d'inchiostro di un testo da 8,5px e' ~12px (ascendente +
+   discendente, che il line-height non cambia), quindi la griglia degli
+   strumenti costa `righe x 12px` piu' testata, legenda e imbottitura.   */
+.f4p{--f4rowb:calc(var(--f4attr2) * 12px + 92px)}
+.f4p .plancia{flex:1;min-height:0;display:grid;gap:8px;
+  grid-template-columns:minmax(0,1fr) 306px var(--f4ca);
+  grid-template-rows:minmax(0,1fr) minmax(0,1fr) var(--f4rowb)}
+.f4p .iw  {grid-area:1/1/3/3}     /* lo strumento: due righe, due colonne */
+.f4p .ppar{grid-area:1/3/2/4}
+.f4p .peco{grid-area:2/3/3/4}
+.f4p .patt{grid-area:3/1/4/2}     /* dove ha guardato: fascia bassa a sx   */
+.f4p .ptk {grid-area:3/2/4/3}
+.f4p .pcif{grid-area:3/3/4/4}     /* il registro scende in fascia bassa:   */
+.f4p .plog{display:none}          /* in colonna non ci stava senza scorrere */
+.f4p .plancia>.p3{min-width:0;min-height:0}
+
+/* meta' schermo (~2560): DOVE HA GUARDATO passa a UNA colonna di 41 righe e
+   si prende l'altezza piena; il registro torna accanto agli altri dati. */
+@media (min-width:2200px){
+  .f4p{--f4ca:360px;--f4rowb:276px}
+  .f4p .plancia{grid-template-columns:minmax(0,1fr) 330px var(--f4ca) 384px}
+  .f4p .iw  {grid-area:1/1/3/3}
+  .f4p .ppar{grid-area:1/3/2/4}
+  .f4p .peco{grid-area:2/3/3/4}
+  .f4p .patt{grid-area:1/4/3/5}   /* colonna intera: 41 righe, una sola colonna */
+  .f4p .pcif{grid-area:3/1/4/3}
+  .f4p .ptk {grid-area:3/3/4/5}
+}
+/* schermo intero (5120): si apre il nastro delle chiamate, che prende una
+   colonna tutta sua e tutte e tre le righe. Il quadrante e' ANCORATO a
+   1770px: oltre non guadagna leggibilita', e la larghezza va al dato. */
+@media (min-width:4200px){
+  .f4p{--f4ca:376px;--f4rowb:276px}
+  .f4p .plancia{grid-template-columns:minmax(0,1770px) 340px var(--f4ca) 400px minmax(0,1fr)}
+  .f4p .patt{grid-area:1/4/3/5}
+  .f4p .plog{display:flex;grid-area:1/5/4/6}
+  .f4p .pcif{grid-area:3/1/4/3}
+  .f4p .ptk {grid-area:3/3/4/5}
+}
+/* sotto ~1180px di viewport (o a zoom alto) la plancia si impila e la vista
+   scorre — stesso idioma di F1 — invece di strizzare il quadrante */
+@media (max-width:1180px){
+  .f4p{height:auto}
+  .f4p .plancia{display:flex;flex-direction:column}
+  .f4p .plancia>*{grid-area:auto}
+  .f4p .iw{min-height:520px}
+  .f4p .plancia>.p3{flex:none;min-height:212px}
+  .f4p .ptk{min-height:158px}
+  .f4p .plog{display:flex;min-height:320px}
+}
+/* schermi bassi: la fascia di dato cede altezza allo STRUMENTO, che e' il
+   soggetto della pagina */
+@media (max-height:1100px){.f4p{--f4rowb:calc(var(--f4attr2) * 11px + 78px)}}
+@media (max-height:900px){.f4p{--f4rowb:calc(var(--f4attr2) * 10px + 70px)}}
+/* schermi LARGHI e BASSI (il 49" del PM al 150%: 3413x960) — blocco B, 31/08.
+   La colonna 3 non regge DUE pannelli: misurato a s150 il PARALLELISMO aveva
+   179px di contenuto in 153 (simfoot tagliato e scatola sopra ECONOMIA, N11)
+   ed ECONOMIA 132px di ripartizione per agente in 13 (#5, AMPUTATO al 10%).
+   Qui la colonna intera va al PARALLELISMO ed ECONOMIA scende in fascia
+   bassa (misurata 325px, il contenuto ne chiede ~295), accanto al registro
+   che di larghezza ne aveva 2619 per una tabella da ~350. */
+@media (min-width:2200px) and (max-height:1100px){
+  /* la fascia bassa ora ospita anche ECONOMIA: la sua altezza e' il MAX fra
+     l'appetito degli strumenti (com'era) e quello di ECONOMIA — 12px a riga
+     di agente (--f4peco, dal TSX) + 196 di barre, piede e testate. A run
+     viva con pochi tool la riga si accorciava sotto ECONOMIA e la amputava. */
+  .f4p{--f4rowb:max(calc(var(--f4attr2) * 11px + 78px), calc(var(--f4peco) * 12px + 196px))}
+  .f4p .ppar{grid-area:1/3/3/4}
+  .f4p .peco{grid-area:3/2/4/3}
+  .f4p .pcif{grid-area:3/1/4/2}
+}
+
+/* ── 5. IL PALCO COL CIELO E IL PANNELLO-STRUMENTO ─────────────────────
+   Regola di leggibilita' del vestito spaziale, non negoziabile: il cielo
+   puo' passare SOLO dietro lo strumento. Dietro una colonna di numeri il
+   fondo e' pieno. Un fondo che compete col dato e' un fondo sbagliato.
+   Il modificatore si chiama .strum e non .hero (come nel mockup) perche'
+   nel vestito comune .p3.hero significa gia' un'altra cosa (bordo ambra +
+   radiale): meglio un nome nuovo che una guerra di specificita'.        */
+.f4p .p3.strum{background:transparent;box-shadow:none;border-color:#1A2440}
+.f4p .p3.strum>.p3h{background:rgba(6,10,20,.72);backdrop-filter:blur(3px)}
+/* carena dello strumento: filo interno + angoli scuriti. E' la differenza fra
+   "un grafico su fondo nero" e "un quadrante dentro una macchina". */
+.f4p .p3.strum>.p3b{z-index:1;
+  box-shadow:inset 0 0 0 1px rgba(36,50,90,.5),inset 0 0 70px rgba(0,0,0,.62)}
+
+/* cielo: canvas a seed fisso sotto tutto, dentro il solo pannello-strumento */
+.f4p .skywrap{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}
+.f4p .skywrap canvas{display:block;position:absolute;top:0;left:0}
+/* velo che spegne il cielo verso i bordi, dove stanno le piastre di lettura */
+.f4p .skywrap::after{content:'';position:absolute;inset:0;
+  background:radial-gradient(120% 90% at 50% 40%,transparent 38%,rgba(3,5,12,.55) 100%)}
+
+/* il box misurato da useBox: l'SVG del quadrante ci sta dentro FUORI DAL
+   FLUSSO (absolute), o il ResizeObserver misura -> il pannello cresce ->
+   rimisura. Il cursore e' un mirino: la lancetta segue il mouse. */
+/* il box misurato deve RIEMPIRE il corpo del pannello e stare fuori dal flusso:
+   il suo unico figlio (l'SVG) e' absolute, quindi senza inset il div avrebbe
+   altezza 0, useBox misurerebbe 0 e il quadrante non verrebbe disegnato affatto
+   (verificato in collaudo sull'app viva: "SVG: 0 testi"). */
+.f4p .inst{position:absolute;inset:0;cursor:crosshair}
+.f4p .inst svg.dial{display:block;position:absolute;top:0;left:0;z-index:1}
+
+/* vetro del quadrante: un riflesso obliquo appena accennato. Decorazione pura
+   (pointer-events:none, sotto le piastre) tenuta sotto il 4% di opacita': serve
+   a far leggere il pannello come uno strumento con una lastra davanti, non come
+   un canvas. Sopra il 4% comincerebbe a competere col dato. */
+.f4p .glassx{position:absolute;inset:0;pointer-events:none;z-index:2;
+  background:linear-gradient(104deg,transparent 34%,rgba(150,200,255,.035) 46%,transparent 56%)}
+
+/* cornice HUD del palco: angoli come sulla schermata d'accesso, ma spenti di
+   due terzi (li' erano il soggetto, qui sono la cornice) */
+.f4p .hudframe{position:absolute;inset:0;pointer-events:none;z-index:2}
+.f4p .hudframe i{position:absolute;width:15px;height:15px;border:0 solid rgba(61,79,138,.75)}
+.f4p .hudframe i.tl{top:0;left:0;border-top-width:1px;border-left-width:1px}
+.f4p .hudframe i.tr{top:0;right:0;border-top-width:1px;border-right-width:1px}
+.f4p .hudframe i.bl{bottom:0;left:0;border-bottom-width:1px;border-left-width:1px}
+.f4p .hudframe i.br{bottom:0;right:0;border-bottom-width:1px;border-right-width:1px}
+/* graduazioni di ghiera sui bordi lunghi, una tacca ogni 24px: e' quello che
+   distingue la carena di uno strumento da un rettangolo. Zero DOM in piu'. */
+.f4p .hudframe::before,.f4p .hudframe::after{content:'';position:absolute;left:26px;right:26px;
+  height:4px;background:repeating-linear-gradient(90deg,rgba(61,79,138,.5) 0 1px,transparent 1px 24px)}
+.f4p .hudframe::before{top:0}
+.f4p .hudframe::after{bottom:0}
+
+/* riga di scansione: lentissima, una passata ogni 9s, quasi impercettibile */
+.f4p .scanline{position:absolute;left:0;right:0;height:64px;pointer-events:none;z-index:1;
+  background:linear-gradient(180deg,transparent,rgba(120,190,255,.045),transparent);
+  animation:f4scan 9s linear infinite}
+@keyframes f4scan{0%{top:-70px}100%{top:100%}}
+@media (prefers-reduced-motion:reduce){.f4p .scanline{display:none}}
+
+/* RUN IN CORSO: e' uno STATO, ed e' l'unico posto dove il quadrante si accende
+   (disciplina B-UI19: glow solo sugli stati). A run finita la cornice torna
+   fredda — da lontano si sa se il comitato sta lavorando senza leggere niente. */
+.f4p .inst.live .hudframe{box-shadow:inset 0 0 0 1px rgba(255,165,30,.16)}
+.f4p .inst.live .hudframe i{border-color:rgba(255,165,30,.85)}
+.f4p .inst.live .hudframe::before,.f4p .inst.live .hudframe::after{
+  background:repeating-linear-gradient(90deg,rgba(255,165,30,.45) 0 1px,transparent 1px 24px)}
+
+/* ── 6. LE PIASTRE HUD SUL QUADRANTE ───────────────────────────────────
+   DUE piastre, entrambe in alto (dal 28/07: le due in basso le ha fatte
+   togliere il PM). Le posizioni sono FISSE e i corridoi non si incrociano.
+     alto-sx  lettura (280)      alto-dx  parallelismo (330)
+   Il max-width a meta' pannello e' la cintura: per stretto che diventi il
+   quadrante, la piastra di sinistra e quella di destra non si toccano MAI.
+   ⚠️ Le fasce di `layoutLabels` nel TSX si fermavano SOPRA le piastre basse
+   (nel mockup: L 202→h−108, R 100→h−26). Ora sotto non c'e' piu' niente:
+   quello spazio e' libero e le fasce possono scendere. NON e' stato cambiato
+   in questo lotto — e' una cosa che si guadagna, non un difetto, e va fatta
+   guardando il quadrante, non a tavolino.                                 */
+.f4p .hudplate{background:rgba(6,10,20,.86);border:1px solid rgba(36,50,90,.9);
+  backdrop-filter:blur(2px)}
+/* pointer-events:none su entrambe: la lancetta deve seguire il mouse anche
+   quando il cursore passa SOPRA una piastra, o la lettura si blocca a meta' giro */
+.f4p .readout,.f4p .par{pointer-events:none}
+
+/* lettura agganciata al quadrante: hover/click con numero esatto (regola PM
+   26/07, i grafici sono interattivi). Il click inchioda, e lo dice. */
+.f4p .readout{position:absolute;left:12px;top:12px;width:280px;max-width:calc(50% - 12px);
+  z-index:3;background:rgba(6,10,20,.93);border:1px solid #24325A;backdrop-filter:blur(3px)}
+.f4p .readout .rh{font-size:9px;letter-spacing:.18em;color:#FFA51E;text-transform:uppercase;
+  border-bottom:1px solid #1A2440;padding:6px 9px 4px;display:flex;gap:7px;align-items:center}
+.f4p .readout .rh .pin{margin-left:auto;font-size:8px;letter-spacing:.1em;color:#21E0A0}
+.f4p .readout .rb{padding:5px 9px 6px}
+.f4p .readout .rr{display:flex;align-items:center;gap:6px;padding:2.5px 0;font-size:9px}
+.f4p .readout .rr .nm{font-size:9px;letter-spacing:.07em;min-width:76px;flex-shrink:0}
+/* lo stato e' l'unica riga di lunghezza ignota (ci finisce il nome dello
+   strumento): ellissi dichiarata, il resto della riga non si sposta */
+.f4p .readout .rr .st{font-size:8px;flex:1;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.f4p .readout .ft{border-top:1px solid #1A2440;margin-top:5px;padding-top:5px;
+  font-size:8px;color:#8D9FC4;line-height:1.55}
+.f4p .readout .ft b{color:#8D9FC4;font-weight:500}
+
+/* ── LA PIASTRA DI LETTURA ALLE ALTEZZE CORTE ──────────────────────────
+   Decisione PM 28/07, dopo che il cancello ha misurato che a s150 (3413x960,
+   il suo schermo con Windows al 150%) questa piastra copriva il **100% del box
+   OPTIONS FLOW** e il **76% di QUANT**: due desk su sei invisibili. Fra le tre
+   strade possibili ha scelto «si accorcia alle altezze corte», non «si sposta»
+   e non «si spostano i desk».
+   COSA SI STRINGE: solo le spaziature e l'interlinea. NESSUNA RIGA SPARISCE —
+   le `.rr` sono i desk ATTIVI al minuto puntato, cioe' il contenuto per cui la
+   piastra esiste: cancellarne una sarebbe perdere un dato per far passare un
+   collaudo. Il piede diventa una riga sola con l'ellissi, che e' un taglio
+   DICHIARATO e i cui fatti stanno comunque nella testata e nella tabella
+   agenti.
+   Il corpo NON scende sotto i 9px: e' il pavimento (F6, `--no`). */
+/* il conteggio compatto vive SOLO alle altezze corte, dove il piede non c'e':
+   sopra i 1000px il piede lo dice per esteso e questo sarebbe una ripetizione */
+.f4p .readout .rh .corta{display:none}
+@media (max-height:1000px){
+  .f4p .readout .rh{padding:3px 8px 2px}
+  .f4p .readout .rb{padding:2px 8px 3px}
+  .f4p .readout .rr{padding:0;line-height:1.15}
+  .f4p .readout .rr .nm{min-width:62px}
+  /* il piede via, il suo unico dato risalito nella testata (v. AgentsLive.tsx) */
+  .f4p .readout .ft{display:none}
+  .f4p .readout .rh .corta{display:inline;color:#8D9FC4;letter-spacing:.06em}
+}
+
+/* piastra del fatto piu' importante della run: sta in vetrina, non in un tooltip */
+.f4p .par{position:absolute;right:12px;top:12px;width:330px;max-width:calc(50% - 12px);
+  z-index:3;padding:6px 10px}
+.f4p .par .k{font-size:9px;letter-spacing:.16em;color:#73829F;font-weight:600;text-transform:uppercase}
+.f4p .par .v{display:flex;align-items:baseline;gap:8px;margin-top:2px}
+.f4p .par .v b{font-size:17px;font-weight:300;color:#FFA51E;letter-spacing:.01em}
+.f4p .par .v span{font-size:9px;color:#8D9FC4;line-height:1.35}
+.f4p .par .s{font-size:8px;color:#8D9FC4;margin-top:3px;letter-spacing:.03em;line-height:1.45}
+.f4p .par .s u{text-decoration:none;color:#29D3F2}
+
+/* ⚠️ `.legend` e `.scale` NON ESISTONO PIU' — ordine PM 28/07, le due piastre in
+   basso sono state tolte (v. il commento in AgentsLive.tsx, dove c'e' la prova
+   che nessun numero e' andato perso). Le loro regole sono cancellate invece di
+   restare orfane: un css che veste elementi che nessuno monta piu' e' la stessa
+   trappola dei `.js` che ombreggiavano i `.tsx` — qualcuno lo legge, ci crede, e
+   cerca in pagina una cosa che non c'e'.
+   Il quadrante ora ha DUE piastre e non quattro, entrambe in alto. */
+
+/* rastrello di comando: uno strumento vero ha delle manopole, e stanno sulla
+   CARENA, non sul vetro. Va nella TESTATA del pannello e non sul quadrante
+   perche' li' non puo' collidere con niente a nessuna larghezza: il vetro ha
+   gia' quattro piastre ai quattro angoli, e il corridoio centrale che
+   resterebbe sparisce appena il pannello si stringe.
+   I bottoni sono i .tb del vestito comune: qui solo il rastrello che li tiene. */
+.f4p .instbar{margin-left:auto;flex-shrink:0;display:flex;align-items:center;gap:3px;
+  padding:2px 4px;border:1px solid #1A2440;background:rgba(6,10,20,.6)}
+.f4p .instbar .k{font-size:9px;letter-spacing:.16em;color:#73829F;font-weight:600;text-transform:uppercase;
+  padding:0 4px;white-space:nowrap}
+.f4p .instbar .sep{width:1px;height:11px;background:#1A2440;margin:0 2px}
+/* i .tb del vestito comune sono tarati sulla toolbar di F1: sulla testata alta
+   26px vanno stretti di un pelo, o la sfondano */
+.f4p .p3h .tb{font-size:9px;padding:1px 6px;letter-spacing:.1em}
+/* la testata ha overflow:hidden: se qualcosa deve cedere quando il pannello si
+   stringe, cede la RIGA DI CONTESTO, non i comandi (un comando tagliato via e'
+   un comando che non esiste piu' e nessuno lo sa) */
+.f4p .p3.strum>.p3h .side{min-width:0;overflow:hidden;text-overflow:ellipsis}
+
+/* ── 7. PANNELLO PARALLELISMO — il fatto della run ─────────────────────
+   Un numero grande (le durate agente sommate contro l'orologio) e sotto
+   la simultaneita' minuto per minuto: quante finestre di desk aperte. */
+.f4p .parw{padding:8px 11px;display:flex;flex-direction:column;gap:6px;overflow:hidden}
+.f4p .bignum{font-size:26px;font-weight:300;color:#FFA51E;line-height:1}
+.f4p .bigsub{font-size:9px;color:#8D9FC4;line-height:1.5}
+.f4p .simplot{flex:1;min-height:28px;display:flex;align-items:flex-end;gap:1px;
+  border-bottom:1px solid #1A2440;padding-bottom:1px}
+/* min-height 1px: un minuto a zero desk resta una tacca VISIBILE, non un buco
+   muto — l'assenza di lavoro e' un dato quanto la presenza */
+.f4p .simplot u{flex:1 1 0;text-decoration:none;background:#1E5F7A;min-height:1px}
+.f4p .simax{display:flex;justify-content:space-between;font-size:9px;color:#73829F;font-weight:600}
+.f4p .simfoot{font-size:8px;color:#8D9FC4;line-height:1.55;border-top:1px solid #1A2440;
+  padding-top:5px}
+.f4p .simfoot b{color:#FFA51E;font-weight:500}
+
+/* ── 8. PANNELLO ECONOMIA — token, cache, costo ────────────────────────
+   Quattro barre di totale + le stesse quattro classi ripartite per agente. */
+.f4p .tokwrap{padding:8px 10px;display:flex;flex-direction:column;gap:5px;overflow:hidden}
+/* 100px e non 78: "scritti in cache" a 78 andava a capo e ogni riga di totale
+   costava il doppio dell'altezza, proprio dove serviva spazio al dato. */
+.f4p .tokrow{display:grid;grid-template-columns:100px 1fr 56px;gap:8px;align-items:center;
+  font-size:9px}
+.f4p .tokrow .k{color:#73829F;font-weight:600;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
+.f4p .tokrow .bar{height:10px;background:#0A0F1C;border:1px solid #1A2440;position:relative;
+  overflow:hidden}
+.f4p .tokrow .bar u{position:absolute;left:0;top:0;bottom:0;text-decoration:none}
+.f4p .tokrow .v{text-align:right;font-size:9px}
+/* la ripartizione per agente riempie il pannello quando lo schermo si allarga
+   SENZA inventare un numero: sono tin/tout/cr/cw gia' nel payload */
+.f4p .tkag{flex:1;min-height:0;display:flex;flex-direction:column;gap:1px;
+  border-top:1px solid #1A2440;padding-top:4px;overflow:auto}
+.f4p .tkag .h{flex:0 0 auto;font-size:9px;color:#73829F;font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase;display:flex;justify-content:space-between;gap:8px;padding-bottom:2px}
+.f4p .tkag .r{flex:1 1 0;min-height:10px;display:grid;
+  grid-template-columns:74px 1fr 46px;gap:6px;align-items:center;font-size:8px}
+.f4p .tkag .r .k{letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.f4p .tkag .r .sb{height:7px;display:flex;background:#0A0F1C;border:1px solid #1A2440}
+.f4p .tkag .r .sb u{display:block;height:100%;text-decoration:none}
+.f4p .tkag .r .v{text-align:right;color:#8D9FC4;font-size:8px}
+.f4p .tokfoot{flex:0 0 auto;font-size:8px;color:#8D9FC4;line-height:1.55;
+  border-top:1px solid #1A2440;padding-top:6px}
+.f4p .tokfoot b{color:#FFA51E;font-weight:500}
+
+/* ── 9. PANNELLO CIFRE — un solo verdetto per agente ───────────────────
+   Sette colonne a larghezza fissa: i numeri incolonnano, e l'incolonnamento
+   e' meta' della leggibilita' di una tabella di run. */
+.f4p .cif{padding:4px 9px;display:flex;flex-direction:column;overflow:auto}
+.f4p .cif .hd,.f4p .cif .r,.f4p .cif .tot{display:grid;
+  /* ultima colonna 32 e non 28: «ESITO» a 9px con letter-spacing .1em pesa
+     ~31px e sforava di 3,5 (#4, misurato in 5/5 inquadrature dal 26/08) */
+  grid-template-columns:1fr 42px 34px 30px 24px 46px 32px;gap:5px;align-items:center;
+  font-size:9px;padding:1.5px 0}
+.f4p .cif .hd{font-size:9px;color:#73829F;font-weight:600;letter-spacing:.1em;text-transform:uppercase;
+  border-bottom:1px solid #1A2440;padding-bottom:3px;margin-bottom:2px;flex:0 0 auto}
+.f4p .cif .hd i{font-style:normal;text-align:right}
+.f4p .cif .hd i.ce{text-align:center}
+/* le righe CRESCONO a riempire il pannello (sotto la tabella non deve restare
+   un terzo di nero quando la colonna si allarga) ma hanno un PAVIMENTO a 9px:
+   e' l'ingombro vero della riga di testo. Sotto quota il pannello scorre —
+   difetto visibile — invece di far collidere due righe di numeri. */
+.f4p .cif .r{border-bottom:1px solid rgba(26,36,64,.4);flex:1 1 auto;min-height:15px}
+/* 15 e non 9: il pavimento deve stare SOPRA l'ingombro vero di un testo
+   da 8,5px, non a filo. A 9px, appena la colonna si stringeva, due righe
+   adiacenti del registro si toccavano del 14% (misurato sull'app viva). */
+.f4p .cif .r .n{display:flex;align-items:center;gap:5px;min-width:0}
+.f4p .cif .r .n span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:.05em}
+.f4p .cif .r i,.f4p .cif .tot i{font-style:normal;text-align:right;color:#8D9FC4}
+.f4p .cif .r .c,.f4p .cif .tot .c{color:#D4AF37}
+.f4p .cif .r .v,.f4p .cif .tot .v{text-align:center;font-size:8px}
+/* il separatore degli stadi senza orario: e' una dichiarazione, non un titolo */
+.f4p .cif .sep{font-size:9px;color:#73829F;font-weight:600;letter-spacing:.08em;padding:4px 0 2px;
+  line-height:1.45;flex:0 0 auto}
+.f4p .cif .sep b{color:#FFA51E;font-weight:400}
+.f4p .cif .tot{flex:0 0 auto;border-top:1px solid #2A3760;margin-top:3px;color:#8D9FC4}
+.f4p .cif .tot .n{letter-spacing:.1em;color:#8D9FC4;text-transform:uppercase;font-size:8px}
+.f4p .cif .note{flex:0 0 auto;font-size:8px;color:#8D9FC4;letter-spacing:.03em;
+  line-height:1.45;padding-top:3px}
+.f4p .cif .note b{color:#8D9FC4;font-weight:400}
+
+/* ── 10. PANNELLO DOVE HA GUARDATO — gli strumenti veri ────────────────
+   L'attribuzione delle barre NON puo' poggiare solo sul colore (macro e
+   crypto sono due ambre gemelle) e i tooltip non valgono: sigillo + nome
+   in vetrina, sopra la colonna. */
+.f4p .attwrap{display:flex;flex-direction:column;overflow:hidden}
+.f4p .atl{flex:0 0 auto;display:flex;flex-wrap:wrap;align-items:center;gap:2px 11px;
+  padding:4px 9px;border-bottom:1px solid #1A2440;font-size:8px}
+.f4p .atl b{display:flex;align-items:center;gap:4px;font-weight:400;letter-spacing:.06em}
+.f4p .atl .n{width:100%;font-size:8px;color:#8D9FC4;letter-spacing:.03em;line-height:1.4}
+/* N6 (blocco B): il display:flex qui sopra serve ai chip sigillo+nome, ma
+   rendeva BLOCCO anche il <b>forma</b> della prosa e la riga si spezzava
+   PRIMA della virgola («, non nel colore» orfana a capo). Nella prosa il
+   grassetto resta inline. */
+.f4p .atl .n b{display:inline}
+/* il numero di righe lo calcola il TSX (ceil(strumenti/colonne)) e lo passa in
+   --f4attr2 / --f4attr1: con grid-auto-flow:column una riga in meno vorrebbe
+   dire una COLONNA in piu' fuori dal box, cioe' un troncamento zitto. Per
+   questo l'overflow qui e' auto e non hidden: se sfora si vede.
+   Le righe si dividono l'altezza disponibile (1fr) ma non scendono sotto i
+   9px. NON c'e' line-height stretto: accorcerebbe la riga senza accorciare
+   l'inchiostro, e il collaudo misura l'inchiostro (vedi §1). */
+.f4p .att{flex:1;min-height:0;overflow:auto;padding:4px 9px;display:grid;gap:0 20px;
+  grid-template-columns:1fr 1fr;grid-auto-flow:column;
+  grid-template-rows:repeat(var(--f4attr2),minmax(12px,1fr))}
+@media (min-width:2200px){
+  .f4p .att{grid-template-columns:1fr;grid-template-rows:repeat(var(--f4attr1),minmax(12px,1fr))}
+}
+.f4p .att .r{display:grid;grid-template-columns:1fr 26px 96px;gap:6px;align-items:center;
+  font-size:9px;min-width:0}
+.f4p .att .r .t{color:#8D9FC4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.f4p .att .r .c{text-align:right;color:#29D3F2}
+.f4p .att .r .m{display:flex;gap:1px;height:9px;align-items:center;min-width:0}
+.f4p .att .r .m u{display:block;height:7px;text-decoration:none;flex:0 0 auto}
+.f4p .att .r .m svg{margin-right:3px;flex:0 0 auto}
+
+/* ── 11. PANNELLO TICKER — cosa ha nominato il comitato ────────────────*/
+.f4p .tkl{padding:6px 9px;display:flex;flex-wrap:wrap;gap:3px;align-content:flex-start;
+  overflow:auto}
+.f4p .tkl span{font-size:9px;padding:1.5px 5px;border:1px solid #2A3760;color:#8D9FC4;
+  white-space:nowrap}
+.f4p .tkl span b{color:#FFA51E;font-weight:400;margin-left:3px}
+
+/* ── 12. NASTRO DELLE CHIAMATE — la colonna che si apre a 5120 ─────────
+   Una riga per chiamata, tre colonne. UNA SOLA convenzione temporale in
+   pagina: T+ dallo start, come il quadrante (l'orologio di parete intero
+   resta nel tooltip). */
+.f4p .logwrap{display:flex;flex-direction:column;overflow:hidden}
+.f4p .lhd{flex:0 0 auto;display:grid;gap:0 18px;grid-template-columns:1fr 1fr 1fr;
+  border-bottom:1px solid #1A2440}
+.f4p .lhd .lr{font-size:8px;color:#8D9FC4;letter-spacing:.1em;text-transform:uppercase;
+  padding-bottom:2px}
+.f4p .logw{flex:1;min-height:0;overflow:auto;display:grid;gap:0 18px;
+  grid-template-columns:1fr 1fr 1fr;grid-auto-flow:column;
+  grid-template-rows:repeat(var(--f4logr),minmax(12px,1fr))}
+/* il nastro sta nella colonna che si apre a schermo intero, dove ha tutta
+   l'altezza del palco: 87 righe in ~1.120px = 12,9px a riga, larghe rispetto
+   ai 12px di inchiostro. E' la ragione per cui vive li' e non nella fascia bassa. */
+.f4p .lr{display:grid;grid-template-columns:42px 84px 20px 172px 1fr;gap:6px;
+  align-items:center;font-size:9px;min-width:0}
+.f4p .logw .lr{border-bottom:1px solid rgba(26,36,64,.3)}
+/* senza min-width:0 la cella di griglia prende la larghezza del testo e
+   l'ellissi non scatta: l'input lunghissimo sfonda nella colonna accanto */
+.f4p .lr>*{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.f4p .logw .tm{color:#73829F;font-weight:600;font-size:9px}
+.f4p .logw .ag{font-size:8px;letter-spacing:.05em}
+/* il round era #7A5A20 su #0A0F1C: ~3:1, il testo meno leggibile della pagina.
+   Ambra della palette a intensita' bassa: resta secondario, ma si legge. */
+.f4p .logw .rd{color:#B98A2E;font-size:8px}
+.f4p .logw .tl{color:#29D3F2}
+.f4p .logw .in{color:#8D9FC4}
+
+/* ── 13. BUCHI E STATI DICHIARATI ──────────────────────────────────────
+   Regola PM 14/07: non esiste il pannello vuoto e zitto. O c'e' il numero,
+   o c'e' scritto PERCHE' non c'e'. Vale anche per i tagli: se lo strumento
+   mostra i primi N su M, lo dice in pagina (.decl), non nel tooltip. */
+.f4p .buco{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:5px;padding:14px;text-align:center}
+.f4p .buco .t{font-size:10px;letter-spacing:.2em;color:#FFA51E;text-transform:uppercase}
+.f4p .buco .s{font-size:9px;color:#8D9FC4;line-height:1.55;max-width:360px}
+.f4p .buco.ko .t{color:#FF3D60;font-weight:600}
+.f4p .decl{flex:0 0 auto;font-size:8px;color:#8D9FC4;letter-spacing:.03em;line-height:1.5;
+  border-top:1px solid #1A2440;padding:4px 9px}
+.f4p .decl b{color:#FFA51E;font-weight:500}
+/* il dato che non c'e' ha un suo colore e non somiglia MAI a uno zero */
+.f4p .nd{color:#73829F;font-weight:600;letter-spacing:.08em}
+
+/* utilita' di colore: le stesse quattro tinte di verdetto usate dall'SVG del
+   quadrante, per le celle HTML (dentro l'SVG i colori vanno in letterale: un
+   var() CSS non e' garantito su tutti gli attributi di presentazione) */
+.f4p .ko{color:#FF3D60;font-weight:600}
+.f4p .okc{color:#21E0A0}
+.f4p .amc{color:#FFA51E}
+.f4p .cyc{color:#29D3F2}
+.f4p .mut{color:#8D9FC4}
+.f4p .dim{color:#73829F;font-weight:600}

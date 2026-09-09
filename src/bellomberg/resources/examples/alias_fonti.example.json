@@ -1,0 +1,16 @@
+{
+  "_leggimi": "Copia questo file in data/alias_fonti.json e mettici i TUOI alias. Il file in data/ e' privato e non viene mai pubblicato. finnhub: simbolo COMPLETO -> simbolo Finnhub. sec: BASE -> ticker SEC verificato. yfinance: simbolo del broker -> simbolo Yahoo dello STESSO strumento/listing dati. correlazione: simbolo reale -> proxy usato SOLO per la serie di correlazione; non cambia prezzi, fondamentali o identita'. Le sezioni sono opzionali. Chiavi e valori vanno MAIUSCOLI e senza spazi; le chiavi con `_` davanti sono note.",
+  "finnhub": {
+    "ACME.MI": "ACM",
+    "BETA.DE": "BTA"
+  },
+  "sec": {
+    "ACME": "ACM"
+  },
+  "yfinance": {
+    "ALFA.FRA": "ALFA.DE"
+  },
+  "correlazione": {
+    "THETA.MI": "ETFTHETA"
+  }
+}

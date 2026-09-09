@@ -1,0 +1,26 @@
+# I .bat schedulati DEVONO restare CRLF: con fine-riga LF cmd non trova le
+# label dei goto e i task uscivano 1/255 su backup RIUSCITI (AutoBackup P1,
+# diagnosi frontend 27/07, fix 12/08). ATTENZIONE al perimetro della regola:
+# protegge checkout e clone FUTURI, ma NON fa sporcare `git status` se uno
+# strumento POSIX riscrive in LF un file della working tree (il clean-filter
+# normalizza entrambi a LF nell'index). Il guardiano vero e' il test
+# tests/test_bat_crlf.py, che misura i byte dei .bat schedulati su disco.
+*.bat text eol=crlf
+# 05/09 (voce 7): gli hook di git sono script `sh` e un CR li rompe («\r: command not found»).
+tools/hooks/* text eol=lf
+# 05/09 (voce 8): il template dei segreti resta LF su ogni checkout. Misurato: con CRLF gitleaks
+# (regola generic-api-key) legge `MARKETAUX_API_KEY=` + a-capo + `THENEWSAPI_API_KEY=` come chiave
+# e valore e FERMA il cancello (1 riscontro); con LF zero. Il verdetto non deve dipendere da autocrlf.
+.env.example text eol=lf
+
+# 05/09 (a2): i documenti che le chat parallele scrivono INSIEME restano LF su ogni checkout.
+# Il 05/09 un `git apply --cached` ha portato dei CR nei loro blob (41 in MASTER_TODO, 2 nel
+# ponte, 1 in CONTEXT, 1 in ALLOWLIST) e da quel momento git ha smesso di normalizzarli: il
+# diff contava 9.313 righe su MASTER dove il contenuto vero era 38, e la patch filtrata dei
+# propri hunk - il modo in cui quattro chat scrivono sugli stessi documenti - smetteva di
+# funzionare. Con l'attributo esplicito il filtro clean gira sempre, anche quando l'indice
+# porta gia' dei CR (e' quel caso che disattiva core.autocrlf).
+MASTER_TODO.md text eol=lf
+COORDINAMENTO_CHAT.md text eol=lf
+BELLOMBERG_CONTEXT.md text eol=lf
+tools/release/policy/*.txt text eol=lf

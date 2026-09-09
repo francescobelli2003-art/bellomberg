@@ -1,0 +1,18 @@
+.chat-suggestions { text-align:left; width:100%; color:#b8c6df; font-size:12px; line-height:1.5; }
+.chat-suggestions .research-questions { display:grid; gap:7px; margin:12px 0 18px; }
+.chat-suggestions button { border:1px solid #293750; background:#101a2b; color:#dce6f7; padding:9px 11px; text-align:left; cursor:pointer; font:inherit; }
+.chat-suggestions button:hover { border-color:#c5a357; background:#1c2430; }
+.chat-suggestions button:focus-visible, .chat-suggestions input:focus-visible { outline:2px solid #e8bf68; outline-offset:2px; }
+.chat-suggestions button:disabled { opacity:.45; cursor:default; }
+.portfolio-question-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; border-top:1px solid #28344b; padding-top:14px; }
+.portfolio-question-header button { font-size:11px; padding:5px 8px; }
+.chat-suggestions input { width:100%; margin:10px 0 8px; border:1px solid #293750; background:#0b1320; color:#eef3fd; padding:7px 9px; font:inherit; }
+.chat-suggestions input::placeholder { color:#92a4bf; }
+.portfolio-question-tickers { display:flex; flex-wrap:wrap; gap:6px; max-height:160px; overflow:auto; padding:3px 3px 8px; }
+.portfolio-question-tickers button { color:#efc979; padding:5px 9px; font-family:monospace; }
+.chat-suggestions small { display:block; color:#93a5c1; font-size:11px; margin-top:6px; }
+.chat-suggestions .portfolio-question-error { color:#ff9faa; }
+.chat-followups { border:1px solid #293750; margin:0 0 8px; background:#0b1320; padding:7px 10px; }
+.chat-followups summary { cursor:pointer; color:#c5d3e9; font-size:12px; }
+.chat-followups[open] > .chat-suggestions { max-height:290px; overflow:auto; padding:0 6px 5px; }
+.f3 .intro:has(.chat-suggestions) { max-width:660px; }

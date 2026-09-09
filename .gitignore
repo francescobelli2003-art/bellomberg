@@ -1,0 +1,45 @@
+.env
+__pycache__/
+*.pyc
+node_modules/
+data/
+backup*/
+*.bak*
+*.db
+*.log
+/release/
+/app/release/
+dist/
+dist-electron/
+app/dist/
+report/
+*.pdf
+
+portfolio.json
+nodejs/
+research_notes/
+data_pre_junction/
+_todo_staging/
+docs/generated/code-map/.obsidian/
+
+# 16/07: quarantena xlsx di valutazione (binari runtime, reversibile via _MANIFEST)
+archive/private/attic/val_quarantena_*/
+archive/private/attic/val_superseded/
+archive/private/workspace-20260909/
+
+# 02/09 (pubblicazione P2): binario di gitleaks scaricato da verifica_pubblico.py --scarica-gitleaks
+
+# workspace della skill subagent-driven-development: briefs, report e diff di lavoro
+# (materiale di runtime, come data/ e report/ qui sopra: fuori dal tracciato)
+.superpowers/
+
+# Output compilato dei contratti frontend, riproducibile in CI.
+/app/tests/**/.tmp/
+
+# Local Python environments and editable-install metadata.
+/.venv*/
+src/*.egg-info/
+/build/
+
+# Downloaded private release scanner; source tools/release/ remains tracked.
+/tools/release/policy/bin/

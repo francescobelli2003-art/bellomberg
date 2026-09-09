@@ -1,0 +1,14 @@
+{
+  "_leggimi": "Copia questo file in data/istituzioni.json e mettici i TUOI gestori. Il file in data/ e' privato e non viene mai pubblicato. `cik`: slug (minuscolo, lettere/cifre/_) -> CIK a 10 cifre del filer 13F presso la SEC. `cef`: SIMBOLO del fondo chiuso in book -> {investor: uno slug di `cik`, manager: nome per esteso, not_in_13f: cosa il 13F non mostra}. La NATURA del simbolo (che sia un fondo chiuso) vive nel negozio dei veicoli, non qui: qui ci sono solo gestore e CIK. Le chiavi con `_` davanti sono note.",
+  "cik": {
+    "esempio_capital": "0000000001",
+    "altro_fondo": "0000000002"
+  },
+  "cef": {
+    "THETA.L": {
+      "investor": "esempio_capital",
+      "manager": "Esempio Capital Management",
+      "not_in_13f": "partecipazioni non quotate negli USA e strumenti non 13F-reportable"
+    }
+  }
+}

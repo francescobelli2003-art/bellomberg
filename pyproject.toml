@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bellomberg"
+version = "0.7.0"
+description = "Local AI-assisted investment research terminal"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+dynamic = ["dependencies"]
+
+[project.scripts]
+bellomberg-api = "bellomberg.cli.entrypoints:api_main"
+bellomberg-committee = "bellomberg.cli.entrypoints:committee_main"
+bellomberg-prices = "bellomberg.cli.entrypoints:prices_main"
+bellomberg-briefing = "bellomberg.cli.entrypoints:briefing_main"
+bellomberg-recover-memo = "bellomberg.cli.entrypoints:recovery_main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools.package-data]
+bellomberg = ["resources/examples/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["archive", "app", "node_modules"]

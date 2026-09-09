@@ -1,0 +1,359 @@
+/* font caricati UNA volta da index.html (era doppio: html+css) */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --color-bg: #050608;
+  --color-panel: #0c111e;
+  --color-border: #1a2440;
+  --color-amber: #ffa51e;
+  --color-cyan: #29d3f2;
+  --color-gold: #d4af37;
+  --color-crimson: #ff3d60;
+  --color-emerald: #21e0a0;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html, body, #root { height: 100%; overflow: hidden; }
+body {
+  margin: 0;
+  background-color: var(--color-bg);
+  /* profondita' cinematica: vignetta statica, zero costo GPU */
+  background-image: radial-gradient(1100px 700px at 50% -8%, #0a1022 0%, #050608 62%);
+  background-attachment: fixed;
+  color: #ecf1fa;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-feature-settings: 'cv11', 'ss01', 'tnum';
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* focus ring istituzionale (tastiera) */
+:focus-visible { outline: 1px solid var(--color-amber); outline-offset: 1px; }
+
+/* ===== SCROLLBAR (hairline) ===== */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #243155;
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover { background: #3d4f8a; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* ===== SELECTION ===== */
+::selection { background: rgba(255, 165, 30, 0.28); color: #ffffff; }
+
+/* ===== SCANLINE OVERLAY GLOBALE (subtle CRT effect) ===== */
+.scanlines::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.012) 0px,
+    rgba(255, 255, 255, 0.012) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  z-index: 1;
+}
+
+/* ===== COMPONENTI BASE BELLOMBERG ===== */
+@layer components {
+  /* Panel principale */
+  .panel {
+    @apply relative bg-panel border border-border;
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.03), 0 1px 0 0 rgba(0, 0, 0, 0.4);
+  }
+  .panel-pad { @apply panel p-4; }
+  .panel-glow-amber { @apply panel shadow-glow-amber; }
+  .panel-glow-cyan { @apply panel shadow-glow-cyan; }
+
+  /* Panel header (amber bar on top) */
+  .panel-header {
+    @apply flex items-center justify-between px-3 py-1.5 bg-bg-elev border-b border-border;
+  }
+  .panel-header-title {
+    @apply text-amber font-mono text-2xs uppercase tracking-[0.15em] font-semibold;
+  }
+  .panel-header-cyan .panel-header { @apply border-cyan-deep; }
+  .panel-header-cyan .panel-header-title { @apply text-cyan; }
+
+  /* Section title con corner brackets HUD */
+  .hud-corners::before, .hud-corners::after {
+    content: '';
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-color: theme('colors.cyan.DEFAULT');
+  }
+  .hud-corners::before {
+    top: -1px; left: -1px;
+    border-top: 1px solid; border-left: 1px solid;
+  }
+  .hud-corners::after {
+    bottom: -1px; right: -1px;
+    border-bottom: 1px solid; border-right: 1px solid;
+  }
+
+  /* Status LED */
+  .led {
+    @apply inline-block h-2 w-2 rounded-full relative;
+  }
+  .led-green { @apply bg-emerald; box-shadow: 0 0 6px theme('colors.emerald.DEFAULT'); }
+  .led-amber { @apply bg-amber; box-shadow: 0 0 6px theme('colors.amber.DEFAULT'); }
+  .led-cyan  { @apply bg-cyan; box-shadow: 0 0 6px theme('colors.cyan.DEFAULT'); }
+  .led-red   { @apply bg-crimson; box-shadow: 0 0 6px theme('colors.crimson.DEFAULT'); }
+  /* il pallino SPENTO non e' testo: resta scuro anche ora che `faint` e'
+     salito a 4,9:1 (scala C). Valore diretto e non una chiave nuova del tema:
+     tailwind.config.js NON si ricarica a caldo e una chiave nuova rompe la
+     compilazione del CSS finche' Vite non riparte (imparato sul vivo 26/07). */
+  .led-off   { background-color: #2A3760; }
+
+  /* Stats */
+  .stat-value {
+    @apply text-2xl font-mono font-semibold text-text tracking-tight tabular-nums;
+  }
+  .stat-value-lg {
+    @apply text-3xl font-mono font-bold tracking-tight tabular-nums;
+  }
+  .stat-label {
+    @apply text-2xs text-muted uppercase tracking-[0.18em] font-mono;
+  }
+
+  /* Nav */
+  .nav-link {
+    @apply relative flex flex-row items-center gap-3 px-3 py-1.5 text-text-dim hover:text-amber rounded-none transition-colors text-sm font-medium whitespace-nowrap min-h-[28px];
+  }
+  .nav-link::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 2px;
+    background: transparent;
+    transition: background 0.15s;
+  }
+  .nav-link:hover::before { background: theme('colors.amber.DEFAULT'); }
+  .nav-link-active {
+    @apply text-amber bg-panel;
+  }
+  .nav-link-active::before { background: theme('colors.amber.DEFAULT'); }
+  .nav-link-active::after {
+    content: '';
+    position: absolute;
+    right: 0; top: 50%; transform: translateY(-50%);
+    width: 4px; height: 4px;
+    background: theme('colors.amber.DEFAULT');
+    box-shadow: 0 0 6px theme('colors.amber.DEFAULT');
+  }
+
+  /* Bottoni */
+  .btn {
+    @apply inline-flex items-center gap-2 px-3 py-1.5 text-2xs font-mono uppercase tracking-wider border transition-all;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn-amber {
+    @apply border-amber-deep text-amber hover:bg-amber/10 hover:border-amber hover:shadow-glow-amber;
+  }
+  .btn-cyan {
+    @apply border-cyan-deep text-cyan hover:bg-cyan/10 hover:border-cyan hover:shadow-glow-cyan;
+  }
+  .btn-gold {
+    @apply border-gold-deep text-gold hover:bg-gold/10 hover:border-gold hover:shadow-glow-gold;
+  }
+  .btn-ghost {
+    @apply border-border text-text-dim hover:border-border-bright hover:text-text;
+  }
+
+  /* Input */
+  .input-mono {
+    @apply bg-bg-elev border border-border focus:border-cyan focus:outline-none focus:shadow-glow-cyan px-3 py-2 font-mono text-sm text-text placeholder:text-faint transition-all;
+  }
+
+  /* P/L semantic colors */
+  .pl-positive { @apply text-emerald; }
+  .pl-negative { @apply text-crimson; }
+
+  /* Mono helpers */
+  .ticker {
+    @apply font-mono font-semibold tracking-tight;
+  }
+
+  /* Grid HUD overlay (per panel speciali) */
+  .grid-hud {
+    background-image: linear-gradient(rgba(61,79,138,0.06) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(61,79,138,0.06) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  /* Table dense Bloomberg-style */
+  .table-bbg {
+    @apply w-full font-mono text-2xs;
+  }
+  .table-bbg thead th {
+    @apply text-amber-deep uppercase tracking-wider text-2xs font-semibold text-left py-1.5 px-2 border-b border-border bg-bg-elev;
+    position: sticky; top: 0; z-index: 2;
+  }
+  .table-bbg tbody td {
+    @apply py-1 px-2 border-b border-border/30;
+  }
+  .table-bbg tbody tr:hover {
+    @apply bg-panel-hi;
+  }
+  .table-bbg tbody tr:hover td {
+    @apply text-text;
+  }
+}
+
+/* ===== UTILITIES ===== */
+@layer utilities {
+  /* Tabular nums everywhere by default for mono */
+  .font-mono { font-variant-numeric: tabular-nums; }
+
+  /* Glow text (sobrio: gli stati brillano, i numeri si leggono) */
+  .text-glow-amber { text-shadow: 0 0 6px rgba(255, 165, 30, 0.40); }
+  .text-glow-cyan  { text-shadow: 0 0 6px rgba(41, 211, 242, 0.40); }
+  .text-glow-gold  { text-shadow: 0 0 6px rgba(212, 175, 55, 0.40); }
+  .text-glow-emerald { text-shadow: 0 0 6px rgba(33, 224, 160, 0.40); }
+
+  /* CRT/HUD lines */
+  .crt {
+    position: relative;
+  }
+  .crt::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      180deg,
+      transparent 0px,
+      transparent 2px,
+      rgba(41, 211, 242, 0.015) 3px,
+      rgba(41, 211, 242, 0.015) 3px
+    );
+  }
+}
+
+/* ===== UI v2 (#206-UI): disciplina istituzionale ===== */
+/* numeri SEMPRE tabulari e mono: colonne che non ballano */
+td, .stat-value-lg, .font-mono { font-variant-numeric: tabular-nums; }
+
+/* tick-flash: il prezzo che cambia lampeggia come su un terminale vero */
+@keyframes tickUp   { 0% { background: rgba(33,224,160,.26); } 100% { background: transparent; } }
+@keyframes tickDown { 0% { background: rgba(255,61,96,.26); } 100% { background: transparent; } }
+.tick-up   { animation: tickUp .9s ease-out; }
+.tick-down { animation: tickDown .9s ease-out; }
+
+/* command palette */
+.cmdk-overlay { position: fixed; inset: 0; background: rgba(3,4,8,.72); backdrop-filter: blur(2px); z-index: 90; }
+.cmdk-modal { position: fixed; left: 50%; top: 18%; transform: translateX(-50%); width: min(620px, 92vw);
+  background: var(--color-panel); border: 1px solid var(--color-amber); box-shadow: 0 0 24px rgba(255,165,30,.16), 0 24px 60px rgba(0,0,0,.6);
+  z-index: 91; font-family: 'JetBrains Mono', monospace; animation: slideUpCss .22s var(--ease-out); }
+.cmdk-input { width: 100%; background: var(--color-bg); border: 0; border-bottom: 1px solid var(--color-border);
+  color: var(--color-amber); font: 600 14px 'JetBrains Mono', monospace; padding: 12px 14px; outline: none; letter-spacing: .04em; }
+.cmdk-input::placeholder { color: #73829F;font-weight:600; }
+.cmdk-list { max-height: 46vh; overflow-y: auto; }
+.cmdk-item { display: flex; align-items: center; gap: 10px; padding: 7px 14px; font-size: 12px; color: #8D9FC4; cursor: pointer; }
+.cmdk-item .k { color: var(--color-gold); font-weight: 700; min-width: 52px; font-size: 10px; letter-spacing: .08em; }
+.cmdk-item.active { background: rgba(255,165,30,.10); color: #ecf1fa; border-left: 2px solid var(--color-amber); }
+.cmdk-hint { padding: 6px 14px; border-top: 1px solid var(--color-border); color: #73829F;font-weight:600; font-size: 9px; letter-spacing: .08em; }
+
+/* conferma azioni COSTOSE/IRREVERSIBILI — run consigliere, log trade (Lotto D audit) */
+.cfm-overlay { position: fixed; inset: 0; background: rgba(3,4,8,.82); backdrop-filter: blur(2px); z-index: 200; }
+.cfm-modal { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); width: min(520px, 92vw);
+  background: var(--color-panel); border: 1px solid var(--color-amber);
+  box-shadow: 0 0 26px rgba(255,165,30,.14), 0 26px 70px rgba(0,0,0,.7);
+  z-index: 201; font-family: 'JetBrains Mono', monospace; animation: cfmIn .18s var(--ease-out); }
+.cfm-modal.is-crimson { border-color: var(--color-crimson); box-shadow: 0 0 26px rgba(255,61,96,.16), 0 26px 70px rgba(0,0,0,.7); }
+@keyframes cfmIn { from { opacity: 0; transform: translate(-50%, calc(-50% + 8px)); } to { opacity: 1; transform: translate(-50%,-50%); } }
+@media (prefers-reduced-motion: reduce) { .cfm-modal { animation: none; } }
+.cfm-head { padding: 11px 16px; border-bottom: 1px solid var(--color-border); color: var(--color-amber);
+  font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.cfm-modal.is-crimson .cfm-head { color: var(--color-crimson); }
+.cfm-intro { padding: 12px 16px 2px; color: #8D9FC4; font-size: 11px; line-height: 1.55; }
+.cfm-rows { padding: 10px 16px 2px; }
+.cfm-row { display: flex; gap: 12px; padding: 4px 0; border-bottom: 1px solid rgba(26,36,64,.6); font-size: 11px; }
+.cfm-row:last-child { border-bottom: 0; }
+.cfm-row .k { min-width: 116px; color: #73829F;font-weight:600; letter-spacing: .08em; text-transform: uppercase; font-size: 9px; padding-top: 2px; }
+.cfm-row .v { color: #ecf1fa; font-variant-numeric: tabular-nums; }
+.cfm-row .v.amber { color: var(--color-amber); }
+.cfm-row .v.crimson { color: var(--color-crimson); }
+.cfm-row .v.cyan { color: var(--color-cyan); }
+.cfm-warn { margin: 10px 16px 0; padding: 8px 10px; border-left: 2px solid var(--color-amber);
+  background: rgba(255,165,30,.07); color: #d8c39a; font-size: 10px; line-height: 1.5; }
+.cfm-modal.is-crimson .cfm-warn { border-left-color: var(--color-crimson); background: rgba(255,61,96,.07); color: #e3a9b4; }
+.cfm-actions { display: flex; gap: 8px; padding: 14px 16px 12px; }
+.cfm-btn { flex: 1; padding: 9px 10px; background: transparent; border: 1px solid var(--color-border);
+  color: #8D9FC4; font: 700 11px 'JetBrains Mono', monospace; letter-spacing: .1em; cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s; }
+.cfm-btn:hover { background: rgba(255,255,255,.045); color: #ecf1fa; }
+/* il focus si vede SEMPRE: ANNULLA lo prende da programma all'apertura */
+.cfm-btn:focus { outline: 1px solid var(--color-amber); outline-offset: 1px; }
+.cfm-btn.go { border-color: var(--color-amber); color: var(--color-amber); }
+.cfm-btn.go:hover { background: rgba(255,165,30,.12); color: #ffd08a; }
+.cfm-modal.is-crimson .cfm-btn.go { border-color: var(--color-crimson); color: var(--color-crimson); }
+.cfm-modal.is-crimson .cfm-btn.go:hover { background: rgba(255,61,96,.12); color: #ff8fa3; }
+.cfm-hint { padding: 6px 16px 9px; border-top: 1px solid var(--color-border); color: #73829F;font-weight:600; font-size: 9px; letter-spacing: .08em; }
+
+/* glow SOLO sugli stati, mai sui numeri da leggere */
+.led { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+
+@keyframes pulseDot { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+.pulse-dot { animation: pulseDot 1.6s ease-in-out infinite; }
+
+/* ===== UI v3 OBSIDIAN ===== */
+@keyframes slideUpCss { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+/* wordmark: lettere che emergono (accesso) */
+@keyframes bbLetter {
+  from { opacity: 0; transform: translateY(16px); filter: blur(6px); }
+  to   { opacity: 1; transform: translateY(0);   filter: blur(0); }
+}
+.bb-letter { display: inline-block; animation: bbLetter .7s var(--ease-out) both; }
+
+/* shake su PIN errato */
+@keyframes bbShake { 10%,90% { transform: translateX(-1px); } 20%,80% { transform: translateX(2px); }
+  30%,50%,70% { transform: translateX(-3px); } 40%,60% { transform: translateX(3px); } }
+.bb-shake { animation: bbShake .45s ease-in-out; }
+
+/* riga dati che entra (wire, blotter) */
+.bb-row-in { animation: fadeInCss .3s var(--ease-out) both; }
+@keyframes fadeInCss { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+
+/* hairline divider con punta ambra */
+.bb-rule { height: 1px; background: linear-gradient(90deg, var(--color-amber) 0%, var(--color-border) 18%, var(--color-border) 100%); }
+
+/* accessibilita': il motion si spegne se richiesto dal sistema */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
+/* nota (scala C): il colore lo dice, il PESO lo rende leggibile davvero.
+   Misurato sui pixel: #73829F rende 3,72-4,38:1 in peso 400 e 4,41-4,74:1 in 600.
+   Una regola sola per i 137 usi di `text-faint`, invece di 137 modifiche.
+
+   STA IN @layer components APPOSTA, e la prima stesura era sbagliata. Avevo
+   scritto `.text-faint:not(.font-semibold):not(.font-bold)...` per non
+   scavalcare un peso scritto a mano — e Tailwind me l'ha RIBATTEZZATA: nel CSS
+   servito al browser diventava `:not(.panel-header-title)`, perche' quella
+   classe fa `@apply font-semibold` e la sostituzione di @apply passa su tutte
+   le regole che nominano l'utility, anche dentro un :not(). Verificato con tre
+   sentinelle: `:not(.font-semibold)` viene riscritto, `:not(.zzz-mai-usata)` no.
+   Quindi la guardia non era inutile: era ROTTA E SILENZIOSA.
+   Nel layer `components` non serve nominare niente: le utility stanno in un
+   layer successivo e un `font-bold` scritto accanto vince da solo, per cascata. */
+@layer components {
+  .text-faint { font-weight: 600; }
+}
+
+/* pavimento della nota: a 8px nemmeno il peso 600 ce la fa.
+   Misurato: #73829F/600 rende 4,41:1 a 8px e 4,62:1 a 9px; ne servono 4,50.
+   Si alza solo la COPPIA nota+8px (specificita' 0,2,0): `text-3xs` da sola
+   resta 8px, perche' col colore etichetta a 8px si legge gia'. */
+.text-faint.text-3xs { font-size: 9px; }

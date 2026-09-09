@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="900" viewBox="0 0 1280 900" role="img" aria-labelledby="title desc">
+<title id="title">F4 Global Markets — synthetic DEMO illustration</title>
+<desc id="desc">Original explanatory mockup, not a screenshot. All values, names, instruments and research text are invented. No user portfolio data.</desc>
+<style>text{font-family:Segoe UI,Arial,sans-serif} .mono{font-family:Consolas,monospace}</style>
+<rect x="0" y="0" width="1280" height="900" rx="0" fill="#10151d"/>
+<rect x="0" y="0" width="1280" height="64" rx="0" fill="#141c26"/>
+<text x="28" y="41" font-size="24" fill="#eef2f7" font-weight="650" text-anchor="start">Bellomberg</text>
+<text x="207" y="39" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Research terminal</text>
+<rect x="490" y="18" width="390" height="31" rx="4" fill="#10151d" stroke="#344250"/>
+<text x="504" y="39" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Cerca pagina o ticker</text>
+<text x="866" y="39" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="end">Ctrl + K</text>
+<text x="1250" y="39" font-size="13" fill="#e2bf72" font-weight="650" text-anchor="end">DEMO • Dati interamente sintetici</text>
+<rect x="0" y="64" width="1280" height="67" rx="0" fill="#18212c"/>
+<g id="navigation" aria-label="Navigation F1 to F19">
+<text x="44" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F1</text>
+<text x="44" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">DASH</text>
+<text x="110" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F2</text>
+<text x="110" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">PERF</text>
+<text x="176" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F3</text>
+<text x="176" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FAVS</text>
+<rect x="210" y="68" width="64" height="59" rx="3" fill="#2c3541"/>
+<rect x="210" y="125" width="64" height="3" rx="0" fill="#e2bf72"/>
+<text x="242" y="87" font-size="12" fill="#e2bf72" font-weight="400" text-anchor="middle">F4</text>
+<text x="242" y="111" font-size="12" fill="#eef2f7" font-weight="600" text-anchor="middle">MKT</text>
+<text x="308" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F5</text>
+<text x="308" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">NEWS</text>
+<text x="374" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F6</text>
+<text x="374" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FUND</text>
+<text x="440" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F7</text>
+<text x="440" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FCTR</text>
+<text x="506" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F8</text>
+<text x="506" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MTC</text>
+<text x="572" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F9</text>
+<text x="572" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">VOLS</text>
+<text x="638" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F10</text>
+<text x="638" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">EDGE</text>
+<text x="704" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F11</text>
+<text x="704" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">CHAT</text>
+<text x="770" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F12</text>
+<text x="770" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">LIVE</text>
+<text x="836" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F13</text>
+<text x="836" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">SCORE</text>
+<text x="902" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F14</text>
+<text x="902" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MEMO</text>
+<text x="968" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F15</text>
+<text x="968" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">DECN</text>
+<text x="1034" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F16</text>
+<text x="1034" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">TRADE</text>
+<text x="1100" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F17</text>
+<text x="1100" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MOVES</text>
+<text x="1166" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F18</text>
+<text x="1166" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MNDT</text>
+<text x="1232" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F19</text>
+<text x="1232" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">CONFIG</text>
+</g>
+<line x1="0" y1="132" x2="1280" y2="132" stroke="#344250" stroke-width="1"/>
+<text x="28.0" y="172" font-size="30" fill="#eef2f7" font-weight="650" text-anchor="start">Global Markets</text>
+<text x="28.0" y="202" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Identita, prezzo e fondamentali</text>
+<text x="28.0" y="864" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">DEMO  /  Illustration only. Not a screenshot, recommendation or measured result.</text>
+<rect x="28.0" y="234" width="1224.0" height="46" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="49.94422310756972" y="264" font-size="18" fill="#eef2f7" font-weight="400" text-anchor="start">Ricerca: Demo equity A / SYN-A</text>
+<rect x="1048.406374501992" y="243" width="176.77290836653387" height="30" rx="4" fill="#24303c"/>
+<text x="1063.0358565737051" y="263" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">Preferito</text>
+<rect x="28.0" y="300" width="819.2509960159363" height="332" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="49.94422310756972" y="330" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Demo equity A • 100,00 EUR • DEMO</text>
+<line x1="64.57370517928287" y1="375.0" x2="800.9243027888447" y2="375.0" stroke="#344250" stroke-width="1"/>
+<line x1="64.57370517928287" y1="423.0" x2="800.9243027888447" y2="423.0" stroke="#344250" stroke-width="1"/>
+<line x1="64.57370517928287" y1="471.0" x2="800.9243027888447" y2="471.0" stroke="#344250" stroke-width="1"/>
+<line x1="64.57370517928287" y1="519.0" x2="800.9243027888447" y2="519.0" stroke="#344250" stroke-width="1"/>
+<line x1="64.57370517928287" y1="567.0" x2="800.9243027888447" y2="567.0" stroke="#344250" stroke-width="1"/>
+<line x1="64.57370517928287" y1="375" x2="64.57370517928287" y2="567" stroke="#344250" stroke-width="1"/>
+<polyline points="64.6,520.9 94.0,527.0 123.5,527.3 152.9,519.4 182.4,506.0 211.8,493.1 241.3,486.3 270.8,487.7 300.2,494.2 329.7,499.8 359.1,498.9 388.6,489.9 418.0,476.2 447.5,463.9 476.9,458.3 506.4,460.7 535.8,467.5 565.3,472.4 594.7,470.3 624.2,460.3 653.7,446.4 683.1,434.8 712.6,430.4 742.0,433.8 771.5,440.7 800.9,444.9" fill="none" stroke="#63cddb" stroke-width="3"/>
+<text x="64.57370517928287" y="590" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Inizio</text>
+<text x="800.9243027888447" y="590" font-size="12" fill="#adbac9" font-weight="400" text-anchor="end">Fine periodo DEMO</text>
+<rect x="871.6334661354582" y="300" width="380.36653386454185" height="332" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="893.5776892430279" y="330" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Identita dello strumento</text>
+<text x="896.01593625498" y="369" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Simbolo: SYN-A</text>
+<text x="896.01593625498" y="418" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Nome: societa inventata</text>
+<text x="896.01593625498" y="467" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Valuta: EUR</text>
+<text x="896.01593625498" y="516" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Fonte: illustrazione</text>
+<rect x="28.0" y="652" width="1224.0" height="176" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="49.94422310756972" y="682" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Conto economico / Bilancio / Cassa / Azionisti / News</text>
+<text x="52.38247011952191" y="719" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Voce DEMO</text>
+<text x="649.7529880478088" y="719" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Periodo A</text>
+<text x="917.9601593625498" y="719" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Periodo B</text>
+<line x1="52.38247011952191" y1="733" x2="1186.167330677291" y2="733" stroke="#344250" stroke-width="1"/>
+<text x="52.38247011952191" y="765" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Ricavi illustrativi</text>
+<text x="649.7529880478088" y="765" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">100</text>
+<text x="917.9601593625498" y="765" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">110</text>
+<line x1="52.38247011952191" y1="780" x2="1186.167330677291" y2="780" stroke="#344250" stroke-width="1"/>
+<text x="52.38247011952191" y="808" font-size="14" fill="#e2bf72" font-weight="400" text-anchor="start">Verifica periodo, unita e valuta prima di confrontare.</text>
+</svg>

@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="900" viewBox="0 0 1280 900" role="img" aria-labelledby="title desc">
+<title id="title">F2 Performance — synthetic DEMO illustration</title>
+<desc id="desc">Original explanatory mockup, not a screenshot. All values, names, instruments and research text are invented. No user portfolio data.</desc>
+<style>text{font-family:Segoe UI,Arial,sans-serif} .mono{font-family:Consolas,monospace}</style>
+<rect x="0" y="0" width="1280" height="900" rx="0" fill="#10151d"/>
+<rect x="0" y="0" width="1280" height="64" rx="0" fill="#141c26"/>
+<text x="28" y="41" font-size="24" fill="#eef2f7" font-weight="650" text-anchor="start">Bellomberg</text>
+<text x="207" y="39" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Research terminal</text>
+<rect x="490" y="18" width="390" height="31" rx="4" fill="#10151d" stroke="#344250"/>
+<text x="504" y="39" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Cerca pagina o ticker</text>
+<text x="866" y="39" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="end">Ctrl + K</text>
+<text x="1250" y="39" font-size="13" fill="#e2bf72" font-weight="650" text-anchor="end">DEMO • Dati interamente sintetici</text>
+<rect x="0" y="64" width="1280" height="67" rx="0" fill="#18212c"/>
+<g id="navigation" aria-label="Navigation F1 to F19">
+<text x="44" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F1</text>
+<text x="44" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">DASH</text>
+<rect x="78" y="68" width="64" height="59" rx="3" fill="#2c3541"/>
+<rect x="78" y="125" width="64" height="3" rx="0" fill="#e2bf72"/>
+<text x="110" y="87" font-size="12" fill="#e2bf72" font-weight="400" text-anchor="middle">F2</text>
+<text x="110" y="111" font-size="12" fill="#eef2f7" font-weight="600" text-anchor="middle">PERF</text>
+<text x="176" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F3</text>
+<text x="176" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FAVS</text>
+<text x="242" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F4</text>
+<text x="242" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MKT</text>
+<text x="308" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F5</text>
+<text x="308" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">NEWS</text>
+<text x="374" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F6</text>
+<text x="374" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FUND</text>
+<text x="440" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F7</text>
+<text x="440" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">FCTR</text>
+<text x="506" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F8</text>
+<text x="506" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MTC</text>
+<text x="572" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F9</text>
+<text x="572" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">VOLS</text>
+<text x="638" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F10</text>
+<text x="638" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">EDGE</text>
+<text x="704" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F11</text>
+<text x="704" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">CHAT</text>
+<text x="770" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F12</text>
+<text x="770" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">LIVE</text>
+<text x="836" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F13</text>
+<text x="836" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">SCORE</text>
+<text x="902" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F14</text>
+<text x="902" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MEMO</text>
+<text x="968" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F15</text>
+<text x="968" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">DECN</text>
+<text x="1034" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F16</text>
+<text x="1034" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">TRADE</text>
+<text x="1100" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F17</text>
+<text x="1100" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MOVES</text>
+<text x="1166" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F18</text>
+<text x="1166" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">MNDT</text>
+<text x="1232" y="87" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">F19</text>
+<text x="1232" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">CONFIG</text>
+</g>
+<line x1="0" y1="132" x2="1280" y2="132" stroke="#344250" stroke-width="1"/>
+<text x="28.0" y="172" font-size="30" fill="#eef2f7" font-weight="650" text-anchor="start">Performance</text>
+<text x="28.0" y="202" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Rendimento, flussi e attribuzione</text>
+<text x="28.0" y="864" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">DEMO  /  Illustration only. Not a screenshot, recommendation or measured result.</text>
+<rect x="28.0" y="230" width="170.67729083665338" height="30" rx="4" fill="#24303c"/>
+<text x="42.62948207171315" y="250" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">Tearsheet</text>
+<rect x="213.30677290836653" y="230" width="182.86852589641435" height="30" rx="4" fill="#24303c"/>
+<text x="227.93625498007967" y="250" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Book &amp; Risk</text>
+<rect x="28.0" y="280" width="792.4302788844622" height="338" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="49.94422310756972" y="310" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Rendimento nel periodo • DEMO</text>
+<line x1="67.01195219123505" y1="347.0" x2="778.9800796812749" y2="347.0" stroke="#344250" stroke-width="1"/>
+<line x1="67.01195219123505" y1="398.75" x2="778.9800796812749" y2="398.75" stroke="#344250" stroke-width="1"/>
+<line x1="67.01195219123505" y1="450.5" x2="778.9800796812749" y2="450.5" stroke="#344250" stroke-width="1"/>
+<line x1="67.01195219123505" y1="502.25" x2="778.9800796812749" y2="502.25" stroke="#344250" stroke-width="1"/>
+<line x1="67.01195219123505" y1="554.0" x2="778.9800796812749" y2="554.0" stroke="#344250" stroke-width="1"/>
+<line x1="67.01195219123505" y1="347" x2="67.01195219123505" y2="554" stroke="#344250" stroke-width="1"/>
+<polyline points="67.0,504.3 95.5,510.9 124.0,511.2 152.4,502.7 180.9,488.2 209.4,474.3 237.9,467.0 266.4,468.5 294.8,475.5 323.3,481.5 351.8,480.6 380.3,470.9 408.8,456.1 437.2,442.8 465.7,436.8 494.2,439.4 522.7,446.7 551.2,452.0 579.6,449.8 608.1,439.0 636.6,424.0 665.1,411.5 693.5,406.8 722.0,410.4 750.5,417.9 779.0,422.3" fill="none" stroke="#63cddb" stroke-width="3"/>
+<polyline points="67.0,533.1 95.5,531.2 124.0,520.7 152.4,505.8 180.9,493.0 209.4,487.9 237.9,491.3 266.4,498.7 294.8,503.4 323.3,500.2 351.8,488.8 380.3,473.7 408.8,461.8 437.2,458.0 465.7,462.4 494.2,469.8 522.7,473.6 551.2,469.1 579.6,456.7 608.1,441.7 636.6,430.8 665.1,428.3 693.5,433.5 722.0,440.9 750.5,443.6 779.0,437.8" fill="none" stroke="#e2bf72" stroke-width="3" stroke-dasharray="7 5"/>
+<text x="67.01195219123505" y="577" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Inizio</text>
+<text x="778.9800796812749" y="577" font-size="12" fill="#adbac9" font-weight="400" text-anchor="end">Fine periodo DEMO</text>
+<text x="67.01195219123505" y="601" font-size="14" fill="#63cddb" font-weight="400" text-anchor="start">Quota</text>
+<text x="164.5418326693227" y="601" font-size="14" fill="#e2bf72" font-weight="400" text-anchor="start">Benchmark</text>
+<rect x="844.8127490039841" y="280" width="407.18725099601596" height="338" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="866.7569721115538" y="310" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Come leggere i dati</text>
+<text x="869.1952191235059" y="351" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Flussi ≠ rendimento</text>
+<text x="869.1952191235059" y="403" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Copertura prima del confronto</text>
+<text x="869.1952191235059" y="455" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Stessa finestra temporale</text>
+<text x="869.1952191235059" y="507" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Serie ricostruita: dichiarata</text>
+<rect x="28.0" y="638" width="1224.0" height="190" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="49.94422310756972" y="668" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Attribuzione: prezzo locale, cambio, interazione</text>
+<text x="52.38247011952191" y="699" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Prezzo locale</text>
+<rect x="274.26294820717135" y="683" width="499.8406374501992" height="18" rx="2" fill="#63cddb"/>
+<text x="52.38247011952191" y="742" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Cambio</text>
+<rect x="274.26294820717135" y="726" width="158.48605577689244" height="18" rx="2" fill="#e2bf72"/>
+<text x="52.38247011952191" y="785" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Interazione</text>
+<rect x="274.26294820717135" y="769" width="56.0796812749004" height="18" rx="2" fill="#adbac9"/>
+<text x="859.4422310756972" y="735" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Valori illustrativi</text>
+</svg>

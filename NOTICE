@@ -1,0 +1,24 @@
+Bellomberg - Personal AI Hedge Fund Terminal
+Copyright 2026 Francesco Belli
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this software except in compliance with the License. See the LICENSE file in the
+root of this repository or http://www.apache.org/licenses/LICENSE-2.0.
+
+This product includes third-party components:
+
+* Lightweight Charts by TradingView, Inc.
+  https://github.com/tradingview/lightweight-charts
+  Licensed under the Apache License, Version 2.0. The charting engine is used with
+  the attribution to TradingView that its license notice requires:
+  https://www.tradingview.com/
+
+* Country and industry aggregates from Aswath Damodaran's data pages
+  https://pages.stern.nyu.edu/~adamodar/
+  Snapshot in damodaran_snapshot.json, redistributed with attribution as the author
+  permits.
+
+Market data is fetched at runtime from third-party services (Yahoo Finance via
+yfinance, SEC EDGAR, filings.xbrl.org, FRED, Finnhub, NewsAPI and others) under
+their own terms of use; no third-party data series is redistributed in this
+repository.

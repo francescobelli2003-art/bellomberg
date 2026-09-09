@@ -1,0 +1,11 @@
+{
+  "_leggimi": "Copia questo file in data/fattori_portafoglio.json e mettici i TUOI simboli. Il file in data/ e' privato e non viene mai pubblicato. `crypto_correlati`: simboli quotati negli USA la cui esposizione e' crypto (tesorerie di token, exchange, miner): ricevono BTC come settimo fattore per non leggere alpha spurio. `regioni`: override dell'ESPOSIZIONE ECONOMICA (non del listino) per i veicoli quotati in una piazza e investiti in un'altra; valori ammessi: us, europe, japan, asia_pacific, global. Un simbolo assente prende la regione dal suffisso di quotazione, e il payload lo dichiara.",
+  "crypto_correlati": [
+    "KRYPTO",
+    "GAMMA"
+  ],
+  "regioni": {
+    "THETA.L": "us",
+    "KAPPA.MI": "asia_pacific"
+  }
+}

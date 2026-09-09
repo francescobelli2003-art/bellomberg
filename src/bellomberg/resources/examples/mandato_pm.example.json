@@ -1,0 +1,750 @@
+{
+  "_leggimi": "Il MANDATO del PM: il profilo con cui il comitato e la chat lavorano (quanta cassa e come impiegarla, orizzonte e concentrazione, tetti del sizing, disciplina dei tagli, opzioni ammesse, caccia globale). Il file vero e' data/mandato_pm.json, PRIVATO e mai pubblicato: lo scrive la pagina Mandato (F18) solo dopo anteprima valida e salvataggio; il comitato non parte finche' non e' dichiarato. `_campi` e' lo schema (tipo, unita', intervallo, descrizione) e `_esempio` e' un profilo prudente e generico che la pagina puo' copiare col comando «Compila con un profilo di esempio»: finche' i valori coincidono, il file vale `origine: esempio` e i memo lo dichiarano. Gli intervalli sono liste [minimo, massimo] (minimo uguale a massimo = un numero solo).",
+  "versione": 1,
+  "dichiarato_il": null,
+  "origine": null,
+  "profilo": {
+    "tipo_investimento": null,
+    "stile": null,
+    "orizzonte_anni": null,
+    "valuta_base": null,
+    "broker": null,
+    "residenza_fiscale": null,
+    "mercati_accessibili": null,
+    "preferenza_ucits": null,
+    "leva_ammessa": null,
+    "short_ammesso": null
+  },
+  "rischio": {
+    "volatilita_target_pct": null,
+    "var99_1g_pct": null,
+    "drawdown_max_pct": null,
+    "stress_gfc_pct": null,
+    "drawdown_bilaterale": null,
+    "drawdown_significativo_pct": null
+  },
+  "sizing": {
+    "base_single_pct": null,
+    "cap_single_pct": null,
+    "base_veicolo_pct": null,
+    "cap_veicolo_pct": null,
+    "cap_settore_pct": null,
+    "limite_minimo_pct": null,
+    "posizione_minima_pct": null,
+    "size_nuova_posizione_pct": null,
+    "max_posizioni": null,
+    "top3_max_pct": null
+  },
+  "cassa": {
+    "cassa_tipica_pct": null,
+    "cassa_max_senza_giustificazione_pct": null,
+    "cassa_minima_pct": null,
+    "politica_impiego": null,
+    "impiego_default_pct": null,
+    "impiego_finestra_settimane": null
+  },
+  "disciplina": {
+    "taglio_max_senza_condizioni_pct": null,
+    "taglio_con_condizioni_oltre_pct": null,
+    "condizioni_taglio_oltre": null,
+    "riproporre_skipped": null,
+    "pair_trade_per_memo": null,
+    "caccia_globale": null,
+    "nuove_idee_per_memo": null,
+    "rotazione_settoriale": null,
+    "sfidare_le_view": null
+  },
+  "opzioni": {
+    "opzioni_abilitate": null,
+    "strumenti_ammessi": null,
+    "budget_premio_pct": null
+  },
+  "note": {
+    "note_per_il_comitato": null,
+    "aree_gradite": null,
+    "esclusioni": null
+  },
+  "_campi": {
+    "tipo_investimento": {
+      "blocco": "profilo",
+      "tipo": "scelta",
+      "obbligatorio": true,
+      "descrizione": "Orizzonte con cui investe: long_term (anni), medio_termine (mesi), trading (settimane).",
+      "unita": "",
+      "intervallo": null,
+      "scelte": [
+        "long_term",
+        "medio_termine",
+        "trading"
+      ],
+      "massimo_char": null
+    },
+    "stile": {
+      "blocco": "profilo",
+      "tipo": "scelta",
+      "obbligatorio": true,
+      "descrizione": "concentrato = accetta conviction pesanti; diversificato = nessun nome sopra i cap.",
+      "unita": "",
+      "intervallo": null,
+      "scelte": [
+        "concentrato",
+        "diversificato"
+      ],
+      "massimo_char": null
+    },
+    "orizzonte_anni": {
+      "blocco": "profilo",
+      "tipo": "int",
+      "obbligatorio": true,
+      "descrizione": "Orizzonte medio di detenzione di una posizione.",
+      "unita": "anni",
+      "intervallo": [
+        1,
+        30
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "valuta_base": {
+      "blocco": "profilo",
+      "tipo": "valuta",
+      "obbligatorio": true,
+      "descrizione": "Valuta in cui misura il patrimonio (codice ISO: EUR, USD, GBP...).",
+      "unita": "",
+      "intervallo": null,
+      "scelte": null,
+      "massimo_char": null
+    },
+    "broker": {
+      "blocco": "profilo",
+      "tipo": "testo",
+      "obbligatorio": false,
+      "descrizione": "Il broker con cui opera (solo informativo).",
+      "unita": "",
+      "intervallo": null,
+      "scelte": null,
+      "massimo_char": 120
+    },
+    "residenza_fiscale": {
+      "blocco": "profilo",
+      "tipo": "testo",
+      "obbligatorio": false,
+      "descrizione": "Paese di residenza fiscale (informa la preferenza UCITS e i veicoli).",
+      "unita": "",
+      "intervallo": null,
+      "scelte": null,
+      "massimo_char": 120
+    },
+    "mercati_accessibili": {
+      "blocco": "profilo",
+      "tipo": "lista",
+      "obbligatorio": true,
+      "descrizione": "Listini su cui puo' comprare, nell'ordine di preferenza: il primo e' la piazza di casa («come si compra da …»).",
+      "unita": "",
+      "intervallo": null,
+      "scelte": [
+        "MI",
+        "L",
+        "DE",
+        "FRA",
+        "PA",
+        "AS",
+        "BR",
+        "MC",
+        "SW",
+        "VI",
+        "US",
+        "TO",
+        "T",
+        "HK",
+        "NS",
+        "SA",
+        "AX"
+      ],
+      "massimo_char": null
+    },
+    "preferenza_ucits": {
+      "blocco": "profilo",
+      "tipo": "bool",
+      "obbligatorio": true,
+      "descrizione": "Preferisce ETF/fondi UCITS (.MI/.L/.DE) per efficienza fiscale.",
+      "unita": "",
+      "intervallo": null,
+      "scelte": null,
+      "massimo_char": null
+    },
+    "leva_ammessa": {
+      "blocco": "profilo",
+      "tipo": "bool",
+      "obbligatorio": true,
+      "descrizione": "Il comitato puo' proporre strumenti a leva o margine.",
+      "unita": "",
+      "intervallo": null,
+      "scelte": null,
+      "massimo_char": null
+    },
+    "short_ammesso": {
+      "blocco": "profilo",
+      "tipo": "bool",
+      "obbligatorio": true,
+      "descrizione": "Il comitato puo' proporre posizioni corte (short).",
+      "unita": "",
+      "intervallo": null,
+      "scelte": null,
+      "massimo_char": null
+    },
+    "volatilita_target_pct": {
+      "blocco": "rischio",
+      "tipo": "pct",
+      "obbligatorio": true,
+      "descrizione": "Volatilita' annua del portafoglio che cerca.",
+      "unita": "% annua",
+      "intervallo": [
+        5,
+        60
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "var99_1g_pct": {
+      "blocco": "rischio",
+      "tipo": "pct",
+      "obbligatorio": true,
+      "descrizione": "Perdita massima a un giorno che accetta (VaR 99%), in % del patrimonio.",
+      "unita": "% del patrimonio",
+      "intervallo": [
+        0.5,
+        15
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "drawdown_max_pct": {
+      "blocco": "rischio",
+      "tipo": "pct",
+      "obbligatorio": true,
+      "descrizione": "Drawdown massimo dal picco che accetta sul portafoglio.",
+      "unita": "%",
+      "intervallo": [
+        5,
+        70
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "stress_gfc_pct": {
+      "blocco": "rischio",
+      "tipo": "pct",
+      "obbligatorio": true,
+      "descrizione": "Perdita massima accettata in uno stress tipo 2008 (replay GFC), in % del NAV.",
+      "unita": "% del NAV",
+      "intervallo": [
+        5,
+        60
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "drawdown_bilaterale": {
+      "blocco": "rischio",
+      "tipo": "bool",
+      "obbligatorio": true,
+      "descrizione": "Un drawdown si valuta in modo BILATERALE (puo' essere occasione d'acquisto o segnale di vendita): mai vendita automatica.",
+      "unita": "",
+      "intervallo": null,
+      "scelte": null,
+      "massimo_char": null
+    },
+    "drawdown_significativo_pct": {
+      "blocco": "rischio",
+      "tipo": "pct",
+      "obbligatorio": true,
+      "descrizione": "Da quale calo dal massimo a 52 settimane un drawdown e' «significativo» e accende la valutazione bilaterale.",
+      "unita": "%",
+      "intervallo": [
+        5,
+        60
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "base_single_pct": {
+      "blocco": "sizing",
+      "tipo": "pct",
+      "obbligatorio": true,
+      "descrizione": "Size di riferimento di un'azione singola prima degli aggiustamenti per volatilita' e correlazione.",
+      "unita": "% dell'investito",
+      "intervallo": [
+        1,
+        50
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "cap_single_pct": {
+      "blocco": "sizing",
+      "tipo": "pct",
+      "obbligatorio": true,
+      "descrizione": "Tetto massimo di un'azione singola.",
+      "unita": "% dell'investito",
+      "intervallo": [
+        2,
+        50
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "base_veicolo_pct": {
+      "blocco": "sizing",
+      "tipo": "pct",
+      "obbligatorio": true,
+      "descrizione": "Size di riferimento di un veicolo gia' diversificato (ETF, fondo, holding).",
+      "unita": "% dell'investito",
+      "intervallo": [
+        2,
+        100
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "cap_veicolo_pct": {
+      "blocco": "sizing",
+      "tipo": "pct",
+      "obbligatorio": true,
+      "descrizione": "Tetto massimo di un veicolo diversificato.",
+      "unita": "% dell'investito",
+      "intervallo": [
+        5,
+        100
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "cap_settore_pct": {
+      "blocco": "sizing",
+      "tipo": "pct",
+      "obbligatorio": true,
+      "descrizione": "Tetto della somma delle azioni singole dello stesso settore.",
+      "unita": "% dell'investito",
+      "intervallo": [
+        5,
+        100
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "limite_minimo_pct": {
+      "blocco": "sizing",
+      "tipo": "pct",
+      "obbligatorio": true,
+      "descrizione": "Sotto questa size gli aggiustamenti non scendono (pavimento del motore).",
+      "unita": "% dell'investito",
+      "intervallo": [
+        0.5,
+        10
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "posizione_minima_pct": {
+      "blocco": "sizing",
+      "tipo": "pct",
+      "obbligatorio": true,
+      "descrizione": "Sotto questa soglia un taglio o uno spazio non vale un'azione («in linea»).",
+      "unita": "% del NAV",
+      "intervallo": [
+        0.1,
+        10
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "size_nuova_posizione_pct": {
+      "blocco": "sizing",
+      "tipo": "intervallo_pct",
+      "obbligatorio": true,
+      "descrizione": "Size tipica di una posizione NUOVA (minimo-massimo).",
+      "unita": "% del capitale",
+      "intervallo": [
+        0.5,
+        20
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "max_posizioni": {
+      "blocco": "sizing",
+      "tipo": "int",
+      "obbligatorio": false,
+      "descrizione": "Numero massimo di posizioni in portafoglio.",
+      "unita": "posizioni",
+      "intervallo": [
+        1,
+        100
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "top3_max_pct": {
+      "blocco": "sizing",
+      "tipo": "pct",
+      "obbligatorio": false,
+      "descrizione": "Peso massimo delle prime tre posizioni insieme.",
+      "unita": "% dell'investito",
+      "intervallo": [
+        10,
+        100
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "cassa_tipica_pct": {
+      "blocco": "cassa",
+      "tipo": "intervallo_pct",
+      "obbligatorio": true,
+      "descrizione": "Quanta liquidita' tiene di solito (minimo-massimo).",
+      "unita": "% del capitale",
+      "intervallo": [
+        0,
+        100
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "cassa_max_senza_giustificazione_pct": {
+      "blocco": "cassa",
+      "tipo": "intervallo_pct",
+      "obbligatorio": true,
+      "descrizione": "Oltre questa liquidita' il cash fermo va MOTIVATO con un rischio datato.",
+      "unita": "% del capitale",
+      "intervallo": [
+        0,
+        100
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "cassa_minima_pct": {
+      "blocco": "cassa",
+      "tipo": "pct",
+      "obbligatorio": false,
+      "descrizione": "Liquidita' sotto cui non si scende mai (sotto, si ricostituisce).",
+      "unita": "% del capitale",
+      "intervallo": [
+        0,
+        100
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "politica_impiego": {
+      "blocco": "cassa",
+      "tipo": "scelta",
+      "obbligatorio": true,
+      "descrizione": "Come si impiega il cash: prudente (solo con catalyst), neutra, aggressiva (bias al deployment).",
+      "unita": "",
+      "intervallo": null,
+      "scelte": [
+        "prudente",
+        "neutra",
+        "aggressiva"
+      ],
+      "massimo_char": null
+    },
+    "impiego_default_pct": {
+      "blocco": "cassa",
+      "tipo": "intervallo_pct",
+      "obbligatorio": true,
+      "descrizione": "Quota della liquidita' da impiegare per default in assenza di rischi datati (minimo-massimo).",
+      "unita": "% della cassa",
+      "intervallo": [
+        0,
+        100
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "impiego_finestra_settimane": {
+      "blocco": "cassa",
+      "tipo": "intervallo_int",
+      "obbligatorio": true,
+      "descrizione": "In quante settimane si impiega quella quota (minimo-massimo).",
+      "unita": "settimane",
+      "intervallo": [
+        1,
+        12
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "taglio_max_senza_condizioni_pct": {
+      "blocco": "disciplina",
+      "tipo": "intervallo_pct",
+      "obbligatorio": true,
+      "descrizione": "Quanto si puo' tagliare una posizione senza che scattino le condizioni (minimo-massimo).",
+      "unita": "% della posizione",
+      "intervallo": [
+        0,
+        100
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "taglio_con_condizioni_oltre_pct": {
+      "blocco": "disciplina",
+      "tipo": "pct",
+      "obbligatorio": true,
+      "descrizione": "Oltre questo taglio servono TUTTE le condizioni accese.",
+      "unita": "% della posizione",
+      "intervallo": [
+        0,
+        100
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "condizioni_taglio_oltre": {
+      "blocco": "disciplina",
+      "tipo": "interruttori",
+      "obbligatorio": true,
+      "descrizione": "Le condizioni richieste per un taglio grande: Sharpe negativo a 12 mesi, nessun catalyst entro 90 giorni, tesi smentita.",
+      "unita": "",
+      "intervallo": null,
+      "scelte": [
+        "sharpe_12m_negativo",
+        "nessun_catalyst_90g",
+        "tesi_smentita"
+      ],
+      "massimo_char": null
+    },
+    "riproporre_skipped": {
+      "blocco": "disciplina",
+      "tipo": "bool",
+      "obbligatorio": true,
+      "descrizione": "Una decisione saltata si ripropone se la tesi regge (mai maggiorata dopo due skip).",
+      "unita": "",
+      "intervallo": null,
+      "scelte": null,
+      "massimo_char": null
+    },
+    "pair_trade_per_memo": {
+      "blocco": "disciplina",
+      "tipo": "int",
+      "obbligatorio": true,
+      "descrizione": "Quanti pair trade al massimo in un memo (0 = nessuno).",
+      "unita": "per memo",
+      "intervallo": [
+        0,
+        2
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "caccia_globale": {
+      "blocco": "disciplina",
+      "tipo": "bool",
+      "obbligatorio": true,
+      "descrizione": "Le idee nuove si cercano SENZA vincolo di geografia (Giappone, India, Brasile, Golfo, frontiera).",
+      "unita": "",
+      "intervallo": null,
+      "scelte": null,
+      "massimo_char": null
+    },
+    "nuove_idee_per_memo": {
+      "blocco": "disciplina",
+      "tipo": "intervallo_int",
+      "obbligatorio": true,
+      "descrizione": "Quanti candidati NUOVI (non nel book, non riproposte) deve portare ogni memo (minimo-massimo; 0-0 = sezione non richiesta).",
+      "unita": "candidati",
+      "intervallo": [
+        0,
+        5
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "rotazione_settoriale": {
+      "blocco": "disciplina",
+      "tipo": "bool",
+      "obbligatorio": true,
+      "descrizione": "Nessun ancoraggio ai settori del book: un settore con tesi degradata va tagliato e il capitale riallocato.",
+      "unita": "",
+      "intervallo": null,
+      "scelte": null,
+      "massimo_char": null
+    },
+    "sfidare_le_view": {
+      "blocco": "disciplina",
+      "tipo": "bool",
+      "obbligatorio": true,
+      "descrizione": "Le view del PM non sono ordini: il comitato deve sfidarle coi numeri quando i dati le smentiscono.",
+      "unita": "",
+      "intervallo": null,
+      "scelte": null,
+      "massimo_char": null
+    },
+    "opzioni_abilitate": {
+      "blocco": "opzioni",
+      "tipo": "bool",
+      "obbligatorio": true,
+      "descrizione": "Il comitato puo' proporre strutture in opzioni.",
+      "unita": "",
+      "intervallo": null,
+      "scelte": null,
+      "massimo_char": null
+    },
+    "strumenti_ammessi": {
+      "blocco": "opzioni",
+      "tipo": "lista",
+      "obbligatorio": false,
+      "descrizione": "Le strutture ammesse (obbligatorio se le opzioni sono abilitate).",
+      "unita": "",
+      "intervallo": null,
+      "scelte": [
+        "long_call_catalyst",
+        "put_hedge",
+        "put_spread",
+        "covered_call",
+        "cash_secured_put",
+        "short_premium_nudo",
+        "straddle_strangle"
+      ],
+      "massimo_char": null
+    },
+    "budget_premio_pct": {
+      "blocco": "opzioni",
+      "tipo": "pct",
+      "obbligatorio": false,
+      "descrizione": "Premio massimo spendibile in opzioni.",
+      "unita": "% del patrimonio",
+      "intervallo": [
+        0,
+        20
+      ],
+      "scelte": null,
+      "massimo_char": null
+    },
+    "note_per_il_comitato": {
+      "blocco": "note",
+      "tipo": "testo",
+      "obbligatorio": false,
+      "descrizione": "Cose che il comitato deve sapere: aree gradite, esclusioni, vincoli personali.",
+      "unita": "",
+      "intervallo": null,
+      "scelte": null,
+      "massimo_char": 2000
+    },
+    "aree_gradite": {
+      "blocco": "note",
+      "tipo": "lista_testo",
+      "obbligatorio": false,
+      "descrizione": "Aree, paesi o temi che gradisce (una voce per riga).",
+      "unita": "",
+      "intervallo": null,
+      "scelte": null,
+      "massimo_char": null
+    },
+    "esclusioni": {
+      "blocco": "note",
+      "tipo": "lista_testo",
+      "obbligatorio": false,
+      "descrizione": "Settori, paesi o strumenti che NON vuole (una voce per riga).",
+      "unita": "",
+      "intervallo": null,
+      "scelte": null,
+      "massimo_char": null
+    }
+  },
+  "_esempio": {
+    "profilo": {
+      "tipo_investimento": "long_term",
+      "stile": "diversificato",
+      "orizzonte_anni": 5,
+      "valuta_base": "EUR",
+      "broker": "",
+      "residenza_fiscale": "",
+      "mercati_accessibili": [
+        "MI",
+        "DE",
+        "US"
+      ],
+      "preferenza_ucits": true,
+      "leva_ammessa": false,
+      "short_ammesso": false
+    },
+    "rischio": {
+      "volatilita_target_pct": 15,
+      "var99_1g_pct": 2,
+      "drawdown_max_pct": 20,
+      "stress_gfc_pct": 20,
+      "drawdown_bilaterale": true,
+      "drawdown_significativo_pct": 25
+    },
+    "sizing": {
+      "base_single_pct": 6,
+      "cap_single_pct": 8,
+      "base_veicolo_pct": 20,
+      "cap_veicolo_pct": 25,
+      "cap_settore_pct": 25,
+      "limite_minimo_pct": 1,
+      "posizione_minima_pct": 1,
+      "size_nuova_posizione_pct": [
+        1,
+        2
+      ],
+      "max_posizioni": 25,
+      "top3_max_pct": 40
+    },
+    "cassa": {
+      "cassa_tipica_pct": [
+        10,
+        15
+      ],
+      "cassa_max_senza_giustificazione_pct": [
+        20,
+        25
+      ],
+      "cassa_minima_pct": 5,
+      "politica_impiego": "neutra",
+      "impiego_default_pct": [
+        20,
+        30
+      ],
+      "impiego_finestra_settimane": [
+        2,
+        4
+      ]
+    },
+    "disciplina": {
+      "taglio_max_senza_condizioni_pct": [
+        15,
+        25
+      ],
+      "taglio_con_condizioni_oltre_pct": 60,
+      "condizioni_taglio_oltre": {
+        "sharpe_12m_negativo": true,
+        "nessun_catalyst_90g": true,
+        "tesi_smentita": true
+      },
+      "riproporre_skipped": true,
+      "pair_trade_per_memo": 0,
+      "caccia_globale": false,
+      "nuove_idee_per_memo": [
+        1,
+        2
+      ],
+      "rotazione_settoriale": true,
+      "sfidare_le_view": true
+    },
+    "opzioni": {
+      "opzioni_abilitate": false,
+      "strumenti_ammessi": [],
+      "budget_premio_pct": null
+    },
+    "note": {
+      "note_per_il_comitato": "",
+      "aree_gradite": [],
+      "esclusioni": []
+    }
+  }
+}

@@ -1,0 +1,28 @@
+// @ts-nocheck
+import assert from 'node:assert/strict';
+import { conservaDettaglioRun, consumaDettaglioRun, coperturaCampo, dettaglioLeggibile, leggiNumeroMandato, leggiBozza, rispostaDellaRevisione, salvaBozza, statusHttp } from '../../src/lib/mandato.js';
+const pct = { tipo: 'pct', obbligatorio: true, intervallo: [0, 10] };
+assert.deepEqual(leggiNumeroMandato('0', pct), { ok: true, valore: 0 });
+assert.deepEqual(leggiNumeroMandato('0,5', pct), { ok: true, valore: 0.5 });
+assert.equal(leggiNumeroMandato('1.234', pct).ok, false);
+assert.equal(leggiNumeroMandato('11', pct).ok, false);
+assert.equal(leggiNumeroMandato('1,2', { ...pct, tipo: 'int' }).ok, false);
+assert.deepEqual(leggiNumeroMandato('', { ...pct, obbligatorio: false }), { ok: true, valore: null });
+assert.equal(leggiNumeroMandato('', pct).ok, false);
+assert.equal(dettaglioLeggibile({ response: { data: { detail: 'riga uno\nriga due' } } }), 'riga uno\nriga due');
+assert.equal(dettaglioLeggibile({ response: { data: { detail: [{ loc: ['body', 'profilo'], msg: 'manca' }] } } }), 'profilo: manca');
+assert.equal(coperturaCampo('cap_single_pct').etichetta, 'MOTORE');
+assert.equal(coperturaCampo('opzioni_abilitate').etichetta, 'PROMPT');
+for (const nome of ['size_nuova_posizione_pct', 'max_posizioni', 'top3_max_pct']) assert.notEqual(coperturaCampo(nome).etichetta, 'MOTORE');
+assert.equal(rispostaDellaRevisione(7, 7), true);
+assert.equal(rispostaDellaRevisione(7, 8), false, 'una risposta preview precedente a un edit va scartata');
+assert.equal(statusHttp({ response: { status: 428 } }), 428);
+const memoria = new Map();
+globalThis.sessionStorage = { getItem: k => memoria.get(k) ?? null, setItem: (k,v) => memoria.set(k,v), removeItem: k => memoria.delete(k) };
+salvaBozza({ baseImpronta: 'abc', form: { var99_1g_pct: '1,' }, metadati: { _nota: 'importato' }, salvataIl: '2026-09-09T10:00:00Z' });
+assert.equal(leggiBozza().form.var99_1g_pct, '1,', 'anche una modifica temporaneamente invalida resta recuperabile');
+assert.equal(leggiBozza().metadati._nota, 'importato');
+conservaDettaglioRun('mandato incompleto: campo x');
+assert.equal(consumaDettaglioRun(), 'mandato incompleto: campo x');
+assert.equal(consumaDettaglioRun(), null, 'il dettaglio non resta stantio dopo essere stato mostrato');
+console.log('mandato contracts: ok');
