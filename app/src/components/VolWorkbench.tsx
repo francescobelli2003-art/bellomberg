@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Check, ChevronDown, Layers3, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import {
-  blankLeg, contractLeg, daysToExpiry, numberInput, numericText, serializeLegs, volNumber, volRequest,
-  type ChainPage, type Coverage, type ExpiryCatalog, type LegDraft, type OptionContract, type StrategyResult,
+  blankLeg, contractLeg, daysToExpiry, expiriesThrough, horizonDate, numberInput, numericText, serializeLegs, volNumber, volRequest, watchDownload,
+  type ChainPage, type Coverage, type DownloadStatus, type ExpiryCatalog, type LegDraft, type OptionContract, type StrategyResult,
 } from '@/lib/vol-deck';
 import './vol-workbench.css';
 
 type Mode = 'surface' | 'desk' | 'laboratory';
 type Props = { ticker: string; mode: Mode; coverage?: Coverage; surfaceBusy: boolean;
-  onSurface: (expiries: string[]) => void; onLaboratory: () => void };
+  onSurface: (result: any, expiries: string[]) => void; onLaboratory: () => void };
 
 function Datum({ label, value, unit, tone }: { label: string; value: string; unit?: string; tone?: string }) {
   return <div className={'vd-datum ' + (tone || '')}><span>{label}</span><strong>{value}</strong>{unit && <small>{unit}</small>}</div>;
@@ -24,7 +24,7 @@ export default function VolWorkbench({ ticker, mode, coverage, surfaceBusy, onSu
   const [catalog, setCatalog] = useState<ExpiryCatalog | null>(null);
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [catalogError, setCatalogError] = useState('');
-  const [selected, setSelected] = useState<string[]>([]);
+  const [finalExpiry, setFinalExpiry] = useState('');
   const [chainExpiry, setChainExpiry] = useState('');
   const [chain, setChain] = useState<ChainPage | null>(null);
   const [chainBusy, setChainBusy] = useState(false);
@@ -33,15 +33,42 @@ export default function VolWorkbench({ ticker, mode, coverage, surfaceBusy, onSu
   const [strikeSearch, setStrikeSearch] = useState('');
   const [inspect, setInspect] = useState<OptionContract | null>(null);
   const [legs, setLegs] = useState<LegDraft[]>([]);
+  const [download, setDownload] = useState<DownloadStatus | null>(null);
+  const [downloadError, setDownloadError] = useState('');
+  const [downloadAction, setDownloadAction] = useState(false);
+  const [sliceBusy, setSliceBusy] = useState(false);
+  const [clock, setClock] = useState(Date.now());
+  const downloadRequest = useRef<AbortController | null>(null);
+  const surfaceRequest = useRef<AbortController | null>(null);
+  const downloadRef = useRef<DownloadStatus | null>(null);
+  const savedJobs = useRef(new Map<string, DownloadStatus>());
   const catalogRequest = useRef<AbortController | null>(null);
   const chainRequest = useRef<AbortController | null>(null);
 
+  useEffect(() => { const timer = setInterval(() => setClock(Date.now()), 10000); return () => clearInterval(timer); }, []);
+
   useEffect(() => {
     catalogRequest.current?.abort(); chainRequest.current?.abort();
-    setCatalog(null); setCatalogError(''); setChain(null); setChainError(''); setSelected([]);
+    downloadRequest.current?.abort(); surfaceRequest.current?.abort();
+    setCatalog(null); setCatalogError(''); setChain(null); setChainError(''); setFinalExpiry('');
     setChainExpiry(''); setInspect(null); setLegs([]); setCatalogBusy(false); setChainBusy(false);
+    setFilter('all'); setStrikeSearch(''); setDownloadError(''); setDownloadAction(false); setSliceBusy(false);
+    const saved = savedJobs.current.get(ticker) || null;
+    downloadRef.current = saved; setDownload(saved);
     if (ticker) void loadCatalog(false);
-    return () => { catalogRequest.current?.abort(); chainRequest.current?.abort(); };
+    if (saved) {
+      const controller = new AbortController(); downloadRequest.current = controller;
+      void observeDownload(saved, controller, false);
+    }
+    return () => {
+      catalogRequest.current?.abort(); chainRequest.current?.abort();
+      downloadRequest.current?.abort(); surfaceRequest.current?.abort();
+      const old = downloadRef.current;
+      if (old && ['running', 'queued'].includes(old.state)) {
+        // Do not claim cancellation until acknowledged; reopening the ticker rereads status.
+        void volRequest<DownloadStatus>(`/options/download/${old.id}/pause`, {}).then(s => savedJobs.current.set(old.ticker, s)).catch(() => {});
+      }
+    };
   }, [ticker]);
 
   async function loadCatalog(more: boolean) {
@@ -49,46 +76,111 @@ export default function VolWorkbench({ ticker, mode, coverage, surfaceBusy, onSu
     const controller = new AbortController(); catalogRequest.current = controller;
     setCatalogBusy(true); setCatalogError('');
     try {
-      const suffix = more && catalog?.next_after ? '?after=' + encodeURIComponent(catalog.next_after) : '';
-      const result = await volRequest<ExpiryCatalog>(`/options/expiry_catalog/${encodeURIComponent(ticker)}${suffix}`, undefined, controller.signal);
-      if (controller.signal.aborted) return;
-      if (!Array.isArray(result.expirations)) throw new Error('Catalogo senza elenco scadenze');
-      const dates = Array.from(new Set([...(more ? catalog?.expirations || [] : []), ...result.expirations])).sort();
-      setCatalog({ ...result, expirations: dates }); setCatalogError(result.error || '');
-      if (!more) {
-        setSelected(dates.filter(e => daysToExpiry(e) >= 2).slice(0, 4));
-        setChainExpiry(dates[0] || '');
+      let previous = more ? catalog : null;
+      for (;;) {
+        const suffix = previous?.next_after ? '?after=' + encodeURIComponent(previous.next_after) : '';
+        const result = await volRequest<ExpiryCatalog>(`/options/expiry_catalog/${encodeURIComponent(ticker)}${suffix}`, undefined, controller.signal);
+        if (controller.signal.aborted) return;
+        if (!Array.isArray(result.expirations) || result.ticker !== ticker) throw new Error('Catalogo senza scadenze o con ticker diverso');
+        const dates = Array.from(new Set([...(previous?.expirations || []), ...result.expirations])).sort();
+        const accumulated: ExpiryCatalog = { ...result, expirations: dates, requests_used: (previous?.requests_used || 0) + result.requests_used };
+        setCatalog(accumulated); setCatalogError(result.error || '');
+        if (!previous) setChainExpiry(dates[0] || '');
+        if (result.complete || result.error) break;
+        if (!result.next_after || result.next_after === previous?.next_after) throw new Error('Catalogo incompleto: il cursore non avanza');
+        previous = accumulated;
       }
     } catch (e) { if (!controller.signal.aborted) setCatalogError(String(e instanceof Error ? e.message : e)); }
     finally { if (!controller.signal.aborted) setCatalogBusy(false); }
   }
 
-  async function loadChain(more = false) {
+  async function showSurface(job: DownloadStatus) {
+    surfaceRequest.current?.abort();
+    const controller = new AbortController(); surfaceRequest.current = controller;
+    setSliceBusy(true); setDownloadError('');
+    try {
+      const result = await volRequest<any>(`/options/download/${job.id}/surface`, undefined, controller.signal);
+      if (!controller.signal.aborted && downloadRef.current?.id === job.id) onSurface(result, job.expirations);
+    } catch (e) { if (!controller.signal.aborted) setDownloadError(e instanceof Error ? e.message : String(e)); }
+    finally { if (!controller.signal.aborted) setSliceBusy(false); }
+  }
+
+  async function observeDownload(job: DownloadStatus, controller: AbortController, render = true) {
+    try {
+      const final = await watchDownload(job.id, job.ticker,
+        () => volRequest<DownloadStatus>(`/options/download/${job.id}/status`, undefined, controller.signal),
+        status => { setDownload(status); downloadRef.current = status; savedJobs.current.set(status.ticker, status); }, controller.signal);
+      if (render && final.state === 'complete') await showSurface(final);
+    } catch (e) { if (!controller.signal.aborted) setDownloadError(e instanceof Error ? e.message : String(e)); }
+  }
+
+  async function startDownload(expiries?: string[]) {
+    downloadRequest.current?.abort(); surfaceRequest.current?.abort(); chainRequest.current?.abort();
+    const controller = new AbortController(); downloadRequest.current = controller;
+    setDownloadAction(true); setDownloadError(''); setChain(null); setChainBusy(false); setSliceBusy(false);
+    try {
+      const old = downloadRef.current;
+      if (old && ['queued', 'running'].includes(old.state)) await volRequest(`/options/download/${old.id}/pause`, {});
+      if (controller.signal.aborted) return;
+      // Retain the returned id even if the user changes ticker while POST is in flight.
+      const job = await volRequest<DownloadStatus>(`/options/download/${encodeURIComponent(ticker)}`, expiries ? { expiries } : {});
+      savedJobs.current.set(job.ticker, job);
+      if (controller.signal.aborted) { await volRequest(`/options/download/${job.id}/pause`, {}); return; }
+      setDownload(job); downloadRef.current = job;
+      setDownloadAction(false);
+      await observeDownload(job, controller);
+    } catch (e) { if (!controller.signal.aborted) setDownloadError(e instanceof Error ? e.message : String(e)); }
+    finally { if (!controller.signal.aborted) setDownloadAction(false); }
+  }
+
+  async function controlDownload(action: 'pause' | 'resume') {
+    if (!download) return;
+    downloadRequest.current?.abort();
+    const controller = new AbortController(); downloadRequest.current = controller;
+    setDownloadAction(true); setDownloadError('');
+    try {
+      const job = await volRequest<DownloadStatus>(`/options/download/${download.id}/${action}`, {});
+      savedJobs.current.set(job.ticker, job);
+      if (controller.signal.aborted) return;
+      setDownload(job); downloadRef.current = job; setDownloadAction(false);
+      await observeDownload(job, controller, action === 'resume');
+    } catch (e) { if (!controller.signal.aborted) setDownloadError(e instanceof Error ? e.message : String(e)); }
+    finally { if (!controller.signal.aborted) setDownloadAction(false); }
+  }
+
+  async function loadChain(offset = 0) {
+    if (!download?.rows.some(row => row.expiry === chainExpiry && row.n_contracts > 0)) {
+      await startDownload([chainExpiry]); return;
+    }
     chainRequest.current?.abort();
     const controller = new AbortController(); chainRequest.current = controller;
     setChainBusy(true); setChainError(''); setInspect(null);
-    if (!more) setChain(null);
     try {
-      const cursor = more && chain?.next_cursor ? '&cursor=' + encodeURIComponent(chain.next_cursor) : '';
-      const result = await volRequest<ChainPage>(`/options/chain_detail/${encodeURIComponent(ticker)}?expiry=${chainExpiry}${cursor}`, undefined, controller.signal);
+      const query = new URLSearchParams({ expiry: chainExpiry, offset: String(offset), limit: '250', side: filter, strike: strikeSearch.replace(',', '.') });
+      const result = await volRequest<ChainPage>(`/options/download/${download.id}/chain?${query}`, undefined, controller.signal);
       if (controller.signal.aborted) return;
       if (!Array.isArray(result.chain)) throw new Error('Risposta senza elenco contratti');
-      const previous = more ? chain?.chain || [] : [];
-      const seen = new Map<string, OptionContract>();
-      [...previous, ...result.chain].forEach((r, i) => seen.set(r.contract || `${r.expiry}:${r.type}:${r.strike}:${i}`, r));
-      setChain({ ...result, chain: [...seen.values()], spot: result.spot ?? (more ? chain?.spot ?? null : null) });
+      setChain(result);
       setChainError(result.error || '');
     } catch (e) { if (!controller.signal.aborted) setChainError(String(e instanceof Error ? e.message : e)); }
     finally { if (!controller.signal.aborted) setChainBusy(false); }
   }
+
+  useEffect(() => {
+    if (!download?.rows.some(row => row.expiry === chainExpiry && row.n_contracts > 0)) return;
+    const timer = setTimeout(() => { void loadChain(0); }, 180);
+    return () => { clearTimeout(timer); chainRequest.current?.abort(); };
+  }, [download?.id, download?.state, chainExpiry, filter, strikeSearch]);
 
   const months = useMemo(() => {
     const groups = new Map<string, string[]>();
     for (const e of catalog?.expirations || []) groups.set(e.slice(0, 7), [...(groups.get(e.slice(0, 7)) || []), e]);
     return [...groups];
   }, [catalog]);
-  const visibleRows = (chain?.chain || []).filter(r => (filter === 'all' || r.type === filter)
-    && (!strikeSearch || String(r.strike).includes(strikeSearch.replace(',', '.'))));
+  const visibleRows = chain?.chain || [];
+  const selected = expiriesThrough(catalog?.expirations || [], finalExpiry);
+  const downloadBusy = downloadAction || !!download && ['queued', 'running'].includes(download.state);
+  const downloadStale = !!download && (download.stale || clock - Date.parse(download.started_at) > download.cache_ttl_seconds * 1000);
 
   const addContract = (row: OptionContract, side: 'buy' | 'sell') => {
     if (legs.length >= 12 || row.adjusted || !['call', 'put'].includes(row.type)) return;
@@ -97,36 +189,68 @@ export default function VolWorkbench({ ticker, mode, coverage, surfaceBusy, onSu
 
   return <div className="vol-workbench">
     <section className="vd-catalog" aria-labelledby="vd-calendar-title">
-      <div className="vd-section-head"><div><h2 id="vd-calendar-title">Le scadenze, una per una</h2>
-        <p>{ticker ? `${ticker}: scegli cosa caricare. Il catalogo non scarica le chain.` : 'Inserisci un ticker per esplorare le scadenze. Il laboratorio può lavorare anche con ipotesi manuali.'}</p></div>
+      <div className="vd-section-head"><div><h2 id="vd-calendar-title">Fino a quando vuoi guardare?</h2>
+        <p>{ticker ? `${ticker}: scegli la scadenza finale. Includiamo tutte le date precedenti disponibili, anche quelle in scadenza oggi.` : 'Inserisci un ticker per esplorare le scadenze. Il laboratorio può lavorare anche con ipotesi manuali.'}</p></div>
         {ticker && <button className="vd-icon-button" disabled={catalogBusy} onClick={() => loadCatalog(false)} title="Rileggi il catalogo"><RefreshCw size={16} /><span>Rileggi</span></button>}
       </div>
-      {catalogBusy && <p className="vd-loading" role="status">Lettura delle scadenze disponibili…</p>}
+      {catalogBusy && <p className="vd-loading" role="status">Lettura di tutte le scadenze disponibili… <button className="vd-secondary" onClick={() => { catalogRequest.current?.abort(); setCatalogBusy(false); }}>Interrompi catalogo</button></p>}
       {catalogError && <p className="vd-error" role="alert">{catalogError}{catalog?.expirations.length ? ' Le date già ricevute restano visibili; catalogo incompleto.' : ''}</p>}
       {catalog && <>
         <div className="vd-catalog-summary"><span className={catalog.complete ? 'vd-ok' : 'vd-amber'}>{catalog.complete ? <Check size={14} /> : <Layers3 size={14} />}
           {catalog.expirations.length} date ricevute · {catalog.complete ? 'fine catalogo confermata dal provider' : 'catalogo ancora incompleto'}</span>
-          <span>{selected.length}/8 selezionate per il mesh</span>
-          <span>{catalog.requests_used}/{catalog.request_budget} richieste nell’ultimo caricamento</span></div>
+          <span>{selected.length} date nell’orizzonte scelto</span>
+          <span>{catalog.requests_used} richieste catalogo</span></div>
+        <div className="vd-horizon">
+          <label className="vd-field"><span>Scadenza finale</span><select aria-label="Scadenza finale" value={finalExpiry} onChange={e => setFinalExpiry(e.target.value)}>
+            <option value="">Intera chain · tutte le scadenze</option>
+            {finalExpiry && !catalog.expirations.includes(finalExpiry) && <option value={finalExpiry}>Entro {new Date(finalExpiry + 'T12:00:00Z').toLocaleDateString('it-IT')}</option>}
+            {catalog.expirations.map(e => <option key={e} value={e}>{new Date(e + 'T12:00:00Z').toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' })} · {daysToExpiry(e)}g</option>)}
+          </select></label>
+          <div className="vd-actions">{([[1, '1 mese'], [3, '3 mesi'], [6, '6 mesi'], [12, '1 anno']] as const).map(([months, label]) => <button className="vd-secondary" key={months} aria-pressed={finalExpiry === horizonDate(months)} onClick={() => setFinalExpiry(horizonDate(months))}>{label}</button>)}
+            <button className="vd-secondary" aria-pressed={!finalExpiry} onClick={() => setFinalExpiry('')}>Intera chain</button>
+          </div>
+          <p>{selected.length ? `Dalla prima data disponibile al ${new Date(selected[selected.length - 1] + 'T12:00:00Z').toLocaleDateString('it-IT')} · ${selected.length} scadenze` : 'Nessuna scadenza disponibile entro questo orizzonte.'}{!catalog.complete ? ' · catalogo in caricamento' : ''}</p>
+        </div>
+        <details className="vd-expiry-list"><summary>Elenco e copertura delle scadenze</summary>
         <div className="vd-months">{months.map(([month, dates]) => <div className="vd-month" key={month}>
           <h3>{new Date(month + '-01T12:00:00Z').toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}</h3>
           <div>{dates.map(e => { const days = daysToExpiry(e); const isSelected = selected.includes(e); const status = coverage?.rows.find(r => r.expiry === e);
-            return <button key={e} className={'vd-date ' + (isSelected ? 'selected ' : '') + (status?.status || '')}
-              aria-pressed={isSelected} disabled={!isSelected && (selected.length >= 8 || days < 2)}
+            return <span key={e} className={'vd-date ' + (isSelected ? 'selected ' : '') + (status?.status || '')}
+              data-selected={isSelected}
               title={days < 2 ? `${e}: disponibile nella chain; esclusa dal mesh 0–1 DTE` : `${e}${status?.reason ? ': ' + status.reason : ''}`}
-              onClick={() => setSelected(prev => prev.includes(e) ? prev.filter(x => x !== e) : [...prev, e].sort())}>
-              <b>{e.slice(8)}</b><small>{days}g</small>{isSelected && <Check size={11} />}</button>;
-          })}</div>
-        </div>)}</div>
+              ><b>{e.slice(8)}</b><small>{days}g</small>{isSelected && <Check size={11} />}</span>;
+        })}</div>
+        </div>)}</div></details>
         <div className="vd-actions">
-          {!catalog.complete && <button className="vd-secondary" disabled={catalogBusy} onClick={() => loadCatalog(true)}><ChevronDown size={14} />Altre scadenze</button>}
-          <button className="vd-primary" disabled={!selected.length || surfaceBusy} onClick={() => onSurface(selected)}>{surfaceBusy ? 'Caricamento superficie…' : 'Carica superficie selezionata'}</button>
+          {!catalog.complete && !catalogBusy && <button className="vd-secondary" onClick={() => loadCatalog(true)}><ChevronDown size={14} />Riprendi catalogo</button>}
+          <button className="vd-primary" disabled={!selected.length || catalogBusy || !catalog.complete || downloadBusy || surfaceBusy} onClick={() => startDownload(finalExpiry ? selected : undefined)}>Carica chain e superficie</button>
           <button className="vd-secondary" onClick={onLaboratory}>Chain, greche e strategie</button>
-          <small>Massimo due pagine chain per scadenza nel mesh; copertura dichiarata. 0–1 DTE consultabili nella chain.</small>
+          <small>La chain completa include tutte le date e tutti i contratti restituiti dal provider, anche 0–1 DTE. Il mesh usa soltanto le curve calcolabili.</small>
         </div>
       </>}
+      {downloadError && <p className="vd-error" role="alert">{downloadError}</p>}
+      {download && <div className="vd-download" aria-label="Avanzamento download chain">
+        <div className="vd-catalog-summary" role="status">
+          <strong className={download.download_complete && !downloadStale ? 'vd-ok' : 'vd-amber'}>{download.download_complete ? 'DOWNLOAD COMPLETO' : ({ queued: 'IN ATTESA', running: 'DOWNLOAD IN CORSO', paused: 'IN PAUSA', error: 'DOWNLOAD INTERROTTO', complete: 'DOWNLOAD CON BUCHI' })[download.state]}</strong>
+          {downloadStale && <span className="vd-amber">STALE · acquisizione iniziata oltre {Math.round(download.cache_ttl_seconds / 60)} minuti fa</span>}
+          {download.pause_requested && download.state === 'running' && <span>Interruzione richiesta: conservo la risposta in corso</span>}
+          <span>{download.n_contracts.toLocaleString('it-IT')} contratti · {download.pages_received} pagine</span>
+          <span>{download.completed_expiries}/{download.expirations.length} scadenze scaricate{!download.catalog_complete ? ' · catalogo ancora aperto' : ''}</span>
+          <span>{download.scope === 'all' ? 'Tutto il catalogo' : 'Solo date richieste'}{download.current_expiry ? ` · ${download.current_expiry}` : ''}</span>
+          {!!download.page_revisions && <span>{download.page_revisions} risposte aggiornate durante la ripresa · {download.superseded_contracts || 0} righe superate escluse</span>}
+        </div>
+        <progress aria-label="Scadenze scaricate" value={download.completed_expiries} max={Math.max(1, download.expirations.length)} style={{ width: '100%' }} />
+        {download.error && <p className="vd-error" role="alert">{download.error} I contratti ricevuti restano consultabili.</p>}
+        {download.spot_error && <p className="vd-stale">Spot: {download.spot_error}</p>}
+        <div className="vd-actions">
+          {['queued', 'running'].includes(download.state) && <button className="vd-secondary" disabled={downloadAction} onClick={() => controlDownload('pause')}>Interrompi download</button>}
+          {['paused', 'error'].includes(download.state) && <button className="vd-primary" disabled={downloadAction || (download.state === 'error' && !download.retryable)} onClick={() => controlDownload('resume')}>Riprendi download</button>}
+          <button className="vd-secondary" disabled={!download.n_contracts || sliceBusy || downloadAction} onClick={() => showSurface(download)}>{sliceBusy ? 'Calcolo superficie…' : 'Mostra superficie ricevuta'}</button>
+          <small>{download.duplicates} duplicati riconosciuti · {download.malformed_contracts} righe illeggibili · Download {new Date(download.updated_at).toLocaleString('it-IT')}. Conservato per {Math.round(download.retention_seconds / 60)} minuti di inattività, fino al riavvio del backend; non è un flusso in tempo reale.</small>
+        </div>
+      </div>}
       {coverage && <details className="vd-coverage" open={!coverage.complete}>
-        <summary>Copertura dell’ultima superficie: {coverage.loaded.length}/{coverage.requested.length} curve · {coverage.excluded.length} escluse · {coverage.errors.length} errori{!coverage.complete ? ' · incompleta' : ''}</summary>
+        <summary>Copertura dell’ultima superficie: {coverage.loaded.length}/{coverage.requested.length} curve · {coverage.excluded.length} escluse · {coverage.errors.length} errori{!coverage.complete ? ' · mesh incompleto' : ''}{coverage.download_complete === true ? ' · dati scaricati integralmente' : ''}</summary>
         <ul>{coverage.rows.map(row => <li key={row.expiry} className={row.status}><span>{row.expiry}</span><b>{({ loaded: 'caricata', partial: 'parziale', error: 'errore', excluded: 'esclusa' })[row.status]}</b><span>{row.reason || `${row.n_contracts ?? 'n.d.'} contratti ricevuti`}</span></li>)}</ul>
       </details>}
     </section>
@@ -137,13 +261,13 @@ export default function VolWorkbench({ ticker, mode, coverage, surfaceBusy, onSu
           <div className="vd-actions"><label>Scadenza <select value={chainExpiry} aria-label="Scadenza chain" onChange={e => {
             chainRequest.current?.abort(); setChainBusy(false); setChainExpiry(e.target.value); setChain(null); setChainError(''); setInspect(null);
           }}><option value="">Scegli una data</option>{catalog?.expirations.map(e => <option key={e} value={e}>{e} · {daysToExpiry(e)}g</option>)}</select></label>
-          <button className="vd-primary" disabled={!chainExpiry || chainBusy} onClick={() => loadChain(false)}>{chainBusy ? 'Caricamento…' : 'Carica chain'}</button></div>
+          <button className="vd-primary" disabled={!chainExpiry || chainBusy || (downloadBusy && !download?.rows.some(row => row.expiry === chainExpiry && row.n_contracts > 0))} onClick={() => loadChain(0)}>{chainBusy ? 'Lettura…' : 'Carica chain'}</button></div>
         </div>
         {chainError && <p className="vd-error" role="alert">{chainError}</p>}
         {chain && <>
           <div className="vd-chain-tools"><div className="vd-segment">{[['all', 'Tutte'], ['call', 'Call'], ['put', 'Put']].map(([id, label]) => <button key={id} aria-pressed={filter === id} onClick={() => setFilter(id)}>{label}</button>)}</div>
             <label>Cerca strike <input value={strikeSearch} inputMode="decimal" aria-label="Cerca strike" onChange={e => setStrikeSearch(e.target.value)} /></label>
-            <span>{visibleRows.length}/{chain.chain.length} contratti · {chain.complete ? 'chain completa secondo il provider' : 'altre pagine disponibili'}{chain.malformed_contracts ? ` · ${chain.malformed_contracts} righe illeggibili` : ''}</span>
+            <span>{chain.n_contracts} contratti scaricati · {chain.filtered_contracts ?? chain.n_contracts} nei filtri · {chain.chain_complete ? 'scadenza scaricata integralmente' : 'download della scadenza incompleto'}{chain.malformed_contracts ? ` · ${chain.malformed_contracts} righe illeggibili` : ''}</span>
             <span>Download {new Date(chain._timestamp).toLocaleTimeString('it-IT')}{chain.cached ? ' · cache dichiarata' : ''}</span></div>
           <div className="vd-chain-scroll"><table><thead><tr><th>Tipo</th><th>Strike</th><th>Bid</th><th>Ask</th><th>IV %</th><th>Delta</th><th>Gamma</th><th>Vega</th><th>Theta</th><th>OI</th><th>Qualità</th><th>Strategia</th></tr></thead>
             <tbody>{visibleRows.map((row, i) => <tr key={row.contract || i} className={(row.strike && chain.spot && Math.abs(row.strike / chain.spot - 1) < .01 ? 'atm ' : '') + (inspect === row ? 'inspected' : '')}>
@@ -156,8 +280,11 @@ export default function VolWorkbench({ ticker, mode, coverage, surfaceBusy, onSu
             </tr>)}</tbody></table>
             {!visibleRows.length && <p className="vd-empty">Nessun contratto nei filtri selezionati.</p>}
           </div>
-          <div className="vd-actions">{chain.next_cursor && <button className="vd-secondary" disabled={chainBusy} onClick={() => loadChain(true)}>Carica altri contratti</button>}
-            <small>Ogni pagina carica al massimo 250 contratti. Greche e prezzi sono per unità sottostante; il moltiplicatore si applica nel laboratorio.</small></div>
+          <div className="vd-actions">
+            <button className="vd-secondary" disabled={chainBusy || !chain.offset} onClick={() => loadChain(Math.max(0, (chain.offset || 0) - 250))}>Contratti precedenti</button>
+            <button className="vd-secondary" disabled={chainBusy || !chain.has_more} onClick={() => loadChain(chain.next_offset || 0)}>Contratti successivi</button>
+            <span>Righe {visibleRows.length ? (chain.offset || 0) + 1 : 0}–{(chain.offset || 0) + visibleRows.length} · paginazione della vista, senza nuove chiamate Polygon</span>
+            <small>Greche e prezzi per unità sottostante; il moltiplicatore si applica nel laboratorio. I filtri cercano in tutti i contratti già scaricati.</small></div>
           {inspect && <div className="vd-contract-inspector"><h3>{inspect.contract || `${inspect.type} ${inspect.strike}`} <span>{inspect.exercise_style || 'stile di esercizio n.d.'}</span></h3>
             <p>{inspect._source} · quota {inspect.quote_timestamp ? new Date(inspect.quote_timestamp).toLocaleString('it-IT') : 'timestamp n.d.'} · {inspect.quote_timeframe || 'ritardo n.d.'} · moltiplicatore {volNumber(inspect.multiplier, 0)} · rho {volNumber(inspect.rho, 3)}</p>
             {inspect.quality.length ? <ul>{inspect.quality.map(note => <li key={note}>{note}</li>)}</ul> : <p>I campi richiesti sono presenti; controlla l’istante della quota prima di usarla come riferimento.</p>}</div>}

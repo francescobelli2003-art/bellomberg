@@ -24,9 +24,9 @@ function loadPlotly(): Promise<any> {
   return new Promise((resolve, reject) => {
     if (window.Plotly) return resolve(window.Plotly);
     const s = document.createElement('script');
-    s.src = 'https://cdn.plot.ly/plotly-2.32.0.min.js';
+    s.src = new URL('./vendor/plotly-2.32.0.min.js', document.baseURI).href;
     s.onload = () => resolve(window.Plotly);
-    s.onerror = () => reject(new Error('Plotly CDN non raggiungibile'));
+    s.onerror = () => reject(new Error('Bundle Plotly locale non disponibile'));
     document.head.appendChild(s);
   });
 }
@@ -954,7 +954,11 @@ export default function VolSurfacePage() {
       </div>
 
       <VolWorkbench ticker={ticker} mode={view} coverage={data?.coverage} surfaceBusy={loading}
-        onSurface={expiries => loadSurface(expiries)} onLaboratory={() => setView('laboratory')} />
+        onSurface={(result, expiries) => {
+          requestRef.current?.abort(); setLoading(false); setData(result); setError(result.error || null);
+          lastExpiries.current = expiries; setView('surface');
+          setCone({ error: 'Contesto aggiuntivo non richiesto; premi Carica contesto se serve.' });
+        }} onLaboratory={() => setView('laboratory')} />
       {data?.slices?.length > 0 && <div className="vol-workbench"><div className="vd-actions" style={{ padding: '10px 4px' }}>
         <button className="vd-secondary" disabled={loading} onClick={() => loadSurface(lastExpiries.current, true)}>Carica contesto RV, IV rank, GEX e cone</button>
         <small>Richieste provider aggiuntive; il contesto non viene caricato automaticamente con la superficie.</small>

@@ -21,8 +21,9 @@ documentation mockups are invented. Your installation starts with an empty book.
   ledger. Inspect performance, attribution, concentration, factors and scenarios.
 - **Research a security.** Search markets, follow news and filings, review
   generated valuations, and ask a specialist a question from its own domain.
-- **Study options.** Browse an explicit expiration catalogue, inspect chain
-  quotes and Greeks, select a volatility surface, and simulate multi-leg strategies.
+- **Study options.** Choose a final expiration or the entire provider catalogue;
+  download chains progressively with pause/resume, inspect quotes and Greeks,
+  read the volatility surface, and simulate multi-leg strategies.
 - **Run a committee.** Macro, Events, Crypto, Fundamentals, Quant and Options
   desks research the current book. Red-team review challenges the work; the Capo
   synthesizes a memo and proposed decisions.

@@ -2056,8 +2056,8 @@ if FASTAPI_OK:
             if not 1 <= max_expiries <= 8 or not 1 <= max_days <= 3650:
                 raise HTTPException(422, "Scadenze richieste: da 1 a 8; orizzonte: da 1 a 3650 giorni")
             selected = [part.strip() for part in expiries.split(",")] if expiries is not None else None
-            if selected is not None and (not all(selected) or len(selected) > 8):
-                raise HTTPException(422, "Seleziona da una a otto scadenze valide")
+            if selected is not None and not all(selected):
+                raise HTTPException(422, "Seleziona almeno una scadenza valida")
             r = build_vol_surface(ticker, max_expiries=max_expiries, max_days=max_days,
                                   expiries=selected, include_context=include_context)
             if not include_context:

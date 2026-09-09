@@ -12,6 +12,7 @@ check no-arbitrage butterfly/calendar è il raffinamento previsto in v2.
 """
 from datetime import date, datetime, timezone
 from copy import deepcopy
+from concurrent.futures import Future
 import math
 import re
 from threading import Lock
@@ -27,9 +28,9 @@ except ImportError:
 
 MONEYNESS_GRID = [round(0.80 + i * 0.025, 3) for i in range(17)]  # 0.80 .. 1.20
 
-# The interactive deck has an explicit request budget. No eager fetch of every
-# expiry and no private portfolio state is needed by these read-only functions.
+# Pages are shared by concurrent readers; downloads retain their own snapshots.
 _CHAIN_CACHE = {}
+_CHAIN_INFLIGHT = {}
 _CHAIN_LOCK = Lock()
 CHAIN_CACHE_SECONDS = 120
 
@@ -169,7 +170,6 @@ def get_chain_detail(ticker: str, expiry: str, cursor: Optional[str] = None) -> 
     Only the opaque cursor is accepted, never a client-supplied URL. Provider
     timestamps survive separately from download time. Missing fields are null.
     """
-    from bellomberg.market_data import polygon_data as provider
     ticker = _symbol(ticker)
     _expiry(expiry)
     if cursor is not None and (not isinstance(cursor, str) or len(cursor) > 4096 or not re.fullmatch(r"[A-Za-z0-9_+/=\-]+", cursor)):
@@ -179,6 +179,31 @@ def get_chain_detail(ticker: str, expiry: str, cursor: Optional[str] = None) -> 
         cached = _CHAIN_CACHE.get(key)
         if cached and monotonic() - cached[0] < CHAIN_CACHE_SECONDS:
             return {**deepcopy(cached[1]), "cached": True}
+        pending = _CHAIN_INFLIGHT.get(key)
+        leader = pending is None
+        if leader:
+            pending = _CHAIN_INFLIGHT[key] = Future()
+    if not leader:
+        return {**deepcopy(pending.result()), "cached": True}
+    try:
+        out = _fetch_chain_detail(ticker, expiry, cursor)
+        with _CHAIN_LOCK:
+            if not out.get("error"):
+                if len(_CHAIN_CACHE) >= 128:
+                    _CHAIN_CACHE.pop(next(iter(_CHAIN_CACHE)))
+                _CHAIN_CACHE[key] = (monotonic(), deepcopy(out))
+            pending.set_result(deepcopy(out))
+        return out
+    except BaseException as exc:
+        pending.set_exception(exc)
+        raise
+    finally:
+        with _CHAIN_LOCK:
+            _CHAIN_INFLIGHT.pop(key, None)
+
+
+def _fetch_chain_detail(ticker, expiry, cursor):
+    from bellomberg.market_data import polygon_data as provider
     base = {"ticker": ticker, "expiry": expiry, "chain": [], "complete": False,
             "next_cursor": None, "requests_used": 0, "page_limit": 250,
             "cached": False, "cache_ttl_seconds": CHAIN_CACHE_SECONDS,
@@ -195,29 +220,65 @@ def get_chain_detail(ticker: str, expiry: str, cursor: Optional[str] = None) -> 
     if not isinstance(page.get("results"), list):
         return {**base, "error": "chain senza lista results"}
     rows = page["results"]
-    clean = [_contract_row(x) for x in rows if isinstance(x, dict)]
+    parsed = [_contract_row(x) for x in rows if isinstance(x, dict)]
     # Reject cursor replay for another expiry instead of blending chains.
-    wrong = [c for c in clean if c["expiry"] != expiry]
+    wrong = [c for c in parsed if c["expiry"] is not None and c["expiry"] != expiry]
     if wrong:
         return {**base, "error": "chain restituita per una scadenza diversa da quella richiesta"}
+    clean = [c for c in parsed if isinstance(c["contract"], str) and c["contract"].strip()
+             and c["expiry"] == expiry and c["type"] in ("call", "put") and c["strike"] is not None]
+    malformed = len(rows) - len(clean)
     nxt = page.get("next_url")
     token = parse_qs(urlparse(str(nxt)).query).get("cursor", [None])[0] if nxt else None
-    if nxt and (not token or token == cursor):
-        return {**base, "chain": clean, "error": "continuazione provider assente o non avanzante"}
+    error = None
+    if nxt and (not token or token == cursor or len(token) > 4096 or not re.fullmatch(r"[A-Za-z0-9_+/=\-]+", token)):
+        error = "continuazione provider assente o non avanzante"
+    if malformed:
+        error = f"{malformed} contratti malformati nella pagina provider"
     underlying = next((x["underlying_asset"] for x in rows
                        if isinstance(x, dict) and isinstance(x.get("underlying_asset"), dict)
                        and _finite(x["underlying_asset"].get("price"), positive=True) is not None), {})
-    out = {**base, "chain": clean, "complete": not bool(nxt), "next_cursor": token,
+    out = {**base, "chain": clean, "complete": not bool(nxt) and not error, "next_cursor": token,
            "n_contracts": len(clean), "spot": _finite(underlying.get("price"), positive=True),
            "spot_timeframe": underlying.get("timeframe"),
            "spot_timestamp_ns": _finite(underlying.get("last_updated")),
-           "malformed_contracts": len(rows) - len(clean),
-           "error": None if rows else "nessun contratto per questa scadenza"}
-    with _CHAIN_LOCK:
-        if len(_CHAIN_CACHE) >= 128:
-            _CHAIN_CACHE.clear()
-        _CHAIN_CACHE[key] = (monotonic(), deepcopy(out))
+           "malformed_contracts": malformed, "error": error}
     return out
+
+
+def _complete_chain(ticker, expiry):
+    """Legacy explicit caller: exhaust pages, retain data on a failed continuation."""
+    merged, seen, cursor, out = {}, set(), None, {}
+    duplicates = malformed = 0
+    while True:
+        page = get_chain_detail(ticker, expiry, cursor)
+        for row in page.get("chain") or []:
+            key = row.get("contract") or (row.get("expiry"), row.get("type"), row.get("strike"))
+            duplicates += key in merged
+            merged[key] = row
+        malformed += page.get("malformed_contracts", 0)
+        spot = out.get("spot") or page.get("spot")
+        out = {**page, "spot": spot, "chain": list(merged.values()),
+               "duplicates": duplicates, "malformed_contracts": malformed}
+        if page.get("error"):
+            out.update(error=None if merged else page["error"], continuation_error=page["error"], complete=False)
+            break
+        seen.add(cursor)
+        nxt = page.get("next_cursor")
+        if page.get("complete"):
+            break
+        if not nxt or nxt in seen:
+            _forget_chain_page(ticker, expiry, cursor)
+            out.update(complete=False, continuation_error="ciclo o cursore chain non avanzante")
+            break
+        cursor = nxt
+    return out
+
+
+def _forget_chain_page(ticker, expiry, cursor):
+    """A cross-page validation failure must be retried against the provider."""
+    with _CHAIN_LOCK:
+        _CHAIN_CACHE.pop((ticker, expiry, cursor), None)
 
 
 def _select_expiries(expirations: List[str], max_expiries: int,
@@ -334,7 +395,7 @@ def _slice_metrics(chain: List[Dict[str, Any]], spot: float) -> Optional[Dict[st
 
 def build_vol_surface(ticker: str, max_expiries: int = 4,
                       max_days: int = 120, expiries: Optional[List[str]] = None,
-                      include_context: bool = True) -> Dict[str, Any]:
+                      include_context: bool = True, *, _snapshot: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     src = "polygon chains multi-expiry -> IV surface (composite OTM)"
     ticker = _symbol(ticker)
     coverage = {"selection_mode": "explicit" if expiries is not None else "sampled",
@@ -342,8 +403,8 @@ def build_vol_surface(ticker: str, max_expiries: int = 4,
                 "rows": [], "complete": False,
                 "catalog_note": "Le scadenze della superficie sono una selezione; il catalogo completo è separato."}
     if expiries is not None:
-        if not isinstance(expiries, list) or not 1 <= len(expiries) <= 8:
-            raise ValueError("scegli da 1 a 8 scadenze distinte per la superficie")
+        if not isinstance(expiries, list) or not expiries:
+            raise ValueError("scegli almeno una scadenza distinta per la superficie")
         for value in expiries:
             _expiry(value)
         if len(set(expiries)) != len(expiries):
@@ -352,7 +413,7 @@ def build_vol_surface(ticker: str, max_expiries: int = 4,
         return {"error": "numpy non disponibile", "_source": src}
     try:
         from bellomberg.market_data.polygon_data import polygon_available, get_option_expirations, get_options_chain
-        if not polygon_available():
+        if _snapshot is None and not polygon_available():
             return {"error": "POLYGON_API_KEY mancante o non attiva", "_source": src}
 
         if expiries is None:
@@ -370,14 +431,16 @@ def build_vol_surface(ticker: str, max_expiries: int = 4,
         # call a delta~0.5" sbagliava di -0,30% su SPY (misurato) e fino a uno
         # strike intero sui nomi con passo 5$: spostava asse moneyness e giunzione
         # put/call. Il proxy resta SOLO come fallback, dichiarato in spot_source.
-        spot = None
-        spot_source = None
+        spot = _snapshot.get("spot") if _snapshot is not None else None
+        spot_source = _snapshot.get("spot_source") if _snapshot is not None else None
         try:
+            if _snapshot is not None:
+                raise RuntimeError("spot dallo snapshot in memoria")
             import yfinance as _yf
             # OPRA snapshots can include only the underlying ticker, without a
             # price. Read the observed spot once, also for explicit selections.
             _px = _yf.Ticker(ticker).fast_info["lastPrice"]
-            if _px and float(_px) > 0:
+            if _finite(_px, positive=True) is not None:
                 spot = float(_px)
                 spot_source = "yfinance lastPrice"
         except Exception:
@@ -386,27 +449,19 @@ def build_vol_surface(ticker: str, max_expiries: int = 4,
         for row in chosen:
             status = {"expiry": row["expiry"], "days": row["days"], "status": "error", "reason": None}
             coverage["rows"].append(status)
+            if _snapshot is not None:
+                status["chain_complete"] = bool(_snapshot["chains"].get(row["expiry"], {}).get("complete"))
             if row["days"] < 2:
                 status.update(status="excluded", reason="0–1 DTE o scadenza passata: consulta la chain, non il mesh interpolato")
                 coverage["excluded"].append(row["expiry"])
                 continue
-            if expiries is None:
+            if _snapshot is not None:
+                ch = _snapshot["chains"].get(row["expiry"], {"chain": [], "complete": False, "error": "chain non ancora scaricata"})
+            elif expiries is None:
                 ch = get_options_chain(ticker, row["expiry"], max_contracts=400)
                 status["chain_complete"] = None
             else:
-                ch = get_chain_detail(ticker, row["expiry"])
-                all_contracts = list(ch.get("chain") or [])
-                cursor = ch.get("next_cursor")
-                # At most two snapshot pages per selected expiry. If the chain
-                # is larger the partial coverage remains visible beside the mesh.
-                if cursor and not ch.get("error"):
-                    following = get_chain_detail(ticker, row["expiry"], cursor)
-                    if following.get("error"):
-                        ch = {**ch, "continuation_error": following["error"]}
-                    else:
-                        all_contracts.extend(following.get("chain") or [])
-                        ch = {**following, "spot": ch.get("spot") or following.get("spot")}
-                ch = {**ch, "chain": all_contracts}
+                ch = _complete_chain(ticker, row["expiry"])
                 status["chain_complete"] = bool(ch.get("complete")) and not ch.get("continuation_error")
                 if spot is None and _finite(ch.get("spot"), positive=True) is not None:
                     spot, spot_source = ch["spot"], "Polygon underlying snapshot"
@@ -431,7 +486,7 @@ def build_vol_surface(ticker: str, max_expiries: int = 4,
                 slices.append({"expiry": row["expiry"], "days": row["days"], **m})
                 partial = status["chain_complete"] is False
                 status.update(status="partial" if partial else "loaded",
-                              reason=(ch.get("continuation_error") or "budget chain raggiunto; sono rappresentati solo i contratti ricevuti") if partial else None,
+                              reason=(ch.get("continuation_error") or "download chain incompleto; sono rappresentati solo i contratti ricevuti") if partial else None,
                               n_contracts=len(chain))
                 coverage["loaded"].append(row["expiry"])
             else:
@@ -439,6 +494,8 @@ def build_vol_surface(ticker: str, max_expiries: int = 4,
                 coverage["excluded"].append(row["expiry"])
 
         coverage["complete"] = bool(coverage["rows"]) and all(r["status"] == "loaded" and r.get("chain_complete") is True for r in coverage["rows"])
+        coverage["download_complete"] = (bool(_snapshot.get("download_complete")) if _snapshot is not None else
+                                         bool(coverage["rows"]) and all(r.get("chain_complete") is True for r in coverage["rows"]))
 
         if not slices:
             return {"error": "nessuno slice con dati IV sufficienti", "_source": src,

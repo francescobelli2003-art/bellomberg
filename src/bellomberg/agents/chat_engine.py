@@ -1064,7 +1064,17 @@ async def stream_chat(session_id: int, agent_id: str, user_message: str) -> Asyn
                         }
                 # Stream tool_result event al frontend (formato compatto - solo size info)
                 result_str = json.dumps(result, default=str, ensure_ascii=False)
-                preview = result_str[:300] + ("..." if len(result_str) > 300 else "")
+                # Il payload timbrato mette data prima di error: i primi 300 caratteri
+                # nascondevano la causa del KO Polymarket dietro query/note/risultati.
+                preview_str = result_str
+                if "error" in result:
+                    preview_str = json.dumps({"_source": result.get("_source"),
+                                              "error": result["error"]}, ensure_ascii=False, default=str)
+                elif isinstance(result.get("data"), dict) and result["data"].get("fetch_warnings"):
+                    preview_str = json.dumps({"_source": result.get("_source"), "status": "partial",
+                                              "fetch_warnings": result["data"]["fetch_warnings"]},
+                                             ensure_ascii=False, default=str)
+                preview = preview_str[:300] + ("..." if len(preview_str) > 300 else "")
                 yield _format_sse("tool_result", {
                     "tool_name": tname,
                     "tool_id": tid,

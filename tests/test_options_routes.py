@@ -24,6 +24,12 @@ HEADERS = {'Authorization': 'Bearer synthetic'}
     ('GET', '/options/expiry_catalog/DEMO.X', None),
     ('GET', '/options/chain_detail/DEMO.X?expiry=2027-01-15', None),
     ('POST', '/options/strategy/simulate', {}),
+    ('POST', '/options/download/DEMO.X', {}),
+    ('GET', '/options/download/job/status', None),
+    ('POST', '/options/download/job/pause', None),
+    ('POST', '/options/download/job/resume', None),
+    ('GET', '/options/download/job/chain?expiry=2027-01-15', None),
+    ('GET', '/options/download/job/surface', None),
 ])
 def test_anonymous_requests_cannot_fetch_or_calculate(client, method, url, body, monkeypatch):
     def forbidden(*args, **kwargs):
@@ -92,3 +98,37 @@ def test_surface_invalid_expiry_is_a_client_error_before_provider(monkeypatch):
     with pytest.raises(HTTPException) as caught:
         get_vol_surface('DEMO.X', expiries='not-a-date', include_context=False)
     assert caught.value.status_code == 422
+
+
+def test_download_routes_use_memory_filters_and_distinct_completion(client, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    from bellomberg.market_data import polygon_data as provider
+    from bellomberg.portfolio import options_download
+    from tests.test_options_download import contracts, exp, settled
+    mgr = options_download.OptionsDownloadManager()
+    monkeypatch.setattr(options_download, 'downloads', mgr)
+    monkeypatch.setattr(provider, 'polygon_available', lambda: True)
+    monkeypatch.setattr(provider, '_get', lambda *a: {'results': contracts(exp())})
+    monkeypatch.setitem(sys.modules, 'yfinance', SimpleNamespace(Ticker=lambda symbol: SimpleNamespace(fast_info={'lastPrice':100})))
+    vol_surface._CHAIN_CACHE.clear()
+    response = client.post('/options/download/DEMO.X', json={'expiries': [exp()]}, headers=HEADERS)
+    assert response.status_code == 200
+    job_id = response.json()['id']; settled(mgr, job_id)
+    status = client.get(f'/options/download/{job_id}/status', headers=HEADERS).json()
+    assert status['download_complete']
+    view = client.get(f'/options/download/{job_id}/chain', params={'expiry':exp(), 'side':'put', 'limit':2}, headers=HEADERS).json()
+    assert view['filtered_contracts'] == 7 and len(view['chain']) == 2 and view['has_more']
+    assert view['chain_complete'] and all(c['type'] == 'put' for c in view['chain'])
+    assert client.get(f'/options/download/{job_id}/surface', headers=HEADERS).json()['coverage']['download_complete']
+    assert client.post(f'/options/download/{job_id}/pause', headers=HEADERS).json()['state'] == 'complete'
+    assert client.post(f'/options/download/{job_id}/resume', headers=HEADERS).json()['state'] == 'complete'
+
+
+@pytest.mark.parametrize('body', [{'expiries':[]}, {'expiries':['invalid']}, {'expiries':'2027-01-15'}, {'unexpected':True}])
+def test_download_bad_request_does_not_launch_worker(client, body):
+    assert client.post('/options/download/DEMO.X', json=body, headers=HEADERS).status_code == 422
+
+
+def test_download_unknown_id_is_404(client):
+    assert client.get('/options/download/missing/status', headers=HEADERS).status_code == 404

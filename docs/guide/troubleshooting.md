@@ -13,7 +13,8 @@
 | Book unexpectedly empty after update | Runtime directory/interpreter | Stop and verify configuration; do not re-enter the portfolio |
 | Committee refuses to start | F18 validation and server error | Complete and save the mandate; inspect model/provider configuration |
 | Model unavailable / permissions error | Exact model variable and account | Verify availability and access with your provider; do not assume another model was silently substituted |
-| Options catalogue/chain is partial | Pagination, entitlement, expiration and provider limits | Load the next page explicitly; inspect coverage reasons |
+| Polymarket reports a TLS, HTTP or response error | The tool's source and error preview | The chat can continue with unavailable probabilities explicitly marked. Do not disable TLS verification; a connection interruption without a final response is reported separately |
+| Options catalogue/chain is partial | Progress, entitlement, rate limit and coverage reasons | Resume the saved download; received contracts remain available. Complete download and usable surface curves are separate |
 | An expiration is visible but has no surface | Eligibility and sufficient valid quotes | Read its excluded/partial/error reason; inspect the chain separately |
 | IV percentile or agent score is unavailable | History length and measurable outcomes | Let real history accumulate; do not backfill invented observations |
 | Fundamentals is empty | Whether a model was actually generated | Generate research through the relevant workflow, then inspect its output/errors |

@@ -99,12 +99,12 @@ def test_surface_records_every_selected_expiry_and_does_not_fetch_short_expiry(m
     assert out["n_expiries"] == 1 and not out["coverage"]["complete"]
 
 
-def test_surface_all_failed_retains_coverage_and_rejects_excess_before_fetch(monkeypatch):
+def test_surface_all_failed_retains_coverage_and_rejects_duplicate_expiries(monkeypatch):
     monkeypatch.setattr(vol, "get_chain_detail", lambda *a: {"error": "HTTP 429"})
     out = vol.build_vol_surface("XX01", expiries=[expiry(7)], include_context=False)
     assert out["error"] and out["coverage"]["errors"] == [expiry(7)]
     with pytest.raises(ValueError):
-        vol.build_vol_surface("XX01", expiries=[expiry(i+10) for i in range(9)])
+        vol.build_vol_surface("XX01", expiries=[expiry(7), expiry(7)])
 
 
 def _opra_snapshot(exp):

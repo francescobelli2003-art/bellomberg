@@ -17,6 +17,16 @@
 .vd-catalog-summary { display:flex; flex-wrap:wrap; gap:12px 24px; padding:12px 20px; color:var(--vd-muted); }
 .vd-catalog-summary>span:first-child { display:flex; align-items:center; gap:6px; }
 .vd-ok { color:#8cdbc3; } .vd-amber { color:var(--vd-gold); }
+.vd-horizon { display:grid; grid-template-columns:minmax(220px,360px) 1fr; align-items:end; gap:12px 22px; padding:4px 20px 16px; }
+.vd-horizon select { width:100%; min-height:38px; }
+.vd-horizon p { grid-column:1/-1; font-size:12px; }
+.vd-horizon button[aria-pressed=true] { border-color:var(--vd-cyan); background:#16374a; }
+.vd-expiry-list { padding:0 20px 16px; }
+.vd-expiry-list .vd-months { padding:14px 0 0; }
+.vd-download { border-top:1px solid var(--vd-line); padding-bottom:14px; }
+.vd-download>.vd-actions { padding:10px 20px 0; }
+.vd-download progress { display:block; height:5px; border:0; accent-color:var(--vd-cyan); }
+@media (max-width:700px) { .vd-horizon { grid-template-columns:1fr; } }
 .vd-months { display:flex; flex-wrap:wrap; padding:4px 20px 16px; gap:20px; max-height:270px; overflow:auto; }
 .vd-month h3 { font-size:12px; color:var(--vd-muted); margin-bottom:7px; text-transform:capitalize; font-weight:500; }
 .vd-month>div { display:flex; flex-wrap:wrap; gap:5px; max-width:430px; }

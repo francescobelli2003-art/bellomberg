@@ -24,3 +24,5 @@ MASTER_TODO.md text eol=lf
 COORDINAMENTO_CHAT.md text eol=lf
 BELLOMBERG_CONTEXT.md text eol=lf
 tools/release/policy/*.txt text eol=lf
+# Preserve the verified upstream bundle bytes across Windows checkouts.
+app/public/vendor/plotly-2.32.0.min.js -text

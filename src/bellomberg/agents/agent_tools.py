@@ -1014,21 +1014,23 @@ def tool_get_13f_filing(institution):
 
 _POLY_CACHE = {}
 _POLY_CACHE_TTL = 300  # 5 minuti
-_POLY_BLOCKED = None  # messaggio dichiarato se l'API risulta bloccata dal regolatore (v. _poly_fetch)
+_POLY_BLOCKED = None  # errore TLS osservato, conservato per il solo TTL della cache
+_POLY_BLOCKED_AT = 0.0
 
 
 def _poly_fetch(url, params, retries=2):
-    """GET gamma-api con cache 5 min + retry con backoff (#163: endpoint flaky).
+    """GET Gamma con cache e retry; errori JSON/TLS dichiarati, mai liste finte.
 
-    Blocco regolatore (diagnosi 23/07): su ISP italiani il DNS dirotta *.polymarket.com
-    (e kalshi) all'IP della pagina di inibizione ADM, che serve un certificato per
-    sito-inibito-giochi.adm.gov.it -> SSLError hostname mismatch. In quel caso il buco
-    va DICHIARATO subito (flag sticky, niente retry: non e' flakiness, e' un blocco)."""
+    Un hostname mismatch non prova da solo la causa DNS/regolatoria. Si mantiene
+    la verifica TLS e si evita il retry immediato; dopo il TTL si verifica di nuovo
+    la rete, senza lasciare l'intero processo bloccato fino al riavvio.
+    """
     import time as _time
-    global _POLY_BLOCKED
-    if _POLY_BLOCKED:
+    global _POLY_BLOCKED, _POLY_BLOCKED_AT
+    if _POLY_BLOCKED and _time.time() - _POLY_BLOCKED_AT < _POLY_CACHE_TTL:
         _POLY_CACHE["__last_error"] = _POLY_BLOCKED
         return None
+    _POLY_BLOCKED = None
     key = url + "?" + "&".join(f"{k}={v}" for k, v in sorted(params.items()))
     hit = _POLY_CACHE.get(key)
     if hit and _time.time() - hit[0] < _POLY_CACHE_TTL:
@@ -1038,21 +1040,34 @@ def _poly_fetch(url, params, retries=2):
         try:
             r = _req.get(url, params=params, timeout=20)
             if r.status_code == 200:
-                data = r.json() or []
+                try:
+                    data = r.json()
+                except ValueError as e:
+                    raise ValueError("risposta JSON non valida") from e
+                if url.endswith("/public-search"):
+                    if not isinstance(data, dict) or "error" in data:
+                        raise ValueError("JSON ricerca: atteso oggetto di risultati")
+                    rows = data.get("events")
+                    # Gamma documenta events nullable/omissibile.
+                    rows = [] if rows is None else rows
+                else:
+                    rows = data
+                if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+                    raise ValueError("JSON eventi/mercati: attesa lista di oggetti")
                 _POLY_CACHE[key] = (_time.time(), data)
                 return data
             last_err = f"HTTP {r.status_code}"
         except _req.exceptions.SSLError as e:
             last_err = str(e)
             if "mismatch" in last_err.lower() or "certificate is not valid" in last_err.lower():
-                _POLY_BLOCKED = ("Polymarket NON raggiungibile da questa rete: certificato non valido per "
-                                 "l'host (hostname mismatch). Diagnosi 23/07: DNS dell'ISP dirotta l'API "
-                                 "alla pagina di inibizione ADM (blocco del regolatore italiano sui "
-                                 "prediction markets). Dato n.d. DICHIARATO — non e' un errore transitorio.")
+                _POLY_BLOCKED = ("Polymarket n.d.: verifica TLS fallita (hostname mismatch) "
+                                 "su gamma-api.polymarket.com; certificato non valido per l'host. "
+                                 "Nessun bypass TLS; causa di rete da verificare.")
+                _POLY_BLOCKED_AT = _time.time()
                 _POLY_CACHE["__last_error"] = _POLY_BLOCKED
                 return None
         except Exception as e:
-            last_err = str(e)
+            last_err = f"{type(e).__name__}: {e}"
         if attempt < retries:
             _time.sleep(1.2 * (attempt + 1))
     _POLY_CACHE["__last_error"] = last_err
@@ -1127,8 +1142,9 @@ def tool_get_polymarket_events(query, max_results=10):
                         try:
                             outcomes = _json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
                             prices = _json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw
-                        except Exception:
-                            outcomes, prices = outcomes_raw, prices_raw
+                        except (ValueError, TypeError) as e:
+                            outcomes, prices = None, None
+                            fetch_warnings.append(f"/public-search: outcomes/outcomePrices JSON non valido ({type(e).__name__}); probabilita' n.d.")
                         sub_markets.append({
                             "question": (m.get("question", "") or "")[:160],
                             "outcomes": outcomes,
@@ -1149,8 +1165,8 @@ def tool_get_polymarket_events(query, max_results=10):
             elif sr is None:
                 fetch_warnings.append("/public-search: "
                                       + str(_POLY_CACHE.get("__last_error", "irraggiungibile")))
-        except Exception:
-            pass
+        except Exception as e:
+            fetch_warnings.append(f"/public-search: {type(e).__name__}: {e}")
 
         seen_event_slugs = {(r.get("url", "").split("/")[-1] or "").lower()
                             for r in all_results}
@@ -1196,9 +1212,9 @@ def tool_get_polymarket_events(query, max_results=10):
                             try:
                                 outcomes = _json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
                                 prices = _json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw
-                            except Exception:
-                                outcomes = outcomes_raw
-                                prices = prices_raw
+                            except (ValueError, TypeError) as e:
+                                outcomes, prices = None, None
+                                fetch_warnings.append(f"/events: outcomes/outcomePrices JSON non valido ({type(e).__name__}); probabilita' n.d.")
                             sub_markets.append({
                                 "question": (m.get("question", "") or "")[:160],
                                 "outcomes": outcomes,
@@ -1216,7 +1232,7 @@ def tool_get_polymarket_events(query, max_results=10):
                             "markets": sub_markets,
                         })
         except Exception as e:
-            pass  # Try strategy 2
+            fetch_warnings.append(f"/events: {type(e).__name__}: {e}")
 
         # Strategy 2: /markets endpoint per match piu' singolare — PAGINATO
         try:
@@ -1250,9 +1266,9 @@ def tool_get_polymarket_events(query, max_results=10):
                     try:
                         outcomes = _json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
                         prices = _json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw
-                    except Exception:
-                        outcomes = outcomes_raw
-                        prices = prices_raw
+                    except (ValueError, TypeError) as e:
+                        outcomes, prices = None, None
+                        fetch_warnings.append(f"/markets: outcomes/outcomePrices JSON non valido ({type(e).__name__}); probabilita' n.d.")
                     all_results.append({
                         "type": "single_market",
                         "question": (m.get("question", "") or "")[:200],
@@ -1263,7 +1279,7 @@ def tool_get_polymarket_events(query, max_results=10):
                         "url": "https://polymarket.com/event/" + (m.get("slug", "")),
                     })
         except Exception as e:
-            pass
+            fetch_warnings.append(f"/markets: {type(e).__name__}: {e}")
 
         # Sort: prima i match della server search (più pertinenti), poi per volume
         all_results.sort(key=lambda x: (0 if x.get("match") == "server_search" else 1,
@@ -1280,21 +1296,30 @@ def tool_get_polymarket_events(query, max_results=10):
         }
         if fetch_warnings:
             result["fetch_warnings"] = fetch_warnings
+            result["status"] = "partial" if all_results else "unavailable"
+            if not all_results:
+                result["error"] = "Polymarket n.d.: " + "; ".join(fetch_warnings)
+                result["hint"] = ("Ricerca incompleta per errore del provider: NON dedurre "
+                                  "probabilita' o assenza di mercati. Prosegui la risposta "
+                                  "dichiarando il dato n.d.; evita retry ripetuti in questa risposta.")
         if _POLY_BLOCKED:
-            # blocco regolatore: buco DICHIARATO, niente inviti al retry (spreca iterazioni)
+            # Buco TLS osservato: niente tentativi ripetuti nella stessa risposta.
             result["error"] = _POLY_BLOCKED
-            result["hint"] = ("NON riprovare in questa run e NON dedurre le probabilita' da altre "
-                              "fonti: dato n.d. dichiarato. Decisione PM su eventuale fonte alternativa.")
+            result["status"] = "partial" if all_results else "unavailable"
+            result["hint"] = ("NON riprovare in questa risposta: dato n.d. dichiarato. "
+                              "Prosegui la chat dichiarando il limite. La rete sara' ricontrollata "
+                              "nelle richieste successive alla scadenza della cache.")
             return result
-        if not all_results:
+        if not all_results and not fetch_warnings:
             result["hint"] = ("Nessun match. Se fetch_warnings e' presente, gamma-api era "
                               "irraggiungibile: riprova la stessa call. Altrimenti riprova "
                               "con termini inglesi piu' generici o sinonimi diversi — "
                               "NON concludere che il mercato non esiste.")
         return result
     except Exception as e:
-        return {"error": "Polymarket error: " + str(e),
-                "hint": "endpoint flaky: riprova la stessa call tra qualche secondo"}
+        return {"error": f"Polymarket error {type(e).__name__}: {e}",
+                "status": "unavailable",
+                "hint": "Dato n.d. dichiarato; prosegui la chat senza inventare probabilita'."}
 
 
 def tool_get_fundamentals(ticker):

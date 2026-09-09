@@ -70,6 +70,98 @@ def test_leggi_eccezioni_pretende_il_motivo(tmp_path):
             vp.leggi_eccezioni(str(p))
 
 
+def _pinned_gate(tmp_path, monkeypatch, content=None, extra=None, control="lista_privata", token="718.231"):
+    """Synthetic upstream byte receipt; no private corpus or operational providers."""
+    original = b"718.231 SECRET_SYNTHETIC WXYZ\n" + b"x" * vp.MAX_FILE
+    digest = hashlib.sha256(original).hexdigest()
+    tree, lists = tmp_path / "tree", tmp_path / "lists"
+    tree.mkdir(); lists.mkdir()
+    (tree / "vendor.js").write_bytes(original if content is None else content)
+    if extra:
+        (tree / "other.py").write_bytes(extra)
+    pinned = "vendor.js@sha256=" + digest
+    (lists / "ECCEZIONI.txt").write_text(f"{pinned}\t{control}\t{token}\tSynthetic public upstream receipt\n")
+    (lists / "GRANDI_AMMESSI.txt").write_text(pinned + "\n")
+    (lists / "VIETATE.txt").write_text("SECRET_SYNTHETIC\n")
+    monkeypatch.setattr(vp, "lista_privata", lambda *a: {"718.231":"synthetic.py", "919.871":"synthetic.py"})
+    monkeypatch.setattr(vp, "_env_con_autoprova", lambda data, *a: vp.controllo_env(data, [("SYNTH_KEY", "SECRET_SYNTHETIC")]))
+    return tree, lists
+
+
+def test_pinned_numeric_exception_is_exact_and_keeps_other_scans(tmp_path, monkeypatch):
+    tree, lists = _pinned_gate(tmp_path, monkeypatch, extra=b"718.231 919.871\n")
+    results, _ = vp.esegui_controlli(str(tree), solo=["dimensione", "lista_privata", "vietate", "env"], pubblico=str(lists))
+    got = {result.nome: result for result in results}
+    assert got["dimensione"].ok
+    assert {hit.file for hit in got["lista_privata"].hit} == {"other.py"}
+    assert len(got["lista_privata"].hit) == 2
+    assert {hit.file for hit in got["vietate"].hit} == {"vendor.js"}
+    assert {hit.file for hit in got["env"].hit} == {"vendor.js"}
+    assert "SHA-256" in got["dimensione"].note
+
+
+@pytest.mark.parametrize("changed", [b"718.231\n", b"altered " + b"x" * vp.MAX_FILE], ids=["shortened", "altered-large"])
+def test_pinned_vendor_changed_bytes_are_rejected_even_after_shrinking(tmp_path, monkeypatch, changed):
+    tree, lists = _pinned_gate(tmp_path, monkeypatch, content=changed)
+    results, _ = vp.esegui_controlli(str(tree), solo=["dimensione", "lista_privata"], pubblico=str(lists))
+    assert any(result.errore and "SHA-256" in result.errore for result in results)
+
+
+@pytest.mark.parametrize("control,token", [("env", "SYNTH_KEY"), ("vietate", "SECRET_SYNTHETIC"),
+    ("gitleaks", "SYNTH_KEY"), ("lista_privata", "SECRET_SYNTHETIC"),
+    ("valori_estesi", "SECRET_SYNTHETIC"), ("ticker_soli", "W*"), ("lotti", "W*")])
+def test_pinned_vendor_cannot_exempt_secrets_or_broad_tokens(tmp_path, monkeypatch, control, token):
+    tree, lists = _pinned_gate(tmp_path, monkeypatch, control=control, token=token)
+    results, _ = vp.esegui_controlli(str(tree), solo=["dimensione", "lista_privata"], pubblico=str(lists))
+    assert any(result.errore for result in results)
+
+
+@pytest.mark.parametrize("control,token", [("lotti", "WXYZ.MI"), ("ticker_soli", "WXYZ"),
+                                          ("valori_estesi", "718.231")])
+def test_pinned_vendor_extra_controls_keep_other_files_and_unlisted_tokens(control, token):
+    original = b"WXYZ QRST 718.231 919.871\n"
+    tree = {"vendor.js": original, "other.js": original}
+    pin = "vendor.js@sha256=" + hashlib.sha256(original).hexdigest()
+    exceptions, _, verified = vp._risolvi_deroghe_upstream(tree, {(pin, control, token)}, [])
+    if control == "lotti":
+        result = vp.controllo_lotti(tree, {("WXYZ.MI", 718231., 1.), ("QRST", 919871., 1.)}, exceptions)
+    elif control == "ticker_soli":
+        result = vp.controllo_ticker_soli(tree, {"WXYZ", "QRST"}, exceptions)
+    else:
+        result = vp.controllo_valori_db(tree, {718231., 919871.}, exceptions, nome_controllo=control)
+    assert len(result.hit) == 3
+    assert [hit.file for hit in result.hit].count("other.js") == 2
+    assert [hit.file for hit in result.hit].count("vendor.js") == 1
+    assert verified == {"vendor.js": hashlib.sha256(original).hexdigest()}
+    for changed in (b"changed " + original, b"shortened"):
+        with pytest.raises(ValueError, match="SHA-256"):
+            vp._risolvi_deroghe_upstream({"vendor.js": changed}, {(pin, control, token)}, [])
+
+
+def test_pinned_receipt_uses_frozen_policy_but_scans_current_artifact_bytes(tmp_path, monkeypatch):
+    tree, lists = _pinned_gate(tmp_path, monkeypatch)
+    corpus = tmp_path / "corpus"
+    (corpus / "tests" / "system").mkdir(parents=True)
+    (corpus / "tests" / "system" / "prova_numeri_del_book.py").write_text("VIETATI = {'synthetic.py':['718.231']}\n")
+    frozen = vp.congela_input(str(tree), ["dimensione", "lista_privata"], str(lists), str(corpus))
+    (lists / "ECCEZIONI.txt").write_text("not valid current policy\n")
+    results, _ = vp.esegui_controlli(str(tree), solo=["dimensione", "lista_privata"], pubblico=str(lists), input_congelati=frozen)
+    assert all(result.ok for result in results)
+    (tree / "vendor.js").write_bytes(b"changed after policy freeze")
+    results, _ = vp.esegui_controlli(str(tree), solo=["dimensione", "lista_privata"], pubblico=str(lists), input_congelati=frozen)
+    assert any(result.errore and "SHA-256" in result.errore for result in results)
+
+
+def test_absent_pinned_path_never_exempts_file_named_like_the_pin(tmp_path, monkeypatch):
+    tree, lists = _pinned_gate(tmp_path, monkeypatch)
+    pin = (lists / "GRANDI_AMMESSI.txt").read_text().strip()
+    (tree / "vendor.js").rename(tree / pin)
+    results, _ = vp.esegui_controlli(str(tree), solo=["dimensione", "lista_privata"], pubblico=str(lists))
+    got = {result.nome: result for result in results}
+    assert {hit.file for hit in got["dimensione"].hit} == {pin}
+    assert {hit.file for hit in got["lista_privata"].hit} == {pin}
+
+
 # ---------------------------------------------------------------------------
 # T2: tree in memoria, maschera, verdetto, controlli vietate / esclusi / dimensione.
 # Tutto finto: nomi, email, percorsi, cifre. Le stringhe vere stanno nella policy privata.
@@ -1914,6 +2006,47 @@ def test_colonne_estese_e_i_due_controlli_nuovi_nascono_in_osservazione():
         assert coppia in vp.COLONNE_ESTESE and coppia not in vp.COLONNE_VIVE, coppia
     for nome in ("valori_estesi", "vietate_forme"):
         assert nome in vp.CONTROLLI and nome in vp.OSSERVAZIONE, nome
+
+
+@pytest.mark.parametrize("max_length", [1, 4, 7, 8, 12, 40])
+def test_candidati_numerici_bounded_equal_full_candidates_of_same_length(max_length):
+    texts = {"array": "[98765.43,555.55,0,1.234,56,718.231,27.500,00]",
+             "borders": "-718.231;1718.231;718.2310; 27,50 %; 1.500.000,00;12345"}
+    expected = {token for token in vp._candidati_numerici(texts) if len(token) <= max_length}
+    assert vp._candidati_numerici(texts, max_length=max_length) == expected
+
+
+def test_candidati_numerici_long_array_preserves_each_sought_number_without_large_substrings():
+    numbers = ["718.231"] + [str(123456 + index) for index in range(2400)] + ["919.871"]
+    texts = {"vendor.js": "[" + ",".join(numbers) + "]"}
+    candidates = vp._candidati_numerici(texts, max_length=7)
+    assert set(numbers) <= candidates
+    assert max(map(len, candidates)) == 7
+    assert "718" in candidates and "919.871" in candidates
+    assert not any(len(token) > 7 for token in candidates)
+
+
+def test_valori_db_derives_bound_from_actual_tokens_and_keeps_boundary_results(monkeypatch):
+    values = {718231.: "synthetic.amount", 3210.75: "synthetic.price", 98765.43: "synthetic.price"}
+    percentages = {27.5: "synthetic.percent"}
+    text = "[98765.43,555.55] 3.210,75 -718.231;1718.231;718.2310; 27,50 %; 27.5%"
+    tree = {"synthetic.py": text.encode()}
+    tokens = set().union(*(vp.forme_numero(value) for value in values))
+    percent_tokens = set().union(*(vp.forme_percentuale(value) for value in percentages))
+    expected_bound = max(map(len, tokens | {token.rstrip("% ").strip() for token in percent_tokens}))
+    original = vp._candidati_numerici
+    calls = []
+    def measured(texts, max_length=None):
+        calls.append(max_length)
+        return original(texts, max_length=max_length)
+    monkeypatch.setattr(vp, "_candidati_numerici", measured)
+    actual = vp.controllo_valori_db(tree, values, percentuali=percentages)
+    assert calls == [expected_bound]
+    monkeypatch.setattr(vp, "_candidati_numerici", lambda texts, **kwargs: original(texts))
+    unbounded = vp.controllo_valori_db(tree, values, percentuali=percentages)
+    assert actual.hit == unbounded.hit
+    assert actual.note == unbounded.note
+    assert actual.hit
 
 
 def test_candidati_numerici_coprono_ogni_token_che_i_confini_accettano():

@@ -19,10 +19,26 @@ export interface ChainPage {
   next_cursor: string | null; spot: number | null; spot_timeframe: string | null;
   spot_timestamp_ns: number | null; _timestamp: string; error: string | null;
   malformed_contracts: number; cached: boolean;
+  n_contracts?: number; filtered_contracts?: number; chain_complete?: boolean;
+  has_more?: boolean; next_offset?: number | null; offset?: number; limit?: number;
+}
+export interface DownloadStatus {
+  id: string; ticker: string; state: 'queued' | 'running' | 'paused' | 'error' | 'complete';
+  phase: 'catalog' | 'chain' | 'done'; scope: 'all' | 'selected';
+  expirations: string[]; catalog_complete: boolean; completed_expiries: number;
+  current_expiry: string | null; pages_received: number; n_contracts: number;
+  duplicates: number; malformed_contracts: number; error: string | null;
+  superseded_contracts?: number; page_revisions?: number;
+  download_complete: boolean; retryable: boolean; updated_at: string; started_at: string;
+  snapshot_at: string | null; cache_ttl_seconds: number;
+  retention_seconds: number; stale: boolean; pause_requested: boolean;
+  spot: number | null; spot_source: string | null; spot_error: string | null;
+  rows: { expiry: string; n_contracts: number; complete: boolean; error: string | null }[];
 }
 export interface Coverage {
   requested: string[]; loaded: string[]; excluded: string[]; errors: string[]; complete: boolean;
   rows: { expiry: string; days: number; status: 'loaded' | 'partial' | 'excluded' | 'error'; reason: string | null; n_contracts?: number }[];
+  download_complete?: boolean;
 }
 export interface LegDraft {
   id: string; type: 'call' | 'put'; side: 'buy' | 'sell'; quantity: string; strike: string;
@@ -60,6 +76,27 @@ export async function volRequest<T>(path: string, body?: unknown, signal?: Abort
   return payload as T;
 }
 
+/** A stale response may never paint the next ticker; failure/paused are resumable terminal states. */
+export async function watchDownload(id: string, ticker: string,
+  read: () => Promise<DownloadStatus>, update: (status: DownloadStatus) => void,
+  signal: AbortSignal, interval = 650): Promise<DownloadStatus> {
+  const cancelled = () => { if (signal.aborted) throw new DOMException('Caricamento interrotto', 'AbortError'); };
+  for (;;) {
+    cancelled();
+    const result = await read();
+    cancelled();
+    if (result.id !== id || result.ticker !== ticker) throw new Error('Risposta download con identità diversa dal ticker richiesto');
+    update(result);
+    if (!['queued', 'running'].includes(result.state)) return result;
+    await new Promise<void>((resolve, reject) => {
+      const abort = () => { clearTimeout(timer); reject(new DOMException('Caricamento interrotto', 'AbortError')); };
+      const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve(); }, interval);
+      signal.addEventListener('abort', abort, { once: true });
+      if (signal.aborted) { signal.removeEventListener('abort', abort); abort(); }
+    });
+  }
+}
+
 export function numberInput(text: string, label: string): number {
   const result = leggiNumeroConSegno(text);
   if (!result || !result.ok) throw new Error(`${label}: ${result && !result.ok ? result.motivo : 'scrivi un numero'}`);
@@ -72,8 +109,17 @@ export const volNumber = (value: number | null | undefined, digits = 2) => value
 
 export function daysToExpiry(expiry: string, today = new Date()): number {
   // Calendar dates, not time-of-day arithmetic. The model explicitly omits intraday expiry timing.
-  const utcToday = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  const utcToday = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
   return Math.round((Date.parse(expiry + 'T00:00:00Z') - utcToday) / 86400000);
+}
+
+export const expiriesThrough = (dates: string[], finalExpiry: string): string[] =>
+  dates.filter(expiry => !finalExpiry || expiry <= finalExpiry);
+
+export function horizonDate(months: number, today = new Date()): string {
+  const year = today.getFullYear(), month = today.getMonth() + months;
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, month, Math.min(today.getDate(), lastDay))).toISOString().slice(0, 10);
 }
 
 let nextLegId = 0;

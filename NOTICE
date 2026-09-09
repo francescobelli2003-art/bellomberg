@@ -7,6 +7,14 @@ root of this repository or http://www.apache.org/licenses/LICENSE-2.0.
 
 This product includes third-party components:
 
+* Plotly.js 2.32.0 by Plotly, Inc., copyright 2012-2024.
+  https://github.com/plotly/plotly.js/tree/v2.32.0
+  Licensed under the MIT License; the original license is included in
+  app/public/vendor/plotly-2.32.0.LICENSE. The unmodified distribution bundle
+  app/public/vendor/plotly-2.32.0.min.js retains its original copyright header.
+  Source: https://cdn.plot.ly/plotly-2.32.0.min.js
+  SHA-256: 0a17719a72751704861215da0e5c5cdb3f9a8d50eff5cb84cb6f8b80786682b0
+
 * Lightweight Charts by TradingView, Inc.
   https://github.com/tradingview/lightweight-charts
   Licensed under the Apache License, Version 2.0. The charting engine is used with

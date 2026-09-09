@@ -12,7 +12,7 @@
     "build": "npm run build:bundles && electron-builder",
     "build:bundles": "tsc && vite build",
     "test:release": "node tests/desktop/contratti.cjs && npm run test:product",
-    "test:product": "node --test tests/product/navigation-chat.cjs",
+    "test:product": "node --test tests/product/navigation-chat.cjs tests/product/vol-download.cjs",
     "desktop:install": "install-electron",
     "test:desktop": "node tests/desktop/desktop.cjs",
     "electron:dev": "vite",

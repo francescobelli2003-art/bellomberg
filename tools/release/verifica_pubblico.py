@@ -124,6 +124,45 @@ def leggi_eccezioni(path):
         return _eccezioni_da_testo(fh.read(), path)
 
 
+def _risolvi_deroghe_upstream(tree, eccezioni, grandi):
+    """Resolve exact path@sha256 pins against the bytes actually being scanned.
+
+    Pinned exceptions cover only exact numeric/ticker coincidences in the four
+    declared controls and the individual-file size limit. Secrets, forbidden
+    content, Gitleaks and MAX_TREE still run without an upstream exemption.
+    A changed pinned file is a gate error, including if shortened below MAX_FILE.
+    """
+    verificati = {}
+
+    def percorso(guardato):
+        if "@sha256=" not in guardato:
+            return guardato
+        rel, digest = guardato.rsplit("@sha256=", 1)
+        if (not re.fullmatch(r"[0-9a-f]{64}", digest) or "\\" in rel or ":" in rel
+                or any(part in ("", ".", "..") for part in rel.split("/"))
+                or any(char in rel for char in "*?")):
+            raise ValueError("deroga upstream: percorso esatto e SHA-256 valido richiesti")
+        if rel not in tree:
+            return rel  # An absent receipt cannot exempt a filename containing the pin suffix.
+        actual = verificati.get(rel)
+        if actual is None:
+            actual = hashlib.sha256(tree[rel]).hexdigest()
+        if actual != digest:
+            raise ValueError("SHA-256 upstream diverso per %s: deroga rifiutata" % rel)
+        verificati[rel] = actual
+        return rel
+
+    risolte = set()
+    for rel, controllo, token in eccezioni:
+        if "@sha256=" in rel:
+            numeric = controllo in {"lista_privata", "valori_estesi"} and re.fullmatch(r"[0-9]+(?:[.,][0-9]+)*", token)
+            ticker = controllo in {"lotti", "ticker_soli"} and re.fullmatch(r"[A-Z0-9]+(?:[.-][A-Z0-9]+)*", token)
+            if not (numeric or ticker):
+                raise ValueError("deroga upstream ammessa solo per token esatti numerici/ticker dei controlli dichiarati")
+        risolte.add((percorso(rel), controllo, token))
+    return risolte, [percorso(rel) for rel in grandi], verificati
+
+
 def _simboli_da_testo(testo, fonte):
     out = set()
     for n, r in enumerate(io.StringIO(testo), 1):
@@ -629,13 +668,16 @@ def forme_percentuale(v):
 _RUN_NUMERICO = re.compile(r"\d[\d.,]*\d|\d")
 
 
-def _candidati_numerici(testi):
+def _candidati_numerici(testi, *, max_length=None):
     """I numeri del tree, estratti UNA volta: ogni sequenza di cifre e separatori, e ogni suo
     pezzo che comincia a un gruppo di cifre e finisce a un gruppo di cifre («27.500,00» da'
     anche «27.500» e «500,00»). E' un SOVRAINSIEME di cio' che `_regex_numero` accetta (mai una
     cifra prima o dopo il token): un token fuori da qui non puo' essere un hit, e non si cerca.
     Serve perche' `position_prices` porta ~18.000 prezzi (~80.000 token): cercarli uno per uno
-    in ogni file costerebbe minuti a ogni push (05/09, 4b)."""
+    in ogni file costerebbe minuti a ogni push (05/09, 4b).
+    `max_length` e' la lunghezza massima dei token EFFETTIVAMENTE cercati: sequenze
+    piu' lunghe non possono uguagliarne uno. Questo evita le sottosequenze inutili
+    degli array minificati, senza limitare file, valori o posizioni esaminate."""
     out = set()
     for t in testi.values():
         for run in _RUN_NUMERICO.findall(t):
@@ -644,6 +686,8 @@ def _candidati_numerici(testi):
                 acc = ""
                 for j in range(i, len(pezzi)):
                     acc += pezzi[j]
+                    if max_length is not None and len(acc) > max_length:
+                        break
                     if j % 2 == 0 and pezzi[j]:
                         out.add(acc)
     return out
@@ -752,7 +796,8 @@ def controllo_valori_db(tree, valori, eccezioni=(), percentuali=None, *,
     if not token and not token_pct:
         return Esito(nome_controllo, errore="%d valori ma nessun token cercabile: non e' un verde" % len(origini))
     testi = _testi(tree)
-    candidati = _candidati_numerici(testi)
+    numeric_tokens = token | {t.rstrip("% ").strip() for t in token_pct}
+    candidati = _candidati_numerici(testi, max_length=max(map(len, numeric_tokens)))
     grezzi = []
     for t in sorted(token):
         if t in candidati:
@@ -1353,7 +1398,20 @@ def scarica_gitleaks(url=GITLEAKS_URL, sha256_atteso=GITLEAKS_SHA256, dest_exe=G
     return dest_exe
 
 
-def _copertura(tree_dir, stderr, svg_letti=None):
+def _saltati_gitleaks(tree_dir, stderr):
+    """Paths the pinned directory scanner explicitly reports skipping."""
+    root = Path(tree_dir).resolve()
+    skipped = set()
+    for raw in re.findall(r'skipping (?:file|directory): [^\n]*?path="(.+?)"', stderr):
+        path = raw.replace("\\\\", "\\")  # zerolog escapes Windows separators
+        try:
+            skipped.add(Path(path).resolve().relative_to(root).as_posix())
+        except ValueError:
+            skipped.add(path.replace("\\", "/"))
+    return skipped
+
+
+def _copertura(tree_dir, stderr, stdin_letti=None):
     """Quanto ha letto DAVVERO il motore: la riga «scanned ~N bytes» (esatta al byte, misurata
     sul tree vero) confrontata coi byte del tree, meno i file che il config di default salta per
     disegno suo (GITLEAKS_SCOPERTI). Torna (errore, nota). Senza questa misura ogni salto del
@@ -1362,9 +1420,9 @@ def _copertura(tree_dir, stderr, svg_letti=None):
     m = re.search(r"scanned ~(\d+) bytes", stderr)
     if not m:
         return ("il motore non dice quanti byte ha letto: copertura NON misurata", "")
-    svg_letti = svg_letti or {}
+    stdin_letti = stdin_letti or {}
     da_dir = int(m.group(1))
-    letti, attesi = da_dir + sum(svg_letti.values()), 0
+    letti, attesi = da_dir + sum(stdin_letti.values()), 0
     for cartella, sub, nomi in os.walk(tree_dir):
         sub[:] = [d for d in sub if d != ".git"]      # gitleaks salta .git come carica_tree (misurato)
         attesi += sum(os.path.getsize(os.path.join(cartella, n)) for n in nomi if n != ".git")
@@ -1373,42 +1431,50 @@ def _copertura(tree_dir, stderr, svg_letti=None):
     scoperti = sum(os.path.getsize(os.path.join(tree_dir, rel.replace("/", os.sep))) for rel in fuori)
     nota = "%d/%d byte letti%s" % (letti, attesi,
                                    (" (%s fuori dal raggio del motore)" % ", ".join(fuori)) if fuori else "")
-    if svg_letti:
-        nota += "; dir %d + %d SVG via stdin %d byte, contatori del motore verificati" % (
-            da_dir, len(svg_letti), sum(svg_letti.values()))
+    if stdin_letti:
+        svg = sum(rel.lower().endswith('.svg') for rel in stdin_letti)
+        js = sum(rel.lower().endswith('.min.js') for rel in stdin_letti)
+        nota += "; dir %d + %d SVG e %d .min.js via stdin %d byte, contatori del motore verificati" % (
+            da_dir, svg, js, sum(stdin_letti.values()))
     if letti != attesi - scoperti:
-        saltati = [s.replace("\\\\", "\\")             # zerolog raddoppia i backslash nel valore
-                   for s in re.findall(r'skipping (?:file|directory): [^\n]*?path="(.+?)"', stderr)]
-        nomi = sorted({s[len(tree_dir):].lstrip("\\/").replace("\\", "/") if s.startswith(tree_dir) else s
-                       for s in saltati} - set(svg_letti))
+        nomi = sorted(_saltati_gitleaks(tree_dir, stderr) - set(stdin_letti))
         return ("letti %d byte su %d attesi (%d dichiarati fuori dal raggio): %d byte NON scansionati%s"
                 % (letti, attesi, scoperti, attesi - scoperti - letti,
                    (": " + ", ".join(nomi)) if nomi else ""), nota)
     return ("", nota)
 
 
-def _scansiona_svg_gitleaks(tree_dir, exe, esegui, ambiente, temporaneo):
-    """8.30.1 skips .svg by extension: scan its original bytes through stdin too.
+def _scansiona_asset_gitleaks(tree_dir, exe, esegui, ambiente, temporaneo, stderr_dir):
+    """Scan original SVG and skipped minified JS bytes through pinned stdin rules.
 
     Same pinned default rules and anti-ignore flags; no custom allowlist. Binary
     stdin preserves UTF-8 and CRLF exactly on Windows. Never reconstruct XML or
     inspect only rendered text: metadata, comments and attributes are all input.
+    Only JS explicitly skipped by dir needs stdin: ordinary .min.js is already
+    read there, while library names such as plotly are globally allowlisted.
+    Counting both paths for the same file would invalidate byte coverage.
     """
     letti, finding = {}, []
     paths = []
+    skipped = _saltati_gitleaks(tree_dir, stderr_dir)
     for folder, sub, names in os.walk(tree_dir):
         sub[:] = [name for name in sub if name != '.git']
-        paths.extend(Path(folder, name) for name in names if name.lower().endswith('.svg'))
+        for name in names:
+            path = Path(folder, name)
+            rel = os.path.relpath(path, tree_dir).replace(os.sep, '/')
+            if name.lower().endswith('.svg') or (name.lower().endswith('.min.js') and rel in skipped):
+                paths.append(path)
     for index, path in enumerate(sorted(paths)):
         rel = os.path.relpath(path, tree_dir).replace(os.sep, '/')
+        kind = 'SVG' if path.name.lower().endswith('.svg') else '.min.js'
         if path.is_symlink():
-            raise ValueError('SVG collegato, sorgente non verificabile: ' + rel)
+            raise ValueError(kind + ' collegato, sorgente non verificabile: ' + rel)
         payload = path.read_bytes()
         try:
             payload.decode('utf-8')
         except UnicodeDecodeError as exc:
-            raise ValueError('SVG non UTF-8, scansione non certificata: ' + rel) from exc
-        report = os.path.join(temporaneo, 'svg-%d.json' % index)
+            raise ValueError(kind + ' non UTF-8, scansione non certificata: ' + rel) from exc
+        report = os.path.join(temporaneo, 'asset-%d.json' % index)
         result = esegui([exe, 'stdin', '--no-banner', '--no-color', '--redact',
                          '--ignore-gitleaks-allow', '--gitleaks-ignore-path', temporaneo,
                          '--exit-code', str(GITLEAKS_EXIT_HIT), '--log-level', 'debug',
@@ -1419,21 +1485,21 @@ def _scansiona_svg_gitleaks(tree_dir, exe, esegui, ambiente, temporaneo):
         stderr = result.stderr or b''
         if isinstance(stderr, bytes): stderr = stderr.decode('utf-8', errors='replace')
         if result.returncode not in (0, GITLEAKS_EXIT_HIT):
-            raise ValueError('SVG %s: exit %d, scansione stdin NON conclusa' % (rel, result.returncode))
+            raise ValueError('%s %s: exit %d, scansione stdin NON conclusa' % (kind, rel, result.returncode))
         count = re.search(r'scanned ~(\d+) bytes', stderr)
         if not count or int(count.group(1)) != len(payload):
-            raise ValueError('SVG %s: copertura stdin non verificata (%s byte letti, %d inviati)' % (
-                rel, count.group(1) if count else 'n.d.', len(payload)))
+            raise ValueError('%s %s: copertura stdin non verificata (%s byte letti, %d inviati)' % (
+                kind, rel, count.group(1) if count else 'n.d.', len(payload)))
         if not os.path.isfile(report):
-            raise ValueError('SVG %s: report stdin assente, scansione NON conclusa' % rel)
+            raise ValueError('%s %s: report stdin assente, scansione NON conclusa' % (kind, rel))
         with open(report, encoding='utf-8') as handle:
             rows = json.load(handle)
         if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
-            raise ValueError('SVG %s: report stdin di forma ignota' % rel)
+            raise ValueError('%s %s: report stdin di forma ignota' % (kind, rel))
         if result.returncode == GITLEAKS_EXIT_HIT and not rows:
-            raise ValueError('SVG %s: exit leak ma report stdin vuoto, esito incoerente' % rel)
+            raise ValueError('%s %s: exit leak ma report stdin vuoto, esito incoerente' % (kind, rel))
         if path.read_bytes() != payload:
-            raise ValueError('SVG cambiato durante la scansione: ' + rel)
+            raise ValueError(kind + ' cambiato durante la scansione: ' + rel)
         letti[rel] = int(count.group(1))  # Observed engine count, not assumed input size.
         finding.extend(dict(row, File=str(path)) for row in rows)
     return letti, finding
@@ -1455,7 +1521,7 @@ def controllo_gitleaks(tree_dir, exe=GITLEAKS_EXE, esegui=None):
         default '.' (la cwd di chi lancia) e le due variabili GITLEAKS_CONFIG* fuori
         dall'ambiente. Un `.gitleaks.toml`/`.gitleaksignore` DENTRO il tree lo spegnerebbe in
         silenzio (root.go li legge dalla cartella scansionata): li' rifiutiamo di scansionare.
-      · gli SVG testuali, saltati dall'allowlist immagini del motore 8.30.1, passano anche
+      · gli SVG testuali e i .min.js saltati dall'allowlist del motore 8.30.1 passano anche
         via stdin binario con le stesse regole: contatore per file e report sul percorso
         originale. Non sono esclusioni e non si aggiungono a GITLEAKS_SCOPERTI.
     Il token dell'hit e' il NOME della regola: il segreto non entra mai nell'Esito."""
@@ -1498,13 +1564,13 @@ def controllo_gitleaks(tree_dir, exe=GITLEAKS_EXE, esegui=None):
         if not isinstance(finding, list):
             return Esito("gitleaks", errore="report di forma ignota (%s invece di una lista)" % type(finding).__name__)
         try:
-            svg_letti, svg_finding = _scansiona_svg_gitleaks(tree_dir, exe, esegui, ambiente, td)
+            stdin_letti, stdin_finding = _scansiona_asset_gitleaks(tree_dir, exe, esegui, ambiente, td, r.stderr or "")
         except (OSError, ValueError) as e:
-            return Esito('gitleaks', errore='Scansione SVG non conclusa: %s' % e)
-        buco, quanto = _copertura(tree_dir, r.stderr or "", svg_letti)
+            return Esito('gitleaks', errore='Scansione SVG/min.js non conclusa: %s' % e)
+        buco, quanto = _copertura(tree_dir, r.stderr or "", stdin_letti)
         if buco:
             return Esito("gitleaks", errore=buco)
-        finding.extend(svg_finding)
+        finding.extend(stdin_finding)
     hit = [Hit(os.path.relpath(f.get("File", ""), tree_dir).replace(os.sep, "/"),
                int(f.get("StartLine") or 0), str(f.get("RuleID", "?"))) for f in finding]
     return Esito("gitleaks", hit, note="gitleaks %s (versione letta dall'exe), dir, %s" % (letta, quanto))
@@ -1735,6 +1801,7 @@ def esegui_controlli(tree_dir, solo=None, blocca_osservazione=False, pubblico=No
             ecc = congelati.leggi("lista:ECCEZIONI.txt")
             simboli = congelati.leggi("lista:SIMBOLI.txt")
             grandi = congelati.leggi("lista:GRANDI_AMMESSI.txt")
+        ecc, grandi, upstream = _risolvi_deroghe_upstream(tree, ecc, grandi)
         liste_congelate, errori_liste = {}, {}
         if "vietate" in da_fare or "vietate_forme" in da_fare:
             try:
@@ -1780,6 +1847,8 @@ def esegui_controlli(tree_dir, solo=None, blocca_osservazione=False, pubblico=No
             e = fn()
         except Exception as ex:  # dichiarato nel verdetto, non ingoiato
             e = Esito(nome, errore="%s: %s" % (type(ex).__name__, ex))
+        if upstream and nome in ("dimensione", "lista_privata", "lotti", "ticker_soli", "valori_estesi"):
+            e.note += "; %d asset upstream verificati per percorso e SHA-256" % len(upstream)
         e.osservazione = (nome in OSSERVAZIONE) and not blocca_osservazione
         esiti.append(e)
 
