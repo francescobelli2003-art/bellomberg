@@ -36,19 +36,23 @@ jobs:
           bellomberg_api.py consigliere_multi.py price_updater.py
           briefing_engine.py regenerate_memo.py
 
-      - name: Suite offline
-        run: pytest tests/ -q
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22.23.2"
           cache: npm
           cache-dependency-path: app/package-lock.json
 
+      # The Python integration suite also exercises the real React valuation UI.
+      - name: Frontend dependencies for integration tests
+        working-directory: app
+        run: npm ci
+
+      - name: Suite offline
+        run: pytest tests/ -q
+
       - name: Frontend TypeScript
         working-directory: app
         run: |
-          npm ci
           npx tsc --noEmit
 
       - name: Frontend release contracts and production bundles

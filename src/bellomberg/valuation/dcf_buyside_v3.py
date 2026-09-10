@@ -338,9 +338,12 @@ def _scenario_numbers(spec, sc, last_rev, nwc0=None):
         # deve dare lo STESSO numero (prima: (rev1-rev0)*pct, divergenza sistematica
         # payload/workbook su ogni nome senza filing SEC). nwc_prev = 0.9*NWC_y1.
         nwc_prev = 0.9 * last_rev * (1 + sc["revenue_growth"][0]) * sc["nwc_pct"][0]
-    da_tan_path = sc.get("da_tan_pct") or [0.02] * N_FWD
+    documented = spec.get("documented_inputs") is True
+    count = len(sc["revenue_growth"]) if documented else N_FWD
+    da_tan_path = sc["da_tan_pct"] if documented else sc.get("da_tan_pct") or [0.02] * N_FWD
+    amortization_years = spec["capdev_amortization_years"] if documented else 4
     capdev_hist = []
-    for t in range(N_FWD):
+    for t in range(count):
         rev = rev * (1 + sc["revenue_growth"][t])
         gp = rev * sc["gross_margin"][t]
         opex = rev * (sc["rnd_pct"][t] + sc["sga_pct"][t])
@@ -348,7 +351,10 @@ def _scenario_numbers(spec, sc, last_rev, nwc0=None):
         capdev_hist.append(capdev)
         ebitda = gp - opex + capdev
         da_tan = rev * da_tan_path[t]
-        da_int = sum(capdev_hist[-4:]) / 4.0
+        da_int = sum(capdev_hist[-amortization_years:]) / float(amortization_years)
+        if documented:
+            da_int += sc["opening_intangible_amortization"][t]
+            rows.setdefault('research_amortization', []).append(da_int)
         ebit = ebitda - da_tan - da_int
         tax = max(ebit, 0) * sc["tax_rate"][t]
         capex = rev * sc["capex_pct"][t]
@@ -426,7 +432,7 @@ def _bridge_adjustments(spec):
         lab = str(a.get("label") or "").strip()
         if v is None or not lab:
             continue
-        out.append({"label": lab[:60], "value_m": round(v, 1),
+        out.append({"label": lab[:60], "value_m": v if spec.get("documented_inputs") is True else round(v, 1),
                     "commentary": str(a.get("commentary") or "")[:220]})
         if len(out) >= 10:
             break
@@ -439,7 +445,7 @@ def _shares_used(spec):
 
 
 def _dcf_value(spec, ufcf, wacc, g, exit_multiple=None, ebitda_terminal=None,
-               ebit_terminal=None, ronic=None, tax_term=None):
+               ebit_terminal=None, ronic=None, tax_term=None, *, terminal_value=None):
     """Fair value per share. Parita' A3+A5 (13/07, audit/09): mid-year convention
     parametrica (spec['mid_year'], default True = standard banking) e TV opzionale
     a exit multiple (EV/EBITDA x EBITDA terminale) in alternativa al Gordon.
@@ -448,11 +454,15 @@ def _dcf_value(spec, ufcf, wacc, g, exit_multiple=None, ebitda_terminal=None,
     sono passati — FCFF terminale = EBIT_T x (1+g) x (1-tax) x (1-g/RONIC): la
     crescita perpetua COSTA reinvestimento, niente piu' Gordon sull'UFCF Y5 gratis.
     STESSA formula scritta viva nel foglio DCF (parita' B20 == mini base)."""
-    if wacc <= g:
+    from .cash_math import present_value
+    if terminal_value is None and wacc <= g:
         return None
     off = 0.5 if spec.get("mid_year", True) else 0.0
-    pv = sum(cf / (1 + wacc) ** (t + 1 - off) for t, cf in enumerate(ufcf))
-    if exit_multiple and ebitda_terminal:
+    periods = spec["discount_periods"] if spec.get("documented_inputs") is True else [t + 1 - off for t in range(len(ufcf))]
+    pv = present_value(ufcf,periods,wacc)
+    if terminal_value is not None:
+        tv = terminal_value
+    elif exit_multiple and ebitda_terminal:
         tv = exit_multiple * ebitda_terminal
     elif ebit_terminal is not None and ronic and tax_term is not None:
         # review B1: parita' col foglio anche nel caso limite ronic<=g (TV=0 su
@@ -461,11 +471,14 @@ def _dcf_value(spec, ufcf, wacc, g, exit_multiple=None, ebitda_terminal=None,
               if ronic > g else 0.0)
     else:
         tv = ufcf[-1] * (1 + g) / (wacc - g)
-    ev = pv + tv / (1 + wacc) ** (N_FWD - off)
+    terminal_period = periods[-1] if spec.get("documented_inputs") is True else N_FWD - off
+    ev = pv + tv / (1 + wacc) ** terminal_period
     net_debt = _safe(spec.get("net_debt"), 0) or 0
     eq = ev - net_debt + sum(a["value_m"] for a in _bridge_adjustments(spec))
     sh = _shares_used(spec)
-    return round(eq / sh, 2) if sh > 0 else None
+    if sh <= 0:
+        return None
+    return eq / sh if spec.get('documented_inputs') is True else round(eq / sh, 2)
 
 
 def _irr(flows):
@@ -1718,6 +1731,19 @@ def build_model_v3(spec, out_path, scenarios=None, history=None):
 
     fv = compute_fair_values_v3(spec, sc, last_rev, nwc0=nwc0)
     fv["_base_numbers"] = fv.pop("_base_numbers", None) or fv.get("_base_numbers")
+    # DCF-Q1: evidence describes ACTUAL resolved drivers, never changes the DCF.
+    from bellomberg.valuation.dcf_quality import assess_quality
+    from bellomberg.valuation.dcf_quality_sheet import append_quality_sheet
+    quality_spec = dict(spec, _forecast_years=[datetime.now().year + i for i in range(N_FWD)])
+    quality_spec["_valuation_controls"] = {key: fv.get(key) for key in (
+        "wacc_used", "terminal_g_used", "ronic_used", "terminal_method", "terminal_warnings",
+        "mid_year", "wacc_delta_bp_used", "wacc_bear", "wacc_bull", "equity_adjustments_used",
+        "equity_adjustments_total", "method_weights_used")}
+    quality = assess_quality(quality_spec, scenarios, sc, spec.get("_analysis_context"),
+                             spec.get("_previous_valuation_snapshot"), last_rev=last_rev,
+                             nwc0=nwc0, compute_fv=compute_fair_values_v3)
+    if spec.get("_previous_snapshot_note"):
+        quality["previous_snapshot_note"] = spec["_previous_snapshot_note"]
 
     wb = openpyxl.Workbook(); wb.remove(wb.active)
     _sheet_historical(wb, spec, history)
@@ -1733,6 +1759,11 @@ def build_model_v3(spec, out_path, scenarios=None, history=None):
     _sheet_precedents(wb, spec)
     _sheet_thesis(wb, spec, fv, sc, history_ok=bool(years_hist),
                   dcf_cells=dcf_cells, comps_cells=comps_cells)
+    append_quality_sheet(wb, quality)
+    wb["Thesis & Output"]["A3"] = (
+        f"QUALITA: {quality['status']} — vedi Qualita e revisioni; "
+        "completezza documentale, non validazione economica")
+    wb["Thesis & Output"]["A3"].font = Font(bold=True, color="9C6500", size=9)
     # P0 17/07: cintura — se il bake COM di dcf_engine fallisse, Excel ricalcola
     # comunque all'apertura (openpyxl non scrive i valori cached delle formule)
     wb.calculation.fullCalcOnLoad = True
@@ -1743,6 +1774,7 @@ def build_model_v3(spec, out_path, scenarios=None, history=None):
     out = {"ok": True, "path": out_path, "engine": "operating_v3",
            "sheets": [s for s in wb.sheetnames],
            "agent_scenarios": agent_provided,
+           "analytical_quality": quality,
            "_timestamp": datetime.now().isoformat(timespec="seconds")}
     out.update({k: v for k, v in fv.items() if not k.startswith("_")})
     # M7 audit/13: la banda sanity margini (non-ciclici) arriva anche al payload —

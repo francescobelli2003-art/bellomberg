@@ -165,6 +165,66 @@ def certifica_deposito(repo, manifest, artifact):
     return directory / "certificate.json"
 
 
+def _verifica_riscrittura_messaggi(repo, old_history, new_history):
+    """Only the PM-approved label removal; every other commit byte is preserved."""
+    if (not isinstance(old_history, list) or not isinstance(new_history, list)
+            or not old_history or len(old_history) != len(new_history)
+            or len(set(old_history)) != len(old_history)
+            or len(set(new_history)) != len(new_history)):
+        raise ValueError("Riscrittura messaggi: storia incompleta o diversa")
+    for history in (old_history, new_history):
+        if not all(isinstance(oid, str) and re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", oid)
+                   for oid in history):
+            raise ValueError("Riscrittura messaggi: identificativo non valido")
+        if _git(repo, "rev-list", history[0]).decode().split() != history:
+            raise ValueError("Riscrittura messaggi: storia non corrispondente agli oggetti Git")
+    mapping = dict(zip(old_history, new_history))
+    for old, new in mapping.items():
+        raw = _git(repo, "cat-file", "commit", old)
+        headers, message = raw.split(b"\n\n", 1)
+        lines = []
+        for line in headers.split(b"\n"):
+            if line.startswith(b"parent "):
+                parent = line[7:].decode()
+                if parent not in mapping:
+                    raise ValueError("Riscrittura messaggi: parent fuori dalla storia verificata")
+                line = b"parent " + mapping[parent].encode()
+            if line.startswith(b"gpgsig ") and old != new:
+                raise ValueError("Riscrittura di commit firmati non supportata")
+            lines.append(line)
+        expected = b"\n".join(lines) + b"\n\n" + message.replace(b" (Codex GPT-6)", b"")
+        if _git(repo, "cat-file", "commit", new) != expected:
+            raise ValueError("Riscrittura messaggi: modifiche oltre la rimozione autorizzata")
+
+
+def certifica_riscrittura_messaggi(repo, precedente, artifact):
+    """Explicit one-push permission for an authorized metadata-only history rewrite.
+
+    Call only on the PM's request. Keep the old certificate/bundle separately;
+    use an exact --force-with-lease and ordinary recertification after success.
+    Content proofs remain mandatory; this does not certify new application code.
+    """
+    try:
+        valida_manifest(precedente["manifest"])
+        history = _git(repo, "rev-list", "HEAD").decode().split()
+        old_history = precedente["history"]
+        if (precedente["versione"] != 1 or not old_history
+                or precedente["head"] != old_history[0]
+                or _git(repo, "rev-parse", precedente["head"] + "^{tree}").decode().strip() != precedente["tree"]
+                or _git(repo, "symbolic-ref", "HEAD").decode().strip() != precedente["branch"]
+                or _git(repo, "remote", "get-url", "--push", "origin").decode().strip() != precedente["remote_url"]):
+            raise ValueError("Riscrittura messaggi: certificato precedente non corrispondente")
+        _verifica_riscrittura_messaggi(repo, old_history, history)
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ValueError("Riscrittura messaggi: certificato precedente illeggibile") from exc
+    path = certifica_deposito(repo, precedente["manifest"], artifact)
+    certificate = json.loads(path.read_text(encoding="utf-8"))
+    certificate["riscrittura_messaggi"] = {"precedente_head": precedente["head"],
+                                          "precedente_history": old_history}
+    _atomic_json(path, certificate)
+    return path
+
+
 def prepara_guardia(repo):
     """Install before modifying the destination: a missing certificate blocks push."""
     directory = _git_dir(repo) / "bellomberg-release"
@@ -213,7 +273,14 @@ def verifica_push(repo, refs, remote_url):
         local_ref, local_oid, remote_ref, remote_oid = lines[0]
         if local_ref != branch or remote_ref != branch or local_oid != head:
             raise ValueError("Ref spinto diverso dal commit/ramo certificato")
-        if remote_oid != "0" * len(head) and remote_oid not in certificate["history"]:
+        rewrite = certificate.get("riscrittura_messaggi")
+        if rewrite is not None:
+            if (not isinstance(rewrite, dict) or remote_oid != rewrite.get("precedente_head")
+                    or not rewrite.get("precedente_history")
+                    or remote_oid != rewrite["precedente_history"][0]):
+                raise ValueError("Storia remota estranea: riscrittura ammessa solo dal commit autorizzato")
+            _verifica_riscrittura_messaggi(repo, rewrite["precedente_history"], certificate["history"])
+        elif remote_oid != "0" * len(head) and remote_oid not in certificate["history"]:
             raise ValueError("Storia remota estranea: rifiutato anche un force-push")
     except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
         raise ValueError("Certificato locale assente o illeggibile") from error

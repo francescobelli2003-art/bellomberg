@@ -219,7 +219,7 @@ def _verdict_bands(score, max_score, labels):
 def fundamentals_score(portfolio_data=None, valuations=None, max_names=4):
     """Valutazione del book dal DCF (margine di sicurezza). PIU' ALTO = piu' CARO/sopravvalutato."""
     positions = (portfolio_data or {}).get("positions") or []
-    if not positions and valuations is None:
+    if portfolio_data is None or (not positions and valuations is None):
         try:
             from bellomberg.agents import agent_tools
             portfolio_data = agent_tools.tool_get_portfolio_live()
@@ -253,16 +253,26 @@ def fundamentals_score(portfolio_data=None, valuations=None, max_names=4):
     flagged_skipped = []
     no_model = []
     invalid_valuation = []
+    valuation_dates = {}
     for tk in names:
         upside = None
         try:
-            if valuations is not None:
+            if valuations is not None and tk in valuations:
                 v = valuations.get(tk) or {}
-                fv, pr = _finite_number(v.get("fair_value")), _finite_number(v.get("price"))
+                from bellomberg.valuation.dcf_quality import normalize_valuation_payload
+                v = normalize_valuation_payload(v)
+                if str(v.get("ticker") or "").upper() != tk.upper():
+                    invalid_valuation.append(tk)
+                    continue
+                fv = next((v[key] for key in ("fair_value", "fair_value_final", "fair_value_weighted", "fair_value_blend", "fair_value_base")
+                           if v.get(key) is not None), None)
+                fv, pr = _finite_number(fv), _finite_number(v.get("price"))
                 if v.get("valuation_flagged"):
                     flagged_skipped.append(tk)
                 elif fv is not None and pr is not None and pr > 0:
                     upside = _finite_number((fv / pr - 1) * 100)
+                    if v.get("valuation_date"):
+                        valuation_dates[tk] = v["valuation_date"]
             else:
                 # 21/07 (fix F17, causa vera dei "FV n.d."): PRIMA qui c'era
                 # generate_valuation(tk), che a OGNI run riscriveva il modello SENZA
@@ -275,15 +285,29 @@ def fundamentals_score(portfolio_data=None, valuations=None, max_names=4):
                 import os as _os
                 import json as _json
                 from datetime import date as _date
+                import re as _re
                 _safe = tk.replace(".", "_").replace("-", "_")
+                _versioned_safe = _re.sub(r'[^A-Za-z0-9_-]', '_', tk)
                 r = None
-                for _name in ("VAL_" + _safe + ".payload.json",
-                              "VAL_" + _safe + "_FLAGGED.payload.json"):
+                _names = ["VAL_" + _safe + ".payload.json", "VAL_" + _safe + "_FLAGGED.payload.json"]
+                _versioned = []
+                if _os.path.isdir(REPORT_DIR):
+                    _versioned = [name for name in _os.listdir(REPORT_DIR) if _re.fullmatch(
+                        r"VAL_" + _re.escape(_versioned_safe) + r"_[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.payload\.json", name)]
+                if _versioned:
+                    _names = sorted([name for name in _names + _versioned
+                                     if _os.path.isfile(_os.path.join(str(REPORT_DIR), name))],
+                                    key=lambda name: _os.path.getmtime(_os.path.join(str(REPORT_DIR), name)), reverse=True)
+                for _name in _names:
                     _p = _os.path.join(str(REPORT_DIR), _name)
                     if _os.path.exists(_p):
                         try:
                             with open(_p, encoding="utf-8") as _f:
                                 r = _json.load(_f)
+                            from bellomberg.valuation.method_registry import is_record_method
+                            if _name in _versioned and (not is_record_method(r.get('valuation_decision')) or
+                                    _name != 'VAL_' + _versioned_safe + '_' + str(r.get('generation_id')) + '.payload.json'):
+                                r = None
                             if "_FLAGGED" in _name:
                                 r["valuation_flagged"] = True
                         except Exception:
@@ -299,8 +323,24 @@ def fundamentals_score(portfolio_data=None, valuations=None, max_names=4):
                 if r is None or not _age_ok:
                     no_model.append(tk)
                     continue
+                from hashlib import sha256
+                workbook_path = _p[:-len(".payload.json")] + ".xlsx"
+                try:
+                    with open(workbook_path, "rb") as workbook:
+                        workbook_hash = sha256(workbook.read()).hexdigest()
+                    if r.get("workbook_sha256") != workbook_hash:
+                        invalid_valuation.append(tk)
+                        continue
+                except OSError:
+                    invalid_valuation.append(tk)
+                    continue
                 if (r.get("sanity") or {}).get("severity") == "BLOCK":
                     r["valuation_flagged"] = True
+                from bellomberg.valuation.dcf_quality import normalize_valuation_payload
+                r = normalize_valuation_payload(r)
+                if str(r.get("ticker") or "").upper() != tk.upper():
+                    invalid_valuation.append(tk)
+                    continue
                 # CATENA CANONICA del fair value (review 15/07): nessun engine emette
                 # una chiave piatta "fair_value" (operating_v3 -> _weighted, bank -> _blend).
                 # Zero e' un valore presente; un FV prioritario invalido non va
@@ -315,6 +355,8 @@ def fundamentals_score(portfolio_data=None, valuations=None, max_names=4):
                     flagged_skipped.append(tk)
                 elif fv is not None and pr is not None and pr > 0:
                     upside = _finite_number((fv / pr - 1) * 100)
+                    if r.get("valuation_date"):
+                        valuation_dates[tk] = r["valuation_date"]
         except Exception:
             upside = None
         if upside is not None:
@@ -333,6 +375,8 @@ def fundamentals_score(portfolio_data=None, valuations=None, max_names=4):
              ("Nomi sopravvalutati (>15%)", "{}/{}".format(n_rich, len(mos_list)), p_rich)]
     for tk, u in detail:
         lines.append(("  " + tk, "{:+.1f}%".format(u), 0 if u >= 0 else 2))
+        if tk in valuation_dates:
+            lines.append(("  Cutoff flussi/prezzo " + tk, valuation_dates[tk] + " (non upside corrente)", 0))
     pts = [p_mos, p_rich]
     score = sum(pts); max_score = len(pts) * 3
     verdict = _verdict_bands(score, max_score, ["BOOK A SCONTO", "VALUTAZIONE EQUA", "BOOK CARO", "BOOK MOLTO CARO"])

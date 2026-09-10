@@ -300,7 +300,7 @@ def build_rab_spec(ticker, info, wacc_inputs, rab=None, variant_view=None,
     b = rab_base
     for t in range(N_YEARS):
         cap_t = plan[t] if plan else b * capex_pct
-        b = b * (1.0 + ia) + cap_t - b * da_pct
+        b = _rab_close(b, ia, cap_t, b * da_pct, 0.0)
         rab_vec.append(round(b, 1))
 
     # --- net debt (mln): analista > yfinance contabile dichiarato > n.d. ---
@@ -463,6 +463,37 @@ def build_rab_spec(ticker, info, wacc_inputs, rab=None, variant_view=None,
 
 
 # ---------- fair value NUMERICI (mirror Python; il workbook arriva col Lotto 2) ----------
+def _rab_close(opening, indexation, recognized_capex, depreciation, disposals):
+    return opening * (1.0 + indexation) + recognized_capex - depreciation - disposals
+
+
+def project_documented_rab(opening, periods):
+    """Pure regulatory/cash ledger; caller binds and validates every supplied driver."""
+    from .cash_math import cash_sweep
+    rab,debt,cash=opening['rab'],opening['debt'],opening['cash']; wc=opening['working_capital']; rows=[]
+    unrecognized=opening['unrecognized_investment']
+    for p in periods:
+        close_rab=_rab_close(rab,p['indexation'],p['recognized_capex'],p['regulatory_depreciation'],p['disposals_rab'])
+        revenue=rab*p['allowed_return']+p['regulatory_depreciation']+p['allowed_opex']+p['incentives']+p['tax_allowance']
+        ni=revenue-p['cash_opex']-p['book_depreciation']-p['interest_paid']+p['interest_received']-p['cash_tax']
+        available=(cash+ni+p['book_depreciation']-p['cash_capex']-p['working_capital_change']+
+                   p['disposal_cash']+p['debt_issued']-p['debt_repaid'])
+        sweep=cash_sweep(available,p['minimum_cash']);distribution=sweep['distribution']
+        close_debt=debt+p['debt_issued']-p['debt_repaid']
+        close_wc=wc+p['working_capital_change']
+        close_unrecognized=unrecognized+p['cash_capex']-p['recognized_capex']
+        rows.append({'opening_rab':rab,'closing_rab':close_rab,'allowed_revenue':revenue,
+            'income_after_cash_tax':ni,'cash_before_distribution':available,'shareholder_net_distribution':distribution,
+            'opening_debt':debt,'closing_debt':close_debt,'opening_cash':cash,'closing_cash':p['minimum_cash'],
+            'opening_working_capital':wc,'closing_working_capital':close_wc,
+            'opening_unrecognized_investment':unrecognized,'closing_unrecognized_investment':close_unrecognized,
+            'funding_required':sweep['funding_required'],**p})
+        rab,debt,cash=close_rab,close_debt,p['minimum_cash']
+        wc=close_wc
+        unrecognized=close_unrecognized
+    return rows
+
+
 def _fv_ev_rab(spec):
     """EV = RAB x (1+premio... gia' dentro rab_premium come multiplo EV/RAB),
     equity = EV - net debt, per azione. Net debt n.d. -> None dichiarato."""
@@ -479,6 +510,11 @@ def _fv_ddm_regolato(spec):
     convenzioni pre-tax (ARERA / override analista): su vanilla (Ofgem) il
     passaggio a utile netto richiede la separazione equity/debito della FD ->
     n.d. DICHIARATO fino alla review finanza del Lotto 2."""
+    if spec.get('documented_inputs'):
+        ke=spec['ke']; g=spec['growth_lt']; periods=spec['discount_periods']
+        pv=sum(cash/(1+ke)**t for cash,t in zip(spec['cash_distributions'],periods))
+        terminal=spec['terminal_distribution']/(ke-g)
+        return (pv+terminal/(1+ke)**periods[-1])/spec['shares']
     if spec.get("convention") not in ("real_pretax", "analyst_pretax"):
         return None
     kd, tax, nd = spec.get("kd"), spec.get("tax"), spec.get("net_debt")

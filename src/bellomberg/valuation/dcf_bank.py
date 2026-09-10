@@ -402,6 +402,15 @@ def build_bank_spec(ticker, info, wacc_inputs, roe_path=None, target_payout=None
 
 # ---------- fair value NUMERICI (mirror python delle formule Excel) ----------
 def _fv_residual_income(spec):
+    if spec.get('documented_inputs'):
+        b = spec['book_value']; pv = b; previous = 0.0
+        for ni, distribution, t in zip(spec['net_income'], spec['distributions'], spec['discount_periods']):
+            charge = b * ((1 + spec['ke']) ** (t - previous) - 1)
+            pv += (ni - charge) / (1 + spec['ke']) ** t
+            b += ni - distribution
+            previous = t
+        pv += (spec['terminal_equity'] - b) / (1 + spec['ke']) ** previous
+        return pv / spec['shares']
     bv = spec.get("book_value"); sh = spec.get("shares")
     if not bv or not sh:
         return None
@@ -426,7 +435,8 @@ def _fv_ptbv(spec):
     ke = spec["ke"]; g = spec["growth_lt"]; rt = spec["roe_terminal"]
     if ke <= g:
         return None
-    return round(bvps * (rt - g) / (ke - g), 2)
+    value = bvps * (rt - g) / (ke - g)
+    return value if spec.get('documented_inputs') else round(value, 2)
 
 
 def _fv_ddm(spec):

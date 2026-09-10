@@ -219,6 +219,8 @@ def run_red_team(blackboard, portfolio_data=None, memory_db=None) -> str:
     except Exception as e:
         print(f"[RED_TEAM] vincoli PM skip (dichiarato): {e}")
     parts.append(_blocco_blackboard(ordinati, recupero=RECUPERO_NESSUNO))
+    from bellomberg.valuation.sector_analysis import valuation_results_block
+    parts.append(valuation_results_block(getattr(blackboard, "valuation_results", {})))
     user_msg = "\n".join(parts)
 
     # mandato sui numeri (15/07): 3 tool READ-ONLY dal registro delle chat.

@@ -222,6 +222,7 @@ class Blackboard:
         self.current_round = 0
         self.tool_log = []
         self.memory_db = memory_db
+        self.valuation_results = {}
         self.memo_id = memo_id
         self.start_time = datetime.now().isoformat(timespec="seconds")
         self.specialist_status = {}  # {name: "idle" | "running" | "done" | "error"}
@@ -988,6 +989,8 @@ class Specialist:
 
     def __init__(self, blackboard, client=None):
         self.blackboard = blackboard
+        self._sector_bundles = {}
+        self._research_decision_links = {}
         # #196: timeout duro -> una chiamata appesa fallisce e la run prosegue.
         # 27/08: il numero segue il cap di output (TIMEOUT_SPECIALIST_S, 450 s a 16k):
         # a 240 s una call da 16k a 65-80 tok/s sarebbe finita in timeout + retry.
@@ -1117,9 +1120,30 @@ class Specialist:
             try:
                 from bellomberg.agents import chat_tools
                 # V6 Lotto 3 (review B4): il registro guidance sa CHI ha scritto
-                return chat_tools.dispatch(name, input_,
-                                           caller="specialista-run:" + self.name)
+                if name == "get_valuation":
+                    ticker = str(input_.get("ticker") or "").upper()
+                    result = chat_tools.dispatch(name, input_, caller="specialista-run:" + self.name,
+                        prepared_bundle=getattr(self, "_sector_bundles", {}).get(ticker))
+                    payload = result.get("data") if isinstance(result.get("data"), dict) else result
+                    if payload.get("acquisition_snapshot"):
+                        self._sector_bundles[ticker] = payload["acquisition_snapshot"]
+                    if hasattr(self.blackboard, "valuation_results"):
+                        with self.blackboard._lock:
+                            self.blackboard.valuation_results[ticker] = payload
+                    db = getattr(self.blackboard, "memory_db", None)
+                    decision_id = getattr(self, "_research_decision_links", {}).get(ticker)
+                    if db is not None and decision_id and payload.get("snapshot_id"):
+                        try:
+                            db.link_valuation_snapshot(payload["snapshot_id"],
+                                generation_id=payload["generation_id"], decision_id=decision_id)
+                        except Exception as exc:
+                            payload["research_snapshot_error"] = type(exc).__name__ + ": " + str(exc)
+                    return result
+                return chat_tools.dispatch(name, input_, caller="specialista-run:" + self.name)
             except Exception as e:
+                if name == "get_valuation":
+                    return {"ok": False, "error": "Acquisizione/valutazione settoriale KO: " + str(e),
+                            "exclude_from_action_table": True}
                 # P1 26/07: il ripiego copre 21 nomi su 51 -> per gli altri 30
                 # `execute_tool` risponde "Tool sconosciuto", ma lo SCAMBIO di
                 # dispatcher era muto. Ora e' dichiarato anche AL MODELLO, che
@@ -1318,7 +1342,8 @@ class Specialist:
         if self.name == "fundamentals" and round_n >= 1:
             try:
                 from bellomberg.core.current_facts import research_block
-                _rb = research_block()
+                _rb = research_block(sector_bundles=self._sector_bundles,
+                                     decision_links=self._research_decision_links)
                 if _rb:
                     _ctx = _rb.strip() + "\n\n" + _ctx
             except Exception as e:

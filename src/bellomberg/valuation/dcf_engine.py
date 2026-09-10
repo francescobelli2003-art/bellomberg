@@ -12,7 +12,8 @@ generate_valuation(ticker) ->
        - etf_passive  -> nota di esposizione (NO DCF: e' un paniere)
        - rifiuti DICHIARATI: negozio illeggibile, veicolo senza fonte NAV, profilo
                          SCONOSCIUTO (PRIMA delle cinture), le tre cinture del 13-15/07
-       - bank/insurance -> dcf_bank.build_bank_model (residual income + P/TBV)
+       - bank          -> dcf_bank.build_bank_model (residual income + P/TBV)
+       - insurance/managed care -> metodo proprio, rifiuto finche' non integrato
        - rab          -> dcf_rab (rete regolata)
        - operating    -> dcf_buyside_v3.build_model_v3 (DCF unlevered template-parity;
                          v3 KO = rifiuto dichiarato, NESSUN fallback v2 — audit/13 §4 n.1)
@@ -29,7 +30,7 @@ from typing import Dict, Any, List, Optional
 from bellomberg.core.paths import PROJECT_ROOT, REPORT_DIR
 
 # 05/09 (classificazione lotto 2): il contratto delle etichette e il negozio dei veicoli
-# (solo stdlib: l'import non legge file ne' apre rete; DAT_TICKERS sotto legge il negozio).
+# (solo stdlib: l'import non legge file ne' apre rete; DAT_TICKERS e' una vista lazy).
 import bellomberg.storage.classificazione as cl
 
 
@@ -261,7 +262,10 @@ def dat_del_negozio(negozio=None) -> set:
     return set(cl.veicoli_per_tipo("dat", negozio)["tickers"])
 
 
-DAT_TICKERS = dat_del_negozio()
+def __getattr__(name):
+    if name=='DAT_TICKERS':
+        return dat_del_negozio()
+    raise AttributeError(name)
 
 
 def _beta_u_da_profilo(profile, default):
@@ -392,7 +396,7 @@ def _fetch_guidance(ticker):
 
 
 def _guidance_vs_consensus(guidance, ticker, fin_currency=None, quote_currency=None,
-                           today=None):
+                           today=None, acquired_consensus=None):
     """V6.5 (Lotto 2, payload): guidance mid vs consensus Yahoo su metrica/anno
     comparabili — il contesto beat/miss che l'analista deve commentare. Mappa
     FY corrente -> riga '0y', FY successivo -> '+1y' (convenzione da esercizio
@@ -407,7 +411,7 @@ def _guidance_vs_consensus(guidance, ticker, fin_currency=None, quote_currency=N
         return None
     try:
         from bellomberg.market_data.consensus_estimates import get_consensus
-        cons = get_consensus(ticker)
+        cons = acquired_consensus if acquired_consensus is not None else get_consensus(ticker)
     except Exception as e:
         return {"note": "consensus NON letto (%s): confronto n.d., dichiarato" % type(e).__name__}
     if not isinstance(cons, dict) or cons.get("error"):
@@ -478,55 +482,82 @@ def _guidance_vs_consensus(guidance, ticker, fin_currency=None, quote_currency=N
 
 
 PERCORSI = ("mnav", "etf_passive", "rifiuto_guasto", "rifiuto_veicolo", "rifiuto_sconosciuto",
-            "rifiuto_cintura", "rab", "bank", "operating")
+            "rifiuto_cintura", "rifiuto_metodo", "rifiuto_ambiguo", "rab", "bank", "operating")
 
 
-def decidi_percorso(ticker: str, info: Optional[Dict[str, Any]], negozio=None) -> Dict[str, Any]:
+def decidi_percorso(ticker: str, info: Optional[Dict[str, Any]], negozio=None, *,
+                     evidence=None, as_of=None) -> Dict[str, Any]:
     """La decisione PURA di instradamento (zero rete, zero scritture): dato ticker, `.info`
     Yahoo e negozio dei veicoli dice dove va il titolo, con la natura etichettata.
     Torna {"percorso" (uno di PERCORSI), "natura" (Etichetta), "profilo" (classify),
     "motivo" (str per i rifiuti e l'etf, altrimenti None)}.
 
-    Ordine: negozio ASSENTE/ILLEGGIBILE -> rifiuto_guasto (la
-    voce del PM potrebbe dire «veicolo»: il dato da solo e' cio' che mando' un fondo chiuso
-    al DCF); natura dat, o cef con fonte NAV -> mnav; profilo etf -> etf_passive; holding o
-    cef senza fonte -> rifiuto_veicolo; profilo SCONOSCIUTO -> rifiuto_sconosciuto, PRIMA
-    delle cinture (scettico 04/09: a valle non misurava niente); le tre cinture del
-    13-15/07 intatte -> rifiuto_cintura; poi rab / bank / operating.
-    I motivi non nominano MAI altri simboli del negozio: ieri il rifiuto VEICOLO elencava
-    la copertura mNAV col book del PM (dcf_engine.py:593)."""
+    S1: facciata del resolver economico comune. None = registro esplicitamente
+    assente, senza I/O; generate_valuation passa il registro gia' acquisito.
+    Il dict profilo preserva il contratto legacy per i soli adapter compatibili.
+    Evidenze dirette permettono a research e tool di usare la stessa decisione.
+    La disponibilita' del metodo non certifica dati/FV o chiusura della cache S2.
+    """
     from bellomberg.market_data.sector_taxonomy import classify
-    info = info or {}
-    n = negozio if negozio is not None else cl.carica_veicoli()
+    from bellomberg.valuation.valuation_profile import resolve_valuation_profile, evidence_from_info
+    from bellomberg.valuation.method_registry import select_valuation_method
+    raw_info = info
+    info = info if isinstance(info, dict) else {}
+    n = cl.valida_negozio(negozio) if negozio is not None else {
+        "origine": "assente", "veicoli": {}, "motivo": "explicitly absent"}
     t = (ticker or "").upper().strip()
-    industry = info.get("industry") or ""
-    sector = info.get("sector") or ""
-    qt = (info.get("quoteType") or "").upper()
+    industry = info.get("industry") if isinstance(info.get("industry"), str) else ""
+    sector = info.get("sector") if isinstance(info.get("sector"), str) else ""
+    qt = info.get("quoteType").upper() if isinstance(info.get("quoteType"), str) else ""
     name = info.get("shortName") or t
-    profilo = classify(industry, sector, t, quote_type=qt, negozio=n)
-    natura = profilo["_natura"]
-    engine = profilo["engine"]
+    cutoff = as_of if as_of is not None else datetime.now().date().isoformat()
+    economic = resolve_valuation_profile(t, evidence=(evidence if evidence is not None else
+                                        evidence_from_info(raw_info, as_of=cutoff)),
+                                        vehicle_registry=negozio, as_of=cutoff)
+    decision = select_valuation_method(economic)
+    documented_operating = decision['method_id'] in ('operating_fcff','bank_residual_income','regulated_rab','fund_nav','digital_asset_nav','insurance_pc_distributable_equity','insurance_life_distributable_equity','property_nav','property_development_fcff','resources_asset_dcf','development_rnpv','mixed_business_sotp') and decision.get('method_version') == '2'
+    profilo = classify(industry, sector, t, quote_type=qt, negozio=n,
+                       classification_only=documented_operating)
+    labels = economic["classification"]
+    def _etichetta(label):
+        if label["valore"] is None:
+            make = cl.guasto if decision["decision_status"] == "source_error" else cl.sconosciuto
+            return make(label["dominio"], label["evidenza"])
+        return cl.etichetta(label["dominio"], label["valore"], label["fonte"], label["evidenza"],
+                            verificato_il=label["verificato_il"])
+    natura = _etichetta(labels["natura"])
+    profilo = {**profilo, "_etichetta": _etichetta(labels["profile"]), "_natura": natura}
     voce = cl.voce(t, n)
 
     def _d(percorso, motivo=None):
-        return {"percorso": percorso, "natura": natura, "profilo": profilo, "motivo": motivo}
+        compatible_profile = profilo
+        if percorso.startswith("rifiuto_") or percorso == "managed_care":
+            compatible_profile = {k: profilo[k] for k in
+                                  ("_matched", "_profile_key", "industry", "_etichetta", "_natura")}
+            compatible_profile["engine"] = "managed_care" if percorso == "managed_care" else "sconosciuto"
+        return {"percorso": percorso, "natura": natura, "profilo": compatible_profile, "motivo": motivo,
+                "valuation_decision": decision}
 
-    if n["origine"] in ("assente", "illeggibile"):
-        return _d("rifiuto_guasto",
-                  f"{name}: negozio dei veicoli {n['origine'].upper()} ({n['motivo']}). La natura del "
-                  "titolo NON e' determinabile (potrebbe essere un veicolo dichiarato dal PM): "
-                  "nessuna valutazione finche' il file non e' presente e valido, rifiuto dichiarato.")
-    if natura.valore == "dat":
-        return _d("mnav")
+    state = decision["decision_status"]
+    if state == "source_error":
+        return _d("rifiuto_guasto", f"{name}: " + "; ".join(i["message"] for i in economic["issues"]
+                                                          if i["blocking"]))
+    if state == "ambiguous":
+        return _d("rifiuto_ambiguo", f"{name}: classificazione economica AMBIGUA; DCF rifiutato. "
+                  + "; ".join(i["message"] for i in economic["issues"])
+                  + " | acquisire/chiarire: " + ", ".join(economic["missing_fields"]))
+    if state != "resolved":
+        return _d("rifiuto_sconosciuto", f"{name}: profilo economico SCONOSCIUTO, natura "
+                  f"{natura.valore or 'n.d.'}; DCF rifiutato. Analizzalo come esposizione o completa "
+                  "le evidenze del business: " + ", ".join(economic["missing_fields"]))
+    if documented_operating and decision['support_status'] == 'integrated':
+        return _d({'bank_residual_income':'bank','regulated_rab':'rab','operating_fcff':'operating',
+                   'fund_nav':'mnav','digital_asset_nav':'mnav','insurance_pc_distributable_equity':'insurance_pc','insurance_life_distributable_equity':'insurance_life','property_nav':'property_nav','property_development_fcff':'property_development','resources_asset_dcf':'resources_asset_dcf','development_rnpv':'development_rnpv','mixed_business_sotp':'mixed_business_sotp'}[decision['method_id']])
     if natura.valore == "cef":
-        if voce is not None and voce["nav_fonte"]:
-            return _d("mnav")
-        return _d("rifiuto_veicolo",
-                  f"{name}: VEICOLO dichiarato dal PM (fondo chiuso) SENZA fonte NAV configurata "
-                  "(campo nav_fonte vuoto nel negozio dei veicoli). DCF VIETATO su un veicolo: "
-                  "analizzalo come esposizione (get_fundamentals, holdings) o a NAV/sconto quando "
-                  "una fonte ufficiale esiste — decisione PM, non un proxy.")
-    if engine == "etf_passive":
+        if voce is None or not voce["nav_fonte"]:
+            return _d("rifiuto_veicolo", f"{name}: VEICOLO senza nav_fonte configurata; "
+                      "DCF vietato, acquisire fonte NAV ufficiale e collegamento dati.")
+    if decision["legacy_route"] == "etf_passive":
         return _d("etf_passive",
                   f"{name} e' un ETF/ETN/paniere: non si valuta con DCF. Va analizzato come "
                   "ESPOSIZIONE (fattori, tema, geografia, holdings, TER). Usa l'analisi "
@@ -537,22 +568,25 @@ def decidi_percorso(ticker: str, info: Optional[Dict[str, Any]], negozio=None) -
                   "VIETATO su un veicolo: analizzalo come esposizione (get_fundamentals, holdings) "
                   "o a NAV/sconto se una fonte esiste; estendere la copertura mNAV = decisione PM "
                   "con fonte NAV nuova.")
-    if engine == "sconosciuto":
-        if natura.valore is not None:
-            # una natura DICHIARATA (negozio) o misurata (quoteType) esiste: il motivo non
-            # puo' negarla (review 05/09); senza industry/sector nessun motore parte comunque
-            _chi = "il negozio dei veicoli" if natura.fonte == "registro_pm" else "il quoteType Yahoo"
-            return _d("rifiuto_sconosciuto",
-                      f"{name}: profilo di valutazione SCONOSCIUTO — {profilo['_etichetta'].evidenza}. "
-                      f"{_chi} dice natura '{natura.valore}', ma senza industry ne' sector nessun "
-                      "motore puo' partire: DCF rifiutato, non un ripiego. Analizzalo come "
-                      "esposizione (get_fundamentals, holdings) o completa la voce nel negozio "
-                      "dei veicoli (profilo_valutazione).")
-        return _d("rifiuto_sconosciuto",
-                  f"{name}: profilo di valutazione SCONOSCIUTO — {profilo['_etichetta'].evidenza}. "
-                  "Nessuna fonte (negozio dei veicoli, quoteType, industry) dice che strumento "
-                  "sia: DCF rifiutato, non un ripiego. Analizzalo come esposizione "
-                  "(get_fundamentals, holdings) o dichiara il tipo nel negozio dei veicoli.")
+    if decision["support_status"] == "integrated" and decision["legacy_route"] == "managed_care":
+        return _d("managed_care")
+    if decision["support_status"] != "integrated" or not decision["legacy_route"]:
+        return _d("rifiuto_metodo", f"{name}: metodo {decision['method_id']} "
+                  f"{decision['support_status']}; nessun adapter applicativo compatibile. "
+                  "Acquisire i requisiti della valuation_decision; FV n.d.")
+    route = decision["legacy_route"]
+    if route == "mnav":
+        if voce is None:
+            return _d("rifiuto_veicolo", f"{name}: metodo NAV riconosciuto, ma collegamento dati "
+                      "del veicolo assente; DCF vietato, FV n.d.")
+        return _d("mnav")
+    if profilo["_profile_key"] == "default":
+        return _d("rifiuto_sconosciuto", f"{name}: natura {natura.valore}, metodo {decision['method_id']} "
+                  "riconosciuto ma profilo di calibrazione legacy SCONOSCIUTO; nessun default numerico. "
+                  "Completare dati/adapter oppure analizzare l'esposizione.")
+    if profilo["engine"] != route:
+        return _d("rifiuto_metodo", f"{name}: metodo {decision['method_id']} richiede un adapter "
+                  "coerente con il profilo economico; prior legacy incompatibili, FV n.d.")
     # fix 13/07: cintura extra oltre a quoteType (feedback PM: 17 VAL_*.xlsx in report/ =
     # DCF su ETF per settimane). Rifiuta quando il quoteType non e' EQUITY e ci sono
     # segnali da FONDO (fundFamily/navPrice/category, o totalAssets senza ricavi) oppure
@@ -575,20 +609,163 @@ def decidi_percorso(ticker: str, info: Optional[Dict[str, Any]], negozio=None) -
                   f"{name}: quoteType EQUITY ma su Yahoo NON ha industry, sector ne' ricavi: "
                   "profilo da veicolo/holding non operativa. DCF rifiutato: analizzalo come "
                   "esposizione o a NAV/sconto, non con get_valuation.")
-    if engine == "rab":
-        return _d("rab")
-    if engine in ("bank", "insurance"):
-        return _d("bank")
-    return _d("operating")
+    return _d(route)
 
 
-def generate_valuation(ticker: str, output_dir: str = None, growth_override=None, variant_view=None,
+def _read_previous_valuation_snapshot(output_dir, ticker):
+    """Read before canonical archival; never guess between competing files."""
+    base = "VAL_" + ticker.upper().replace(".", "_")
+    paths = [os.path.join(output_dir, base + suffix + ".payload.json")
+             for suffix in ("", "_FLAGGED")]
+    paths = [p for p in paths if os.path.isfile(p)]
+    if len(paths) != 1:
+        return None, ("snapshot precedente assente" if not paths else
+                      "snapshot precedente ambiguo: canonico e FLAGGED presenti")
+    try:
+        with open(paths[0], encoding="utf-8") as stream:
+            payload = json.load(stream)
+        snapshot = (payload.get("analytical_quality") or {}).get("snapshot")
+        if not isinstance(snapshot, dict):
+            return None, "sidecar precedente senza snapshot DCF-Q1: ponte storico n.d."
+        return snapshot, None
+    except (OSError, ValueError, AttributeError, TypeError) as exc:
+        return None, f"snapshot precedente illeggibile ({type(exc).__name__}): ponte n.d."
+
+
+def generate_valuation(ticker: str, output_dir: str = None, *, prepared_bundle=None,
+                       providers=None, as_of=None, method_records=None, **kwargs) -> Dict[str, Any]:
+    """Common entry: acquire once, then pass the immutable case to the adapter."""
+    from uuid import uuid4
+    from bellomberg.valuation.sector_analysis import (prepare_sector_analysis,
+        default_sector_providers, validate_bundle, revise_sector_analysis)
+    from bellomberg.valuation.dcf_quality import normalize_valuation_payload
+    if prepared_bundle is None:
+        sources = providers
+        if sources is None:
+            sources = default_sector_providers(fetch_info=kwargs.get("fetch_info"),
+                                               vehicle_registry=kwargs.get("negozio"))
+            # The legacy injection contract promises no live data behind fetch_info.
+            if kwargs.get("fetch_info") is not None:
+                sources = {"profile": sources["profile"]}
+        assumptions = {k: v for k, v in kwargs.items()
+                       if k not in ("fetch_info", "negozio", "analysis_context") and v is not None}
+        prepared_bundle = prepare_sector_analysis(ticker, as_of=as_of or datetime.now().date().isoformat(),
+            providers=sources, user_context={"assumptions": assumptions,
+                                            "method_records": method_records,
+                                            "analysis_context": kwargs.get("analysis_context") or {}})
+    elif method_records is not None:
+        prepared_bundle = revise_sector_analysis(prepared_bundle, method_records=method_records,
+                                                  analysis_context=kwargs.get("analysis_context"))
+    bundle = validate_bundle(prepared_bundle, ticker)
+    if as_of is not None and as_of != bundle["case"]["as_of"]:
+        raise ValueError("Cutoff diverso dal bundle: acquisire un nuovo snapshot")
+    if kwargs.get("analysis_context") is not None and kwargs["analysis_context"] != bundle["analysis_context"]:
+        raise ValueError("analysis_context diverso dal bundle: preparare una revisione esplicita")
+    supplied = {k: v for k, v in kwargs.items()
+                if k not in ("fetch_info", "negozio", "analysis_context") and v is not None}
+    if supplied and supplied != bundle["case"]["assumptions"]:
+        raise ValueError("Assunzioni diverse dal bundle acquisito: preparare un nuovo snapshot")
+    params = dict(bundle["case"]["assumptions"])
+    if bundle["analysis_context"]:
+        params["analysis_context"] = bundle["analysis_context"]
+    metadata = {"valuation_decision": bundle["decision"], "snapshot_id": bundle["snapshot_id"],
+                "generation_id": str(uuid4()), "acquisition_tasks": bundle["acquisition_tasks"],
+                "acquisition_snapshot": bundle,
+                "input_consumption": {"status": "incomplete", "consumed_fields": [],
+                    "unconsumed_fields": sorted({r.get("field") for r in bundle["case"]["records"] if r.get("field")}),
+                    "reason": "Adapter legacy: schema settoriale non ancora attestato; integrazione per famiglia nei lotti successivi."}}
+    accepted_arguments = {
+        "operating": {"variant_view", "growth_override", "ebitda_margin_target", "terminal_growth",
+                      "scenarios", "equity_adjustments", "stance", "diluted_shares_m", "precedents",
+                      "method_weights", "wacc_delta_bp", "peers", "segments", "analysis_context"},
+        "bank": {"variant_view", "roe_path", "target_payout", "fade_years", "cost_of_equity", "terminal_growth", "peers"},
+        "rab": {"variant_view", "rab", "terminal_growth"},
+        "mnav": {"variant_view", "nav_target"},
+        "etf_passive": set(),
+    }
+    allowed = accepted_arguments.get(bundle["case"]["route"])
+    ignored = sorted(set(params) - allowed) if allowed is not None else []
+    if (bundle["decision"]["method_id"] == "managed_care_distributable_equity"
+            and bundle["decision"]["decision_status"] == "resolved"
+            and bundle["decision"]["support_status"] == "integrated"):
+        from bellomberg.valuation.managed_care_adapter import generate_managed_care
+        result = generate_managed_care(bundle, output_dir=output_dir, metadata=metadata)
+    elif (bundle["decision"]["method_id"] == "operating_fcff"
+          and bundle["decision"]["decision_status"] == "resolved"
+          and bundle["decision"]["support_status"] == "integrated"):
+        from bellomberg.valuation.operating_adapter import generate_operating
+        result = generate_operating(bundle, output_dir=output_dir, metadata=metadata)
+    elif (bundle['decision']['method_id']=='bank_residual_income'
+          and bundle['decision']['decision_status']=='resolved'
+          and bundle['decision']['support_status']=='integrated'):
+        from bellomberg.valuation.bank_adapter import generate_bank
+        result=generate_bank(bundle,output_dir=output_dir,metadata=metadata)
+    elif (bundle['decision']['method_id']=='regulated_rab'
+          and bundle['decision']['decision_status']=='resolved'
+          and bundle['decision']['support_status']=='integrated'):
+        from bellomberg.valuation.rab_adapter import generate_rab
+        result=generate_rab(bundle,output_dir=output_dir,metadata=metadata)
+    elif (bundle['decision']['method_id'] in ('fund_nav','digital_asset_nav')
+          and bundle['decision']['decision_status']=='resolved'
+          and bundle['decision']['support_status']=='integrated'):
+        from bellomberg.valuation.nav_adapter import generate_nav
+        result=generate_nav(bundle,output_dir=output_dir,metadata=metadata)
+    elif (bundle['decision']['method_id']=='mixed_business_sotp'
+          and bundle['decision'].get('method_version')=='2'
+          and bundle['decision']['support_status']=='integrated'):
+        result=_compute_sotp(prepared_bundle=bundle,output_dir=output_dir,metadata=metadata)
+    elif (bundle['decision']['method_id']=='development_rnpv'
+          and bundle['decision'].get('method_version')=='2'
+          and bundle['decision']['support_status']=='integrated'):
+        from .development_adapter import generate_development
+        result=generate_development(bundle,output_dir=output_dir,metadata=metadata)
+    elif (bundle['decision']['method_id']=='resources_asset_dcf'
+          and bundle['decision'].get('method_version')=='2'
+          and bundle['decision']['support_status']=='integrated'):
+        from .resources_adapter import generate_resources
+        result=generate_resources(bundle,output_dir=output_dir,metadata=metadata)
+    elif (bundle['decision']['method_id']=='property_development_fcff'
+          and bundle['decision']['decision_status']=='resolved'
+          and bundle['decision']['support_status']=='integrated'):
+        from .property_development_adapter import generate_property_development
+        result=generate_property_development(bundle,output_dir=output_dir,metadata=metadata)
+    elif (bundle['decision']['method_id']=='property_nav'
+          and bundle['decision']['decision_status']=='resolved'
+          and bundle['decision']['support_status']=='integrated'):
+        from .real_estate_adapter import generate_property
+        result=generate_property(bundle,output_dir=output_dir,metadata=metadata)
+    elif (bundle['decision']['method_id'] in ('insurance_pc_distributable_equity','insurance_life_distributable_equity')
+          and bundle['decision']['decision_status']=='resolved'
+          and bundle['decision']['support_status']=='integrated'):
+        from bellomberg.valuation.insurance_adapter import generate_insurance
+        result=generate_insurance(bundle,output_dir=output_dir,metadata=metadata)
+    elif ignored:
+        metadata["input_consumption"]["unconsumed_fields"].extend(ignored)
+        result = {"ok": False, "engine": bundle["case"]["route"],
+                  "error": "Input non applicabili al metodo: " + ", ".join(ignored) + "; nessun input ignorato.", **metadata}
+    elif bundle["case"]["records"]:
+        # Never accept a method-specific input just because its name is serializable.
+        result = {"ok": False, "ticker": ticker.upper(), "engine": bundle["case"]["route"],
+                  "error": "Input settoriali acquisiti ma non consumati dall'adapter legacy; FV n.d.", **metadata}
+    else:
+        result = _generate_valuation_legacy(ticker, output_dir=output_dir,
+                                            prepared_bundle=bundle, sector_metadata=metadata, **params)
+    company_info = bundle["case"].get("info")
+    company = company_info.get("shortName") if isinstance(company_info, dict) else None
+    result = {**metadata, "ticker": ticker.upper(),
+              "company": company or ticker.upper(), **result}
+    return normalize_valuation_payload(result, expected_decision=bundle["decision"],
+                                       as_of=bundle["case"]["as_of"])
+
+
+def _generate_valuation_legacy(ticker: str, output_dir: str = None, growth_override=None, variant_view=None,
                        ebitda_margin_target=None, terminal_growth=None,
                        roe_path=None, target_payout=None, fade_years=None, cost_of_equity=None,
                        scenarios=None, equity_adjustments=None, stance=None,
                        diluted_shares_m=None, precedents=None, method_weights=None,
                        wacc_delta_bp=None, peers=None, rab=None, segments=None,
-                       nav_target=None, fetch_info=None, negozio=None) -> Dict[str, Any]:
+                       nav_target=None, fetch_info=None, negozio=None,
+                       analysis_context=None, prepared_bundle=None, sector_metadata=None) -> Dict[str, Any]:
     """Punto di ingresso unico. Ritorna dict con path Excel + verdetto + sanity.
     fetch_info (05/09): callable ticker -> dict `.info` al posto di yfinance (prove offline);
     negozio: esito di classificazione.carica_veicoli, None = riletto ora."""
@@ -613,18 +790,46 @@ def generate_valuation(ticker: str, output_dir: str = None, growth_override=None
     # di lista DAT + CEF_SOURCES + classify + VEHICLE_TICKERS. Per il ramo mNAV il .info e'
     # best-effort come ieri (review V5 B2: serve solo per il nome, i numeri vengono dai tool
     # ufficiali); per gli altri rami un errore di fetch resta un errore dichiarato.
-    _negozio = negozio if negozio is not None else cl.carica_veicoli()
-    tk = yf.Ticker(ticker)          # nessuna rete finche' non si legge un attributo
-    _fetch = fetch_info or (lambda _t: (yf.Ticker(_t).info or {}))
-    try:
-        info = _fetch(ticker) or {}
-        _info_err = None
-    except Exception as _ie:
-        info, _info_err = {}, f"{type(_ie).__name__}: {_ie}"
-    dec = decidi_percorso(ticker, info, negozio=_negozio)
+    if prepared_bundle is not None:
+        from copy import deepcopy
+        from bellomberg.valuation.sector_analysis import AcquiredTicker, acquired_data
+        _negozio = prepared_bundle["case"]["vehicle_registry"]
+        info, tk, _info_err = prepared_bundle["case"]["info"], AcquiredTicker(prepared_bundle), None
+        dec = deepcopy(prepared_bundle["case"]["routing"])
+        def _restore_label(label):
+            if label["valore"] is None:
+                make = cl.guasto if dec["valuation_decision"]["decision_status"] == "source_error" else cl.sconosciuto
+                return make(label["dominio"], label["evidenza"])
+            if label["fonte"] == "ripiego":
+                return cl.ripiego(label["dominio"], label["valore"], label["evidenza"])
+            return cl.etichetta(label["dominio"], label["valore"], label["fonte"], label["evidenza"],
+                                verificato_il=label["verificato_il"])
+        dec["natura"] = _restore_label(dec["natura"])
+        for key in ("_etichetta", "_natura"):
+            dec["profilo"][key] = _restore_label(dec["profilo"][key])
+    else:
+        _negozio = negozio if negozio is not None else cl.carica_veicoli()
+        tk = yf.Ticker(ticker)
+        _fetch = fetch_info or (lambda _t: (yf.Ticker(_t).info or {}))
+        try:
+            info, _info_err = _fetch(ticker) or {}, None
+        except Exception as _ie:
+            info, _info_err = {}, f"{type(_ie).__name__}: {_ie}"
+        dec = decidi_percorso(ticker, info, negozio=_negozio)
     profile, natura = dec["profilo"], dec["natura"]
     # la provenienza viaggia in OGNI return da qui in poi, rifiuti compresi
-    _prov = {"profile_source": str(profile["_etichetta"]), "natura": natura.as_dict()}
+    _prov = {"profile_source": str(profile["_etichetta"]), "natura": natura.as_dict(),
+             "valuation_decision": dec["valuation_decision"], **(sector_metadata or {})}
+    # Refusals precede every calculator, filesystem write and interpretation of
+    # raw provider fields (which may themselves be the reason for source_error).
+    if dec["percorso"].startswith("rifiuto_"):
+        return {"ok": False, "ticker": ticker.upper(),
+                "engine": "sconosciuto" if dec["percorso"] == "rifiuto_sconosciuto" else "unknown",
+                "error": dec["motivo"], **_prov}
+    if analysis_context is not None and dec["percorso"] != "operating":
+        return {"ok": False, "ticker": ticker.upper(), **_prov,
+                "error": "analysis_context DCF-Q1 copre il motore operating: "
+                         f"percorso {dec['percorso']} non ancora supportato; input non ignorato."}
 
     # --- V5 mNAV canonici (audit/18, decisioni PM D1-D3 23/07): i veicoli a NAV con
     # fonte ufficiale (natura dat, o cef con nav_fonte, dal negozio dei veicoli) hanno il
@@ -699,17 +904,6 @@ def generate_valuation(ticker: str, output_dir: str = None, growth_override=None
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
     name = info.get("shortName") or ticker
 
-    # --- i rifiuti e l'ETF vengono dalla decisione pura (decidi_percorso): negozio
-    # illeggibile, veicolo senza fonte NAV (ieri: lista VEHICLE_TICKERS del sizing e un
-    # messaggio che elencava il book), profilo SCONOSCIUTO prima delle cinture, le tre
-    # cinture del 13-15/07. Qui si consegnano col motivo e la provenienza.
-    if dec["percorso"] in ("rifiuto_guasto", "rifiuto_veicolo", "rifiuto_cintura"):
-        return {"ok": False, "engine": "unknown", "ticker": ticker.upper(),
-                "error": dec["motivo"], **_prov}
-    if dec["percorso"] == "rifiuto_sconosciuto":
-        return {"ok": False, "engine": "sconosciuto", "ticker": ticker.upper(),
-                "error": dec["motivo"], **_prov}
-
     # --- ETF/ETN/paniere: non valutabile con DCF ---
     if dec["percorso"] == "etf_passive":
         return {"ok": True, "engine": "etf_passive", "ticker": ticker.upper(),
@@ -720,13 +914,18 @@ def generate_valuation(ticker: str, output_dir: str = None, growth_override=None
     # v1 — bank/rab hanno la loro variant view, mnav/etf sono gia' usciti sopra.
     _guid, _guid_note = (None, None)
     if engine not in ("bank", "insurance", "rab"):
-        _guid, _guid_note = _fetch_guidance(ticker.upper())
+        if prepared_bundle is not None:
+            _guid = acquired_data(prepared_bundle, "guidance")
+            _guid_note = _guid.get("error") if isinstance(_guid, dict) else None
+        else:
+            _guid, _guid_note = _fetch_guidance(ticker.upper())
         if _guid_note:
             print(f"[dcf_engine] guidance {ticker}: {_guid_note}")
     from bellomberg.valuation.dcf_calibration import build_spec_from_ticker
     spec = build_spec_from_ticker(ticker, growth_override=growth_override, variant_view=variant_view,
                                   ebitda_margin_target=ebitda_margin_target, terminal_growth=terminal_growth,
-                                  profile=profile, guidance=_guid)  # audit/13 V1: porta dam_industry per D/E target (e driver in V2)
+                                  profile=profile, guidance=_guid,
+                                  **({"acquired_ticker": tk, "acquired_info": info} if prepared_bundle else {}))
     if spec.get("error"):
         # review V7 codice (C3): una rete regolata puo' morire qui per la
         # calibrazione OPERATING (storia ricavi, seconda fetch) che al motore RAB
@@ -774,6 +973,7 @@ def generate_valuation(ticker: str, output_dir: str = None, growth_override=None
     price = spec.get("price")
     # UN SOLO MODELLO CANONICO PER TICKER (C1-v2 16/07): path + quarantena dei
     # superati nell'helper _prepare_canonical_path (condiviso col ramo mnav V5).
+    _previous_snapshot, _previous_snapshot_note = _read_previous_valuation_snapshot(output_dir, ticker)
     out_path = _prepare_canonical_path(output_dir, ticker)
 
     # --- RETE REGOLATA (V7 Lotto 2, design audit/15 ok PM 21/07): motore RAB ---
@@ -871,7 +1071,7 @@ def generate_valuation(ticker: str, output_dir: str = None, growth_override=None
         # V4 (§9-novies n.1): lo storico SEC/ESEF arriva anche al workbook banca —
         # foglio Historical + costo del rischio through-the-cycle (impairment IFRS9).
         # Prima il return di questo ramo stava PRIMA del fetch: mai consumato.
-        _bank_history = _fetch_history(ticker, info)
+        _bank_history = acquired_data(prepared_bundle, "filings") if prepared_bundle else _fetch_history(ticker, info)
         r = build_bank_model(bspec, out_path, peers_data=peers_data, peers_note=_bank_peer_note,
                              history=_bank_history)
         r.update({"ticker": ticker.upper(), "company": name, "engine": engine,
@@ -914,7 +1114,7 @@ def generate_valuation(ticker: str, output_dir: str = None, growth_override=None
     # parita' A2 (13/07): storico XBRL PRIMA del WACC, cosi' EBIT e interest expense
     # veri sostituiscono i proxy (EBIT=0.8xEBITDA, interest=debt*5%) quando esistono.
     # V4: blocco estratto in _fetch_history (condiviso col ramo banca), logica invariata.
-    history = _fetch_history(ticker, info)
+    history = acquired_data(prepared_bundle, "filings") if prepared_bundle else _fetch_history(ticker, info)
     # audit/13 V2.2.4 (ok PM): CICLICI — normalizzazione MID-CYCLE dallo storico XBRL
     # (fino a 10 anni, che prima arrivava fin qui e non veniva mai usato): growth =
     # riassorbimento verso il CAGR di lungo periodo, margine EBITDA spostato verso la
@@ -1193,6 +1393,9 @@ def generate_valuation(ticker: str, output_dir: str = None, growth_override=None
             "precedents": _prec,
             "method_weights": _mw,
             "wacc_delta_bp": _dbp,
+            "_analysis_context": analysis_context,
+            "_previous_valuation_snapshot": _previous_snapshot,
+            "_previous_snapshot_note": _previous_snapshot_note,
         })
         r = build_model_v3(spec_v3, out_path, scenarios=scenarios, history=history)
         if not r.get("ok"):
@@ -1291,7 +1494,8 @@ def generate_valuation(ticker: str, output_dir: str = None, growth_override=None
               "guidance_deviation_pp": spec.get("_guidance_deviation_pp"),
               "guidance_vs_consensus": (_guidance_vs_consensus(
                   _guid, ticker.upper(), fin_currency=spec.get("currency"),
-                  quote_currency=info.get("currency"))
+                  quote_currency=info.get("currency"),
+                  **({"acquired_consensus": acquired_data(prepared_bundle, "consensus")} if prepared_bundle else {}))
                   if _guid else None),
               "calibration_notes": {k: (spec.get("_calibration") or {}).get(k)
                                     for k in ("driver_sources", "da_note", "mid_cycle",
@@ -1365,8 +1569,9 @@ def _sotp_num(v):
     return f if (f == f and f not in (float("inf"), float("-inf"))) else None
 
 
-def _compute_sotp(segments, net_debt, adjustments, shares_m, headline_fv,
-                  consol_ebitda_m=None, consol_revenue_m=None):
+def _compute_sotp(segments=None, net_debt=None, adjustments=None, shares_m=None, headline_fv=None,
+                  consol_ebitda_m=None, consol_revenue_m=None, *, prepared_bundle=None,
+                  output_dir=None, metadata=None):
     """Mirror Python del foglio 'SOTP (segmenti)' — puro, offline-testabile.
     Segmenti DICHIARATI DALL'ANALISTA (segment notes di bilancio, [src] in variant
     view): {name, engine: rab|multiple|operating, ...input del metodo...}.
@@ -1375,6 +1580,9 @@ def _compute_sotp(segments, net_debt, adjustments, shares_m, headline_fv,
     = riga n.d. e SOTP INCOMPLETO: mai somme parziali spacciate per totale (regola
     14/07). Bridge to equity = STESSO del modello consolidato (net debt + equity
     adjustments): il delta misura la differenza di EV, non differenze di bridge."""
+    if prepared_bundle is not None:
+        from .sotp_adapter import generate_sotp
+        return generate_sotp(prepared_bundle,output_dir=output_dir,metadata=metadata)
     if isinstance(segments, dict):
         segments = [segments]
     if not isinstance(segments, list):
@@ -1950,7 +2158,11 @@ _SIDECAR_KEYS = ("ticker", "engine", "profile_key", "subsector", "method", "pric
                  "guidance_deviation_pp",
                  # decisioni PM 23/07 (pacchetto): la nota M7 sul margine base e il
                  # costo del rischio TTC banca arrivano a F17 (prima solo foglio)
-                 "margin_sanity", "cost_of_risk_ttc")
+                 "margin_sanity", "cost_of_risk_ttc", "analytical_quality", "valuation_decision",
+                 "ok", "company", "snapshot_id", "generation_id", "acquisition_tasks",
+                 "acquisition_snapshot", "input_consumption", "valuation_usability",
+                 "workbook_sha256", "exclude_from_action_table", "valuation_flagged",
+                 "managed_care", "child_valuations", "calculation_details", "valuation_date", "valuation_basis", "currency", "financial_currency")
 
 
 def _write_payload_sidecar(r: Dict[str, Any]) -> Dict[str, Any]:
@@ -1963,9 +2175,15 @@ def _write_payload_sidecar(r: Dict[str, Any]) -> Dict[str, Any]:
     if not p or not os.path.exists(p):
         return r
     try:
+        from hashlib import sha256
+        from bellomberg.valuation.dcf_quality import normalize_valuation_payload
+        with open(p, "rb") as workbook:
+            r["workbook_sha256"] = sha256(workbook.read()).hexdigest()
+        if r.get("snapshot_id"):
+            r = normalize_valuation_payload(r, as_of=(r.get("acquisition_snapshot") or {}).get("case", {}).get("as_of"))
         slim = {k: r.get(k) for k in _SIDECAR_KEYS if r.get(k) is not None}
         san = r.get("sanity") or {}
-        slim["sanity"] = {"severity": san.get("severity"), "headline": san.get("headline")}
+        slim["sanity"] = san
         slim["_timestamp"] = datetime.now().isoformat(timespec="seconds")
         base = os.path.splitext(os.path.abspath(p))[0]
         # review 17/07 F4: scrittura ATOMICA (tmp + os.replace) — mai un json a meta'
@@ -1978,7 +2196,11 @@ def _write_payload_sidecar(r: Dict[str, Any]) -> Dict[str, Any]:
         other = (base[: -len("_FLAGGED")] if base.endswith("_FLAGGED") else base + "_FLAGGED")
         try:
             if os.path.exists(other + ".payload.json"):
-                os.remove(other + ".payload.json")
+                from uuid import uuid4
+                archive = os.path.join(os.path.dirname(other), "archive")
+                os.makedirs(archive, exist_ok=True)
+                os.replace(other + ".payload.json", os.path.join(archive,
+                    os.path.basename(other) + "_" + uuid4().hex + ".payload.json"))
         except Exception:
             pass
         r["payload_sidecar"] = os.path.basename(base + ".payload.json")
@@ -2007,6 +2229,17 @@ def _bake_values(r: Dict[str, Any]) -> Dict[str, Any]:
         r["bake_error"] = f"file non trovato al momento del bake: {p}"
         print(f"[dcf_engine] WARN bake: {r['bake_error']}")
         return r
+    if r.get("acquisition_snapshot"):
+        try:
+            from openpyxl import load_workbook
+            from bellomberg.valuation.dcf_quality_sheet import append_sector_quality_sheet
+            workbook = load_workbook(p)
+            append_sector_quality_sheet(workbook, r)
+            workbook.save(p)
+            workbook.close()
+        except Exception as exc:
+            r["sector_quality_sheet_error"] = type(exc).__name__ + ": " + str(exc)
+            r["exclude_from_action_table"] = True
     ps1 = str(PROJECT_ROOT / "tools" / "ops" / "bake_xlsx_values.ps1")
     import subprocess
     try:

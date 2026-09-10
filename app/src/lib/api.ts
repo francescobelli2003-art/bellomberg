@@ -131,12 +131,43 @@ export interface Decision {
 // F17 Fundamentals (16/07): un Excel di valutazione (VAL_/DCF_) indicizzato dal backend.
 // C1-v2: 'canonical' = modello unico vivo per ticker (senza timestamp nel nome);
 // fair_value/price/upside/variant_view arrivano dall'ultima tesi in valuation_theses.
+export interface ValuationDecision {
+  method_id?: string | null;
+  profile_id?: string | null;
+  decision_status?: string | null;
+  support_status?: string | null;
+  requirements_status?: string | null;
+  rationale?: string | null;
+  missing_fields?: string[];
+  evidence_ids?: string[];
+}
+
+export interface ValuationUsability {
+  usable: boolean;
+  reasons: string[];
+  missing_fields: string[];
+}
+
+export interface ValuationAcquisitionTask {
+  field?: string;
+  status?: string;
+  reason?: string;
+  source?: string;
+}
+
 export interface ValuationModel {
   file: string;
   dir: string;
   engine: string;
   ticker: string;
-  matched: boolean;       // false = nome file non riconducibile a un titolo del book
+  matched: boolean;       // portfolio membership, independent from canonical identity
+  identity_status?: 'canonical' | 'legacy_unverified';
+  snapshot_id?: string | null;
+  generation_id?: string | null;
+  valuation_decision?: ValuationDecision | null;
+  valuation_usability?: ValuationUsability;
+  analytical_quality?: {status?: string; issues?: string[]} | null;
+  acquisition_tasks?: ValuationAcquisitionTask[];
   canonical: boolean;
   generated_at: string | null;
   flagged: boolean;
@@ -154,6 +185,14 @@ export interface ValuationModel {
 }
 
 export interface ValuationDetail {
+  valuation_date?: string | null;
+  valuation_basis?: string | null;
+  valuation_decision?: ValuationDecision | null;
+  valuation_usability?: ValuationUsability;
+  snapshot_id?: string | null;
+  generation_id?: string | null;
+  analytical_quality?: {status?: string; issues?: string[]} | null;
+  acquisition_tasks?: ValuationAcquisitionTask[];
   engine?: string;
   method?: string;
   payload_currency?: string | null;

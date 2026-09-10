@@ -15,12 +15,16 @@ def _negozio(dat):
 
 
 def _ticker_valutato(score):
-    dettagli = [r[0].strip() for r in score["lines"] if r[0].startswith("  ")]
+    assert score['metrics']['n_valued']==1
+    dettagli = [r[0].strip() for r in score["lines"] if r[0].strip() in {'ALFA','BETA'}]
     assert len(dettagli) == 1
     return dettagli[0]
 
 
-def test_fundamentals_rilegge_dat_una_volta_e_vede_la_modifica(monkeypatch):
+def test_fundamentals_rilegge_dat_una_volta_e_vede_la_modifica(monkeypatch,tmp_path):
+    from datetime import date
+    import test_sector_usability as fixtures
+    monkeypatch.setattr(fixtures, "DAY", date.today().isoformat())
     stato = {"dat": {"ALFA"}}
     letture = []
 
@@ -33,10 +37,8 @@ def test_fundamentals_rilegge_dat_una_volta_e_vede_la_modifica(monkeypatch):
         {"ticker": "ALFA", "peso_pct": 60},
         {"ticker": "BETA", "peso_pct": 40},
     ]}
-    valuations = {
-        "ALFA": {"fair_value": 12.0, "price": 10.0},
-        "BETA": {"fair_value": 12.0, "price": 10.0},
-    }
+    from test_ripieghi_dat_dichiarati import _documented_values
+    valuations = _documented_values(tmp_path,('ALFA','BETA'))
 
     primo = ss.fundamentals_score(portfolio, valuations=valuations, max_names=1)
     stato["dat"] = {"BETA"}

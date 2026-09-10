@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Bellomberg, ValuationModel, ValuationDetail, API_BASE } from '@/lib/api';
 import { FileSpreadsheet, Download, AlertTriangle } from 'lucide-react';
+import { prepareValuationModel, valuationBadge } from '@/lib/sector-valuation';
 
 // F17 Fundamentals — OPZIONE B scelta dal PM (17/07, mockup renderizzato, regola
 // 15/07): master-detail stile terminal. Sinistra: tabella densa (un modello canonico
@@ -81,14 +82,15 @@ export default function FundamentalsPage() {
 
   useEffect(() => {
     Bellomberg.valuationModels()
-      .then(r => { setModels(r.models); setNota(r.nota); })
+      .then(r => { setModels(r.models.map(prepareValuationModel)); setNota(r.nota); })
       .catch(e => setErr(e?.message || String(e)));
   }, []);
 
   // un modello "migliore" per ticker: canonico se esiste, altrimenti il piu' recente
   const { best, vecchi } = useMemo(() => {
     const byTicker = new Map<string, ValuationModel[]>();
-    for (const m of models) {
+    for (const raw of models) {
+      const m = prepareValuationModel(raw);
       if (!byTicker.has(m.ticker)) byTicker.set(m.ticker, []);
       byTicker.get(m.ticker)!.push(m);
     }
@@ -124,10 +126,10 @@ export default function FundamentalsPage() {
 
   const badge = (m: ValuationModel) => {
     // review 17/07 F2: OK verde solo con un giudizio sanity VERO — senza dato, n.d.
-    const sev = m.sanity_severity ?? m.detail?.sanity?.severity;
-    if (m.flagged) return <span className="text-[10px] px-1.5 border border-crimson text-crimson">FLAG</span>;
+    const sev = valuationBadge(m);
+    if (sev === 'BLOCK') return <span className="text-[10px] px-1.5 border border-crimson text-crimson">BLOCK</span>;
     if (sev === 'WARN') return <span className="text-[10px] px-1.5 border border-amber text-amber">WARN</span>;
-    if (sev == null) return <span className="text-[10px] px-1.5 border border-border text-muted">n.d.</span>;
+    if (sev !== 'OK') return <span className="text-[10px] px-1.5 border border-border text-muted">n.d.</span>;
     return <span className="text-[10px] px-1.5 border border-emerald/50 text-emerald">OK</span>;
   };
 
@@ -140,8 +142,7 @@ export default function FundamentalsPage() {
   // V5: ramo veicoli mNAV (opzione B del mockup, PM 23/07) — quando il FV e' n.d.
   // (lo stato normale senza nav_target, D2) la headline e' la MISURA del veicolo
   const isMnav = (d?.engine || sel?.engine) === 'mnav';
-  // FV del veicolo: tesi se c'e', altrimenti il sidecar (stessa generazione del file
-  // per costruzione: l'endpoint scarta i sidecar piu' vecchi di 300s)
+  // Entrambi i valori sono gia' passati dal controllo comune e dalla guardia cache UI.
   const mnavFv = isMnav ? (sel?.fair_value ?? d?.fair_value_nav ?? null) : null;
   const mnavNow = isMnav ? mnavPct(d) : null;
   const mnavTargetPct = isMnav && d?.nav_target != null ? (d.nav_target - 1) * 100 : null;
@@ -156,7 +157,7 @@ export default function FundamentalsPage() {
       <div className="flex items-baseline justify-between border-b-2 border-[#ff8c00] pb-2">
         <h1 className={`text-lg font-bold font-mono ${ORANGE}`}>BELLOMBERG &lt;VAL&gt; — MODELLI DI VALUTAZIONE</h1>
         <span className="text-muted text-xs font-mono">
-          {best.filter(m => m.fair_value != null).length} con numero · {best.filter(m => m.fair_value == null).length} in attesa di view
+          {best.filter(m => m.fair_value != null).length} con FV utilizzabile · {best.filter(m => m.fair_value == null).length} da completare o verificare
         </span>
       </div>
       {err && <p className="text-crimson text-sm">Errore backend: {err}</p>}
@@ -178,7 +179,7 @@ export default function FundamentalsPage() {
             </thead>
             <tbody>
               {best.map(m => (
-                <tr key={m.file} onClick={() => setSelTicker(m.ticker)}
+                <tr key={`${m.dir}/${m.file}/${m.generation_id || m.ticker}`} onClick={() => setSelTicker(m.ticker)}
                     className={`border-b border-border/20 cursor-pointer hover:bg-bg/40 ${sel?.ticker === m.ticker ? 'bg-[#16202b]' : ''}`}>
                   <td className="py-1.5 px-2 font-semibold text-white whitespace-nowrap">
                     {m.ticker}{sel?.ticker === m.ticker ? ' ◄' : ''}
@@ -220,6 +221,26 @@ export default function FundamentalsPage() {
                               : d?.profile_key === 'dat_hype' ? 'DAT HYPE' : 'DAT BITCOIN'})`
                   : (d?.engine || (sel.engine === 'VAL' ? 'valuation' : sel.engine)).toUpperCase()}
               </div>
+              <div className="text-xs space-y-1" data-testid="sector-valuation-status">
+                <p className="text-white">Metodo: {sel.valuation_decision?.method_id || 'n.d.'}
+                  {' · '}{sel.valuation_decision?.support_status || 'non verificato'}</p>
+                <p className="text-muted">{sel.valuation_decision?.rationale || 'Decisione settoriale assente: analisi legacy non verificata.'}</p>
+                <p className="text-muted">Qualita: {sel.analytical_quality?.status || 'non verificata'}
+                  {' · '}dati: {sel.valuation_decision?.requirements_status || 'non verificati'}</p>
+                {d?.valuation_date && <p className="text-muted">Cutoff flussi e prezzo: {d.valuation_date}</p>}
+                {d?.valuation_basis && <p className="text-amber">{d.valuation_basis}</p>}
+                {!sel.valuation_usability?.usable && <p className="text-amber">
+                  FV n.d. — {(sel.valuation_usability?.reasons || []).join('; ') || 'verifica del contratto corrente mancante'}
+                </p>}
+                {(sel.valuation_usability?.missing_fields?.length || sel.valuation_decision?.missing_fields?.length || 0) > 0 &&
+                  <p className="text-amber">Dati mancanti: {(sel.valuation_usability?.missing_fields?.length
+                    ? sel.valuation_usability.missing_fields : sel.valuation_decision?.missing_fields)?.join(', ')}</p>}
+                {(sel.acquisition_tasks?.length || 0) > 0 && <ul className="text-amber list-disc pl-4">
+                  {sel.acquisition_tasks!.map((task, index) => <li key={index}>
+                    {task.field || 'Acquisizione'}: {task.status || 'da acquisire'}{task.reason ? ` — ${task.reason}` : ''}
+                  </li>)}
+                </ul>}
+              </div>
               {/* V5 opzione B (PM 23/07): headline del veicolo = FV se dichiarato,
                   altrimenti la MISURA viva (sconto / mNAV EV / mNAV) — mai un grande
                   n.d. quando il numero informativo esiste */}
@@ -255,7 +276,8 @@ export default function FundamentalsPage() {
                             : `mNAV su Adjusted NAV/FD ${d.nav_per_share != null ? d.nav_per_share.toFixed(4) : 'n.d.'}${d.mnav_dtl_addback != null ? ` · DTL add-back ${d.mnav_dtl_addback.toFixed(3)}x` : ''}`}
                       </span>
                       <p className="text-[10px] text-muted mt-0.5">
-                        FV n.d. DICHIARATO — {d.fv_note || 'nessun nav_target dell’analista (D2)'}
+                        FV n.d. DICHIARATO — {d.fv_note || (!sel.valuation_usability?.usable
+                          ? 'analisi da completare o verificare' : 'nessun nav_target dell’analista (D2)')}
                       </p>
                     </>
                   )}
@@ -267,7 +289,7 @@ export default function FundamentalsPage() {
                   {sel.fair_value != null ? sel.fair_value.toFixed(2) : 'n.d.'}
                 </span>
                 <span className="text-muted text-xs ml-2">
-                  {d?.payload_currency ? `${d.payload_currency} ` : ''}fair value{sel.fair_value == null ? ' — in attesa di variant view' : ''}
+                  {d?.payload_currency ? `${d.payload_currency} ` : ''}fair value{sel.fair_value == null ? ' — analisi da completare o verificare' : ''}
                 </span>
               </div>
               )}
@@ -556,10 +578,10 @@ export default function FundamentalsPage() {
               {d?.peer_note && <p className="text-[10px] text-faint">peer: {d.peer_note}</p>}
 
               <div className="flex gap-2 pt-1">
-                <a href={`${API_BASE}/fundamentals/models/${encodeURIComponent(sel.file)}/download`} target="_blank"
+                {sel.file && <a href={`${API_BASE}/fundamentals/models/${encodeURIComponent(sel.file)}/download`} target="_blank"
                    className="px-4 py-1.5 text-xs border border-[#7a5b1e] bg-[#1c1305] text-[#ffb000] hover:bg-[#33240a] inline-flex items-center gap-1.5">
                   <Download size={12} /> APRI EXCEL
-                </a>
+                </a>}
                 {sel.memo_id && (
                   <span className="px-4 py-1.5 text-xs border border-[#2c4a7a] bg-[#0a1220] text-[#8ab4f8]">memo #{sel.memo_id} · Archivio memo</span>
                 )}
@@ -577,12 +599,12 @@ export default function FundamentalsPage() {
           {showOld && (
             <div className="mt-2 space-y-1">
               {vecchi.map(f => (
-                <div key={f.file} className="flex items-center justify-between text-xs py-1">
+                <div key={`${f.dir}/${f.file}/${f.generation_id || f.ticker}`} className="flex items-center justify-between text-xs py-1">
                   <span className="text-muted font-mono">{f.ticker} · {f.generated_at || 'n.d.'} · {f.dir}/{f.flagged ? ' FLAGGED' : ''}</span>
-                  <a href={`${API_BASE}/fundamentals/models/${encodeURIComponent(f.file)}/download`}
+                  {f.file && <a href={`${API_BASE}/fundamentals/models/${encodeURIComponent(f.file)}/download`}
                      target="_blank" className="text-cyan hover:underline inline-flex items-center gap-1">
                     <Download size={11} /> {f.file}
-                  </a>
+                  </a>}
                 </div>
               ))}
             </div>
@@ -593,7 +615,7 @@ export default function FundamentalsPage() {
       <p className="text-muted text-xs text-center flex items-center justify-center gap-2">
         <FileSpreadsheet size={12} />
         Un modello vivo per titolo: la run lo crea per i nomi nuovi e lo revisiona se cambiano guidance/tesi/condizioni.
-        I fogli hanno formule vive coi valori gia' calcolati. FLAG = sanity fallita: il modello CHIEDE una variant view.
+        FV disponibile con dati, metodo e qualita verificati. BLOCK o dati mancanti richiedono il completamento dell'analisi.
       </p>
     </div>
   );

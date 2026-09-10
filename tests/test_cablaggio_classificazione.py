@@ -48,12 +48,12 @@ INFO = {
 }
 
 
-def test_dcf_rifiuta_negozio_assente_anche_con_info_operativa(tmp_path):
+def test_dcf_usa_evidenza_economica_anche_con_negozio_assente(tmp_path):
     negozio = cl.carica_veicoli(str(tmp_path / "assente.json"))
     r = de.decidi_percorso("OPER", INFO["OPER"], negozio=negozio)
-    assert r["percorso"] == "rifiuto_guasto"
-    assert "ASSENTE" in r["motivo"]
-    assert "nessuna valutazione" in r["motivo"]
+    assert r["percorso"] == "operating"
+    assert r["valuation_decision"]["method_id"] == "operating_fcff"
+    assert any(i["code"] == "registry_absent" for i in r["valuation_decision"]["issues"])
 
 
 def _vietati(ticker):
@@ -107,15 +107,18 @@ def test_decidi_percorso_paniere_da_quotetype(negozio):
     assert d["percorso"] == "etf_passive" and d["natura"].fonte == "quote_type"
 
 
-def test_decidi_percorso_holding_e_rifiuto_veicolo(negozio):
+def test_decidi_percorso_holding_richiede_nav_documentato(negozio):
     d = de.decidi_percorso("HOLD.MI", INFO["HOLD.MI"], negozio)
-    assert d["percorso"] == "rifiuto_veicolo" and d["natura"].valore == "holding"
-    assert "DCF" in d["motivo"]
+    assert d["percorso"] == "mnav" and d["natura"].valore == "holding"
+    assert d['valuation_decision']['requirements_status']=='not_assessed'
 
 
 def test_decidi_percorso_dat_e_cef_vanno_a_mnav(negozio):
     for tk in ("TESORO", "FONDO.L"):
-        d = de.decidi_percorso(tk, INFO[tk], negozio)
+        # A generic EQUITY quote does not contradict a declared treasury.
+        # Substantive conflicting business evidence has its own refusal test.
+        info = {"quoteType": "EQUITY"} if tk == "TESORO" else INFO[tk]
+        d = de.decidi_percorso(tk, info, negozio)
         assert d["percorso"] == "mnav", tk
         assert d["natura"].fonte == "registro_pm"
 
@@ -131,28 +134,26 @@ def test_i_motivi_di_rifiuto_non_nominano_gli_altri_simboli_del_negozio(negozio)
     dcf_engine.py:593 cablava tre simboli del book in un rifiuto."""
     d = de.decidi_percorso("HOLD.MI", INFO["HOLD.MI"], negozio)
     for t in _vietati("HOLD.MI"):
-        assert t not in d["motivo"], t
+        assert t not in (d["motivo"] or ''), t
     d2 = de.decidi_percorso("ZZZQ.XX", INFO["ZZZQ.XX"], negozio)
     for t in _vietati("ZZZQ.XX"):
         assert t not in d2["motivo"], t
     d3 = de.decidi_percorso("FONDO2.L", INFO["FONDO2.L"], negozio)
     for t in _vietati("FONDO2.L"):
-        assert t not in d3["motivo"], t
+        assert t not in (d3["motivo"] or ''), t
 
 
-def test_cef_dichiarato_senza_fonte_nav_e_rifiuto_veicolo(negozio):
+def test_cef_senza_fonte_privata_puo_acquisire_nav_documentato(negozio):
     d = de.decidi_percorso("FONDO2.L", INFO["FONDO2.L"], negozio)
-    assert d["percorso"] == "rifiuto_veicolo" and d["natura"].valore == "cef"
-    assert "nav_fonte" in d["motivo"] and "DCF" in d["motivo"]
+    assert d["percorso"] == "mnav" and d["natura"].valore == "cef"
+    assert d['valuation_decision']['method_id']=='fund_nav'
 
 
-def test_il_rifiuto_dello_sconosciuto_non_nega_una_natura_dichiarata(negozio):
-    """Una banca dichiarata nel negozio ma muta su Yahoo: il profilo e' SCONOSCIUTO (senza
-    industry il DCF non parte), ma il motivo non puo' dire «nessuna fonte dice cosa sia»
-    (review 05/09: lo diceva)."""
+def test_evidenza_bancaria_dichiarata_non_richiede_un_secondo_profilo_yahoo(negozio):
+    """S4 accepts the economic resolver; missing financial inputs still block value."""
     d = de.decidi_percorso("BANCA.MI", INFO["BANCA.MI"], negozio)
-    assert d["percorso"] == "rifiuto_sconosciuto" and d["natura"].valore == "bank"
-    assert "bank" in d["motivo"] and "nessuna fonte" not in d["motivo"].lower()
+    assert d["percorso"] == "bank" and d["natura"].valore == "bank"
+    assert d['valuation_decision']['requirements_status']=='not_assessed'
 
 
 def test_negozio_illeggibile_rifiuta_ogni_valutazione_e_lo_dice(tmp_path):
@@ -171,16 +172,21 @@ def test_negozio_illeggibile_rifiuta_ogni_valutazione_e_lo_dice(tmp_path):
 
 
 def test_negozio_assente_e_dichiarato_nel_payload(tmp_path):
-    """Decisione PM 06/09: senza negozio nessun motore parte, anche con dati Yahoo.
-    Restano le provenienze della classificazione informativa nel payload di rifiuto."""
+    """S1: absence is declared; a broad asset-management label stays ambiguous."""
     assente = cl.carica_veicoli(str(tmp_path / "manca.json"))
     d = de.decidi_percorso("HOLD.MI", INFO["HOLD.MI"], assente)
-    assert d["percorso"] == "rifiuto_guasto"
+    assert d["percorso"] == "rifiuto_ambiguo"
     assert "ASSENTE" in str(d["profilo"]["_etichetta"]).upper()
     assert "ASSENTE" in d["natura"].evidenza.upper()
     r = de.generate_valuation("ZZZQ.XX", output_dir=str(tmp_path), fetch_info=_fetch, negozio=assente)
     assert r["ok"] is False and "ASSENTE" in r["profile_source"].upper()
     assert "ASSENTE" in r["natura"]["evidenza"].upper()
+
+
+def test_registro_non_sovrascrive_evidenza_di_business_in_conflitto(negozio):
+    d = de.decidi_percorso("TESORO", INFO["TESORO"], negozio)
+    assert d["percorso"] == "rifiuto_ambiguo"
+    assert d["valuation_decision"]["method_id"] is None
 
 
 # --------------------------------------------------------------------------
@@ -208,23 +214,24 @@ def test_generate_valuation_etn_del_negozio_e_etf_passive_con_provenienza(negozi
 
 
 def test_generate_valuation_passa_il_negozio_al_motore_mnav(negozio, tmp_path):
-    """Review 05/09 (lotto 2b): decidi_percorso decideva sul negozio iniettato e il motore mNAV
-    rileggeva quello del DISCO: con un negozio finto il rifiuto portava i conteggi del negozio
-    vero. Qui FONDO.L ha nav_fonte 'sito' (non nel registro): il motore deve rifiutare col
-    motivo che nomina QUELLA fonte, cioe' deve aver ricevuto il negozio finto."""
+    """Preserve injected classification provenance; NAV source is acquired through S2.
+
+    S4 no longer asks a private legacy fetcher to manufacture missing NAV records.
+    """
     r = de.generate_valuation("FONDO.L", output_dir=str(tmp_path), fetch_info=_fetch, negozio=negozio)
     assert r["ok"] is False and r["engine"] == "mnav", r
-    assert "'sito'" in r["error"] and "FETCH_NAV" in r["error"], r["error"]
-    assert r["natura"]["valore"] == "cef"
+    assert any(t['field']=='nav_source' for t in r['acquisition_tasks'])
+    assert r['valuation_decision']['profile_id']=='cef'
+    assert r['acquisition_snapshot']['case']['vehicle_registry']==negozio
 
 
 def test_generate_valuation_holding_rifiutata_senza_nominare_altri(negozio, tmp_path):
     r = de.generate_valuation("HOLD.MI", output_dir=str(tmp_path), fetch_info=_fetch, negozio=negozio)
-    assert r["ok"] is False and r["engine"] == "unknown"
-    assert "VEICOLO" in r["error"]
+    assert r["ok"] is False and r["engine"] == "mnav"
+    assert any(t['field']=='nav_source' for t in r['acquisition_tasks'])
     for t in _vietati("HOLD.MI"):
         assert t not in r["error"], t
-    assert r["profile_source"].startswith("registro_pm")
+    assert r['valuation_decision']['profile_id']=='investment_holding'
 
 
 def test_sidecar_porta_profile_source():

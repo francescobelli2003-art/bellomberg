@@ -106,7 +106,7 @@ def _estrai_pdf(path: str) -> dict:
 
 
 class _TestoHTML(HTMLParser):
-    _MUTI = ("script", "style", "noscript", "ix:hidden")
+    _MUTI = ("script", "style", "noscript", "template", "ix:hidden")
     _BLOCCHI = ("p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "li",
                 "section", "article", "br", "hr")
 
@@ -160,17 +160,57 @@ def _estrai_html(grezzo: bytes) -> dict:
             "pagine": None, "formato": "html", "codifica": codifica}
 
 
-def scarica_documento(url: str, dest_dir: str, timeout: int = 30) -> dict:
-    """Versioni immutabili per hash; anche URL riutilizzati conservano il passato."""
+def scarica_documento(url: str, dest_dir: str, timeout: int = 30, *,
+                      host_consentiti=None) -> dict:
+    """Snapshot immutabili; host curati opzionali, controllati prima di ogni GET.
+
+    Senza host_consentiti resta il download legacy con redirect automatici.
+    Con allowlist: massimo 6 redirect HTTP(S), nessuna credenziale negli URL.
+    """
     temporaneo = None
     try:
-        if urlsplit(url).scheme not in ("http", "https"):
-            raise ValueError("URL HTTP(S) richiesto")
-        headers = {"User-Agent": UA}
-        if urlsplit(url).hostname in ("www.sec.gov", "sec.gov", "data.sec.gov"):
-            from bellomberg.market_data.sec_edgar import _headers
-            headers = {**_headers(), "Accept": "*/*"}
-        risposta = requests.get(url, timeout=timeout, headers=headers)
+        if host_consentiti is None:
+            if urlsplit(url).scheme not in ("http", "https"):
+                raise ValueError("URL HTTP(S) richiesto")
+            headers = {"User-Agent": UA}
+            if urlsplit(url).hostname in ("www.sec.gov", "sec.gov", "data.sec.gov"):
+                from bellomberg.market_data.sec_edgar import _headers
+                headers = {**_headers(), "Accept": "*/*"}
+            risposta = requests.get(url, timeout=timeout, headers=headers)
+        else:
+            if not isinstance(host_consentiti, (list, tuple, set, frozenset)):
+                raise ValueError("host_consentiti richiede una lista o un insieme di hostname")
+            if any(not isinstance(host, str) or not host for host in host_consentiti):
+                raise ValueError("hostname consentiti non validi")
+            consentiti = {host.lower() for host in host_consentiti}
+            corrente = url
+            visitati = set()
+            limite_redirect = 6
+            for salto in range(limite_redirect + 1):
+                parti = urlsplit(corrente)
+                if parti.scheme not in ("http", "https"):
+                    raise ValueError("URL HTTP(S) richiesto anche nei redirect")
+                if parti.username is not None or parti.password is not None:
+                    raise ValueError("credenziali negli URL non consentite")
+                if not parti.hostname or parti.hostname not in consentiti:
+                    raise ValueError(f"host non consentito: {parti.hostname}")
+                if corrente in visitati:
+                    raise ValueError("redirect circolare: URL gia' visitato")
+                visitati.add(corrente)
+                headers = {"User-Agent": UA}
+                if parti.hostname in ("www.sec.gov", "sec.gov", "data.sec.gov"):
+                    from bellomberg.market_data.sec_edgar import _headers
+                    headers = {**_headers(), "Accept": "*/*"}
+                risposta = requests.get(corrente, timeout=timeout, headers=headers,
+                                        allow_redirects=False)
+                if risposta.status_code not in (301, 302, 303, 307, 308):
+                    break
+                posizione = risposta.headers.get("Location")
+                if not posizione or not posizione.strip():
+                    raise ValueError("redirect senza Location: documento non scaricato")
+                if salto == limite_redirect:
+                    raise ValueError(f"limite di {limite_redirect} redirect superato")
+                corrente = urljoin(corrente, posizione)
         risposta.raise_for_status()
         contenuto = risposta.content
         if not contenuto:

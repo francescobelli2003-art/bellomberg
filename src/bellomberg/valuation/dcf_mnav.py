@@ -89,7 +89,12 @@ def dat_senza_kind_del_negozio(negozio=None) -> dict:
     return out
 
 
-MNAV_KINDS = mnav_kinds_del_negozio()
+def __getattr__(name):
+    # Compatibility view is acquired only by explicit legacy callers. Importing
+    # the pure NAV arithmetic must not read a personal vehicle registry.
+    if name=='MNAV_KINDS':
+        return mnav_kinds_del_negozio()
+    raise AttributeError(name)
 
 RECORD_STALE_DAYS_BTC = 45      # ~5 settimane senza record nuovo = fonte da verificare
 TARGET_HARD_BOUNDS = (0.10, 3.00)   # oltre: input rotto -> FV n.d. dichiarato
@@ -397,10 +402,22 @@ def _spec_cef(base, p, info) -> Dict[str, Any]:
 
 
 # ---------- MIRROR PYTHON (payload = fonte di verita'; i fogli lo riproducono) ----------
+def _common_equity_nav(gross_assets,cash,debt,preferred,other_claims,equity_adjustments):
+    return gross_assets+cash-debt-preferred-other_claims+equity_adjustments
+
+
 def compute_mnav_values(spec) -> Dict[str, Any]:
     """Misure mNAV/NAV + FV (solo con target, D2) + warnings dichiarati. Il mirror
     ricalcola dagli INPUT del tool e si confronta con i derivati del tool stesso:
     uno scarto oltre tolleranza = warning dichiarato (cintura di parita')."""
+    if spec.get('documented_inputs'):
+        c=spec['components']; cash=c['cash']; debt=c['debt']; shares=spec['shares']
+        other=sum(c[k] for k in ('other_liabilities','accrued_fees','distributions_payable','tax'))
+        common=_common_equity_nav(c['gross_assets'],cash,debt,c['preferred'],other,c['equity_adjustments'])
+        fv=common*spec['nav_target'] if spec['target_basis']=='equity_nav' else _common_equity_nav(
+            c['gross_assets']*spec['nav_target'],cash,debt,c['preferred'],other,c['equity_adjustments'])
+        return {'common_equity_nav':common,'nav_per_share':common/shares,
+                'fair_value_nav':fv/shares,'shares':shares,'components':c,'target_basis':spec['target_basis']}
     warnings = list(spec.get("warnings_spec") or [])
     tgt = spec.get("nav_target")
     out: Dict[str, Any] = {"warnings": warnings}
@@ -417,7 +434,7 @@ def compute_mnav_values(spec) -> Dict[str, Any]:
         else:
             d_, p_, c_ = spec["debt"], spec["pref"], spec["cash"]
             out["mnav_ev"] = round((mktcap + d_ + p_ - c_) / btc_nav, 3)
-            out["nav_per_share"] = round((btc_nav - d_ - p_ + c_) / spec["shares_basic"], 2)
+            out["nav_per_share"] = round(_common_equity_nav(btc_nav,c_,d_,p_,0.,0.) / spec["shares_basic"], 2)
             if tgt is not None:
                 fv = (tgt * btc_nav - d_ - p_ + c_) / spec["shares_basic"]
         if tgt is not None and spec.get("ev_missing"):

@@ -1441,12 +1441,69 @@ if FASTAPI_OK:
 
     @app.get("/fundamentals/models")
     def list_valuation_models():
-        """Indice per-ticker degli Excel di valutazione (VAL_*/DCF_* in report/ e models/).
-        Il ticker si ricava dal filename (il '.' era stato sostituito da '_': ALFA_MI) e
-        si disambigua contro i ticker visti nel DB; se non matcha resta ticker_raw
-        DICHIARATO (regola no-fallback: mai indovinare). Cartelle mancanti = dichiarate."""
+        """Canonical analysis identity, shared usability and incomplete research for F17."""
+        import hashlib
+        import math
+        import re
+        from bellomberg.core.paths import PROJECT_ROOT as valuation_root
+        from bellomberg.valuation.dcf_quality import normalize_valuation_payload
         db = get_db()
         known = _known_tickers(db)
+        notices = []
+        try:
+            snapshots = db.get_latest_valuation_snapshots()
+        except Exception as exc:
+            snapshots = {}
+            notices.append("snapshot valutazioni non disponibili: " + str(exc))
+
+        def generation_key(payload):
+            if not all(isinstance(payload.get(key), str) and payload[key]
+                       for key in ("snapshot_id", "generation_id")):
+                return None
+            return (str(payload.get("ticker") or "").upper(), payload["snapshot_id"], payload["generation_id"])
+
+        def artifact_path(path):
+            if not isinstance(path, str) or not path.strip():
+                return None
+            absolute = path if os.path.isabs(path) else os.path.join(str(valuation_root), path)
+            return os.path.normcase(os.path.realpath(absolute))
+
+        # A DB copy of a result is not an escape from a failed artifact check.
+        # An explicit stored path also identifies its generation when the sidecar
+        # is absent/corrupt; unrelated generations without a workbook stay separate.
+        snapshots_by_path, artifact_failures = {}, {}
+        for snapshot in snapshots.values():
+            payload = snapshot["payload"]
+            key, path = generation_key(payload), artifact_path(payload.get("path"))
+            if key and path:
+                snapshots_by_path.setdefault(path, set()).add(key)
+
+        def block_artifact(payload, reasons):
+            sanity = payload.get("sanity") if isinstance(payload.get("sanity"), dict) else {}
+            warnings = payload.get("warnings") if isinstance(payload.get("warnings"), list) else []
+            return {**payload, "sanity": {**sanity, "severity": "BLOCK", "headline": "; ".join(reasons)},
+                    "warnings": list(dict.fromkeys(str(warning) for warning in warnings + reasons))}
+
+        def model_fields(payload, expected_decision=None):
+            detail = normalize_valuation_payload(payload, expected_decision=expected_decision)
+            usable = detail["valuation_usability"]["usable"]
+            fv = next((detail[key] for key in ("fair_value_final", "fair_value_weighted", "fair_value_blend",
+                       "fair_value_base", "fair_value_nav", "fair_value") if detail.get(key) is not None), None) if usable else None
+            price = detail.get("price")
+            upside = detail.get("upside_pct") if usable else None
+            if (upside is None and fv is not None and isinstance(price, (int, float))
+                    and not isinstance(price, bool) and math.isfinite(price) and price > 0):
+                upside = round((fv / price - 1) * 100, 1)
+            # Full acquisition evidence remains in immutable storage, not every table row.
+            detail.pop("acquisition_snapshot", None)
+            sanity = detail.get("sanity") if isinstance(detail.get("sanity"), dict) else {}
+            return {"detail": detail, "fair_value": fv, "price_at_thesis": price, "upside_pct": upside,
+                    "valuation_decision": detail.get("valuation_decision"),
+                    "valuation_usability": detail["valuation_usability"],
+                    "analytical_quality": detail.get("analytical_quality"),
+                    "acquisition_tasks": detail.get("acquisition_tasks", []),
+                    "snapshot_id": detail.get("snapshot_id"), "generation_id": detail.get("generation_id"),
+                    "sanity_severity": sanity.get("severity"), "sanity_headline": sanity.get("headline")}
         # basename -> memo_id (dai dcf_files dei memo: lega il file alla run che l'ha creato)
         memo_of = {}
         try:
@@ -1485,7 +1542,7 @@ if FASTAPI_OK:
                         "sanity_headline": (r[7] if has_sanity else None)}
         except Exception:
             pass
-        models, missing_dirs = [], []
+        models, missing_dirs, seen_generations = [], [], set()
         for d in _val_dirs():
             if not os.path.isdir(d):
                 missing_dirs.append(os.path.basename(d))
@@ -1520,70 +1577,120 @@ if FASTAPI_OK:
                     if c in known:
                         ticker, matched = c, True
                         break
-                tk_label = ticker or cand.replace("_", ".")
+                tk_label = ticker or cand
                 # F17 opzione B (PM 17/07): dettaglio dal sidecar VAL_X.payload.json
                 # scritto da generate_valuation — metodi/peer/IRR per il pannello destro.
                 # Assente = detail None DICHIARATO (arriva alla prossima rigenerazione).
                 detail = None
+                identity_status = "legacy_unverified"
+                workbook_verified = False
                 try:
                     _sc_path = os.path.join(d, os.path.splitext(fn)[0] + ".payload.json")
                     if os.path.exists(_sc_path):
                         with open(_sc_path, "r", encoding="utf-8") as _scf:
                             detail = json.load(_scf)
-                        # review 17/07 F1: sidecar della generazione PRECEDENTE (bake in
-                        # corso o run uccisa nella finestra bake) — un dettaglio piu'
-                        # vecchio del file oltre 300s NON si serve: n.d. dichiarato
-                        try:
-                            _sc_ts = datetime.fromisoformat(str(detail.get("_timestamp"))).timestamp()
-                            if os.path.getmtime(os.path.join(d, fn)) - _sc_ts > 300:
-                                detail = None
-                        except Exception:
-                            detail = None  # timestamp illeggibile = eta' non verificabile
-                except Exception:
-                    detail = None
+                        if not isinstance(detail, dict):
+                            raise ValueError("sidecar non e' un oggetto")
+                        canonical_ticker = detail.get("ticker")
+                        if isinstance(canonical_ticker, str) and re.fullmatch(r"[A-Za-z0-9^][A-Za-z0-9.^=_/-]*", canonical_ticker.strip()):
+                            tk_label = canonical_ticker.strip().upper()
+                            matched = tk_label in known
+                            identity_status = "canonical"
+                        with open(os.path.join(d, fn), "rb") as workbook:
+                            actual_hash = hashlib.sha256(workbook.read()).hexdigest()
+                        errors = []
+                        expected_names = {tk_label, tk_label.replace(".", "_")}
+                        generation = detail.get("generation_id")
+                        from bellomberg.valuation.method_registry import is_record_method
+                        if (is_record_method(detail.get('valuation_decision')) and isinstance(generation, str)
+                                and re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", generation)):
+                            expected_names.add((re.sub(r"[^A-Za-z0-9_-]", "_", tk_label) + "_" + generation).upper())
+                        if identity_status != "canonical":
+                            errors.append("Identita' canonica assente: file legacy non verificato.")
+                        elif nome.upper() not in expected_names:
+                            errors.append("Identita' del sidecar discordante dal nome del modello.")
+                        if detail.get("workbook_sha256") != actual_hash:
+                            errors.append("Generazione Excel/sidecar non verificata: impronta assente o discordante.")
+                        workbook_verified = not errors
+                        if errors or flagged:
+                            detail["sanity"] = {**(detail.get("sanity") or {}), "severity": "BLOCK",
+                                                "headline": "; ".join(errors) or "File FLAGGED"}
+                            detail["warnings"] = list(detail.get("warnings") or []) + errors
+                    else:
+                        detail = {"ticker": tk_label, "warnings": ["sidecar assente: generazione non verificabile"],
+                                  "sanity": {"severity": "BLOCK"}}
+                except Exception as exc:
+                    detail = {"ticker": tk_label, "warnings": ["sidecar non leggibile: " + str(exc)],
+                              "sanity": {"severity": "BLOCK"}}
                 th = theses.get(tk_label.upper()) or {}
-                fv, pat = th.get("fair_value"), th.get("price_at_thesis")
-                # 16/07 notte (caso: una tesi negativa e una quasi zero in pagina): la tesi si mostra
-                # SOLO se coerente col modello corrente — (a) mai FV <= 0 (spazzatura
-                # storica pre-guard), (b) mai una tesi PIU' VECCHIA del file (regime
-                # vecchio del motore): meglio un n.d. onesto di un numero falso.
-                _th_d = str(th.get("thesis_date") or "").replace("T", " ")[:16]
-                _gen_d = str(gen or "").replace("T", " ")[:16]
-                if fv is not None and fv <= 0:
-                    fv, pat = None, None
-                    th = {**th, "variant_view": "(tesi invalida FV<=0 del motore vecchio: "
-                                                "da rigenerare — tools/ops/rigenera_modelli.py)"}
-                elif (th.get("sanity_severity") or "").upper() == "BLOCK":
-                    # audit/12 V0.4 (cintura): le tesi BLOCK nuove non vengono piu' salvate,
-                    # ma se una riga storica ne porta il marchio la pagina NON la mostra
-                    fv, pat = None, None
-                    th = {**th, "variant_view": "(tesi di un modello bocciato dalla sanity: "
-                                                "FV n.d. — pulizia con tools/ops/pulizia_tesi_invalide.py)"}
-                elif _th_d and _gen_d and _th_d < _gen_d:
-                    fv, pat = None, None
-                    th = {**th, "variant_view": "(tesi precedente al modello corrente: "
-                                                "FV n.d. finche' non viene rivalutato)"}
-                upside = (round((fv / pat - 1) * 100, 1) if (fv and pat) else None)
+                latest = snapshots.get(tk_label.upper())
+                expected = None
+                current_generation = workbook_verified
+                if latest:
+                    latest_payload = latest["payload"]
+                    latest_decision = latest_payload.get("valuation_decision")
+                    expected = {**(latest_decision if isinstance(latest_decision, dict) else {}),
+                                "snapshot_id": latest_payload.get("snapshot_id"),
+                                "generation_id": latest_payload.get("generation_id"),
+                                "ticker": latest_payload.get("ticker")}
+                    current_generation = (workbook_verified
+                        and (detail or {}).get("snapshot_id") == expected["snapshot_id"]
+                        and (detail or {}).get("generation_id") == expected["generation_id"]
+                        and (detail or {}).get("valuation_decision") == latest_decision)
+                    if current_generation:
+                        gen = latest["created_at"].replace("T", " ")
+                fields = model_fields(detail or {"ticker": tk_label}, expected_decision=expected)
+                if not fields["valuation_usability"]["usable"]:
+                    affected = set(snapshots_by_path.get(artifact_path(os.path.join(d, fn)), set()))
+                    key = generation_key(fields["detail"])
+                    if key:
+                        affected.add(key)
+                    warnings = fields["detail"].get("warnings")
+                    issues = (warnings if isinstance(warnings, list) else []) + fields["valuation_usability"]["reasons"]
+                    reason = "Artefatto " + fn + " non verificabile: " + "; ".join(str(issue) for issue in issues)
+                    for key in affected:
+                        artifact_failures.setdefault(key, []).append(reason)
+                if current_generation:
+                    seen_generations.add((fields["snapshot_id"], fields["generation_id"]))
                 models.append({
                     "file": fn, "dir": os.path.basename(d), "engine": engine,
                     "ticker": tk_label,
+                    "identity_status": identity_status,
                     "matched": matched,     # False = nome file non riconducibile a un titolo del book
-                    "canonical": canonical,  # True = modello unico vivo (senza timestamp nel nome)
+                    # F17 already sorts canonical before mtime: a touched old workbook
+                    # cannot displace the latest immutable analysis, including incomplete.
+                    "canonical": canonical and current_generation,
+                    "current_generation": current_generation,
                     "generated_at": gen, "flagged": flagged,
                     "memo_id": memo_of.get(fn),
-                    "fair_value": fv, "price_at_thesis": pat, "upside_pct": upside,
                     "thesis_date": th.get("thesis_date"),
-                    "variant_view": th.get("variant_view"),
-                    "detail": detail,  # F17-B: metodi/peer/IRR dal sidecar (None = n.d. dichiarato)
-                    # audit/12 V0.4: il giudizio sanity arriva fino alla pagina
-                    "sanity_severity": th.get("sanity_severity"),
-                    "sanity_headline": th.get("sanity_headline"),
+                    "variant_view": (detail or {}).get("variant_view") or th.get("variant_view"),
+                    **fields,
                 })
-        models.sort(key=lambda x: (x.get("canonical"), x.get("generated_at") or ""), reverse=True)
+        for ticker, snapshot in snapshots.items():
+            payload = snapshot["payload"]
+            failures = artifact_failures.get(generation_key(payload), [])
+            fields = model_fields(block_artifact(payload, failures) if failures else payload)
+            if (fields["snapshot_id"], fields["generation_id"]) in seen_generations:
+                continue
+            models.append({"file": "", "dir": "snapshot", "engine": fields["detail"].get("engine") or "n.d.",
+                           "ticker": ticker, "identity_status": "canonical", "matched": ticker in known,
+                           "canonical": True, "current_generation": True,
+                           "generated_at": snapshot["created_at"].replace("T", " "),
+                           "flagged": fields["sanity_severity"] == "BLOCK", **fields})
+        # Apply the same KO to any duplicate file rows of this generation as well.
+        for model in models:
+            failures = artifact_failures.get(generation_key(model["detail"]), [])
+            if failures:
+                model.update(model_fields(block_artifact(model["detail"], failures)))
+                model["flagged"] = True
+        models.sort(key=lambda x: (x.get("current_generation"), x.get("canonical"),
+                                   x.get("generated_at") or ""), reverse=True)
         out = {"count": len(models), "models": models}
         if missing_dirs:
-            out["nota"] = ("cartelle runtime assenti (dichiarato, non e' 'zero file'): "
-                           + ", ".join(missing_dirs))
+            notices.append("cartelle runtime assenti (dichiarato, non e' 'zero file'): " + ", ".join(missing_dirs))
+        if notices:
+            out["nota"] = "; ".join(notices)
         return out
 
     @app.get("/fundamentals/models/{name}/download")

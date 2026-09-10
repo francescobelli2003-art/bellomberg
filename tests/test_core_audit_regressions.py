@@ -311,20 +311,21 @@ def test_politics_reads_the_actual_polymarket_tool_contract(monkeypatch):
 
 @pytest.mark.parametrize("assumption", ["terminal_growth", "wacc_delta_bp"])
 def test_valuation_explicit_zero_is_a_new_assumption(monkeypatch, assumption):
-    import os
     import bellomberg.agents.chat_tools as ct
+    from bellomberg.valuation import dcf_engine
+    from bellomberg.valuation.sector_analysis import prepare_sector_analysis
     from datetime import datetime
     calls = []
     monkeypatch.setitem(sys.modules, 'bellomberg.storage.memory_db', NS(MemoryDB=lambda: NS(
         get_valuation_history=lambda *a, **k: [dict(date=datetime.now().isoformat(),
             fair_value=100, sanity_severity="OK")])) )
-    monkeypatch.setitem(sys.modules, 'bellomberg.valuation.dcf_engine', NS(_count_uncached_formulas=lambda p: 0,
-        generate_valuation=lambda *a, **kw: calls.append(kw) or {}))
-    exists = os.path.exists
-    monkeypatch.setattr(os.path, "exists", lambda p: True if str(p).endswith("VAL_SYNTH.xlsx") else exists(p))
-    result = ct.dispatch("get_valuation", {"ticker": "SYNTH", assumption: 0})
+    bundle = prepare_sector_analysis("SYNTH", as_of=datetime.now().date().isoformat(), providers={
+        "profile": lambda ticker, *, as_of: {"status": "ok", "source_id": "synthetic-profile", "as_of": as_of,
+            "data": {"info": {"quoteType": "EQUITY", "industry": "Software - Application"}, "vehicle_registry": None}}})
+    monkeypatch.setattr(dcf_engine, "generate_valuation", lambda *a, **kw: calls.append(kw) or {})
+    result = ct.dispatch("get_valuation", {"ticker": "SYNTH", assumption: 0}, prepared_bundle=bundle)
     assert len(calls) == 1
-    assert calls[0][assumption] == 0
+    assert calls[0]["prepared_bundle"]["case"]["assumptions"][assumption] == 0
     assert result.get("data", {}).get("reused") is not True
 
 

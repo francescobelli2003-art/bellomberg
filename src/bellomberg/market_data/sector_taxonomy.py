@@ -311,7 +311,7 @@ def _con_avvisi(evidenza: str, avvisi) -> str:
 
 
 def classify(industry: str, sector: str = "", ticker: str = "", quote_type: str = "",
-             negozio=None) -> Dict[str, Any]:
+             negozio=None, *, classification_only: bool = False) -> Dict[str, Any]:
     """Ritorna il profilo di valutazione del SOTTO-settore. Sempre un dict valido.
 
     05/09 (classificazione lotto 2): ogni return porta `_etichetta` (dominio
@@ -324,6 +324,8 @@ def classify(industry: str, sector: str = "", ticker: str = "", quote_type: str 
     dichiara quale e su quale campo); (7a) industry/sector presenti ma non mappati ->
     DEFAULT_PROFILE con etichetta SCONOSCIUTA; (7b) nessun dato ->
     PROFILO_SCONOSCIUTO. `negozio=None` rilegge il negozio corrente a ogni chiamata.
+    `classification_only=True` restituisce solo identita' e provenienza: i prior
+    legacy non fanno parte del contratto economico del resolver settoriale.
     """
     ind = (industry or "").lower().strip()
     sec = (sector or "").lower().strip()
@@ -344,7 +346,8 @@ def classify(industry: str, sector: str = "", ticker: str = "", quote_type: str 
         # audit/13 V1.7a: oltre a _matched (traccia legacy in forme miste) si ritorna
         # SEMPRE anche _profile_key = chiave PULITA di SUBSECTORS ('default' se nessun
         # match): e' la chiave stabile per profili WACC/growth e per il DB.
-        return {**profilo, "_matched": matched, "_profile_key": key, "industry": industry,
+        return {**({} if classification_only else profilo),
+                "_matched": matched, "_profile_key": key, "industry": industry,
                 "_etichetta": etichetta, "_natura": natura}
 
     # (1) fix 13/07: quoteType yfinance = la via AFFIDABILE per i panieri. Gli ETF hanno

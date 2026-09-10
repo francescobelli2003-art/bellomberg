@@ -494,7 +494,7 @@ def _consume_guidance_driver(guidance, metric, today=None):
 
 def build_spec_from_ticker(ticker: str, growth_override=None, variant_view=None,
                           ebitda_margin_target=None, terminal_growth=None,
-                          profile=None, guidance=None) -> Dict[str, Any]:
+                          profile=None, guidance=None, acquired_ticker=None, acquired_info=None) -> Dict[str, Any]:
     """Costruisce lo spec calibrato. Ritorna anche '_calibration' con le scelte fatte.
     profile (audit/13 V1): il profilo sub-settore di sector_taxonomy.classify —
     porta dam_industry (ancora Damodaran) per D/E target e, in V2, i driver."""
@@ -503,8 +503,8 @@ def build_spec_from_ticker(ticker: str, growth_override=None, variant_view=None,
     except ImportError:
         return {"error": "yfinance non disponibile"}
     try:
-        tk = yf.Ticker(ticker)
-        info = tk.info or {}
+        tk = acquired_ticker if acquired_ticker is not None else yf.Ticker(ticker)
+        info = acquired_info if acquired_info is not None else (tk.info or {})
     except Exception as e:
         return {"error": f"yfinance ticker: {e}"}
 

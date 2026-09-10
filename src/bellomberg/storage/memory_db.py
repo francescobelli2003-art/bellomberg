@@ -758,6 +758,34 @@ def leggi_cassa_portfolio(path=None):
     return read_cash_state(path)
 
 
+# S2: new databases include these append-only tables. Existing databases use the
+# separate dry-run/backup migration; saving a thesis never performs DDL.
+VALUATION_SNAPSHOT_STATEMENTS = [
+    """CREATE TABLE IF NOT EXISTS valuation_snapshots (
+        snapshot_id TEXT NOT NULL, generation_id TEXT NOT NULL, ticker TEXT NOT NULL,
+        metadata_version INTEGER NOT NULL, payload_json TEXT NOT NULL,
+        payload_sha256 TEXT NOT NULL, created_at TEXT NOT NULL,
+        PRIMARY KEY(snapshot_id, generation_id))""",
+    "CREATE INDEX IF NOT EXISTS idx_valuation_snapshots_ticker ON valuation_snapshots(ticker, created_at)",
+    """CREATE TABLE IF NOT EXISTS valuation_snapshot_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        snapshot_id TEXT NOT NULL, generation_id TEXT NOT NULL,
+        thesis_id INTEGER, decision_id INTEGER, created_at TEXT NOT NULL,
+        CHECK ((thesis_id IS NOT NULL) != (decision_id IS NOT NULL)),
+        FOREIGN KEY(snapshot_id,generation_id) REFERENCES valuation_snapshots(snapshot_id,generation_id),
+        FOREIGN KEY(thesis_id) REFERENCES valuation_theses(id),
+        FOREIGN KEY(decision_id) REFERENCES decisions(id))""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_valuation_snapshot_thesis ON valuation_snapshot_links(thesis_id)",
+    "CREATE INDEX IF NOT EXISTS idx_valuation_snapshot_decision ON valuation_snapshot_links(decision_id, id)",
+]
+for _snapshot_table in ("valuation_snapshots", "valuation_snapshot_links"):
+    for _snapshot_operation in ("UPDATE", "DELETE"):
+        VALUATION_SNAPSHOT_STATEMENTS.append(
+            f"CREATE TRIGGER IF NOT EXISTS {_snapshot_table}_{_snapshot_operation.lower()}_immutable "
+            f"BEFORE {_snapshot_operation} ON {_snapshot_table} "
+            "BEGIN SELECT RAISE(ABORT, 'valuation snapshot is immutable'); END")
+
+
 class MemoryDB:
     """Persistent memory layer per il consigliere."""
 
@@ -782,7 +810,12 @@ class MemoryDB:
 
     def _init_sqlite(self):
         with self._conn() as conn:
+            fresh = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1").fetchone() is None
             conn.executescript(SCHEMA_SQL)
+            if fresh:
+                for statement in VALUATION_SNAPSHOT_STATEMENTS:
+                    conn.execute(statement)
+                conn.commit()
             self._migrate_trade_history_check(conn)
             self._migrate_archive_override(conn)
             self._migrate_news_i18n(conn)
@@ -2215,15 +2248,114 @@ class MemoryDB:
                 decision_ids.append(cur.lastrowid)
         return decision_ids
 
+    @staticmethod
+    def _require_valuation_snapshot_schema(conn):
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if not {"valuation_snapshots", "valuation_snapshot_links"}.issubset(tables):
+            raise RuntimeError("valuation snapshot schema assente: eseguire prima il dry-run di "
+                               "tools/migrations/migra_valuation_metadata.py")
+
+    def _save_valuation_snapshot(self, conn, ticker, payload):
+        import hashlib
+        import uuid
+        self._require_valuation_snapshot_schema(conn)
+        if not isinstance(payload, dict):
+            raise ValueError("valuation payload deve essere un oggetto")
+        ticker = str(ticker).strip().upper()
+        if not re.fullmatch(r"[A-Z0-9^][A-Z0-9.^=_/-]*", ticker):
+            raise ValueError("snapshot ticker mancante o invalido")
+        if str(payload.get("ticker", "")).strip().upper() != ticker:
+            raise ValueError("snapshot ticker discordante")
+        snapshot_id, generation_id = payload.get("snapshot_id"), payload.get("generation_id")
+        if not isinstance(snapshot_id, str) or not re.fullmatch(r"[0-9a-f]{64}", snapshot_id):
+            raise ValueError("snapshot_id SHA256 mancante o invalido")
+        try:
+            uuid.UUID(str(generation_id))
+        except (ValueError, AttributeError):
+            raise ValueError("generation_id UUID mancante o invalido") from None
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        existing = conn.execute("SELECT payload_json FROM valuation_snapshots WHERE snapshot_id=? AND generation_id=?",
+                                (snapshot_id, generation_id)).fetchone()
+        if existing:
+            if existing[0] != encoded:
+                raise ValueError("snapshot immutabile: la generazione esiste con contenuto diverso")
+            return snapshot_id
+        conn.execute("INSERT INTO valuation_snapshots VALUES (?,?,?,?,?,?,?)",
+                     (snapshot_id, generation_id, ticker, 1, encoded,
+                      hashlib.sha256(encoded.encode("utf-8")).hexdigest(), datetime.now().isoformat(timespec="microseconds")))
+        return snapshot_id
+
+    def _link_valuation_snapshot(self, conn, snapshot_id, generation_id, thesis_id=None, decision_id=None):
+        self._require_valuation_snapshot_schema(conn)
+        if (thesis_id is None) == (decision_id is None):
+            raise ValueError("specificare thesis_id oppure decision_id")
+        snapshot = conn.execute("SELECT ticker FROM valuation_snapshots WHERE snapshot_id=? AND generation_id=?",
+                                (snapshot_id, generation_id)).fetchone()
+        column, table, row_id = ("thesis_id", "valuation_theses", thesis_id) if thesis_id is not None else ("decision_id", "decisions", decision_id)
+        row = conn.execute(f"SELECT ticker FROM {table} WHERE id=?", (row_id,)).fetchone()
+        if snapshot is None or row is None or str(snapshot[0]).upper() != str(row[0]).upper():
+            raise ValueError("snapshot/riferimento assente o ticker discordante")
+        if conn.execute(f"SELECT 1 FROM valuation_snapshot_links WHERE snapshot_id=? AND generation_id=? AND {column}=?",
+                        (snapshot_id, generation_id, row_id)).fetchone():
+            return
+        conn.execute("INSERT INTO valuation_snapshot_links(snapshot_id,generation_id,thesis_id,decision_id,created_at) VALUES (?,?,?,?,?)",
+                     (snapshot_id, generation_id, thesis_id, decision_id, datetime.now().isoformat(timespec="microseconds")))
+
+    def save_valuation_snapshot(self, ticker, payload, *, thesis_id=None, decision_id=None):
+        """Append the exact result, including incomplete research and its acquisition bundle."""
+        with self._conn() as conn:
+            snapshot_id = self._save_valuation_snapshot(conn, ticker, payload)
+            if thesis_id is not None or decision_id is not None:
+                self._link_valuation_snapshot(conn, snapshot_id, payload["generation_id"], thesis_id, decision_id)
+            return snapshot_id
+
+    def link_valuation_snapshot(self, snapshot_id, *, generation_id, thesis_id=None, decision_id=None):
+        with self._conn() as conn:
+            self._link_valuation_snapshot(conn, snapshot_id, generation_id, thesis_id, decision_id)
+
+    def get_valuation_snapshot(self, snapshot_id, *, generation_id=None):
+        """Read through the common gate; a reused input hash requires an exact generation."""
+        from bellomberg.valuation.dcf_quality import normalize_valuation_payload
+        import hashlib
+        with self._conn() as conn:
+            self._require_valuation_snapshot_schema(conn)
+            query = "SELECT payload_json,payload_sha256 FROM valuation_snapshots WHERE snapshot_id=?"
+            args = [snapshot_id]
+            if generation_id is not None:
+                query += " AND generation_id=?"
+                args.append(generation_id)
+            rows = conn.execute(query, args).fetchall()
+        if not rows:
+            return None
+        if len(rows) != 1:
+            raise ValueError("snapshot ambiguo: specificare generation_id")
+        encoded, digest = rows[0]
+        if hashlib.sha256(encoded.encode("utf-8")).hexdigest() != digest:
+            raise ValueError("snapshot integrity SHA256 discordante")
+        return normalize_valuation_payload(json.loads(encoded))
+
+    def get_latest_valuation_snapshots(self):
+        """Latest generation per canonical ticker, including cases with no workbook."""
+        with self._conn() as conn:
+            self._require_valuation_snapshot_schema(conn)
+            rows = conn.execute("SELECT snapshot_id,generation_id,ticker,created_at FROM valuation_snapshots ORDER BY created_at DESC,rowid DESC").fetchall()
+        latest = {}
+        for row in rows:
+            if row["ticker"] not in latest:
+                latest[row["ticker"]] = {"created_at": row["created_at"], "payload": self.get_valuation_snapshot(
+                    row["snapshot_id"], generation_id=row["generation_id"])}
+        return latest
+
     def save_valuation_thesis(self, ticker, variant_view=None, growth_path=None, price=None,
                               fair_value=None, ebitda_margin_target=None, terminal_growth=None,
                               engine=None, subsector=None, memo_id=None,
-                              sanity_severity=None, sanity_headline=None, profile_key=None):
+                              sanity_severity=None, sanity_headline=None, profile_key=None,
+                              valuation_payload=None):
         """#198 p.3: salva la tesi di valutazione dell'agente (variant view + growth) per
         verificarla week-on-week vs quello che la societa' consegna.
         audit/12 V0.3: porta anche il giudizio sanity del motore (OK/WARN + motivo), cosi'
-        F17 puo' etichettare i numeri da guardare con cautela. I BLOCK non arrivano qui:
-        i chiamanti non salvano tesi di modelli flaggati.
+        S2: anche le analisi incomplete/BLOCK vengono archiviate con snapshot;
+        il fair value della tesi resta NULL quando il controllo comune lo rifiuta.
         audit/13 V1.7a: profile_key = chiave PULITA del profilo sub-settore (la colonna
         subsector resta la traccia legacy _matched, forme miste); colonna nuova via
         tools/migrations/migra_profile_key.py — su DB non migrato il buco si DICHIARA."""
@@ -2231,6 +2363,14 @@ class MemoryDB:
         from datetime import datetime as _dt
         try:
             with self._conn() as conn:
+                if valuation_payload is not None:
+                    from bellomberg.valuation.dcf_quality import normalize_valuation_payload
+                    normalized = normalize_valuation_payload(valuation_payload)
+                    fair_value = next((normalized[key] for key in (
+                        "fair_value_final", "fair_value_weighted", "fair_value_blend", "fair_value_base",
+                        "fair_value_nav", "fair_value") if normalized.get(key) is not None), None
+                    ) if normalized["valuation_usability"]["usable"] else None
+                    self._save_valuation_snapshot(conn, ticker, valuation_payload)
                 cols = {row[1] for row in conn.execute("PRAGMA table_info(valuation_theses)")}
                 if profile_key and "profile_key" not in cols:
                     print("[memory_db] colonna profile_key assente in valuation_theses: "
@@ -2267,18 +2407,38 @@ class MemoryDB:
                         (ticker.upper(), _dt.now().isoformat(timespec="seconds"), price, fair_value,
                          _j.dumps(growth_path) if growth_path else None, ebitda_margin_target,
                          terminal_growth, variant_view, engine, subsector, memo_id))
-                return cur.lastrowid
+                thesis_id = cur.lastrowid
+                if valuation_payload is not None:
+                    self._link_valuation_snapshot(conn, valuation_payload["snapshot_id"],
+                                                  valuation_payload["generation_id"], thesis_id=thesis_id)
+                return thesis_id
         except Exception as e:
             print("[memory_db] save_valuation_thesis failed: " + str(e))
             return None
 
     def get_valuation_history(self, ticker, n=10):
         """Storico tesi di valutazione su un ticker (per verificare se reggono nel tempo)."""
+        from bellomberg.valuation.dcf_quality import assess_valuation_usability
         with self._conn() as conn:
             rows = conn.execute(
                 "SELECT * FROM valuation_theses WHERE UPPER(ticker)=? ORDER BY id DESC LIMIT ?",
                 (ticker.upper(), n)).fetchall()
-            return [dict(r) for r in rows]
+            history = [dict(r) for r in rows]
+            has_snapshots = conn.execute("SELECT 1 FROM sqlite_master WHERE name='valuation_snapshot_links'").fetchone()
+            for item in history:
+                link = conn.execute("SELECT snapshot_id,generation_id FROM valuation_snapshot_links WHERE thesis_id=?",
+                                    (item["id"],)).fetchone() if has_snapshots else None
+                if link:
+                    item["valuation_snapshot_id"] = item["snapshot_id"] = link["snapshot_id"]
+                    item["generation_id"] = link["generation_id"]
+                    item["valuation_payload"] = self.get_valuation_snapshot(link["snapshot_id"], generation_id=link["generation_id"])
+                    item["valuation_usability"] = item["valuation_payload"]["valuation_usability"]
+                    if not item["valuation_usability"]["usable"]:
+                        item["fair_value"] = None
+                else:
+                    item["valuation_payload"] = None
+                    item["valuation_usability"] = assess_valuation_usability(item)
+            return history
 
     # ============================================================
     # V6 GUIDANCE (audit/19, decisioni PM D1-D4 23/07)

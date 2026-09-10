@@ -10,6 +10,8 @@ from bellomberg.core import llm_client
 
 @pytest.fixture
 def score_inputs(monkeypatch, tmp_path):
+    import test_sector_usability as fixtures
+    monkeypatch.setattr(fixtures, "DAY", date.today().isoformat())
     monkeypatch.setattr(specialist_scores.cl, "carica_veicoli", lambda: {
         "origine": "synthetic", "motivo": None, "veicoli": {},
     })
@@ -18,15 +20,22 @@ def score_inputs(monkeypatch, tmp_path):
 
 
 def _score(score_inputs, source, fair_value, price=100, **extra):
+    from hashlib import sha256
+    from test_sector_usability import payload_for
     portfolio, report_dir = score_inputs
+    documented = payload_for()
+    documented.pop("fair_value_weighted")  # Preserve the original per-test FV precedence.
     if source == "sidecar":
-        payload = {"_timestamp": date.today().isoformat(), "price": price,
+        workbook = report_dir / "VAL_SYNTH.xlsx"
+        workbook.write_bytes(b"synthetic score workbook")
+        payload = {**documented, "_timestamp": date.today().isoformat(), "price": price,
+                   "workbook_sha256": sha256(workbook.read_bytes()).hexdigest(),
                    "fair_value_final": fair_value, **extra}
         (report_dir / "VAL_SYNTH.payload.json").write_text(
             json.dumps(payload), encoding="utf-8")
         return specialist_scores.fundamentals_score(portfolio)
     return specialist_scores.fundamentals_score(portfolio, valuations={
-        "SYNTH": {"fair_value": fair_value, "price": price, **extra},
+        "SYNTH": {**documented, "fair_value": fair_value, "price": price, **extra},
     })
 
 
@@ -68,11 +77,12 @@ def test_sidecar_sanity_block_remains_excluded(score_inputs):
 
 
 def test_partial_score_declares_name_with_invalid_valuation(score_inputs):
+    from test_sector_usability import payload_for
     portfolio, _ = score_inputs
     portfolio["positions"].append({"ticker": "BAD", "peso_pct": 50})
     result = specialist_scores.fundamentals_score(portfolio, valuations={
-        "SYNTH": {"fair_value": 120, "price": 100},
-        "BAD": {"fair_value": float("nan"), "price": 100},
+        "SYNTH": {**payload_for(), "fair_value": 120, "price": 100},
+        "BAD": {**payload_for(), "ticker": "BAD", "fair_value": float("nan"), "price": 100},
     })
     assert result["metrics"]["n_valued"] == 1
     assert result["metrics"]["avg_mos_pct"] == 20.0

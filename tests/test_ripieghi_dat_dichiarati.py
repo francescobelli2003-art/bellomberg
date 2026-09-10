@@ -24,12 +24,26 @@ def _senza_dcf_engine(monkeypatch):
     monkeypatch.setitem(sys.modules, 'bellomberg.valuation.dcf_engine', None)
 
 
-def test_fundamentals_score_senza_negozio_non_esclude_nessuno_e_lo_dichiara(monkeypatch):
+def _documented_values(tmp_path,symbols):
+    from test_sector_operating_drivers import bundle_for
+    from bellomberg.valuation.dcf_engine import generate_valuation
+    values={}
+    for symbol in symbols:
+        payload=generate_valuation(symbol,prepared_bundle=bundle_for(symbol=symbol),output_dir=str(tmp_path))
+        assert payload['valuation_usability']['usable'],payload.get('error')
+        values[symbol]=payload
+    return values
+
+
+def test_fundamentals_score_senza_negozio_non_esclude_nessuno_e_lo_dichiara(monkeypatch,tmp_path):
     import bellomberg.agents.specialist_scores as ss
+    from datetime import date
+    import test_sector_usability as fixtures
+    monkeypatch.setattr(fixtures, "DAY", date.today().isoformat())
     monkeypatch.setattr(ss.cl, "carica_veicoli", lambda: {
         "veicoli": {}, "origine": "assente", "motivo": "file sintetico assente"})
     pdj = {"positions": [{"ticker": "ALFA", "peso_pct": 40}, {"ticker": "BETA.DE", "peso_pct": 30}]}
-    val = {"ALFA": {"fair_value": 12.0, "price": 10.0}, "BETA.DE": {"fair_value": 9.0, "price": 10.0}}
+    val = _documented_values(tmp_path,('ALFA','BETA.DE'))
     out = ss.fundamentals_score(pdj, valuations=val, max_names=4)
     assert out, "senza motore il punteggio deve comunque uscire coi nomi valutabili"
     etichette = [str(r[0]) + " " + str(r[1]) for r in out["lines"]]
@@ -39,14 +53,17 @@ def test_fundamentals_score_senza_negozio_non_esclude_nessuno_e_lo_dichiara(monk
     assert "2/2 nomi valutati" in out["verdict"], "senza elenco nessuno viene escluso: %r" % (out["verdict"],)
 
 
-def test_fundamentals_score_col_negozio_esclude_la_dat_senza_note(monkeypatch):
+def test_fundamentals_score_col_negozio_esclude_la_dat_senza_note(monkeypatch,tmp_path):
     """La dichiarazione compare SOLO quando il buco c'e' (frase di stato al presente)."""
     import bellomberg.agents.specialist_scores as ss
+    from datetime import date
+    import test_sector_usability as fixtures
+    monkeypatch.setattr(fixtures, "DAY", date.today().isoformat())
     monkeypatch.setattr(ss.cl, "carica_veicoli", lambda: {
         "veicoli": {"GAMMA": {"tipo": "dat", "classe_size": "veicolo"}},
         "origine": "sintetico.json", "motivo": None})
     pdj = {"positions": [{"ticker": "ALFA", "peso_pct": 40}, {"ticker": "GAMMA", "peso_pct": 30}]}
-    val = {"ALFA": {"fair_value": 12.0, "price": 10.0}, "GAMMA": {"fair_value": 9.0, "price": 10.0}}
+    val = _documented_values(tmp_path,('ALFA','GAMMA'))
     out = ss.fundamentals_score(pdj, valuations=val, max_names=4)
     assert out and "1/1 nomi valutati" in out["verdict"], out and out["verdict"]
     assert not any("Negozio" in str(r[0]) for r in out["lines"]), out["lines"]

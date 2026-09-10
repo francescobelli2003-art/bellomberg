@@ -15,6 +15,7 @@ Tool disponibili:
 import os
 import json
 import glob
+from bellomberg.valuation.sector_analysis import method_records_schema
 
 from bellomberg.core.config import TAVILY_API_KEY
 from bellomberg.core.paths import MODELS_DIR
@@ -2428,7 +2429,9 @@ TOOL_DISPATCHER["quant_compute"] = tool_quant_compute
 
 # === DCF MODEL TOOL ===
 
-def tool_build_dcf_model(ticker, wacc=None, perpetual_growth=None, horizon_years=None):
+def tool_build_dcf_model(ticker, wacc=None, perpetual_growth=None, horizon_years=None, *,
+                         prepared_bundle=None, sector_providers=None, as_of=None,
+                         method_records=None, analysis_context=None):
     """Genera la valutazione col MOTORE A SUB-SETTORI (#165/#182): instrada al motore
     giusto (operativa 9-sheet DIGITRUST-style / banca DDM-residual income / ETF nota),
     con peer omogenei del sotto-settore, valuta convertita e WACC Damodaran.
@@ -2442,23 +2445,38 @@ def tool_build_dcf_model(ticker, wacc=None, perpetual_growth=None, horizon_years
     try:
         from bellomberg.valuation.dcf_engine import generate_valuation
         kwargs = {"output_dir": str(MODELS_DIR)}
+        if method_records is not None:
+            kwargs["method_records"] = method_records
+        if analysis_context is not None:
+            kwargs["analysis_context"] = analysis_context
         if perpetual_growth is not None:
             kwargs["terminal_growth"] = perpetual_growth
+        if prepared_bundle is not None:
+            kwargs["prepared_bundle"] = prepared_bundle
+        if sector_providers is not None:
+            kwargs["providers"] = sector_providers
+        if as_of is not None:
+            kwargs["as_of"] = as_of
         r = generate_valuation(ticker, **kwargs)
         if isinstance(r, dict):
+            from bellomberg.valuation.dcf_quality import normalize_valuation_payload
+            cutoff = as_of or (prepared_bundle or {}).get("case", {}).get("as_of")
+            r = normalize_valuation_payload(r, as_of=cutoff)
             eng = r.get("engine")
             if r.get("error") or r.get("ok") is False:
-                return {"error": str(r.get("error") or "Motore DCF: esito KO"),
+                return {**r, "path": r.get("path") if eng == "managed_care" else None,
+                        "error": str(r.get("error") or "Motore DCF: esito KO"),
                         "ticker": ticker.upper(), "engine": eng,
                         "subsector": r.get("subsector"),
-                        "engine_note": "Modello non prodotto; nessun fallback legacy."}
+                        "engine_note": ("Snapshot managed care incompleto; fair value n.d."
+                                        if eng == "managed_care" else "Modello non prodotto; nessun fallback legacy.")}
             if eng == "etf_passive":
-                return {"ticker": ticker.upper(), "engine": "etf_passive", "path": None,
+                return {**r, "ticker": ticker.upper(), "engine": "etf_passive", "path": None,
                         "note": "ETF: nessun DCF: valutazione per NAV / esposizione fattoriale (sub-settore etf)",
                         "subsector": r.get("subsector")}
             if r.get("path"):
                 dw = r.get("damodaran_wacc") or {}
-                return {"path": r.get("path"), "ticker": ticker.upper(),
+                return {**r, "path": r.get("path"), "ticker": ticker.upper(),
                         "engine": eng, "subsector": r.get("subsector"),
                         "company": r.get("company"), "price": r.get("price"),
                         # P0 17/07 (review F5): l'esito del bake valori viaggia col
@@ -2476,9 +2494,10 @@ def tool_build_dcf_model(ticker, wacc=None, perpetual_growth=None, horizon_years
                         "sanity": r.get("sanity"), "fx_conversion": r.get("fx_conversion"),
                         "exclude_from_action_table": r.get("exclude_from_action_table"),
                         "n_sheets": r.get("n_sheets"), "sheets": r.get("sheets"),
-                        "engine_note": "Motore sub-settore #182 (peer omogenei, WACC Damodaran; "
+                        "engine_note": ("Managed care: snapshot dei flussi equity distribuibili al cutoff dichiarato."
+                                       if eng == "managed_care" else "Motore sub-settore #182 (peer omogenei, WACC Damodaran; "
                                        "fair value convertito nella valuta del prezzo solo se "
-                                       "financialCurrency != quotazione, v. campo fx_conversion)"}
+                                       "financialCurrency != quotazione, v. campo fx_conversion)")}
         return {"ticker": ticker.upper(), "error": "Risposta DCF incompleta o non valida: "
                 "modello non prodotto; nessun fallback legacy."}
     except Exception as e:
@@ -2493,7 +2512,9 @@ TOOLS_SCHEMA.append({
         "type": "object",
         "properties": {
             "ticker": {"type": "string", "description": "Exact exchange-qualified ticker supported by the data provider"},
-            "perpetual_growth": {"type": "number", "description": "Terminal growth override as a decimal, validated by the selected engine. Omit to use its declared assumptions."}
+            "perpetual_growth": {"type": "number", "description": "Terminal growth override as a decimal, validated by the selected engine. Omit to use its declared assumptions."},
+            "method_records": method_records_schema(),
+            "analysis_context": {"type": "object", "description": "Documentazione del metodo. Managed care: scenario_rationale bear/base/bull e revisions, prove nei method_records."}
         },
         "required": ["ticker"]
     }

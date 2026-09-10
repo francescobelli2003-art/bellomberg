@@ -309,6 +309,35 @@ def veicoli_correnti() -> Dict[str, Any]:
     return carica_veicoli()
 
 
+def valida_negozio(negozio: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate an injected registry with the file loader's rules, without I/O.
+
+    The envelope is the existing carica_veicoli contract. Missing and corrupt
+    stores remain distinct; one invalid entry invalidates the whole store.
+    """
+    try:
+        if not isinstance(negozio, dict) or not isinstance(negozio.get("origine"), str):
+            raise ValueError("registry envelope requires origine")
+        origin = negozio["origine"]
+        entries = negozio.get("veicoli")
+        if not origin or not isinstance(entries, dict):
+            raise ValueError("registry envelope requires veicoli object")
+        if origin in ("assente", "illeggibile"):
+            if entries or not isinstance(negozio.get("motivo"), str) or not negozio["motivo"].strip():
+                raise ValueError("unavailable registry requires empty entries and reason")
+            return {"origine": origin, "veicoli": {}, "motivo": negozio["motivo"]}
+        clean = {}
+        for key, entry in entries.items():
+            if not isinstance(key, str) or not key or key.strip().upper() != key:
+                raise ValueError("noncanonical registry key")
+            clean[key] = _valida_voce(key, entry)
+        return {"origine": origin, "veicoli": clean, "motivo": None}
+    except (ValueError, TypeError, _NegozioIlleggibile):
+        # Do not expose other instruments from a private registry in a refusal.
+        return {"origine": "illeggibile", "veicoli": {},
+                "motivo": "registry envelope or entry invalid; validate the vehicle registry"}
+
+
 def _negozio(negozio: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return negozio if negozio is not None else carica_veicoli()
 

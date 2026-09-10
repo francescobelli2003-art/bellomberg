@@ -252,7 +252,7 @@ def _collect_dcf_files(start_time):
     import re as _re
     # review 16/07: stamp OPZIONALE — i canonici (VAL_TICKER.xlsx) e i loro _FLAGGED
     # devono entrare nel dedup, non finire nel 'resto' senza raggruppamento.
-    _pat = _re.compile(r"^(?:VAL|DCF)_(.+?)(?:_\d{8}(?:_\d{4})?)?(?:_FLAGGED)?\.xlsx$")
+    _pat = _re.compile(r"^(?:VAL|DCF)_(.+?)(?:_(?:\d{8}(?:_\d{4})?|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}))?(?:_FLAGGED)?\.xlsx$")
     best = {}
     resto = []
     for path in dcf_files:
@@ -883,6 +883,18 @@ def run_multi_agent():
             try:
                 decision_ids = db.extract_and_save_decisions(memo_id, memo,
                                                              usage_out=_at_usage)
+                # Link newly extracted proposals to the exact generation reviewed
+                # by this committee. Missing metadata is declared, never backfilled.
+                try:
+                    with db._conn() as conn:
+                        candidates = conn.execute("SELECT id,ticker FROM decisions WHERE memo_id=?", (memo_id,)).fetchall()
+                    for decision_id, ticker in candidates:
+                        result = bb.valuation_results.get(str(ticker).upper())
+                        if result and result.get("snapshot_id"):
+                            db.link_valuation_snapshot(result["snapshot_id"], generation_id=result["generation_id"],
+                                                       decision_id=decision_id)
+                except Exception as exc:
+                    _log("[!] Collegamento snapshot valutazione/decisione non salvato: " + str(exc))
                 _log("Decisions extracted from ACTION TABLE: " + str(len(decision_ids)))
             finally:
                 _record_side_usage(bb, "_action_table", _at_usage)

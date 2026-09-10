@@ -406,7 +406,7 @@ _RESEARCH_CACHE = {"text": None, "ts": 0.0}
 _TICKER_OK = None  # regex compilata lazy
 
 
-def research_block() -> str:
+def research_block(*, sector_bundles=None, providers=None, as_of=None, decision_links=None) -> str:
     """Titoli in pipeline RESEARCH (richiesta PM 16/07): le righe RESEARCH del
     Decisions tracker diventano un blocco per Fundamentals (R1/R2), cosi' la
     ricerca AVANZA tra le run invece di ripartire da zero. Dedup per ticker
@@ -416,7 +416,7 @@ def research_block() -> str:
     zero righe -> "" (vuoto legittimo). Cache 600s."""
     import time as _t
     global _TICKER_OK
-    if _RESEARCH_CACHE["text"] is not None and (_t.time() - _RESEARCH_CACHE["ts"]) < 600:
+    if sector_bundles is None and _RESEARCH_CACHE["text"] is not None and (_t.time() - _RESEARCH_CACHE["ts"]) < 600:
         return _RESEARCH_CACHE["text"]
     try:
         import os
@@ -466,6 +466,22 @@ def research_block() -> str:
                          % (tk_s, did, memo_id or "?", dt,
                             (" | trigger: " + timing) if timing else "",
                             (' | tesi: "' + rat + '"') if rat else ""))
+            if sector_bundles is not None:
+                from datetime import date
+                from bellomberg.valuation.sector_analysis import (prepare_sector_analysis,
+                    default_sector_providers, sector_analysis_summary)
+                cutoff = as_of or date.today().isoformat()
+                try:
+                    bundle = sector_bundles.get(tk_s)
+                    if bundle is None or bundle["case"]["as_of"] != cutoff:
+                        bundle = prepare_sector_analysis(tk_s, as_of=cutoff,
+                            providers=providers if providers is not None else default_sector_providers())
+                        sector_bundles[tk_s] = bundle
+                    if decision_links is not None:
+                        decision_links[tk_s] = did
+                    righe.append("    " + sector_analysis_summary(bundle).replace("\n", "\n    "))
+                except Exception as exc:
+                    righe.append("    Acquisizione settoriale KO: " + type(exc).__name__ + ": " + str(exc))
             # F10 v3: il filo note PM<->AI viaggia dentro il blocco — le note del PM
             # sono DOMANDE DIRETTE a te: rispondere e' obbligatorio
             for autore, testo, nts in reversed(note_map.get(did, [])):
@@ -482,8 +498,9 @@ def research_block() -> str:
                 "[src:]. E' il canale di dialogo del PM sulla ricerca.\n" + "\n".join(righe)
                 + (("\nRighe RESEARCH con ticker NON quotabile, escluse e da bonificare "
                     "nel tracker: " + ", ".join(scartati)) if scartati else ""))
-    _RESEARCH_CACHE["text"] = text
-    _RESEARCH_CACHE["ts"] = _t.time()
+    if sector_bundles is None:
+        _RESEARCH_CACHE["text"] = text
+        _RESEARCH_CACHE["ts"] = _t.time()
     return text
 
 

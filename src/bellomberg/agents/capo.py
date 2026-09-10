@@ -567,6 +567,8 @@ def run_capo(blackboard, portfolio_data=None, memory_db=None, sizing_context=Non
         print("[CAPO] Look-through CEF GUASTO (dichiarato NEL MEMO): " + str(e))
 
     # MOTORE DI SIZING (#184): limiti deterministici vol x correlazione, base = investito
+    from bellomberg.valuation.sector_analysis import valuation_results_block
+    user_msg_parts.append(valuation_results_block(getattr(blackboard, "valuation_results", {})))
     if sizing_context:
         user_msg_parts.append(sizing_context)
         user_msg_parts.append("")

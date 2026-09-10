@@ -23,6 +23,7 @@ API:
       usata da add_guidance per entered_by)
 """
 import json
+from bellomberg.valuation.sector_analysis import method_records_schema
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
@@ -250,6 +251,32 @@ TOOL_DEFINITIONS: List[Dict[str, Any]] = [
         "description": "Valutazione completa di una SOCIETA' OPERATIVA SINGOLA (#165): riconosce il SOTTO-settore, sceglie il MOTORE giusto (DCF unlevered operative / residual income+P/TBV banche / RAB reti regolate / mNAV veicoli). VIETATO su ETF, fondi, indici, crypto e panieri: RIFIUTATI dal motore (un paniere non ha flussi di cassa aziendali — analizzalo come ESPOSIZIONE con get_fundamentals/holdings). ECCEZIONE V5: i VEICOLI con fonte NAV ufficiale REGISTRATI nel motore (DAT e fondi chiusi: la lista e' del motore, non tua) hanno il CANONICO mNAV: scheda NAV/mNAV/sconto con fonti e vintage SEMPRE; fair value SOLO se passi nav_target (D2, mai parita' implicita zitta); growth_path/roe_path NON si applicano ai veicoli. IMPORTANTE (#198) per le operative: da ANALISTA BUY-SIDE, prima studia lo storico con get_fundamental_history (10-K/20-F) + guidance ultima trimestrale + consensus + catalyst + qualita' management, poi passa la TUA crescita in growth_path + il razionale in variant_view. Se non li passi, il modello usa il CAGR storico (meno preciso).",
         "input_schema": {"type": "object", "properties": {
             "ticker": {"type": "string"},
+            "method_records": method_records_schema(),
+            "analysis_context": {"type": "object", "description": "DCF-Q1: operating usa il contratto driver/prove sotto; managed care accetta solo scenario_rationale e revisions, con dati e prove nei method_records. La completezza non certifica le fonti o il fair value. Riusa get_guidance(include_history=true) e consensus; non inventare fonti o percorsi mancanti. Il ponte confronta driver a parita' di ancore correnti, NON attribuisce il delta storico completo. Non convertire EPS adjusted, soglie minime o MCR su premi direttamente in margini su ricavi totali.", "properties": {
+                "as_of": {"type": "string", "description": "Data ISO della revisione, non futura"},
+                "forecast_years": {"type": "array", "items": {"type": "integer"}, "minItems": 5, "maxItems": 5},
+                "scenario_rationale": {"type": "object", "properties": {k: {"type": "string"} for k in ("bear", "base", "bull")}},
+                "assumptions": {"type": "array", "items": {"type": "object", "properties": {
+                    "scenario": {"type": "string", "enum": ["bear", "base", "bull", "model"]},
+                    "driver": {"type": "string", "description": "Chiave del driver in scenarios; per model: last_revenue,nwc0,wacc,terminal_g,ronic,shares_m,net_debt. Controlli opzionali non coperti restano INCOMPLETA."},
+                    "kind": {"type": "string", "enum": ["company_guidance", "historical", "analyst_estimate", "proxy"]},
+                    "source": {"type": "string", "description": "URL documento di supporto realmente letto"},
+                    "source_date": {"type": "string"}, "valid_until": {"type": "string"},
+                    "source_locator": {"type": "string", "description": "Pagina/sezione/tabella"},
+                    "guidance_id": {"type": "integer", "description": "ID registro esistente, se disponibile"},
+                    "metric": {"type": "string"}, "basis": {"type": "string", "description": "Periodo, unita', valuta, perimetro e denominatore, GAAP/adjusted; spiega conversioni"},
+                    "rationale": {"type": "string", "description": "Come evidenza e giudizio portano al percorso del driver, rischi e fade inclusi"}
+                }, "required": ["scenario", "driver", "kind", "source", "source_date", "valid_until", "metric", "basis", "rationale"]}},
+                "revisions": {"type": "array", "items": {"type": "object", "properties": {
+                    "metric": {"type": "string"}, "period": {"type": "string"}, "basis": {"type": "string"}, "unit": {"type": "string"},
+                    "previous_value": {"type": "number"}, "current_value": {"type": "number"},
+                    "value_type": {"type": "string", "enum": ["point", "minimum", "maximum"]},
+                    "previous_source": {"type": "string"}, "previous_date": {"type": "string"},
+                    "source": {"type": "string"}, "source_date": {"type": "string"},
+                    "drivers": {"type": "array", "items": {"type": "string"}, "description": "Driver di scenarios effettivamente modificati; vuoto se ponte prospettico n.d."},
+                    "rationale": {"type": "string", "description": "Nuova evidenza -> giudizio -> driver, o buco dichiarato"}
+                }, "required": ["metric", "period", "basis", "unit", "previous_value", "current_value", "value_type", "previous_source", "previous_date", "source", "source_date", "drivers", "rationale"]}}
+            }, "required": ["as_of", "forecast_years", "scenario_rationale", "assumptions"]},
             "growth_path": {"type": "array", "items": {"type": "number"}, "description": "La TUA crescita ricavi anno per anno (5 decimali, es. [0.18,0.15,0.12,0.09,0.06]) dopo aver analizzato guidance/consensus/catalyst/management. Sovrascrive la stima meccanica: e' la tua variant view."},
             "variant_view": {"type": "string", "description": "Razionale della tua crescita vs la guidance (es. 'management guida 25%, modello 18% per execution risk; upside se contratto X si chiude')."},
             "ebitda_margin_target": {"type": "number", "description": "OPZIONALE: il margine EBITDA target a regime che TU prevedi (decimale, es. 0.35 per espansione da leva operativa). Il modello deriva l'opex per centrarlo."},
@@ -1312,7 +1339,8 @@ def _guidance_drift_nudge(r, variant_view):
             "ignorando un fatto datato con fonte." % _gdev)
 
 
-def dispatch(tool_name: str, tool_input: Dict[str, Any], caller: str = None) -> Dict[str, Any]:
+def dispatch(tool_name: str, tool_input: Dict[str, Any], caller: str = None, *,
+             prepared_bundle=None, sector_providers=None, as_of=None) -> Dict[str, Any]:
     """Esegue il tool richiesto. Mai solleva eccezioni - cattura tutto in dict error.
     caller (V6 Lotto 3, review B4): chi sta chiamando ("chat:fundamentals",
     "specialista-run:fundamentals", "red-team") — oggi usato per l'attribuzione
@@ -1531,95 +1559,71 @@ def dispatch(tool_name: str, tool_input: Dict[str, Any], caller: str = None) -> 
             return _stamp(r, "registro guidance V6")
 
         if tool_name == "get_valuation":
-            # DOTTRINA MODELLO UNICO IN CODICE (richiamo PM 16/07 notte: "gli excel si
-            # aggiornano SE cambiano le assumption, senno' si lascia quello"): una
-            # chiamata NUDA (zero assumption dell'analista) con una tesi RECENTE e sana
-            # gia' in DB e il file canonico su disco NON rigenera — riusa e DICHIARA.
-            # Con qualunque assumption nuova (growth_path/roe_path/variant_view/peers/
-            # scenari/...) si rigenera come sempre: la revisione sovrascrive il canonico.
-            _assumption_keys = ("growth_path", "variant_view", "ebitda_margin_target",
-                                "terminal_growth", "roe_path", "target_payout", "fade_years",
-                                "cost_of_equity", "scenarios", "equity_adjustments",
-                                "diluted_shares_m", "precedents", "method_weights",
-                                "wacc_delta_bp", "peers", "rab", "segments",
-                                # V5 (review Lotto 2 A1): un nav_target nuovo E' una
-                                # assumption — senza questa chiave il gate lo ignorava
-                                # in silenzio riusando la tesi vecchia
-                                "nav_target")
-            _nude = not any(tool_input.get(k) not in (None, "", [], {}) for k in _assumption_keys)
-            if _nude:
-                try:
-                    import os as _os
-                    from bellomberg.storage.memory_db import MemoryDB as _MDB
-                    from datetime import datetime as _dt2
-                    _hist = _MDB().get_valuation_history(tool_input["ticker"], n=1)
-                    _th = _hist[0] if _hist else None
-                    _tk_file = tool_input["ticker"].upper().replace(".", "_")
-                    _canon = _os.path.join(str(REPORT_DIR), f"VAL_{_tk_file}.xlsx")
-                    _age_d = None
-                    if _th and _th.get("date"):
-                        _age_d = (_dt2.now() - _dt2.fromisoformat(str(_th["date"])[:19])).days
-                    if (_th and _th.get("fair_value") and _age_d is not None and _age_d <= 7
-                            and (_th.get("sanity_severity") or "OK") != "BLOCK"
-                            and _os.path.exists(_canon)):
-                        # P0 17/07 (review F1): il file riusato puo' essere PRE-fix
-                        # (senza valori cached, "vuoto" in anteprima) — si misura e si
-                        # DICHIARA, senza rigenerare (la rigenerazione senza assumption
-                        # nuove violerebbe la dottrina modello unico). Misura fallita =
-                        # n.d. dichiarato, mai un True di default.
-                        try:
-                            from bellomberg.valuation.dcf_engine import _count_uncached_formulas
-                            _n_unc = _count_uncached_formulas(_canon)
-                            _baked, _bnote = (_n_unc == 0), (
-                                f"file riusato: {_n_unc} formule senza valore cached"
-                                + ("" if _n_unc == 0 else " (file PRE-fix P0: vuoto in anteprima; "
-                                   "si rigenera bakato alla prossima revisione con assumption)"))
-                        except Exception as _bke:
-                            _baked, _bnote = None, f"misura valori cached n.d.: {_bke}"
-                        return _stamp({
-                            "ok": True, "reused": True, "ticker": tool_input["ticker"].upper(),
-                            "values_baked": _baked, "bake_note": _bnote,
-                            "engine": _th.get("engine"), "subsector": _th.get("subsector"),
-                            "fair_value_final": _th.get("fair_value"),
-                            "price_at_thesis": _th.get("price_at_thesis"),
-                            "thesis_date": _th.get("date"), "path": _canon,
-                            "sanity": {"severity": _th.get("sanity_severity"),
-                                       "headline": _th.get("sanity_headline")},
-                            "nota": ("MODELLO UNICO: chiamata senza assumption nuove e tesi di "
-                                     f"{_age_d} giorni fa gia' in DB -> modello canonico RIUSATO, "
-                                     "NON rigenerato (dottrina PM 16/07). Per revisionarlo passa "
-                                     "growth_path/roe_path (o nav_target sui veicoli mNAV) + "
-                                     "variant_view che dica COSA e' cambiato. "
-                                     # review V7 codice (C8): il gate non conosce il profilo ATTUALE
-                                     # (check offline): se il titolo e' passato a un motore nuovo
-                                     # (es. rete regolata 'rab') la tesi vecchia va rigenerata.
-                                     f"Motore della tesi riusata: {_th.get('engine') or 'n.d.'} — se il "
-                                     "profilo del titolo e' cambiato (es. rete regolata V7 = 'rab'), "
-                                     "rigenera con le assumption del motore giusto.")},
-                            f"valuation riusata({tool_input['ticker']})")
-                except Exception:
-                    pass  # gate di cortesia: se il check fallisce si rigenera come sempre
+            from bellomberg.valuation.sector_analysis import (
+                prepare_sector_analysis, default_sector_providers, validate_bundle, revise_sector_analysis)
+            from bellomberg.valuation.dcf_quality import normalize_valuation_payload, assess_valuation_usability
             from bellomberg.valuation.dcf_engine import generate_valuation
-            r = generate_valuation(tool_input["ticker"],
-                                   growth_override=tool_input.get("growth_path"),
-                                   variant_view=tool_input.get("variant_view"),
-                                   ebitda_margin_target=tool_input.get("ebitda_margin_target"),
-                                   terminal_growth=tool_input.get("terminal_growth"),
-                                   roe_path=tool_input.get("roe_path"),
-                                   target_payout=tool_input.get("target_payout"),
-                                   fade_years=tool_input.get("fade_years"),
-                                   cost_of_equity=tool_input.get("cost_of_equity"),
-                                   scenarios=tool_input.get("scenarios"),
-                                   equity_adjustments=tool_input.get("equity_adjustments"),
-                                   stance=tool_input.get("stance"),
-                                   diluted_shares_m=tool_input.get("diluted_shares_m"),
-                                   precedents=tool_input.get("precedents"),
-                                   method_weights=tool_input.get("method_weights"),
-                                   wacc_delta_bp=tool_input.get("wacc_delta_bp"),
-                                   peers=tool_input.get("peers"),
-                                   rab=tool_input.get("rab"),
-                                   segments=tool_input.get("segments"),
-                                   nav_target=tool_input.get("nav_target"))
+            from datetime import date
+            import json
+            import os
+            assumptions = {k: v for k, v in tool_input.items()
+                           if k not in ("ticker", "analysis_context", "method_records") and v not in (None, "", [], {})}
+            if "growth_path" in assumptions:
+                assumptions["growth_override"] = assumptions.pop("growth_path")
+            acquired_now = prepared_bundle is None
+            if acquired_now:
+                prepared_bundle = prepare_sector_analysis(tool_input["ticker"],
+                    as_of=as_of or date.today().isoformat(),
+                    providers=sector_providers if sector_providers is not None else default_sector_providers(),
+                    user_context={"assumptions": assumptions,
+                                  "method_records": tool_input.get("method_records"),
+                                  "analysis_context": tool_input.get("analysis_context") or {}})
+            bundle = validate_bundle(prepared_bundle, tool_input["ticker"])
+            if as_of is not None and as_of != bundle["case"]["as_of"]:
+                raise ValueError("Cutoff diverso dal bundle: acquisire un nuovo snapshot")
+            if assumptions or tool_input.get("analysis_context") or tool_input.get("method_records") is not None:
+                bundle = revise_sector_analysis(bundle, assumptions=assumptions or None,
+                                                method_records=tool_input.get("method_records") if not acquired_now else None,
+                                                analysis_context=tool_input.get("analysis_context"))
+            cache_note = "Nuove assunzioni: nuova generazione richiesta"
+            if not assumptions and not tool_input.get("analysis_context") and tool_input.get("method_records") is None:
+                try:
+                    from bellomberg.storage.memory_db import MemoryDB
+                    history = MemoryDB().get_valuation_history(tool_input["ticker"], n=1)
+                    thesis = history[0] if history else {}
+                    expected = {**bundle["decision"], "snapshot_id": bundle["snapshot_id"],
+                                "generation_id": thesis.get("generation_id")}
+                    cached = thesis.get("valuation_payload") or {}
+                    check = assess_valuation_usability(cached, expected_decision=expected,
+                                                       as_of=bundle["case"]["as_of"])
+                    if check["usable"]:
+                        canon = cached.get("path") or os.path.join(str(REPORT_DIR),
+                            "VAL_" + tool_input["ticker"].upper().replace(".", "_") + ".xlsx")
+                        with open(os.path.splitext(canon)[0] + ".payload.json", encoding="utf-8") as stream:
+                            sidecar = json.load(stream)
+                        side_check = assess_valuation_usability(sidecar, expected_decision=expected,
+                                                               as_of=bundle["case"]["as_of"])
+                        from hashlib import sha256
+                        with open(canon, "rb") as workbook:
+                            workbook_hash = sha256(workbook.read()).hexdigest()
+                        if (side_check["usable"] and sidecar.get("workbook_sha256") == workbook_hash
+                                and cached.get("workbook_sha256") == workbook_hash):
+                            result = normalize_valuation_payload(cached, expected_decision=expected,
+                                                                 as_of=bundle["case"]["as_of"])
+                            result.update(reused=True, path=canon,
+                                          cache_note="Snapshot, metodo, fonti e generazione corrente verificati")
+                            return _stamp(result, f"valuation riusata({tool_input['ticker']})")
+                        cache_note = ("Sidecar non riutilizzabile: " + "; ".join(side_check["reasons"])
+                                      if not side_check["usable"] else
+                                      "Workbook modificato o hash assente: cache non riutilizzabile")
+                    else:
+                        cache_note = "Cache non riutilizzabile: " + "; ".join(check["reasons"])
+                except Exception as exc:
+                    cache_note = "Verifica cache fallita: " + type(exc).__name__ + ": " + str(exc)
+            r = generate_valuation(tool_input["ticker"], prepared_bundle=bundle)
+            r = normalize_valuation_payload(r, expected_decision=bundle["decision"],
+                                           as_of=bundle["case"]["as_of"])
+            r["cache_note"] = cache_note
             if isinstance(r, dict) and r.get("engine") == "mnav" and r.get("ok"):
                 # V5 (D2): la semantica del numero va detta all'agente, che la
                 # riporta nel report — mai spacciare la convergenza per un target price
@@ -1675,35 +1679,25 @@ def dispatch(tool_name: str, tool_input: Dict[str, Any], caller: str = None) -> 
             # C1 16/07: la tesi si persiste SEMPRE (prima solo con variant_view -> le
             # chiamate nude non lasciavano traccia in valuation_theses e la pagina/storico
             # per ticker restava monco). Senza variant_view il campo lo DICHIARA.
-            _has_fv = isinstance(r, dict) and (r.get("fair_value_final") or r.get("fair_value_weighted")
-                                               or r.get("fair_value_blend") or r.get("fair_value_base"))
-            # audit/12 V0.3: un modello BLOCK-flaggato NON diventa mai tesi ufficiale —
-            # prima il numero bocciato dalla sanity finiva in valuation_theses e da li'
-            # in F17 (valore quasi nullo salvato tre volte). Il file _FLAGGED resta come pezza
-            # d'appoggio; l'agente vede il perche' e puo' rilanciare con assumption.
-            if _has_fv and r.get("valuation_flagged"):
-                r["_thesis_saved"] = {"skipped": "modello FLAGGED dalla sanity: tesi NON salvata "
-                                                 "(rilancia con assumption motivate)"}
-            elif _has_fv:
-                # #198 p.3: persisti la tesi per verifica week-on-week
-                try:
-                    from bellomberg.storage.memory_db import MemoryDB
-                    _san = r.get("sanity") or {}
-                    r["_thesis_saved"] = MemoryDB().save_valuation_thesis(
-                        ticker=tool_input["ticker"],
-                        variant_view=tool_input.get("variant_view") or "(senza variant view - chiamata nuda)",
-                        growth_path=tool_input.get("growth_path") or tool_input.get("roe_path"), price=r.get("price"),
-                        fair_value=r.get("fair_value_final") or r.get("fair_value_weighted") or r.get("fair_value_blend") or r.get("fair_value_base"),
-                        ebitda_margin_target=tool_input.get("ebitda_margin_target"),
-                        terminal_growth=tool_input.get("terminal_growth"),
-                        engine=r.get("engine"), subsector=r.get("subsector"),
-                        sanity_severity=_san.get("severity"), sanity_headline=_san.get("headline"),
-                        profile_key=r.get("profile_key"))  # audit/13 V1.7a: chiave pulita
-                except Exception as _te:
-                    # audit/11 §4: la tesi (#198) non deve perdersi in silenzio — l'agente
-                    # ora VEDE che la persistenza e' fallita e puo' dirlo al PM.
-                    print(f"[chat_tools] save_valuation_thesis FAILED: {type(_te).__name__}: {_te}")
-                    r["_thesis_saved"] = {"error": f"{type(_te).__name__}: {_te}"}
+            try:
+                from bellomberg.storage.memory_db import MemoryDB
+                san = r.get("sanity") or {}
+                fair_value = next((r[k] for k in ("fair_value_final", "fair_value_weighted",
+                    "fair_value_blend", "fair_value_base", "fair_value_nav") if r.get(k) is not None), None)
+                thesis_id = MemoryDB().save_valuation_thesis(
+                    ticker=tool_input["ticker"],
+                    variant_view=tool_input.get("variant_view") or "(senza variant view - chiamata nuda)",
+                    growth_path=tool_input.get("growth_path") or tool_input.get("roe_path"),
+                    price=r.get("price"), fair_value=fair_value,
+                    ebitda_margin_target=tool_input.get("ebitda_margin_target"),
+                    terminal_growth=tool_input.get("terminal_growth"),
+                    engine=r.get("engine"), subsector=r.get("subsector"),
+                    sanity_severity=san.get("severity"), sanity_headline=san.get("headline"),
+                    profile_key=r.get("profile_key"), valuation_payload=r)
+                r["_thesis_saved"] = ({"thesis_id": thesis_id, "snapshot_id": r.get("snapshot_id")}
+                    if thesis_id is not None else {"error": "Snapshot/tesi non salvati: verificare migrazione metadata e log storage"})
+            except Exception as exc:
+                r["_thesis_saved"] = {"error": type(exc).__name__ + ": " + str(exc)}
             if isinstance(r, dict) and r.get("valuation_flagged"):
                 # 204b-FIX: la sanity ha marcato la VAL (divergenza estrema fair value/prezzo).
                 # L'agente DEVE riportarlo e NON proporre il nome in ACTION TABLE su questo modello.

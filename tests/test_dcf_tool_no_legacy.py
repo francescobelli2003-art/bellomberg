@@ -77,5 +77,5 @@ def test_unsupported_legacy_override_is_declared_before_engine_call(monkeypatch,
 def test_schema_does_not_promise_ignored_overrides(monkeypatch):
     module, _ = _engines(monkeypatch, {})
     schema = next(s for s in module.TOOLS_SCHEMA if s["name"] == "build_dcf_model")
-    assert set(schema["input_schema"]["properties"]) == {"ticker", "perpetual_growth"}
+    assert set(schema["input_schema"]["properties"]) == {"ticker", "perpetual_growth", "method_records", "analysis_context"}
     assert "6-sheet" not in schema["description"]
