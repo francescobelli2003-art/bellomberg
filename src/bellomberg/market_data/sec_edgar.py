@@ -232,6 +232,7 @@ def get_recent_filings(ticker: str, form_types: Optional[List[str]] = None,
                 "description": desc,
                 "url": url_filing,
                 "accession": accessions[i] if i < len(accessions) else "",
+                **_filing_metadata(recent, i, cik, data.get("name")),
             })
             if len(out) >= max_items:
                 break
@@ -249,6 +250,89 @@ def get_recent_filings(ticker: str, form_types: Optional[List[str]] = None,
         if motivo is not None:
             motivo.append(_msg)
         return []
+
+
+def _filing_metadata(righe, indice, cik, issuer):
+    def campo(nome):
+        valori = righe.get(nome, [])
+        return valori[indice] if indice < len(valori) else None
+    return {"emittente_id": f"CIK:{str(cik).zfill(10)}", "issuer": issuer,
+            "report_date": campo("reportDate"),
+            "items": [x.strip() for x in (campo("items") or "").split(",") if x.strip()],
+            "fonte": "SEC EDGAR"}
+
+
+def get_filing_catalog(ticker: str, days: int = 1100, max_pages: int = 20) -> dict:
+    """I-20: indice annuali/intermedi inclusi 20-F/6-K e archivi submissions.
+
+    Non assume che un 6-K sia un bilancio: periodo/sezioni vanno verificati sul
+    documento. Limiti, errori e assenze viaggiano insieme ai risultati parziali.
+    Nessuna cache su disco. Il percorso storico degli altri consumer resta invariato.
+    """
+    out = {"stato": "ok", "documenti": [], "motivi": [], "fonte": "SEC EDGAR"}
+    try:
+        if days <= 0 or max_pages < 1:
+            raise ValueError("days e max_pages devono essere positivi")
+        ambiguo = ticker_ambiguo_per_cik(ticker)
+        if ambiguo:
+            raise ValueError(ambiguo)
+        cik = lookup_cik(ticker, motivo=out["motivi"])
+        if not cik:
+            raise ValueError("CIK non disponibile")
+        cik = str(int(cik)).zfill(10)
+        base = "https://data.sec.gov/submissions/"
+        response = requests.get(base + f"CIK{cik}.json", headers=_headers(), timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        if str(int(data["cik"])).zfill(10) != cik:
+            raise ValueError("CIK della risposta diverso dall'emittente richiesto")
+        filings = data["filings"]
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        forms = {"10-K", "10-K/A", "10-Q", "10-Q/A", "20-F", "20-F/A",
+                 "40-F", "40-F/A", "6-K", "6-K/A"}
+        visti = set()
+
+        def aggiungi(righe):
+            for i, form in enumerate(righe["form"]):
+                if form not in forms:
+                    continue
+                fdate = righe["filingDate"][i]
+                if fdate < cutoff:
+                    continue
+                acc, doc = righe["accessionNumber"][i], righe["primaryDocument"][i]
+                if not acc or not doc:
+                    out["motivi"].append(f"{form} {fdate}: accession/documento primario mancante")
+                    continue
+                if acc in visti:
+                    continue
+                visti.add(acc)
+                out["documenti"].append({"ticker": ticker, "form": form, "filed_date": fdate,
+                    "accession": acc, "url": f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc.replace('-', '')}/{doc}",
+                    **_filing_metadata(righe, i, cik, data.get("name"))})
+
+        aggiungi(filings["recent"])
+        archivi = [f for f in filings.get("files", []) if not f.get("filingTo") or f["filingTo"] >= cutoff]
+        for i, archivio in enumerate(archivi, 1):
+            if i >= max_pages:
+                out["motivi"].append(f"limite {max_pages} pagine: storico non completo")
+                break
+            nome = archivio.get("name", "")
+            if not re.fullmatch(rf"CIK{cik}-submissions-\d+\.json", nome):
+                out["motivi"].append("nome archivio SEC non valido per questo CIK")
+                continue
+            try:
+                time.sleep(0.12)  # fair access anche sui piccoli archivi
+                response = requests.get(base + nome, headers=_headers(), timeout=30)
+                response.raise_for_status()
+                aggiungi(response.json())
+            except Exception as exc:
+                out["motivi"].append(f"archivio {nome}: {type(exc).__name__}: {exc}")
+    except Exception as exc:
+        out["motivi"].append(f"{type(exc).__name__}: {exc}")
+    out["documenti"].sort(key=lambda d: (d["filed_date"], d["accession"]), reverse=True)
+    if out["motivi"]:
+        out["stato"] = "parziale" if out["documenti"] else "errore"
+    return out
 
 
 # ============================================================

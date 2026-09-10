@@ -120,13 +120,19 @@ def test_con_contatto_lookup_cik_manda_lo_user_agent(monkeypatch):
 
 
 def test_ogni_richiesta_dei_due_moduli_usa_headers_dinamici():
-    """Sweep statico: tante requests.get/head quante headers=_headers() (8 + 4, misura 02/09)."""
-    import re
-    for f, attese in (("src/bellomberg/market_data/sec_edgar.py", 8),
-                      ("src/bellomberg/market_data/esef.py", 4)):
-        src = open(os.path.join(REPO, f), encoding="utf-8").read()
-        n_req = len(re.findall(r"requests\.(?:get|head)\(", src))
-        assert n_req == src.count("headers=_headers()") == attese, (f, n_req, src.count("headers=_headers()"))
+    """Ogni chiamata HTTP deve ricevere il contatto dinamico, anche se ne aggiungiamo."""
+    import ast
+    for f in ("src/bellomberg/market_data/sec_edgar.py", "src/bellomberg/market_data/esef.py"):
+        with open(os.path.join(REPO, f), encoding="utf-8") as source:
+            tree = ast.parse(source.read())
+        chiamate = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+                    and isinstance(n.func, ast.Attribute) and isinstance(n.func.value, ast.Name)
+                    and n.func.value.id == "requests" and n.func.attr in ("get", "head")]
+        assert chiamate
+        for chiamata in chiamate:
+            header = next((k.value for k in chiamata.keywords if k.arg == "headers"), None)
+            assert isinstance(header, ast.Call) and isinstance(header.func, ast.Name)
+            assert header.func.id == "_headers", (f, chiamata.lineno)
 
 
 def test_sec_xbrl_companyfacts_usa_il_contatto(monkeypatch, tmp_path):

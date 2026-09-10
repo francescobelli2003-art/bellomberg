@@ -181,18 +181,45 @@ def resolve_lei(ticker: str, company_name: Optional[str] = None) -> Tuple[Option
     return lei, f"LEI risolto per NOME su filings.xbrl.org: {ename} (fallback dichiarato)"
 
 
-def _list_filings(lei: str) -> List[Dict[str, Any]]:
+def _list_filings(lei: str, max_pages: int = 20) -> List[Dict[str, Any]]:
     import requests
-    r = requests.get(BASE + f"/entities/{lei}/filings",
-                     params={"page[size]": 50}, headers=_headers(), timeout=60)
-    r.raise_for_status()
+    from urllib.parse import urljoin, urlsplit, quote
+    if max_pages < 1:
+        raise ValueError("max_pages deve essere positivo")
+    url = BASE + f"/entities/{quote(lei, safe='')}/filings"
+    percorso = urlsplit(url).path
+    visti, filings = set(), []
+    while url:
+        parts = urlsplit(url)
+        if parts.scheme != "https" or parts.netloc != "filings.xbrl.org" or parts.path != percorso:
+            raise ValueError("pagina ESEF fuori dall'endpoint dell'emittente")
+        if url in visti or len(visti) >= max_pages:
+            raise ValueError("paginazione ESEF ciclica o limite pagine raggiunto: catalogo incompleto")
+        visti.add(url)
+        r = requests.get(url, params={"page[size]": 50} if len(visti) == 1 else None,
+                         headers=_headers(), timeout=60)
+        r.raise_for_status()
+        payload = r.json()
+        if not isinstance(payload.get("data"), list):
+            raise ValueError("risposta ESEF senza elenco data")
+        filings.extend(payload["data"])
+        prossimo = (payload.get("links") or {}).get("next")
+        if isinstance(prossimo, dict):
+            prossimo = prossimo.get("href")
+        url = urljoin(url, prossimo) if prossimo else None
     out = []
-    for f in r.json().get("data", []):
+    for f in filings:
         a = f.get("attributes") or {}
         ju = a.get("json_url")
         entry = {"id": f.get("id") or a.get("fxo_id") or a.get("period_end") or "?",
                  "period_end": a.get("period_end"),
-                 "date_added": a.get("date_added")}
+                 "date_added": a.get("date_added"), "emittente_id": f"LEI:{lei}",
+                 "fonte": "filings.xbrl.org (repository non esaustivo)",
+                 "language": a.get("language"), "country": a.get("country")}
+        for campo in ("report_url", "package_url"):
+            entry[campo] = urljoin("https://filings.xbrl.org", a[campo]) if a.get(campo) else None
+        if not entry["report_url"]:
+            entry["no_report"] = True
         if ju:
             entry["json_url"] = ("https://filings.xbrl.org" + ju) if ju.startswith("/") else ju
         else:

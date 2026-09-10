@@ -21,8 +21,11 @@ in data/trimestrali/<ticker>/ (runtime, non committato).
 """
 import os
 import re
+import hashlib
+import tempfile
+from io import BytesIO
 from html.parser import HTMLParser
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import requests
 
@@ -39,21 +42,25 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Bellomberg/1.0 "
 _PAROLE_LUNGHE = ("result", "risultati", "earnings", "quarter", "trimestral",
                   "semestral", "half-year", "halfyear", "interim", "relazione",
                   "resoconto", "comunicato", "press-release", "financial-report",
-                  "guidance")
+                  "guidance", "annual", "jahresbericht", "geschaeftsbericht",
+                  "geschäftsbericht", "halbjahres", "finanzbericht")
 _RE_BREVI = re.compile(r"(?<![a-z0-9])(h1|h2|q[1-4]|1h|9m)(?![a-z0-9])")
 
 
-def estrai_testo(path: str) -> dict:
-    """Testo da PDF/HTML/testo piano, con misure. Mai un 'ok' vuoto."""
-    if not os.path.isfile(path):
+def estrai_testo(path: str, *, contenuto: bytes | None = None) -> dict:
+    """Testo con misure; contenuto permette di citare lo stesso snapshot hashato."""
+    if contenuto is None and not os.path.isfile(path):
         return {"stato": "errore", "testo": "", "caratteri": 0, "pagine": None,
                 "formato": None, "motivo": f"file non trovato: {path}"}
-    with open(path, "rb") as fh:
-        grezzo = fh.read()
+    if contenuto is None:
+        with open(path, "rb") as fh:
+            grezzo = fh.read()
+    else:
+        grezzo = contenuto
 
     est = os.path.splitext(path)[1].lower()
     if est == ".pdf" or grezzo[:5] == b"%PDF-":
-        return _estrai_pdf(path)
+        return _estrai_pdf(BytesIO(grezzo))
     testa = grezzo[:2048].lower()
     if est in (".html", ".htm") or b"<html" in testa or b"<!doctype" in testa:
         return _estrai_html(grezzo)
@@ -78,18 +85,30 @@ def _estrai_pdf(path: str) -> dict:
         return {"stato": "illeggibile", "testo": "", "caratteri": 0,
                 "pagine": None, "formato": "pdf",
                 "motivo": f"pypdf: {type(e).__name__}: {e}"}
-    testo = "\n".join(pagine).strip()
-    if not testo:
+    riferimenti = []
+    posizione = 0
+    for numero, pagina in enumerate(pagine, 1):
+        riferimenti.append({"pagina": numero, "inizio": posizione,
+                            "fine": posizione + len(pagina), "testo": pagina})
+        posizione += len(pagina) + 1
+    testo = "\n".join(pagine)
+    if not testo.strip():
         return {"stato": "illeggibile", "testo": "", "caratteri": 0,
                 "pagine": len(pagine), "formato": "pdf",
                 "motivo": ("estrazione VUOTA su %d pagine: probabile PDF "
                            "scansionato (serve OCR)" % len(pagine))}
+    vuote = [r["pagina"] for r in riferimenti if not r["testo"].strip()]
     return {"stato": "ok", "testo": testo, "caratteri": len(testo),
-            "pagine": len(pagine), "formato": "pdf"}
+            "pagine": len(pagine), "formato": "pdf", "riferimenti": riferimenti,
+            "pagine_senza_testo": vuote,
+            "avvisi": ([f"Pagine senza testo: {vuote}; contenuto non verificabile senza OCR"]
+                       if vuote else [])}
 
 
 class _TestoHTML(HTMLParser):
-    _MUTI = ("script", "style", "noscript")
+    _MUTI = ("script", "style", "noscript", "ix:hidden")
+    _BLOCCHI = ("p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "li",
+                "section", "article", "br", "hr")
 
     def __init__(self):
         super().__init__()
@@ -99,45 +118,87 @@ class _TestoHTML(HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag in self._MUTI:
             self._muto += 1
+        if not self._muto and tag in self._BLOCCHI:
+            self.pezzi.append("\n")
+        if not self._muto and tag in ("td", "th"):
+            self.pezzi.append(" ")
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        self.handle_endtag(tag)
 
     def handle_endtag(self, tag):
         if tag in self._MUTI and self._muto:
             self._muto -= 1
+        if not self._muto and tag in self._BLOCCHI:
+            self.pezzi.append("\n")
 
     def handle_data(self, data):
-        if not self._muto and data.strip():
-            self.pezzi.append(data.strip())
+        if not self._muto:
+            self.pezzi.append(data)
 
 
 def _estrai_html(grezzo: bytes) -> dict:
     parser = _TestoHTML()
-    parser.feed(grezzo.decode("utf-8", errors="replace"))
-    testo = "\n".join(parser.pezzi).strip()
+    dichiarata = re.search(br"(?:charset\s*=\s*[\"']?|encoding\s*=\s*[\"'])([A-Za-z0-9._-]+)",
+                          grezzo[:4096], re.I)
+    codifica = dichiarata[1].decode("ascii") if dichiarata else "utf-8-sig"
+    if grezzo.startswith((b"\xff\xfe", b"\xfe\xff")):
+        codifica = "utf-16"
+    try:
+        parser.feed(grezzo.decode(codifica))
+    except (UnicodeError, LookupError) as exc:
+        return {"stato": "illeggibile", "testo": "", "caratteri": 0,
+                "pagine": None, "formato": "html",
+                "motivo": f"codifica HTML {codifica} non leggibile: {exc}"}
+    testo = "".join(parser.pezzi).strip()
     if not testo:
         return {"stato": "illeggibile", "testo": "", "caratteri": 0,
                 "pagine": None, "formato": "html",
                 "motivo": "HTML senza testo estraibile"}
     return {"stato": "ok", "testo": testo, "caratteri": len(testo),
-            "pagine": None, "formato": "html"}
+            "pagine": None, "formato": "html", "codifica": codifica}
 
 
 def scarica_documento(url: str, dest_dir: str, timeout: int = 30) -> dict:
-    """Scarica e salva SOLO a download riuscito: niente file monchi."""
+    """Versioni immutabili per hash; anche URL riutilizzati conservano il passato."""
+    temporaneo = None
     try:
-        risposta = requests.get(url, timeout=timeout, headers={"User-Agent": UA})
+        if urlsplit(url).scheme not in ("http", "https"):
+            raise ValueError("URL HTTP(S) richiesto")
+        headers = {"User-Agent": UA}
+        if urlsplit(url).hostname in ("www.sec.gov", "sec.gov", "data.sec.gov"):
+            from bellomberg.market_data.sec_edgar import _headers
+            headers = {**_headers(), "Accept": "*/*"}
+        risposta = requests.get(url, timeout=timeout, headers=headers)
         risposta.raise_for_status()
+        contenuto = risposta.content
+        if not contenuto:
+            raise ValueError("documento vuoto")
+        digest = hashlib.sha256(contenuto).hexdigest()
+        nome = re.sub(r"[^A-Za-z0-9._-]", "_",
+                      urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1]) or "documento"
+        radice, est = os.path.splitext(nome[:100])
+        os.makedirs(dest_dir, exist_ok=True)
+        percorso = os.path.join(dest_dir, f"{radice}-{digest}{est}")
+        with tempfile.NamedTemporaryFile(dir=dest_dir, delete=False) as fh:
+            temporaneo = fh.name
+            fh.write(contenuto)
+        try:
+            os.link(temporaneo, percorso)  # pubblicazione atomica, MAI sovrascrivere
+        except FileExistsError:
+            with open(percorso, "rb") as fh:
+                if hashlib.sha256(fh.read()).hexdigest() != digest:
+                    raise ValueError("archivio alterato: hash del file esistente incoerente")
+        return {"stato": "ok", "url": url, "url_finale": getattr(risposta, "url", None),
+                "path": percorso, "sha256": digest, "bytes": len(contenuto),
+                "content_type": risposta.headers.get("Content-Type")}
     except Exception as e:
         return {"stato": "errore", "url": url,
                 "motivo": f"{type(e).__name__}: {e}"}
-    os.makedirs(dest_dir, exist_ok=True)
-    nome = re.sub(r"[^A-Za-z0-9._-]", "_",
-                  url.split("?")[0].rstrip("/").rsplit("/", 1)[-1]) or "documento"
-    percorso = os.path.join(dest_dir, nome)
-    with open(percorso, "wb") as fh:
-        fh.write(risposta.content)
-    return {"stato": "ok", "url": url, "path": percorso,
-            "bytes": len(risposta.content),
-            "content_type": risposta.headers.get("Content-Type")}
+    finally:
+        if temporaneo and os.path.isfile(temporaneo):
+            os.unlink(temporaneo)
 
 
 class _Ancore(HTMLParser):
@@ -172,7 +233,8 @@ def candidati_comunicato(html_testo: str, base_url: str) -> list:
         if not href or href.startswith(("mailto:", "javascript:", "#")):
             continue
         blob = (href + " " + testo).lower()
-        if not (any(p in blob for p in _PAROLE_LUNGHE) or _RE_BREVI.search(blob)):
+        if not (any(p in blob for p in _PAROLE_LUNGHE) or _RE_BREVI.search(blob)
+                or re.search(r"/reports/\d+/document(?:[?#]|$)", href)):
             continue
         url = urljoin(base_url.rstrip("/") + "/", href)
         candidati.append({"url": url, "testo": " ".join(testo.split()),
