@@ -1,5 +1,6 @@
 """Task migration contract: isolated PowerShell cmdlet fakes, never real scheduler writes."""
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -9,8 +10,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "tools/ops/windows/task_senza_finestra.ps1"
-SHELL = shutil.which("powershell")
-pytestmark = pytest.mark.skipif(SHELL is None, reason="requires Windows PowerShell")
+# The script drives the Windows Task Scheduler cmdlets. The macOS runner ships PowerShell 7 as
+# `powershell` too (CI 41878d8, 13/09): the executable alone does not make the host Windows.
+SHELL = shutil.which("powershell") if os.name == "nt" else None
+pytestmark = pytest.mark.skipif(SHELL is None, reason="requires Windows PowerShell on Windows")
 
 
 def run_scenario(tmp_path, scenario):

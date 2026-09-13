@@ -496,11 +496,20 @@ test('laboratory labels and numeric error labels say the same field in both lang
   }
 });
 
-test('the Italian browser QA and the handbook use the labels the app now renders', () => {
-  const qa = fs.readFileSync(path.resolve(__dirname, '../../../tools/qa/vol_browser.py'), 'utf8');
+// tools/qa is not part of the public tree (release allowlist): there the QA check is skipped and
+// says why, while the handbook check below runs everywhere.
+const VOL_BROWSER_QA = path.resolve(__dirname, '../../../tools/qa/vol_browser.py');
+
+test('the Italian browser QA uses the labels the app now renders', {
+  skip: fs.existsSync(VOL_BROWSER_QA) ? false : 'tools/qa/vol_browser.py is not in this tree (not published)',
+}, () => {
+  const qa = fs.readFileSync(VOL_BROWSER_QA, 'utf8');
   assert.ok(qa.includes('"language": "it"'), 'the browser QA runs the app in Italian');
   assert.equal(qa.split("get_by_role('columnheader', name='Scadenza', exact=True)").length - 1, 2, 'term table header in Italian');
   assert.ok(!qa.includes("name='Expiry'"), 'the Italian page has no Expiry header');
+});
+
+test('the handbook uses the labels the app now renders', () => {
   const guide = fs.readFileSync(path.resolve(__dirname, '../../../docs/guide/pages/09-vol-deck.md'), 'utf8').replace(/\s+/g, ' ');
   assert.ok(guide.includes('**Calendar spread** (*Spread calendario*)'), 'handbook: calendar template in both languages');
   assert.ok(guide.includes('**IV shock** (*Shock IV*, percentage points)'), 'handbook: IV shock in both languages');
