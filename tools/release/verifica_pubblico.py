@@ -221,7 +221,7 @@ def combacia(rel, pattern):
 
 # --- T2: il tree in memoria, la maschera, i controlli sul testo, il verdetto ---------------------
 
-def carica_tree(root):
+def carica_tree(root, *, vuoto_ammesso=False):
     """{relpath posix: bytes} di tutto cio' che sta sotto `root`, saltando `.git`.
     In memoria: i controlli non toccano piu' il disco e l'autoprova (T3) costruisce
     lo stesso dict senza scrivere nulla. Root inesistente, root che e' un file o cartella
@@ -241,7 +241,7 @@ def carica_tree(root):
             rel = os.path.relpath(p, root).replace(os.sep, "/")
             with open(p, "rb") as fh:
                 tree[rel] = fh.read()
-    if not tree:
+    if not tree and not vuoto_ammesso:
         raise ValueError("tree vuoto: nessun file sotto %s" % root)
     return tree
 
@@ -260,8 +260,61 @@ def maschera(token):
     return "%s…(%d)" % (token[:2], len(token))
 
 
+def _screenshot_verifier():
+    """Load trusted verifier code, never Python from the artifact being scanned."""
+    if not hasattr(_screenshot_verifier, "module"):
+        import importlib.util
+        path = Path(__file__).resolve().parents[2] / "docs" / "guide" / "verify_screenshots.py"
+        spec = importlib.util.spec_from_file_location("_release_screenshot_verifier", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _screenshot_verifier.module = module
+    return _screenshot_verifier.module
+
+
+def _raster_pins_da_testo(testo):
+    """Private visual ratification: exact image and whole public-manifest hashes."""
+    verifier = _screenshot_verifier()
+    value = verifier._json(testo.encode("utf-8"))
+    verifier._keys(value, ("schema_version", "screenshots"), "private screenshot ratification")
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1 or not isinstance(value["screenshots"], list):
+        raise ValueError("ratifica screenshot: versione/forma non supportata")
+    seen = set()
+    for row in value["screenshots"]:
+        verifier._keys(row, ("path", "sha256", "manifest_sha256"), "private screenshot pin")
+        rel = verifier._path(row["path"], verifier.SCREENSHOT_DIR, ".png")
+        if rel in seen or any(char in rel for char in "*?"):
+            raise ValueError("ratifica screenshot: percorso duplicato o non esatto")
+        seen.add(rel)
+        verifier._digest(row["sha256"])
+        verifier._digest(row["manifest_sha256"])
+    return value["screenshots"]
+
+
+def _raster_verificati(tree, pins=None):
+    """Structural provenance AND private visual ratification, rechecked on bytes."""
+    pins = _raster_pins_da_testo(json.dumps({"schema_version": 1, "screenshots": pins or []}))
+    verified = _screenshot_verifier().verify_tree(tree)
+    by_path = {row["path"]: row for row in pins}
+    if set(verified) != set(by_path):
+        raise ValueError("PNG non ratificati o inventario diverso dalla ratifica privata")
+    for rel, receipt in verified.items():
+        if any(receipt[key] != by_path[rel][key] for key in ("sha256", "manifest_sha256")):
+            raise ValueError("PNG/manifest cambiato rispetto alla review visiva: " + rel)
+    return verified
+
+
+class _TreeRaster(dict):
+    """Carry frozen private pins with the in-memory bytes of all text controls."""
+    def __init__(self, tree, pins):
+        super().__init__(tree)
+        self.raster_pins = json.loads(json.dumps(pins))
+        _raster_verificati(self, self.raster_pins)
+
+
 def _testi(tree):
-    return {rel: b.decode("utf-8", "replace") for rel, b in tree.items()}
+    raster = _raster_verificati(tree, getattr(tree, "raster_pins", None))
+    return {rel: b.decode("utf-8", "replace") for rel, b in tree.items() if rel not in raster}
 
 
 def _righe(t):
@@ -1411,16 +1464,35 @@ def _saltati_gitleaks(tree_dir, stderr):
     return skipped
 
 
-def _copertura(tree_dir, stderr, stdin_letti=None):
+def _copertura(tree_dir, stderr, stdin_letti=None, raster_pins=None):
     """Quanto ha letto DAVVERO il motore: la riga «scanned ~N bytes» (esatta al byte, misurata
     sul tree vero) confrontata coi byte del tree, meno i file che il config di default salta per
     disegno suo (GITLEAKS_SCOPERTI). Torna (errore, nota). Senza questa misura ogni salto del
     motore — lockfile, node_modules, .png, .zip, un file che non riesce ad aprire — usciva
     «0 hit, PULITO» (review T6 F1: 357.316 byte su 5.887.695 non letti e non dichiarati)."""
     m = re.search(r"scanned ~(\d+) bytes", stderr)
-    if not m:
-        return ("il motore non dice quanti byte ha letto: copertura NON misurata", "")
+    # 13/09 (Claude Opus 5): ogni motivo di KO resta nel verdetto, nessuno copre l'altro. Il
+    # raster che non si certifica non toglie la dichiarazione dei byte che il motore non ha letto
+    # (col numero e i nomi), il contatore assente non toglie l'esito del raster. Un raster non
+    # certificato non riceve credito: i suoi byte restano fra gli attesi e il conto li nomina.
+    errori = [] if m else ["il motore non dice quanti byte ha letto: copertura NON misurata"]
+    try:
+        # A scanner-only empty-directory probe is valid; export still rejects an
+        # empty artifact through carica_tree's unchanged strict default.
+        raster = _raster_verificati(carica_tree(tree_dir, vuoto_ammesso=True), raster_pins)
+    except (OSError, ValueError) as exc:
+        errori.append("verifica raster/ratifica non conclusa: " + str(exc))
+        raster = {}
     stdin_letti = stdin_letti or {}
+    if set(raster) - _saltati_gitleaks(tree_dir, stderr):
+        errori.append("il motore non dichiara il salto degli esatti PNG ratificati: copertura raster NON misurata")
+        raster = {}
+    if set(raster) & set(stdin_letti):
+        errori.append("PNG conteggiato sia come raster sia via stdin: copertura incoerente")
+        raster = {}
+    if not m:
+        return ("; ".join(errori), "")
+    raster_bytes = sum(row["bytes"] for row in raster.values())
     da_dir = int(m.group(1))
     letti, attesi = da_dir + sum(stdin_letti.values()), 0
     for cartella, sub, nomi in os.walk(tree_dir):
@@ -1436,12 +1508,16 @@ def _copertura(tree_dir, stderr, stdin_letti=None):
         js = sum(rel.lower().endswith('.min.js') for rel in stdin_letti)
         nota += "; dir %d + %d SVG e %d .min.js via stdin %d byte, contatori del motore verificati" % (
             da_dir, svg, js, sum(stdin_letti.values()))
-    if letti != attesi - scoperti:
-        nomi = sorted(_saltati_gitleaks(tree_dir, stderr) - set(stdin_letti))
-        return ("letti %d byte su %d attesi (%d dichiarati fuori dal raggio): %d byte NON scansionati%s"
-                % (letti, attesi, scoperti, attesi - scoperti - letti,
-                   (": " + ", ".join(nomi)) if nomi else ""), nota)
-    return ("", nota)
+    if raster:
+        nota += "; %d PNG ratificati, raster verificati %d byte (CRC/struttura/zlib/hash/provenienza); pixel NON scansionati da gitleaks" % (len(raster), raster_bytes)
+    if letti > attesi - scoperti - raster_bytes:
+        errori.append("conteggio del motore superiore ai byte attribuibili a dir/stdin: copertura incoerente")
+    elif letti != attesi - scoperti - raster_bytes:
+        nomi = sorted(_saltati_gitleaks(tree_dir, stderr) - set(stdin_letti) - set(raster))
+        errori.append("letti %d byte su %d attesi (%d dichiarati fuori dal raggio, %d raster certificati separatamente): %d byte NON scansionati%s"
+                      % (letti, attesi, scoperti, raster_bytes, attesi - scoperti - raster_bytes - letti,
+                         (": " + ", ".join(nomi)) if nomi else ""))
+    return ("; ".join(errori), nota)
 
 
 def _scansiona_asset_gitleaks(tree_dir, exe, esegui, ambiente, temporaneo, stderr_dir):
@@ -1505,7 +1581,7 @@ def _scansiona_asset_gitleaks(tree_dir, exe, esegui, ambiente, temporaneo, stder
     return letti, finding
 
 
-def controllo_gitleaks(tree_dir, exe=GITLEAKS_EXE, esegui=None):
+def controllo_gitleaks(tree_dir, exe=GITLEAKS_EXE, esegui=None, raster_pins=None):
     """Il motore di terzi sulla CARTELLA esportata (gitleaks legge file, non il dict in
     memoria degli altri controlli). Ogni esito ambiguo e' un KO dichiarato, mai un «0 hit»:
       · gitleaks esce 1 sia per «leak trovati» sia per QUALUNQUE guasto (cmd/root.go v8.30.1:
@@ -1567,7 +1643,7 @@ def controllo_gitleaks(tree_dir, exe=GITLEAKS_EXE, esegui=None):
             stdin_letti, stdin_finding = _scansiona_asset_gitleaks(tree_dir, exe, esegui, ambiente, td, r.stderr or "")
         except (OSError, ValueError) as e:
             return Esito('gitleaks', errore='Scansione SVG/min.js non conclusa: %s' % e)
-        buco, quanto = _copertura(tree_dir, r.stderr or "", stdin_letti)
+        buco, quanto = _copertura(tree_dir, r.stderr or "", stdin_letti, raster_pins)
         if buco:
             return Esito("gitleaks", errore=buco)
         finding.extend(stdin_finding)
@@ -1698,6 +1774,7 @@ def congela_input(tree_dir, controlli, pubblico, corpus_root):
         "ECCEZIONI.txt": lambda t: _eccezioni_da_testo(t, "ECCEZIONI.txt"),
         "SIMBOLI.txt": lambda t: _simboli_da_testo(t, "SIMBOLI.txt"),
         "GRANDI_AMMESSI.txt": _lista_da_testo,
+        "SCREENSHOTS_APPROVATI.json": _raster_pins_da_testo,
     }
     for nome, parser in parser_liste.items():
         path = os.path.join(pubblico, nome)
@@ -1797,10 +1874,18 @@ def esegui_controlli(tree_dir, solo=None, blocca_osservazione=False, pubblico=No
             simboli = leggi_simboli(os.path.join(liste, "SIMBOLI.txt"))
             grandi_path = os.path.join(liste, "GRANDI_AMMESSI.txt")
             grandi = leggi_lista(grandi_path) if os.path.isfile(grandi_path) else []
+            raster_path = os.path.join(liste, "SCREENSHOTS_APPROVATI.json")
+            if os.path.isfile(raster_path):
+                with open(raster_path, encoding="utf-8-sig") as handle:
+                    raster_pins = _raster_pins_da_testo(handle.read())
+            else:
+                raster_pins = []
         else:
             ecc = congelati.leggi("lista:ECCEZIONI.txt")
             simboli = congelati.leggi("lista:SIMBOLI.txt")
             grandi = congelati.leggi("lista:GRANDI_AMMESSI.txt")
+            raster_pins = congelati.leggi("lista:SCREENSHOTS_APPROVATI.json")
+        tree = _TreeRaster(tree, raster_pins)
         ecc, grandi, upstream = _risolvi_deroghe_upstream(tree, ecc, grandi)
         liste_congelate, errori_liste = {}, {}
         if "vietate" in da_fare or "vietate_forme" in da_fare:
@@ -1854,7 +1939,7 @@ def esegui_controlli(tree_dir, solo=None, blocca_osservazione=False, pubblico=No
 
     for nome in da_fare:
         if nome == "gitleaks":
-            prova(nome, lambda: controllo_gitleaks(tree_dir))
+            prova(nome, lambda: controllo_gitleaks(tree_dir, raster_pins=raster_pins) if raster_pins else controllo_gitleaks(tree_dir))
         elif nome == "vietate":
             prova(nome, lambda: controllo_vietate(tree, lista("vietate"), ecc))
         elif nome == "env":
@@ -1914,7 +1999,15 @@ def esegui_controlli(tree_dir, solo=None, blocca_osservazione=False, pubblico=No
             def _payload():
                 if congelati is None:
                     db = memoria.SQLITE_PATH
-                    testi, guasti = payload_statico()
+                    # 13/09: gli import del payload legacy caricano il `.env` del privato
+                    # (config.py fa load_dotenv); come per `_importa_memory_db` l'ambiente
+                    # torna com'era, o la suite dell'export eredita le chiavi del PM.
+                    prima = dict(os.environ)
+                    try:
+                        testi, guasti = payload_statico()
+                    finally:
+                        os.environ.clear()
+                        os.environ.update(prima)
                     ticker = ticker_db(db)
                     nomi = nomi_db(db)
                 else:

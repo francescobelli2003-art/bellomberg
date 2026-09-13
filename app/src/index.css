@@ -18,6 +18,13 @@
 }
 
 html, body, #root { height: 100%; overflow: hidden; }
+html[data-platform="darwin"] header { -webkit-app-region: drag; }
+html[data-platform="darwin"] header button,
+html[data-platform="darwin"] header a,
+html[data-platform="darwin"] header input,
+html[data-platform="darwin"] header select,
+html[data-platform="darwin"] header textarea,
+html[data-platform="darwin"] header [role="button"] { -webkit-app-region: no-drag; }
 body {
   margin: 0;
   background-color: var(--color-bg);

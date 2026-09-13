@@ -25,6 +25,8 @@ Regole (no-fallback 14/07):
 
 Cash: ESCLUSO dai pesi (esposizione = capitale investito), dichiarato nel payload.
 """
+from bellomberg.core.presentation import message as _message, render_payload, join_messages
+
 import json
 import os
 import time
@@ -82,9 +84,7 @@ def nota_negozio(esito=None) -> Optional[str]:
     e = esito if esito is not None else cl.carica_veicoli()
     if e["origine"] not in ("assente", "illeggibile"):
         return None
-    return ("negozio dei veicoli %s nell'operazione (%s): nessun override tematico ne' bucket economico "
-            "dichiarato — ETF, veicoli e DAT escono col settore di listino di Yahoo o n.d., NON con la "
-            "loro esposizione (dichiarato, regola 14/07)" % (e["origine"].upper(), e["motivo"]))
+    return (_message("negozio dei veicoli {origin} nell'operazione ({reason}): nessun override tematico ne' bucket economico dichiarato — ETF, veicoli e DAT escono col settore di listino di Yahoo o n.d., NON con la loro esposizione (dichiarato, regola 14/07)", "Vehicle store {origin} for this operation ({reason}): no thematic override or economic bucket declared — ETFs, vehicles and DAT show Yahoo listing sector or n/a, NOT their exposure (declared, rule 14/07)", origin=e["origine"].upper(), reason=e["motivo"]))
 
 
 def econ_bucket_for(tk: str, ent: Optional[Dict[str, Any]],
@@ -183,10 +183,12 @@ def get_sector_map(tickers: List[str], fetch=None, negozio=None) -> Dict[str, Di
             if ent and ent.get("sector"):
                 out[tku] = {"sector": ent.get("sector"), "industry": ent.get("industry"),
                             "source": "cache(yfinance) STALE (refetch fallito, dichiarato)",
+                            "source_note": _message("Refetch fallito: cache STALE dichiarata", "Refetch failed: STALE cache declared"),
                             "asof": ent.get("asof")}
             else:
                 out[tku] = {"sector": None, "industry": None,
                             "source": "yfinance (fetch fallito/assente: non cacheato, retry al prossimo giro)",
+                            "source_note": _message("Fetch fallito/assente: non cacheato, nuovo tentativo al prossimo giro", "Fetch failed/missing: not cached, retry on next call"),
                             "asof": asof}
             continue
         cache[tku] = {"sector": got.get("sector"), "industry": got.get("industry"),
@@ -222,7 +224,7 @@ def _sizing_map_divergences(sector_map: Dict[str, Dict[str, Any]]) -> List[str]:
     try:
         from bellomberg.portfolio.sizing_engine import SECTOR_OF
     except Exception:
-        return ["sizing_engine.SECTOR_OF non importabile: confronto n.d."]
+        return [_message('sizing_engine.SECTOR_OF non importabile: confronto n.d.', 'Cannot import sizing_engine.SECTOR_OF: comparison unavailable')]
     for tk, policy_sector in SECTOR_OF.items():
         got = sector_map.get(tk.upper())
         if not got:
@@ -232,8 +234,7 @@ def _sizing_map_divergences(sector_map: Dict[str, Dict[str, Any]]) -> List[str]:
             continue   # settore n.d.: gia' dichiarato nel bucket, niente doppio rumore
         compat = _POLICY_COMPAT.get(policy_sector, (policy_sector.split("_")[0].lower(),))
         if not any(kw in s for kw in compat):
-            notes.append(f"{tk}: sizing policy '{policy_sector}' vs mappa '{got.get('sector')}'"
-                         f" [{got.get('source')}] — divergenza dichiarata, verificare")
+            notes.append(_message("{v0}: sizing policy '{v1}' vs mappa '{v2}' [{v3}] — divergenza dichiarata, verificare", "{v0}: sizing policy '{v1}' vs map '{v2}' [{v3}] — declared divergence, verify", v0=tk, v1=policy_sector, v2=got.get('sector'), v3=got.get('source')))
     return notes
 
 
@@ -246,10 +247,9 @@ def compute_sector_exposure(summary: Optional[Dict[str, Any]] = None,
         summary = MemoryDB().get_portfolio_summary()
     positions = summary.get("positions") or []
     if not positions:
-        return {"error": "nessuna posizione", "timestamp": datetime.now().isoformat()}
+        return {"error": _message("nessuna posizione", "No positions"), "timestamp": datetime.now().isoformat()}
     if summary.get("fx_incomplete"):
-        return {"error": "FX incompleto: esposizione settoriale EUR n.d. (" +
-                ", ".join(summary["fx_incomplete"]) + ")",
+        return {"error": _message("FX incompleto: esposizione settoriale EUR n.d. ({currencies})", "Incomplete FX: EUR sector exposure unavailable ({currencies})", currencies=", ".join(summary["fx_incomplete"])),
                 "timestamp": datetime.now().isoformat()}
     fx_inc = None
 
@@ -295,8 +295,7 @@ def compute_sector_exposure(summary: Optional[Dict[str, Any]] = None,
         if anom == "no_bucket":
             econ_no_bucket.append(tk)
         elif anom and anom.startswith("shadowed:"):
-            econ_shadowed.append(f"{tk}: voce manuale '{eb}' vs GICS "
-                                 f"'{anom.split(':', 1)[1]}'")
+            econ_shadowed.append(_message("{v0}: voce manuale '{v1}' vs GICS '{v2}'", "{v0}: manual entry '{v1}' vs GICS '{v2}'", v0=tk, v1=eb, v2=anom.split(':', 1)[1]))
         b = econ_buckets.setdefault(eb, {"value_eur": 0.0, "tickers": []})
         b["value_eur"] += val
         b["tickers"].append(tk)
@@ -322,20 +321,14 @@ def compute_sector_exposure(summary: Optional[Dict[str, Any]] = None,
     if nota_n:
         notes.append(nota_n)
     if econ_no_bucket:
-        notes.append("asse unico: override tematico SENZA bucket economico per "
-                     + ", ".join(sorted(econ_no_bucket))
-                     + " -> n.d. dichiarato (dichiarare bucket_economico nella voce del negozio dei veicoli)")
+        notes.append(_message("asse unico: override tematico SENZA bucket economico per {tickers} -> n.d. dichiarato (dichiarare bucket_economico nella voce del negozio dei veicoli)", "Single axis: thematic override WITHOUT economic bucket for {tickers} -> explicitly unavailable (declare bucket_economico in the vehicle-store entry)", tickers=", ".join(sorted(econ_no_bucket))))
     if econ_shadowed:
-        notes.append("asse unico: il bucket_economico del negozio DIVERGE dal GICS vero per "
-                     + "; ".join(sorted(econ_shadowed))
-                     + " — divergenza dichiarata, verificare la mappa (classe F-16)")
+        notes.append(_message("asse unico: il bucket_economico del negozio DIVERGE dal GICS vero per {tickers} — divergenza dichiarata, verificare la mappa (classe F-16)", "Single axis: store bucket_economico DIVERGES from actual GICS for {tickers} — declared divergence, verify the map (F-16 class)", tickers=join_messages("; ", sorted(econ_shadowed))))
     if nd_tickers:
-        notes.append("settore n.d. per " + ", ".join(sorted(nd_tickers))
-                     + " — bucket dichiarato, NON spalmato altrove")
+        notes.append(_message("settore n.d. per {tickers} — bucket dichiarato, NON spalmato altrove", "Sector unavailable for {tickers} — explicit bucket, NOT allocated elsewhere", tickers=", ".join(sorted(nd_tickers))))
     stale = summary.get("stale_positions")
     if stale:
-        notes.append("prezzi STALE (valore al costo) per " + ", ".join(stale)
-                     + ": i pesi di quei nomi sono al carico, dichiarato")
+        notes.append(_message("prezzi STALE (valore al costo) per {tickers}: i pesi di quei nomi sono al carico, dichiarato", "STALE prices (carried at cost) for {tickers}: those holdings are weighted at cost, as declared", tickers=", ".join(stale)))
     notes.extend(_sizing_map_divergences(smap))
     # review fase 1a (MEDIA-3): scope del confronto + single-stock senza policy
     # di settore nel sizing (= NESSUN cap settoriale li vincola) — dichiarato.
@@ -345,9 +338,7 @@ def compute_sector_exposure(summary: Optional[Dict[str, Any]] = None,
                                if v.get("source", "").find("override") < 0
                                and v.get("sector") and tk not in SECTOR_OF)
         if single_no_cap:
-            notes.append("single-stock SENZA policy di settore nel sizing (nessun cap "
-                         "settoriale li vincola): " + ", ".join(single_no_cap)
-                         + " — confronto policy limitato ai nomi in book")
+            notes.append(_message("single-stock SENZA policy di settore nel sizing (nessun cap settoriale li vincola): {tickers} — confronto policy limitato ai nomi in book", "Single stocks WITHOUT a sizing sector policy (no sector cap applies): {tickers} — policy comparison limited to held names", tickers=", ".join(single_no_cap)))
     except Exception:
         pass
 
@@ -364,26 +355,14 @@ def compute_sector_exposure(summary: Optional[Dict[str, Any]] = None,
             # review 1b (MEDIA-2): il degrado FX si dichiara ANCHE qui — questo
             # blocco verra' letto da solo dall'attribution, non deve autodescriversi
             # pulito con pesi degradati.
-            "basis": ("ASSE UNICO (fase 1b): single-stock = settore GICS; ETF "
-                      "settoriali mappati al settore economico equivalente "
-                      "(bucket_economico del negozio dei veicoli, dichiarato); panieri paese/EM e holding = "
-                      "bucket 'Multi-settore' a se', MAI spalmati senza le "
-                      "holdings; DAT/ETN = sottostante (Crypto/oro). Qui l'HHI "
-                      "NON mescola temi e GICS (chiude review MEDIA-4 fase 1a).")
-                     + (" [DEGRADATO: FX incompleto per " + ", ".join(fx_inc) + "]"
+            "basis": _message("{basis}{suffix}", "{basis}{suffix}", basis=_message("ASSE UNICO (fase 1b): single-stock = settore GICS; ETF settoriali mappati al settore economico equivalente (bucket_economico del negozio dei veicoli, dichiarato); panieri paese/EM e holding = bucket 'Multi-settore' a se', MAI spalmati senza le holdings; DAT/ETN = sottostante (Crypto/oro). Qui l'HHI NON mescola temi e GICS (chiude review MEDIA-4 fase 1a).", "SINGLE AXIS (phase 1b): single stock = GICS sector; sector ETFs mapped to the equivalent economic sector (vehicle-store bucket_economico, declared); country/EM baskets and holdings = separate 'Multi-settore' bucket, NEVER allocated without holdings; DAT/ETN = underlying (Crypto/gold). Here HHI does NOT mix themes and GICS (closes phase 1a MEDIA-4 review)."), suffix=_message(" [DEGRADATO: FX incompleto per {currencies}]", " [DEGRADED: incomplete FX for {currencies}]", currencies=", ".join(fx_inc))
                         if fx_inc else ""),
         },
         "coverage_pct": round((total - sum(b["value_eur"] for s, b in buckets.items()
                                            if s == "n.d.")) / total * 100.0, 2) if total > 0 else 0.0,
-        "basis": ("pesi sul valore di mercato EUR del summary (cash ESCLUSO: "
-                  "esposizione del capitale investito); ETF/veicoli/DAT con "
-                  "override DICHIARATI (tema, non settore GICS) — NB: hhi_sector "
-                  "mescola i due assi (ogni ETF e' un bucket a se': la "
-                  "concentrazione TEMATICA cross-ETF, es. 4 ETF minerari, non "
-                  "e' catturata dall'HHI — per l'asse unico vedi econ_axis, fase 1b)")
-                 + (" [DEGRADATO: FX incompleto per " + ", ".join(fx_inc) + "]"
+        "basis": _message("{basis}{suffix}", "{basis}{suffix}", basis=_message("pesi sul valore di mercato EUR del summary (cash ESCLUSO: esposizione del capitale investito); ETF/veicoli/DAT con override DICHIARATI (tema, non settore GICS) — NB: hhi_sector mescola i due assi (ogni ETF e' un bucket a se': la concentrazione TEMATICA cross-ETF, es. 4 ETF minerari, non e' catturata dall'HHI — per l'asse unico vedi econ_axis, fase 1b)", 'Weights on EUR market value from summary (cash EXCLUDED: invested capital exposure); ETFs/vehicles/DAT with DECLARED overrides (theme, not GICS sector) — NB: hhi_sector mixes both axes (each ETF is a separate bucket: cross-ETF THEMATIC concentration, e.g. 4 mining ETFs, is not captured by HHI — see econ_axis, phase 1b, for the single axis)'), suffix=_message(" [DEGRADATO: FX incompleto per {currencies}]", " [DEGRADED: incomplete FX for {currencies}]", currencies=", ".join(fx_inc))
                     if fx_inc else ""),
-        "sector_sources": {tk: {"sector": v.get("sector"), "source": v.get("source")}
+        "sector_sources": {tk: {"sector": v.get("sector"), "source": v.get("source"), "source_note": v.get("source_note")}
                            for tk, v in smap.items()},
         "notes": notes,
         "timestamp": datetime.now().isoformat(timespec="seconds"),

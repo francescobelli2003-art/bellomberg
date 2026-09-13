@@ -29,6 +29,7 @@ Robusto: se fallisce, ritorna "" e il consigliere procede senza (zero regression
 # Nessuna circolarita', verificato: specialists/base.py non importa red_team — la
 # critica gli arriva come DATO, via blackboard.write("_red_team").
 from bellomberg.agents.specialists.base import RECUPERO_NESSUNO, _blocco_blackboard, _dichiara_fallback
+from bellomberg.core.language import prompt_for_language, scoped_language
 
 RED_TEAM_PROMPT = """Sei il RISK MANAGER SCETTICO di Bellomberg, l'avvocato del diavolo del team. Gli specialisti hanno prodotto le loro tesi. Il tuo compito NON e' proporre trade, ma ATTACCARE le tesi prima che il Capo decida, in italiano professionale e diretto.
 
@@ -83,6 +84,8 @@ def _fmt_cost(v):
 # lettore resta allineato (il test del capo scrive questo testo a registro).
 SEGNAPOSTO_NESSUNA_CRITICA = ("[RED TEAM: nessuna critica prodotta (limite "
                               "iterazioni o risposta vuota) — buco dichiarato]")
+# audit 11/09: prefisso del guasto API dichiarato nel registro (v. except di run_red_team)
+SEGNAPOSTO_NON_DISPONIBILE = "[RED TEAM NON DISPONIBILE:"
 
 
 def motivo_critica_non_utilizzabile(testo):
@@ -105,6 +108,10 @@ def motivo_critica_non_utilizzabile(testo):
     if t.startswith(SEGNAPOSTO_NESSUNA_CRITICA[:40]):
         return ("il red team e' girato senza produrre critica — a registro: %s"
                 % t[:200])
+    if t.startswith(SEGNAPOSTO_NON_DISPONIBILE):
+        # audit 11/09: guasto API dichiarato (es. HTTP 403 sul modello): la causa vera
+        # arriva al Capo e ai desk R2, non «non risulta girato»
+        return "il red team NON e' disponibile in questa run — a registro: %s" % t[:300]
     if t.startswith("[ERROR"):
         return "a registro c'e' un errore, non una critica: %s" % t[:200]
     try:
@@ -117,6 +124,7 @@ def motivo_critica_non_utilizzabile(testo):
     return None
 
 
+@scoped_language
 def run_red_team(blackboard, portfolio_data=None, memory_db=None) -> str:
     """Esegue il red team sui report degli specialisti. Ritorna la critica (str).
     Best-effort: in caso di errore ritorna "" senza propagare."""
@@ -296,7 +304,7 @@ def run_red_team(blackboard, portfolio_data=None, memory_db=None) -> str:
                 # di ragionamento contano nei 4200 e in usage.reasoning_tokens — se la critica
                 # esce troncata, il WARN qui sotto lo dice e il tetto si alza.
                 thinking={"type": "adaptive"},
-                system=RED_TEAM_PROMPT,
+                system=prompt_for_language(RED_TEAM_PROMPT),
                 messages=messages,
                 **_kw,
             )
@@ -395,6 +403,17 @@ def run_red_team(blackboard, portfolio_data=None, memory_db=None) -> str:
         return critique
     except Exception as e:
         print(f"[RED_TEAM] API error (procedo senza): {e}")
+        # Audit 11/09 (Fable 5.1, run 10/09 memo #53): il 403 del modello (gate 18+ di
+        # OpenRouter) restava SOLO nel log; il registro `_red_team` non veniva scritto,
+        # il Capo leggeva «chiave assente: non risulta girato» e il memo diceva al PM che
+        # il red team «non ha girato» — falso nella causa. Il guasto si dichiara NEL
+        # registro (il classificatore lo riconosce: Capo e desk R2 leggono la causa vera).
+        try:
+            blackboard.write("_red_team", 1, SEGNAPOSTO_NON_DISPONIBILE
+                             + " errore API sul modello " + str(MODEL_SYNTHESIZER) + " — "
+                             + str(e)[:300] + "]")
+        except Exception as we:
+            print(f"[RED_TEAM] registro del guasto non scritto (procedo): {we}")
         # anche qui i token gia' spesi vanno dichiarati, con lo status dell'errore
         # (regola no-fallback-silenziosi PM 14/07): un agente fallito non sparisce
         # dai costi. Nested try: il red team non deve MAI far cadere la run.

@@ -143,42 +143,91 @@ def copia_in_temp(repo, files, temp_dir):
     return byte
 
 
-def esegui_suite(temp_dir, attesi=None):
-    """pytest DENTRO il tree esportato: misura di coerenza, non di leak. Tre cure della review T7:
-      · l'ambiente non porta ne' il DB ne' le chiavi del PM (`BELLOMBERG_DATA_DIR` via; il `.env`
-        nel processo non c'e' mai entrato, v. `verifica_pubblico._importa_memory_db`);
-      · `PYTHONDONTWRITEBYTECODE`: la suite non lascia i suoi .pyc nel tree che il cancello ha
-        GIA' misurato (168 file, 6 MB, che nessun controllo aveva visto);
-      · il tree diventa un repo git come lo sara' il pubblico e il `.git` sparisce subito dopo:
-        tre test derivano i loro input da `git ls-files`/`git check-ignore` e in una cartella nuda
-        git esce 128 con stdout vuoto, cosi' asseriscono sul VUOTO e cadono con un messaggio
-        falso (misurato: 17 cadute senza git, 14 con). `attesi` = quanti file l'indice deve
-        contenere: se sono meno, quelle guardie misurerebbero meno del perimetro e si dichiara."""
-    env = dict(os.environ)
-    for key in list(env):
-        if key.startswith("BELLOMBERG_"):
-            env.pop(key)
-    # Resolve the package under test from the immutable artifact, never the
+def _nomi_env_privato():
+    """I NOMI (mai i valori) delle variabili del `.env` del repo privato. Servono a toglierle
+    dall'ambiente della suite qualunque via le abbia portate nel processo (13/09, v. esegui_suite)."""
+    path = os.path.join(REPO, ".env")
+    if not os.path.isfile(path):
+        return set()
+    from dotenv import dotenv_values
+    return set(dotenv_values(path, encoding="utf-8-sig"))
+
+
+def _installa_node(app_dir, env):
+    """`npm ci` dal lockfile esportato, come la CI pubblica prima di pytest (ci.yml). Senza npm
+    nel PATH e' un KO dichiarato: una suite senza dipendenze darebbe rossi che non sono difetti."""
+    npm = shutil.which("npm", path=env.get("PATH"))
+    if not npm:
+        return 1, "npm non trovato nel PATH"
+    r = subprocess.run([npm, "ci", "--no-audit", "--no-fund"], cwd=app_dir, env=env,
+                       capture_output=True, encoding="utf-8", errors="replace")
+    return r.returncode, ((r.stderr or "") + (r.stdout or "")).strip()[-300:]
+
+
+def esegui_suite(temp_dir, attesi=None, installa_node=None):
+    """pytest su una COPIA del tree esportato: misura di coerenza, non di leak. Cure della review T7:
+      · l'ambiente non porta ne' il DB ne' le chiavi del PM: via `BELLOMBERG_*` e, dal 13/09, via
+        ogni variabile che porta il NOME di una riga del `.env` privato (nel dry-run il payload
+        legacy importava i moduli e `config.py` caricava il `.env`: la suite ne ereditava 44,
+        chiavi comprese, e dava due rossi in piu'). I nomi tolti si dichiarano nella riga;
+      · `PYTHONDONTWRITEBYTECODE`: niente .pyc (168 file, 6 MB, che nessun controllo aveva visto);
+      · la copia diventa un repo git come lo sara' il pubblico: tre test derivano i loro input da
+        `git ls-files`/`git check-ignore` e in una cartella nuda git esce 128 con stdout vuoto
+        (misurato: 17 cadute senza git, 14 con). `attesi` = quanti file l'indice deve contenere:
+        se sono meno, quelle guardie misurerebbero meno del perimetro e si dichiara;
+      · 13/09: con `app/package-lock.json` si installano le dipendenze Node DOPO l'indice, come la
+        CI pubblica (misurato: 23 rossi senza, 5 con; i 18 erano moduli Node assenti). Per questo
+        la suite gira su una copia verificata per hash: l'artefatto certificato non riceve ne'
+        `node_modules` ne' i file che un test scrive. Un `npm ci` fallito e' un KO dichiarato.
+    L'output completo resta in `<temp>.pytest.log`; la riga nomina i test rossi."""
+    lavoro = temp_dir.rstrip("\\/") + ".suite"
+    log_path = temp_dir.rstrip("\\/") + ".pytest.log"
+    privati = _nomi_env_privato()
+    env = {k: v for k, v in os.environ.items() if not k.startswith("BELLOMBERG_") and k not in privati}
+    tolte = sorted(k for k in os.environ if k in privati and not k.startswith("BELLOMBERG_"))
+    # Resolve the package under test from the verified copy, never the
     # maintainer's editable installation. Installation is checked separately.
-    env["PYTHONPATH"] = os.pathsep.join((os.path.join(temp_dir, "src"), str(temp_dir)))
+    env["PYTHONPATH"] = os.pathsep.join((os.path.join(lavoro, "src"), lavoro))
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    note = []
+    if tolte:
+        note.append("ambiente: %d variabili del .env privato tolte (%s)" % (len(tolte), ", ".join(tolte)))
     try:
+        _via(lavoro)
+        shutil.copytree(temp_dir, lavoro)
+        if hash_artefatto(lavoro) != hash_artefatto(temp_dir):
+            return 1, "STOP: la copia per la suite non e' identica all'artefatto"
         for args in (["git", "init", "-q"], ["git", "add", "-A"]):
-            r = _run(args, temp_dir, check=False)
+            r = _run(args, lavoro, check=False)
             if r.returncode != 0:
                 return r.returncode, "git %s nel tree: %s" % (args[1], (r.stderr or "").strip()[-200:])
         if attesi is not None:
-            n = len(file_tracciati(temp_dir))
+            n = len(file_tracciati(lavoro))
             if n != attesi:
                 return 1, ("STOP: l'indice del tree ha %d file sui %d scelti (il .gitignore pubblicato"
                            " o un core.excludesFile ne toglie): le guardie che usano git"
                            " misurerebbero meno del perimetro" % (n, attesi))
-        r = subprocess.run([sys.executable, "-m", "pytest", "tests/", "-q", "-p", "no:cacheprovider"],
-                           cwd=temp_dir, env=env, capture_output=True, encoding="utf-8", errors="replace")
+        app_dir = os.path.join(lavoro, "app")
+        if os.path.isfile(os.path.join(app_dir, "package-lock.json")):
+            rc_node, msg_node = (installa_node or _installa_node)(app_dir, env)
+            if rc_node != 0:
+                return rc_node or 1, ("STOP: npm ci dal lockfile esportato fallito, suite NON eseguita"
+                                      " (la CI installa le dipendenze Node prima di pytest): %s" % msg_node)
+            note.append("dipendenze Node installate con npm ci")
+        else:
+            note.append("nessun app/package-lock.json: dipendenze Node non installate")
+        r = subprocess.run([sys.executable, "-m", "pytest", "tests/", "-q", "-p", "no:cacheprovider", "-rfE"],
+                           cwd=lavoro, env=env, capture_output=True, encoding="utf-8", errors="replace")
     finally:
-        _via(os.path.join(temp_dir, ".git"))
+        _via(lavoro)
+    with open(log_path, "w", encoding="utf-8") as fh:
+        fh.write((r.stdout or "") + "\n--- STDERR ---\n" + (r.stderr or ""))
     righe = [x for x in (r.stdout or "").splitlines() if x.strip()]
-    return r.returncode, (righe[-1] if righe else (r.stderr or "")[-200:])
+    riga = righe[-1] if righe else (r.stderr or "")[-200:]
+    rossi = [x.split(" ", 1)[1].split(" - ", 1)[0] for x in righe if x.startswith(("FAILED ", "ERROR "))]
+    if rossi:
+        riga += " — rossi: " + ", ".join(rossi[:40]) + (" (+%d)" % (len(rossi) - 40) if len(rossi) > 40 else "")
+    return r.returncode, "; ".join([riga] + note) + " — log completo: " + log_path
 
 
 def _cancello(tree_dir, solo=None, blocca_osservazione=False, corpus_root=None):
@@ -584,14 +633,18 @@ def main(argv=None):
             print("commit: NO (dry-run)")
         return 0
     finally:
+        log_suite = temp.rstrip("\\/") + ".pytest.log"
         if a.tieni:
             print("temp conservata: %s" % temp)
             if os.path.isfile(manifest_path):
                 print("manifest conservato: %s" % manifest_path)
+            if os.path.isfile(log_suite):
+                print("output completo della suite conservato: %s" % log_suite)
         else:
             _via(temp)
-            if os.path.isfile(manifest_path):
-                os.remove(manifest_path)
+            for sidecar in (manifest_path, log_suite):
+                if os.path.isfile(sidecar):
+                    os.remove(sidecar)
 
 
 if __name__ == "__main__":

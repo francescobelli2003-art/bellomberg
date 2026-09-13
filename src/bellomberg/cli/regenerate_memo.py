@@ -4,7 +4,9 @@ salvati nel DB (Round 2 persistiti), senza rifare i 3 round. Utile quando una ru
 si impalla su un agente: si recupera il lavoro gia' pagato facendo partire SOLO il Capo.
 Costo: solo la chiamata del Capo (+ qualche scorer veloce), non un'altra run intera.
 
-USO:  python regenerate_memo.py
+USO: python regenerate_memo.py [--language it|en]
+Il comando esplicito aggiorna il memo recuperato nella stessa lingua nota.
+Una lingua diversa richiede una nuova versione; cambiare preferenza non lo avvia.
 """
 import os, sys
 from datetime import datetime
@@ -18,35 +20,60 @@ from bellomberg.storage.memory_db import MemoryDB
 from bellomberg.agents.specialists.base import Blackboard
 from bellomberg.agents.capo import run_capo
 from bellomberg.core.paths import MODELS_DIR, REPORT_DIR, RESEARCH_NOTES_DIR
+from bellomberg.core.language import capture_language, language_context, scoped_language, text, validate_language
 
 
 def _log(m): print("[" + datetime.now().strftime("%H:%M:%S") + "] " + m)
 
 
-def main():
+def _recovery_language(memo_language, report_languages, explicit=None):
+    if explicit is not None:
+        selected = validate_language(explicit)
+        if memo_language in ("it", "en") and selected != memo_language:
+            raise ValueError("traduzione storica richiede nuova versione / historical translation requires a new version")
+        return selected
+    languages = [memo_language, *report_languages]
+    if not languages or any(value not in ("it", "en") for value in languages) or len(set(languages)) != 1:
+        raise ValueError("Lingua storica ignota o discordante: specifica --language it|en / "
+                         "Unknown or conflicting historical language: specify --language it|en")
+    return languages[0]
+
+
+def main(language=None):
     db = MemoryDB()
     with db._conn() as conn:
-        memo = conn.execute("SELECT id FROM memos ORDER BY id DESC LIMIT 1").fetchone()
+        memo = conn.execute("SELECT id,output_language FROM memos ORDER BY id DESC LIMIT 1").fetchone()
         if not memo:
-            print("Nessun memo nel DB."); return
+            print("Nessun memo nel DB. / No memo in the database."); return
         memo_id = memo["id"]
         rows = conn.execute(
-            "SELECT specialist, round_n, content FROM specialist_reports "
+            "SELECT specialist, round_n, content, output_language FROM specialist_reports "
             "WHERE memo_id=? ORDER BY round_n", (memo_id,)).fetchall()
     if not rows:
         print(f"Nessun report salvato per memo #{memo_id}: niente da recuperare "
-              f"(la run si e' bloccata prima di finalizzare i Round 2)."); return
+              f"(la run si e' bloccata prima di finalizzare i Round 2). / "
+              f"No saved reports for memo #{memo_id}: nothing to recover "
+              f"(the run stopped before finalizing Round 2)."); return
 
+    selected = _recovery_language(memo["output_language"], [r["output_language"] for r in rows], language)
     # 05/09 (criterio 5, review): senza mandato run_capo solleva MandatoMancante — dillo QUI, prima
     # del Blackboard (che scrive l'heartbeat di F4) e dei minuti di risk/sizing, non alla fine.
     from bellomberg.core import mandato_pm
     try:
         mandato_pm.carica()
     except mandato_pm.MandatoMancante as _mm:
-        _log("MANDATO NON DICHIARATO: " + str(_mm))
-        _log("Il recupero del memo non parte senza il mandato del PM: compila la pagina Mandato (F11) e rilancia.")
+        _log(text("MANDATO NON DICHIARATO: ", "MANDATE NOT DECLARED: ", language=selected) + str(_mm))
+        _log(text("Il recupero del memo non parte senza il mandato del PM: compila la pagina Mandato (F18) e rilancia.",
+                  "Memo recovery requires the PM mandate: complete the Mandate page (F18) and run again.", language=selected))
         raise SystemExit(2)
-    bb = Blackboard(memory_db=db, memo_id=memo_id)
+    with language_context(selected):
+        bb = Blackboard(memory_db=db, memo_id=memo_id)
+    return _regenerate(db, memo_id, rows, bb, language=selected)
+
+
+@scoped_language
+def _regenerate(db, memo_id, rows, bb):
+    selected = capture_language()
     found = {}
     for r in rows:
         bb.data.setdefault(r["specialist"], {})[r["round_n"]] = r["content"]
@@ -180,8 +207,8 @@ def main():
     # update memo nel DB + email
     try:
         with db._conn() as conn:
-            conn.execute("UPDATE memos SET full_markdown=?, pdf_path=? WHERE id=?",
-                         (memo, pdf_path, memo_id))
+            conn.execute("UPDATE memos SET full_markdown=?, pdf_path=?, output_language=? WHERE id=?",
+                         (memo, pdf_path, selected, memo_id))
             # idempotente: cancella le decisioni gia' estratte per questo memo prima di ri-estrarre
             conn.execute("DELETE FROM decisions WHERE memo_id=? AND status='PENDING'", (memo_id,))
             # #204b HARD (review Lotto C, F1c): via anche le auto-chiusure di codice
@@ -238,9 +265,12 @@ def main():
         if email_configurata():
             ok = invia_email_multi_allegati(
                 pdf_paths=attachments,
-                oggetto="[BELLOMBERG] Weekly Research (RECUPERO) - " + datetime.now().strftime("%d/%m/%Y"),
-                body_extra="<p>Memo rigenerato dai report salvati (recupero): in allegato memo, "
-                           "appendice quant e modelli VAL/DCF generati nelle ultime 48 ore.</p>")
+                oggetto=text("[BELLOMBERG] Ricerca settimanale (RECUPERO) - ",
+                             "[BELLOMBERG] Weekly Research (RECOVERY) - ") + datetime.now().strftime("%d/%m/%Y"),
+                body_extra=text("<p>Memo rigenerato dai report salvati (recupero): in allegato memo, "
+                                "appendice quant e modelli VAL/DCF generati nelle ultime 48 ore.</p>",
+                                "<p>Memo regenerated from saved reports (recovery): attached memo, "
+                                "quant appendix and VAL/DCF models generated in the last 48 hours.</p>"))
             _log("Email recupero " + ("inviata" if ok else "NON inviata") +
                  " (" + str(len(attachments)) + " allegati)")
         else:
@@ -255,4 +285,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description="Recover the latest memo without translating historical content")
+    parser.add_argument("--language", choices=("it", "en"))
+    main(language=parser.parse_args().language)

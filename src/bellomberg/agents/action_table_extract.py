@@ -14,6 +14,7 @@ Costo: 1 chiamata Sonnet ~5k token in / ~400 out per memo (centesimi).
 """
 import re as _re
 import time as _time
+from bellomberg.core.language import prompt_for_language, scoped_language
 
 EMIT_TOOL = {
     "name": "emit_action_table",
@@ -67,6 +68,7 @@ _SYSTEM = (
 _WINDOW_CHARS = 12000  # ampiezza invariata: e' il contratto di costo (~5k token in)
 
 
+@scoped_language
 def extract_rows_structured(memo_markdown: str, usage_out: dict = None) -> dict:
     """Ritorna {'rows': [...], 'table_found': bool} o {'error': str}. Non solleva.
 
@@ -117,7 +119,7 @@ def extract_rows_structured(memo_markdown: str, usage_out: dict = None) -> dict:
             # c'e' tool_choice FORZATO (estrazione meccanica), il thinking non
             # serve e col budget corto lo eroderebbe
             thinking={"type": "disabled"},
-            system=_SYSTEM,
+            system=prompt_for_language(_SYSTEM),
             tools=[EMIT_TOOL],
             tool_choice={"type": "tool", "name": "emit_action_table"},
             messages=[{"role": "user", "content": text}],

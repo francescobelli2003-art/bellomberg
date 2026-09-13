@@ -1,0 +1,12 @@
+# Blank issues are disabled so every report arrives through a form that already asks
+# for the version, the platform and the reproduction, and that reminds the reporter to
+# strip secrets and personal data.
+#
+# No `contact_links` here on purpose: they would require the repository URL written out
+# in full, and published files in this project never hard-code it (the README asks the
+# reader to copy the address from the repository page instead). The two destinations a
+# contact link would point to are reachable from the repository's own tabs and are named
+# in the forms themselves:
+#   - questions and help  -> the Discussions tab, and SUPPORT.md
+#   - security problems   -> the Security tab (private vulnerability reporting), and SECURITY.md
+blank_issues_enabled: false

@@ -55,6 +55,7 @@ except ImportError:
     ARCH_OK = False
 
 from bellomberg.storage.memory_db import MemoryDB
+from bellomberg.core.presentation import message as _message, render_payload
 
 
 CACHE_TTL_SEC = 1800  # 30 min
@@ -103,14 +104,12 @@ def _get_portfolio_returns(lookback_days: int = MAX_OBSERVATIONS, *, salta: froz
     volta per giro dal chiamante. None = chiamata senza cablaggio, ed e' un errore subito,
     non un insieme vuoto zitto."""
     if salta is None:
-        raise TypeError("_get_portfolio_returns: manca `salta` (il negozio dei prezzi "
-                        "speciali va letto dal chiamante e passato qui)")
+        raise TypeError(_message('_get_portfolio_returns: manca `salta` (il negozio dei prezzi speciali va letto dal chiamante e passato qui)', '_get_portfolio_returns: missing `salta` (the caller must read and pass the special price store)'))
     if snap is None:
         db = MemoryDB()
         snap = db.get_portfolio_summary()
     if snap.get("fx_incomplete"):
-        return None, {"error": "FX incompleto: pesi GARCH EUR n.d. (" +
-                               ", ".join(snap["fx_incomplete"]) + ")"}
+        return None, {"error": _message("FX incompleto: pesi GARCH EUR n.d. ({currencies})", "Incomplete FX: EUR GARCH weights unavailable ({currencies})", currencies=", ".join(snap["fx_incomplete"]))}
     positions = snap.get("positions", [])
     if not positions:
         return None, {}
@@ -176,8 +175,8 @@ def _get_portfolio_returns(lookback_days: int = MAX_OBSERVATIONS, *, salta: froz
     if len(port_ret) > lookback_days:
         port_ret = port_ret.iloc[-lookback_days:]
     meta = {
-        "returns_basis": ("EUR (FX convertito per-serie)" if fx_meta.get("converted")
-                          else "valuta locale"),
+        "returns_basis": (_message('EUR (FX convertito per-serie)', 'EUR (FX converted per series)') if fx_meta.get("converted")
+                          else _message("valuta locale", "local currency")),
         "fx_conversion": fx_meta,
         "sample_meta": sample_meta,
         "excluded_tickers": [s for s in symbols if s not in available],
@@ -193,8 +192,8 @@ def _diagnostic_tests(std_resid: pd.Series) -> Dict[str, Any]:
         lb = sm.stats.acorr_ljungbox(std_resid, lags=[10], return_df=True)
         out["ljung_box_pvalue"] = round(float(lb["lb_pvalue"].iloc[0]), 4)
         out["ljung_box_interpretation"] = (
-            "OK: residui non autocorrelati" if out["ljung_box_pvalue"] > 0.05
-            else "WARN: residui ancora autocorrelati - modello potenzialmente mal specificato"
+            _message('OK: residui non autocorrelati', 'OK: residuals are not autocorrelated') if out["ljung_box_pvalue"] > 0.05
+            else _message('WARN: residui ancora autocorrelati - modello potenzialmente mal specificato', 'WARN: residuals remain autocorrelated - model may be misspecified')
         )
     except Exception:
         out["ljung_box_pvalue"] = None
@@ -204,8 +203,8 @@ def _diagnostic_tests(std_resid: pd.Series) -> Dict[str, Any]:
         arch_lm = sm.stats.diagnostic.het_arch(std_resid, nlags=10)
         out["arch_lm_pvalue"] = round(float(arch_lm[1]), 4)
         out["arch_lm_interpretation"] = (
-            "OK: no ARCH effects residui (modello cattura volatilita')" if out["arch_lm_pvalue"] > 0.05
-            else "WARN: ARCH effects residui - servirebbe ordine GARCH piu' alto"
+            _message("OK: no ARCH effects residui (modello cattura volatilita')", 'OK: no residual ARCH effects (model captures volatility)') if out["arch_lm_pvalue"] > 0.05
+            else _message("WARN: ARCH effects residui - servirebbe ordine GARCH piu' alto", 'WARN: residual ARCH effects - a higher GARCH order may be needed')
         )
     except Exception:
         out["arch_lm_pvalue"] = None
@@ -217,17 +216,16 @@ def compute_portfolio_garch(force: bool = False) -> Dict[str, Any]:
     try:
         _guard_snap = MemoryDB().get_portfolio_summary()
     except Exception as e:
-        return {"error": f"portfolio fetch failed: {e}",
+        return {"error": _message('portfolio fetch failed: {v0}', 'Portfolio fetch failed: {v0}', v0=e),
                 "timestamp": datetime.now().isoformat()}
     if _guard_snap.get("fx_incomplete"):
-        return {"error": "FX incompleto: pesi GARCH EUR n.d. (" +
-                         ", ".join(_guard_snap["fx_incomplete"]) + ")",
+        return {"error": _message("FX incompleto: pesi GARCH EUR n.d. ({currencies})", "Incomplete FX: EUR GARCH weights unavailable ({currencies})", currencies=", ".join(_guard_snap["fx_incomplete"])),
                 "timestamp": datetime.now().isoformat()}
     if not force and _CACHE["data"] and (time.time() - _CACHE["ts"] < CACHE_TTL_SEC):
-        return _CACHE["data"]
+        return render_payload(_CACHE["data"])
 
     if not (NUMPY_OK and YF_OK and ARCH_OK):
-        return {"error": "librerie mancanti (arch/statsmodels/yfinance)",
+        return {"error": _message('librerie mancanti (arch/statsmodels/yfinance)', 'Missing libraries (arch/statsmodels/yfinance)'),
                 "timestamp": datetime.now().isoformat()}
 
     # Il negozio si legge QUI, una volta per giro, e si passa giu': se lo leggesse
@@ -237,11 +235,11 @@ def compute_portfolio_garch(force: bool = False) -> Dict[str, Any]:
     try:
         port_ret, ret_meta = _get_portfolio_returns(salta=_prezzi["prezzi"]["senza_yfinance"])
     except Exception as e:
-        return {"error": f"portfolio returns failed: {e}",
+        return {"error": _message('portfolio returns failed: {v0}', 'Portfolio returns failed: {v0}', v0=e),
                 "timestamp": datetime.now().isoformat()}
 
     if port_ret is None or len(port_ret) < MIN_OBSERVATIONS:
-        return {"error": f"sample insufficiente (need {MIN_OBSERVATIONS}, got {0 if port_ret is None else len(port_ret)})",
+        return {"error": _message('sample insufficiente (need {v0}, got {v1})', 'Insufficient sample (need {v0}, got {v1})', v0=MIN_OBSERVATIONS, v1=0 if port_ret is None else len(port_ret)),
                 "timestamp": datetime.now().isoformat()}
 
     # arch lib lavora con returns in % (per stabilita' numerica)
@@ -271,7 +269,7 @@ def compute_portfolio_garch(force: bool = False) -> Dict[str, Any]:
                                 + gjr_params.get("beta[1]", 0))
     except Exception as e:
         _log(f"GJR fit failed: {e}")
-        return {"error": f"GJR-GARCH fit failed: {e}",
+        return {"error": _message('Stima GJR-GARCH fallita: {v0}', 'GJR-GARCH fit failed: {v0}', v0=e),
                 "timestamp": datetime.now().isoformat(),
                 "traceback": traceback.format_exc()[:500]}
 
@@ -285,8 +283,8 @@ def compute_portfolio_garch(force: bool = False) -> Dict[str, Any]:
         garch_persistence = float(garch_res.params.get("alpha[1]", 0)
                                    + garch_res.params.get("beta[1]", 0))
     except Exception as e:
-        _log(f"GARCH base fit failed: {e}")
-        return {"error": f"GARCH fit failed: {e}",
+        _log(_message('GARCH base fit failed: {v0}', 'GARCH fit failed: {v0}', v0=e))
+        return {"error": _message('Stima GARCH fallita: {v0}', 'GARCH fit failed: {v0}', v0=e),
                 "timestamp": datetime.now().isoformat()}
 
     # fix review quant 22/07: convergenza MLE mai verificata = fallback silenzioso.
@@ -294,8 +292,7 @@ def compute_portfolio_garch(force: bool = False) -> Dict[str, Any]:
     gjr_conv = int(getattr(gjr_res, "convergence_flag", 0) or 0)
     garch_conv = int(getattr(garch_res, "convergence_flag", 0) or 0)
     if gjr_conv != 0 and garch_conv != 0:
-        return {"error": f"MLE non convergiuta (GJR flag={gjr_conv}, GARCH flag={garch_conv}): "
-                         "parametri non pubblicabili",
+        return {"error": _message('MLE non convergiuta (GJR flag={v0}, GARCH flag={v1}): parametri non pubblicabili', 'MLE did not converge (GJR flag={v0}, GARCH flag={v1}): parameters cannot be published', v0=gjr_conv, v1=garch_conv),
                 "timestamp": datetime.now().isoformat()}
 
     # Model selection: GJR vince se gamma significativo a 5% E AIC inferiore
@@ -303,10 +300,10 @@ def compute_portfolio_garch(force: bool = False) -> Dict[str, Any]:
     convergence_note = None
     if use_gjr and gjr_conv != 0:
         use_gjr = False
-        convergence_note = f"GJR scartato: MLE non convergiuta (flag={gjr_conv})"
+        convergence_note = _message('GJR scartato: MLE non convergiuta (flag={v0})', 'GJR excluded: MLE did not converge (flag={v0})', v0=gjr_conv)
     elif (not use_gjr) and garch_conv != 0:
         use_gjr = True
-        convergence_note = f"GARCH base scartato: MLE non convergiuta (flag={garch_conv})"
+        convergence_note = _message('GARCH base scartato: MLE non convergiuta (flag={v0})', 'Base GARCH excluded: MLE did not converge (flag={v0})', v0=garch_conv)
     chosen = "GJR-GARCH(1,1,1)" if use_gjr else "GARCH(1,1)"
     chosen_res = gjr_res if use_gjr else garch_res
     chosen_aic = gjr_aic if use_gjr else garch_aic
@@ -359,35 +356,27 @@ def compute_portfolio_garch(force: bool = False) -> Dict[str, Any]:
         "timestamp": datetime.now().isoformat(),
         "model_chosen": chosen,
         "selection_rationale": (
-            f"GJR-GARCH wins: gamma p-value={gjr_gamma_pvalue:.4f} (<0.05), "
-            f"AIC {gjr_aic:.1f} < GARCH AIC {garch_aic:.1f}"
+            _message("GJR-GARCH selezionato: gamma p-value={p:.4f} (<0.05), AIC {gjr:.1f} < GARCH AIC {garch:.1f}", "GJR-GARCH wins: gamma p-value={p:.4f} (<0.05), AIC {gjr:.1f} < GARCH AIC {garch:.1f}", p=gjr_gamma_pvalue, gjr=gjr_aic, garch=garch_aic)
             if use_gjr else
-            f"GARCH(1,1) wins: GJR gamma p-value={gjr_gamma_pvalue:.4f} not significant, "
-            f"or AIC {garch_aic:.1f} <= GJR {gjr_aic:.1f}"
+            _message("GARCH(1,1) selezionato: GJR gamma p-value={p:.4f} non significativo, o AIC {garch:.1f} <= GJR {gjr:.1f}", "GARCH(1,1) wins: GJR gamma p-value={p:.4f} not significant, or AIC {garch:.1f} <= GJR {gjr:.1f}", p=gjr_gamma_pvalue, gjr=gjr_aic, garch=garch_aic)
         ),
         "n_obs": int(len(returns_pct)),
-        "distribution": "Student-t (fat-tails)",
+        "distribution": _message('Student-t (code pesanti)', 'Student-t (fat-tails)'),
         "parameters": chosen_params,
         "pvalues": chosen_pvalues,
         "persistence": round(chosen_persistence, 4),
         "persistence_interpretation": (
-            "OK (<1): processo stazionario, shock decay" if chosen_persistence < 1
-            else "WARN: near-unit-root o esplosivo - rivedere modello"
+            _message('OK (<1): processo stazionario, shock decay', 'OK (<1): stationary process, shocks decay') if chosen_persistence < 1
+            else _message('WARN: near-unit-root o esplosivo - rivedere modello', 'WARN: near-unit-root or explosive - review model')
         ),
         "log_likelihood": round(chosen_loglik, 2),
         "aic": round(chosen_aic, 2),
         "current_vol_annual_pct": current_vol_annual_pct,
         "forecast_vol": forecasts,
-        "forecast_semantics": ("vol_annualized_pct = vol del SOLO giorno t+h; "
-                               "vol_horizon_ann_pct = vol media sui giorni 1..h "
-                               "(quella confrontabile con una IV a h giorni); "
-                               "CI 95% = quantili 2.5/97.5 della vol condizionata simulata "
-                               "dal modello (a 1g la varianza GARCH e' quasi deterministica "
-                               "dati i parametri: CI stretto atteso; incertezza parametri "
-                               "non modellata, dichiarato)"),
+        "forecast_semantics": (_message("vol_annualized_pct = vol del SOLO giorno t+h; vol_horizon_ann_pct = vol media sui giorni 1..h (quella confrontabile con una IV a h giorni); CI 95% = quantili 2.5/97.5 della vol condizionata simulata dal modello (a 1g la varianza GARCH e' quasi deterministica dati i parametri: CI stretto atteso; incertezza parametri non modellata, dichiarato)", 'vol_annualized_pct = volatility for ONLY day t+h; vol_horizon_ann_pct = mean volatility over days 1..h (comparable to h-day IV); 95% CI = 2.5/97.5 quantiles of model-simulated conditional volatility (at 1 day, GARCH variance is almost deterministic given the parameters: a narrow CI is expected; parameter uncertainty is not modeled, as declared)')),
         # review quant 22/07: base valutaria e campione DICHIARATI (prima la vol
         # GARCH era in valuta locale, zitta, accanto a un VaR ufficiale in EUR)
-        "returns_basis": ret_meta.get("returns_basis", "n.d."),
+        "returns_basis": ret_meta.get("returns_basis", _message("n.d.", "n/a")),
         "fx_conversion": ret_meta.get("fx_conversion", {}),
         "sample_meta": ret_meta.get("sample_meta", {}),
         "excluded_tickers": ret_meta.get("excluded_tickers", []),
@@ -409,7 +398,7 @@ def compute_portfolio_garch(force: bool = False) -> Dict[str, Any]:
     _CACHE["data"] = result
     _log(f"computed {chosen}: vol_ann_current={current_vol_annual_pct:.2f}%, "
          f"persistence={chosen_persistence:.3f}, AIC={chosen_aic:.1f}")
-    return result
+    return render_payload(result)
 
 
 def invalidate_cache():

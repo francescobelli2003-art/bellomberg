@@ -144,6 +144,14 @@ creates new UUID workbook/sidecar files and preserves previous files. The same
 snapshot and value travel through cache, research, database metadata, committee,
 score and F17. A blocked value is suppressed in nested calculation details too.
 
+Reading a stored snapshot uses its own information cutoff: a documented value
+does not become unavailable solely because another calendar day has passed.
+An explicit cutoff or current cache identity must still match exactly. Missing
+records, stale evidence at that cutoff and blocking sanity findings still reject
+the value. The committee receives both the valuation date and information cutoff.
+This does not update historical prices or assumptions; the existing score limit
+for sidecars remains thirty days from their generation timestamp.
+
 Methodological reference: [Damodaran's industry and lifecycle valuation materials](https://pages.stern.nyu.edu/~adamodar/New_Home_Page/littlebook.htm).
 Financial-service businesses use equity and capital constraints, as discussed in
 [Valuing Financial Service Firms](https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/finfirm09.pdf);

@@ -20,6 +20,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from bellomberg.core.language import language_context
 
 import bellomberg.portfolio.portfolio_montecarlo as pm
 
@@ -168,7 +169,8 @@ def test_gli_endpoint_di_f5_invece_le_chiedono():
 
 
 @pytest.mark.parametrize("quante,attese", [(200, 10), (500, 10), (10, 10), (4, 4)])
-def test_il_pdf_disegna_al_massimo_10_tracce(monkeypatch, quante, attese):
+@pytest.mark.parametrize('language,xlabel', [('it', 'Giorni di negoziazione'), ('en', 'Trading days')])
+def test_il_pdf_disegna_al_massimo_10_tracce(monkeypatch, quante, attese, language, xlabel):
     # difesa in profondita': anche se un domani al chart arrivasse un payload
     # ricco, il fan chart del memo non deve trasformarsi in una macchia grigia.
     # `_save` chiude la figura e restituisce un path: la si intercetta prima.
@@ -187,11 +189,12 @@ def test_il_pdf_disegna_al_massimo_10_tracce(monkeypatch, quante, attese):
         "sample_paths": [[1.0 + j * 0.001 for j in range(20)] for _ in range(quante)],
         "sample_paths_days": giorni,
     }
-    cq.chart_mc_fan(mc)
+    with language_context(language):
+        cq.chart_mc_fan(mc)
     fig = catturata.get("fig")
     assert fig is not None, "chart_mc_fan non ha prodotto la figura"
     # le tracce campione sono le uniche disegnate con lw=0.45
-    ax = [a for a in fig.axes if a.get_xlabel() == "Giorni di trading"][0]
+    ax = [a for a in fig.axes if a.get_xlabel() == xlabel][0]
     tracce = [ln for ln in ax.get_lines() if ln.get_linewidth() == 0.45]
     assert len(tracce) == attese, f"il PDF ha disegnato {len(tracce)} tracce su {quante}"
     import matplotlib.pyplot as plt

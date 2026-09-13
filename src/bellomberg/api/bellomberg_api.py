@@ -110,6 +110,7 @@ try:
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.middleware.trustedhost import TrustedHostMiddleware
     from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
+    from bellomberg.core.api_presentation import PresentationJSONResponse
     from pydantic import BaseModel
     import uvicorn
     FASTAPI_OK = True
@@ -118,6 +119,7 @@ except ImportError:
     print("[!] Install: pip install fastapi uvicorn")
 
 from bellomberg.storage.memory_db import MemoryDB, connect_sqlite, DB_DIR, SQLITE_PATH
+from bellomberg.core.language import text as _api_text
 from bellomberg.agents.bellomberg import BRAND_NAME, VERSION
 
 
@@ -164,6 +166,22 @@ class TradeIn(BaseModel):
     note: Optional[str] = None
     pm_rationale: Optional[str] = None
     linked_decision_id: Optional[int] = None
+    data: Optional[str] = None
+    senza_decisione: bool = False
+    preview_id: Optional[str] = None
+
+
+class OpeningPositionIn(BaseModel):
+    model_config = {"strict": True, "extra": "forbid"}
+    ticker: str
+    quantita: float
+    prezzo_medio: float
+    valuta: str
+    as_of: str  # Balance known at this date; never the acquisition date.
+    provenienza: str
+    nome: Optional[str] = None
+    nota: Optional[str] = None
+    preview_id: Optional[str] = None
 
 
 def _fonti_prezzi_dichiarate():
@@ -176,7 +194,7 @@ def _fonti_prezzi_dichiarate():
         from bellomberg.cli.price_updater import FONTI_PREZZI
         return "/".join(FONTI_PREZZI) + " (in ordine di priorita'; polygon resta per opzioni/IV)"
     except Exception as e:
-        return "n.d. (elenco fonti non leggibile: %s)" % type(e).__name__
+        return _api_text('n.d. (elenco fonti non leggibile: %s)', 'n/a (source list unreadable: %s)') % type(e).__name__
 
 
 class TesiIn(BaseModel):
@@ -288,11 +306,11 @@ def require_session(request: "Request"):
         exp = _SESSIONS.get(token)
         if exp and exp > time.time():
             return token
-        raise HTTPException(401, "Sessione scaduta o token non valido: rifare il login")
+        raise HTTPException(401, _api_text('Sessione scaduta o token non valido: rifare il login', 'Session expired or invalid token: log in again'))
     # Nessun token: esenzione per i soli scheduled task interni censiti (vedi sopra)
     if _is_scheduler_call(request):
         return "__scheduler__"
-    raise HTTPException(401, "X-BB-Token mancante: login richiesto")
+    raise HTTPException(401, _api_text('X-BB-Token mancante: login richiesto', 'X-BB-Token missing: login required'))
 
 
 # ============================================================
@@ -322,8 +340,7 @@ def throttle(request: "Request"):
         retry_in = max(1, int(min_interval_s - (now - last)) + 1)
         raise HTTPException(
             429,
-            f"Richiesta troppo frequente su {request.url.path}: riprova tra {retry_in}s "
-            "(throttle anti-abuso A-M3).",
+            _api_text(f'Richiesta troppo frequente su {request.url.path}: riprova tra {retry_in}s (throttle anti-abuso A-M3).', f'Request too frequent for {request.url.path}: try again in {retry_in}s (A-M3 abuse prevention).'),
             headers={"Retry-After": str(retry_in)},
         )
     _LAST_CALL[request.url.path] = now
@@ -346,10 +363,10 @@ def _require_mandato_run(request: "Request"):
     except _mp.MandatoMancante as e:
         _refund_throttle(request)
         status = 428 if e.causa in ("assente", "incompleto") else 503
-        raise HTTPException(status, "mandato non pronto (%s): %s" % (e.causa, str(e)))
+        raise HTTPException(status, _api_text('mandato non pronto (%s): %s', 'Mandate not ready (%s): %s') % (e.causa, str(e)))
     except Exception as e:
         _refund_throttle(request)
-        raise _err500(e, "_require_mandato_run", "verifica del mandato prima della run")
+        raise _err500(e, "_require_mandato_run", _api_text('verifica del mandato prima della run', 'Checking the mandate before the run'))
 
 
 # ============================================================
@@ -360,7 +377,7 @@ def _require_mandato_run(request: "Request"):
 async def lifespan(app):
     print("=" * 60)
     print(f"{BRAND_NAME} API v{VERSION}")
-    print(f"Listening on http://127.0.0.1:8765")
+    print(f"Listening on http://127.0.0.1:{api_port()}")
     print(f"Docs     DISATTIVATE (quick-win n.10, ok PM 26/07): /docs /redoc /openapi.json = 404")
     print("=" * 60)
     if _pin_misconfigured():
@@ -389,7 +406,7 @@ def _hardcoded_economic_calendar(today, days_ahead: int):
         dt = _date.fromisoformat(d)
         if today <= dt <= end:
             events.append({"date": d, "time": "20:00 CET", "type": "Central Bank",
-                           "title": "FOMC Rate Decision + Press Conference",
+                           "title": _api_text('Decisione tassi FOMC + conferenza stampa', 'FOMC Rate Decision + Press Conference'),
                            "importance": 5, "country": "US"})
 
     # ECB 2026: dal calendario unico (le 4 date H1 che vivevano qui divergevano
@@ -400,7 +417,7 @@ def _hardcoded_economic_calendar(today, days_ahead: int):
         dt = _date.fromisoformat(d)
         if today <= dt <= end:
             events.append({"date": d, "time": "14:15 CET", "type": "Central Bank",
-                           "title": "ECB Rate Decision + Lagarde Presser",
+                           "title": _api_text('Decisione tassi BCE + conferenza stampa Lagarde', 'ECB Rate Decision + Lagarde Presser'),
                            "importance": 5, "country": "EU"})
 
     # BoE 2026 (8 meetings)
@@ -410,7 +427,7 @@ def _hardcoded_economic_calendar(today, days_ahead: int):
         dt = _date.fromisoformat(d)
         if today <= dt <= end:
             events.append({"date": d, "time": "13:00 CET", "type": "Central Bank",
-                           "title": "BoE Rate Decision",
+                           "title": _api_text('Decisione tassi BoE', 'BoE Rate Decision'),
                            "importance": 4, "country": "UK"})
 
     # BoJ 2026
@@ -420,7 +437,7 @@ def _hardcoded_economic_calendar(today, days_ahead: int):
         dt = _date.fromisoformat(d)
         if today <= dt <= end:
             events.append({"date": d, "time": "06:00 CET", "type": "Central Bank",
-                           "title": "BoJ Rate Decision",
+                           "title": _api_text('Decisione tassi BoJ', 'BoJ Rate Decision'),
                            "importance": 4, "country": "JP"})
 
     # OPEC+ 2026 (typically monthly JMMC + quarterly full meeting)
@@ -429,7 +446,7 @@ def _hardcoded_economic_calendar(today, days_ahead: int):
         dt = _date.fromisoformat(d)
         if today <= dt <= end:
             events.append({"date": d, "time": "13:00 CET", "type": "Commodities",
-                           "title": "OPEC+ Meeting (production decision)",
+                           "title": _api_text('Riunione OPEC+ (decisione produzione)', 'OPEC+ Meeting (production decision)'),
                            "importance": 4, "country": "OPEC"})
 
     # Recurring monthly/weekly releases
@@ -440,58 +457,58 @@ def _hardcoded_economic_calendar(today, days_ahead: int):
         # NFP: 1st Friday
         if wd == 4 and cursor.day <= 7:
             events.append({"date": d_iso, "time": "14:30 CET", "type": "US Macro",
-                           "title": "US Nonfarm Payrolls + Unemployment Rate",
+                           "title": _api_text('USA: occupazione non agricola + tasso di disoccupazione', 'US Nonfarm Payrolls + Unemployment Rate'),
                            "importance": 5, "country": "US"})
         # Initial Jobless Claims: ogni giovedi
         if wd == 3:
             events.append({"date": d_iso, "time": "14:30 CET", "type": "US Macro",
-                           "title": "US Initial Jobless Claims (weekly)",
+                           "title": _api_text('USA: nuove richieste sussidio disoccupazione (settimanali)', 'US Initial Jobless Claims (weekly)'),
                            "importance": 3, "country": "US"})
         # CPI US: ~10-15 del mese, tue-thu
         if 10 <= cursor.day <= 15 and wd in (1, 2, 3):
             events.append({"date": d_iso, "time": "14:30 CET", "type": "US Macro",
-                           "title": "US CPI / Core CPI Release",
+                           "title": _api_text('USA: pubblicazione CPI / CPI core', 'US CPI / Core CPI Release'),
                            "importance": 5, "country": "US"})
         # PPI US: 1-2 giorni dopo CPI
         if 11 <= cursor.day <= 16 and wd in (1, 2, 3, 4):
             # Solo se il giorno dopo a un possibile CPI
             events.append({"date": d_iso, "time": "14:30 CET", "type": "US Macro",
-                           "title": "US PPI Release",
+                           "title": _api_text('USA: pubblicazione PPI', 'US PPI Release'),
                            "importance": 3, "country": "US"})
         # Retail Sales: mid-month
         if 14 <= cursor.day <= 17 and wd in (1, 2, 3, 4):
             events.append({"date": d_iso, "time": "14:30 CET", "type": "US Macro",
-                           "title": "US Retail Sales MoM",
+                           "title": _api_text('USA: vendite al dettaglio mensili', 'US Retail Sales MoM'),
                            "importance": 4, "country": "US"})
         # ISM Manufacturing PMI: 1st business day
         if wd in (0, 1) and cursor.day <= 3:
             events.append({"date": d_iso, "time": "16:00 CET", "type": "US Macro",
-                           "title": "ISM Manufacturing PMI",
+                           "title": _api_text('PMI manifatturiero ISM', 'ISM Manufacturing PMI'),
                            "importance": 4, "country": "US"})
         # ISM Services PMI: 3rd business day
         if wd in (1, 2, 3) and 3 <= cursor.day <= 5:
             events.append({"date": d_iso, "time": "16:00 CET", "type": "US Macro",
-                           "title": "ISM Services PMI",
+                           "title": _api_text('PMI servizi ISM', 'ISM Services PMI'),
                            "importance": 4, "country": "US"})
         # EU HICP Flash: end of month
         if cursor.day >= 28 and wd in (1, 2, 3, 4):
             events.append({"date": d_iso, "time": "11:00 CET", "type": "EU Macro",
-                           "title": "Eurozone HICP Flash Estimate",
+                           "title": _api_text('Eurozona: stima preliminare inflazione IPCA', 'Eurozone HICP Flash Estimate'),
                            "importance": 4, "country": "EU"})
         # Germany IFO: ~25 del mese
         if 24 <= cursor.day <= 26 and wd in (0, 1, 2, 3, 4):
             events.append({"date": d_iso, "time": "10:00 CET", "type": "EU Macro",
-                           "title": "Germany IFO Business Climate",
+                           "title": _api_text('Germania: clima economico IFO', 'Germany IFO Business Climate'),
                            "importance": 3, "country": "DE"})
         # China PMI: 1st of month
         if cursor.day == 1:
             events.append({"date": d_iso, "time": "02:30 CET", "type": "China Macro",
-                           "title": "China NBS Manufacturing PMI",
+                           "title": _api_text('Cina: PMI manifatturiero NBS', 'China NBS Manufacturing PMI'),
                            "importance": 4, "country": "CN"})
         # US GDP advance: end of January, April, July, October
         if cursor.month in (1, 4, 7, 10) and 26 <= cursor.day <= 30 and wd in (1, 2, 3):
             events.append({"date": d_iso, "time": "14:30 CET", "type": "US Macro",
-                           "title": f"US GDP Q{(cursor.month-1)//3 or 4} Advance Estimate",
+                           "title": _api_text(f"USA: stima preliminare PIL Q{(cursor.month-1)//3 or 4}", f"US GDP Q{(cursor.month-1)//3 or 4} Advance Estimate"),
                            "importance": 5, "country": "US"})
         cursor += _td(days=1)
 
@@ -534,8 +551,7 @@ def _tickers_earnings_da_negozio(positions, negozio):
             senza_natura.append(ticker)
     nota = None
     if senza_natura:
-        nota = ("natura non dichiarata per %d ticker US: esclusi dal calendario earnings "
-                "senza inventare il tipo" % len(senza_natura))
+        nota = (_api_text('natura non dichiarata per %d ticker US: esclusi dal calendario earnings senza inventare il tipo', 'Nature not declared for %d US tickers: excluded from the earnings calendar without inventing their type') % len(senza_natura))
     return tickers, nota
 
 
@@ -546,15 +562,46 @@ def _tickers_earnings_da_negozio(positions, negozio):
 # e le route si leggono dal sorgente -> superficie in meno a costo zero.
 app = FastAPI(
     title=f"{BRAND_NAME} API", version=VERSION, lifespan=lifespan,
+    default_response_class=PresentationJSONResponse,
     docs_url=None, redoc_url=None, openapi_url=None,
 ) if FASTAPI_OK else None
 
 if app:
+    class _CodedHTTPException(HTTPException):
+        def __init__(self, status_code, detail, code):
+            super().__init__(status_code, detail)
+            self.code = code
+
+    @app.exception_handler(_CodedHTTPException)
+    async def coded_error_response(request, exc):
+        return JSONResponse(status_code=exc.status_code,
+                            content={"detail": exc.detail, "code": exc.code},
+                            headers=exc.headers or {})
+
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=["127.0.0.1", "localhost"],
     )
 
+    @app.middleware("http")
+    async def authenticate_null_origin(request: Request, call_next):
+        """A sandboxed web iframe has Origin:null: require the Electron session."""
+        public_paths = {"/health", "/auth/login", "/auth/status"}
+        if (request.headers.get("origin") == "null"
+                and request.method != "OPTIONS"
+                and request.url.path not in public_paths):
+            try:
+                require_session(request)
+            except HTTPException as exc:
+                return JSONResponse(status_code=exc.status_code,
+                                    content={"detail": exc.detail},
+                                    headers=exc.headers or {})
+        return await call_next(request)
+
+    from bellomberg.api.language_middleware import LanguageMiddleware
+    app.add_middleware(LanguageMiddleware)
+
+    # CORS also covers language/bootstrap failures before the application runs.
     # CORS (hardening #32, audit 04 C2): niente wildcard+credentials.
     # Allowlist: Vite dev server (electron/main.ts usa http://localhost:5173 in dev)
     # e "null" = origin che Chromium invia dalle pagine file:// (Electron prod usa
@@ -573,23 +620,10 @@ if app:
         # difetto era LATENTE, non assente. `tests/test_mandato_endpoint_put.py` pretende
         # ora che OGNI verbo esposto dall'API stia in questa lista.
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type", "X-BB-Token", "Accept", "Cache-Control", "X-Requested-With"],
+        allow_headers=["Content-Type", "X-BB-Token", "X-BB-Language", "Accept", "Cache-Control", "X-Requested-With"],
+        expose_headers=["Content-Language", "X-BB-Language-Source", "X-BB-Language-Warning"],
     )
 
-    @app.middleware("http")
-    async def authenticate_null_origin(request: Request, call_next):
-        """A sandboxed web iframe has Origin:null: require the Electron session."""
-        public_paths = {"/health", "/auth/login", "/auth/status"}
-        if (request.headers.get("origin") == "null"
-                and request.method != "OPTIONS"
-                and request.url.path not in public_paths):
-            try:
-                require_session(request)
-            except HTTPException as exc:
-                return JSONResponse(status_code=exc.status_code,
-                                    content={"detail": exc.detail},
-                                    headers=exc.headers or {})
-        return await call_next(request)
 
 
 def get_db():
@@ -605,10 +639,12 @@ if FASTAPI_OK:
     from bellomberg.api.journal_routes import create_journal_router
     from bellomberg.api.agent_progress_routes import create_agent_progress_router
     from bellomberg.api.options_routes import create_options_router
+    from bellomberg.api.language_routes import create_language_router
 
     app.include_router(create_journal_router(get_db, require_session))
     app.include_router(create_agent_progress_router(require_session))
     app.include_router(create_options_router(require_session))
+    app.include_router(create_language_router(require_session))
 
     @app.get("/health")
     def health():
@@ -694,11 +730,11 @@ if FASTAPI_OK:
                                 chroma_files += 1
                             except Exception:
                                 chroma_skipped += 1
-                    chroma_note = f"incluso: {chroma_files} file" + (
+                    chroma_note = _api_text(f'incluso: {chroma_files} file', f'Included: {chroma_files} files') + (
                         f", {chroma_skipped} saltati per errore di lettura (dichiarato)"
                         if chroma_skipped else "")
                 else:
-                    chroma_note = "assente: data/chroma non trovata (embedding NON nel backup)"
+                    chroma_note = _api_text('assente: data/chroma non trovata (embedding NON nel backup)', 'missing: data/chroma not found (embeddings NOT in the backup)')
             size_mb = os.path.getsize(zip_path) / 1024 / 1024
             _all_ok = all(v == "ok" for v in db_checks.values()) if db_checks else False
             return {
@@ -743,10 +779,10 @@ if FASTAPI_OK:
         try:
             # security: no path traversal
             if "/" in filename or "\\" in filename or ".." in filename:
-                raise HTTPException(400, "Invalid filename")
+                raise HTTPException(400, _api_text('Nome file non valido', 'Invalid filename'))
             path = os.path.join(DB_DIR, "backups", filename)
             if not os.path.exists(path):
-                raise HTTPException(404, "Backup not found")
+                raise HTTPException(404, _api_text('Backup non trovato', 'Backup not found'))
             os.remove(path)
             return {"ok": True, "deleted": filename}
         except HTTPException:
@@ -768,8 +804,7 @@ if FASTAPI_OK:
         if _pin_misconfigured():
             raise HTTPException(
                 503,
-                "PIN non configurato in modo sicuro: imposta BELLOMBERG_PIN (!= '1234') "
-                "nel file .env e riavvia il backend. Accesso bloccato (fail-closed).",
+                _api_text("PIN non configurato in modo sicuro: imposta BELLOMBERG_PIN (!= '1234') nel file .env e riavvia il backend. Accesso bloccato (fail-closed).", "PIN is not securely configured: set BELLOMBERG_PIN (!= '1234') in .env and restart the backend. Access is blocked (fail-closed)."),
             )
         now = time.time()
         recent_fails = [t for t in _LOGIN_FAILS if (now - t) < _LOCKOUT_WINDOW_S]
@@ -778,13 +813,13 @@ if FASTAPI_OK:
             retry_in = max(1, int(_LOCKOUT_WINDOW_S - (now - recent_fails[0])) + 1)
             raise HTTPException(
                 429,
-                f"Troppi tentativi PIN falliti: riprova tra {retry_in}s",
+                _api_text(f'Troppi tentativi PIN falliti: riprova tra {retry_in}s', f'Too many failed PIN attempts: try again in {retry_in}s'),
                 headers={"Retry-After": str(retry_in)},
             )
         expected = _get_configured_pin()
         if not hmac.compare_digest(body.pin or "", expected):
             _LOGIN_FAILS.append(now)
-            raise HTTPException(401, "Invalid PIN")
+            raise HTTPException(401, _api_text('PIN non valido', 'Invalid PIN'))
         _LOGIN_FAILS.clear()
         _purge_expired_sessions()
         token = secrets.token_urlsafe(32)
@@ -830,7 +865,7 @@ if FASTAPI_OK:
                     # da price_updater.FONTI_PREZZI: non puo' piu' divergere da solo, e
                     # se l'import fallisce lo dichiara invece di indovinare.
                     "price_basis": "position_prices (ultimo snapshot per ticker; fonti: %s)" % _fonti_prezzi_dichiarate(),
-                    "fx_basis": "FX live get_fx_to_eur (cache sessione, svuotata ogni 5 min via /fx)",
+                    "fx_basis": _api_text('FX live get_fx_to_eur (cache sessione, svuotata ogni 5 min via /fx)', 'Live FX get_fx_to_eur (session cache, cleared every 5 minutes through /fx)'),
                 }
             except Exception:
                 pass
@@ -880,11 +915,11 @@ if FASTAPI_OK:
         try:
             t = (ticker or "").strip().upper()
             if not t or len(t) > 16:
-                raise HTTPException(400, "ticker non valido")
+                raise HTTPException(400, _api_text('ticker non valido', 'Invalid ticker'))
             if period not in {"5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "max"}:
-                raise HTTPException(400, "period non valido")
+                raise HTTPException(400, _api_text('period non valido', 'Invalid period'))
             if interval not in {"1d", "1wk", "1h", "30m"}:
-                raise HTTPException(400, "interval non valido")
+                raise HTTPException(400, _api_text('interval non valido', 'Invalid interval'))
             key = t + "|" + period + "|" + interval
             now_ts = time.time()
             hit = _OHLC_CACHE.get(key)
@@ -895,7 +930,7 @@ if FASTAPI_OK:
             df = yf.Ticker(data_ticker(t)).history(period=period, interval=interval, auto_adjust=False)
             if df is None or df.empty:
                 return {"ticker": t, "period": period, "interval": interval, "bars": [],
-                        "error": "nessun dato da yfinance per " + t}
+                        "error": _api_text('nessun dato da yfinance per ', 'No yfinance data for ') + t}
             bars = []
             for idx, row in df.iterrows():
                 try:
@@ -949,7 +984,7 @@ if FASTAPI_OK:
         try:
             t = (ticker or "").strip().upper()
             if not t or len(t) > 16:
-                raise HTTPException(400, "ticker non valido")
+                raise HTTPException(400, _api_text('ticker non valido', 'Invalid ticker'))
             cx = _fav_db()
             # ON CONFLICT NON tocca 'note': ri-aggiungere un preferito non cancella il commento del PM
             cx.execute("INSERT INTO favorite_companies(ticker, name, sector, industry, note) VALUES(?,?,?,?,?) "
@@ -971,7 +1006,7 @@ if FASTAPI_OK:
             cur = cx.execute("UPDATE favorite_companies SET note=? WHERE ticker=?", ((note or "")[:1000], t))
             cx.commit(); changed = cur.rowcount; cx.close()
             if not changed:
-                raise HTTPException(404, "preferito non trovato")
+                raise HTTPException(404, _api_text('preferito non trovato', 'Favorite not found'))
             return {"ok": True, "ticker": t}
         except HTTPException:
             raise
@@ -1034,7 +1069,7 @@ if FASTAPI_OK:
         try:
             t = (ticker or "").strip().upper()
             if not t or len(t) > 16:
-                raise HTTPException(400, "ticker non valido")
+                raise HTTPException(400, _api_text('ticker non valido', 'Invalid ticker'))
             key = "q|" + t
             c = _mkt_cached(key, 300)
             if c:
@@ -1195,7 +1230,7 @@ if FASTAPI_OK:
         try:
             t = (ticker or "").strip().upper()
             if not t or len(t) > 16:
-                raise HTTPException(400, "ticker non valido")
+                raise HTTPException(400, _api_text('ticker non valido', 'Invalid ticker'))
             key = "n|" + t
             c = _mkt_cached(key, 600)
             if c:
@@ -1236,7 +1271,7 @@ if FASTAPI_OK:
         try:
             t = (ticker or "").strip().upper()
             if not t or len(t) > 16:
-                raise HTTPException(400, "ticker non valido")
+                raise HTTPException(400, _api_text('ticker non valido', 'Invalid ticker'))
             key = "f|" + t
             c = _mkt_cached(key, 3600)
             if c:
@@ -1301,7 +1336,7 @@ if FASTAPI_OK:
             if inc["rows"] or bal["rows"] or cfs["rows"]:
                 _MKT_CACHE[key] = (time.time(), out)
             else:
-                out["error"] = "bilanci non disponibili da yfinance per " + t
+                out["error"] = _api_text('bilanci non disponibili da yfinance per ', 'Financial statements unavailable from yfinance for ') + t
             return out
         except HTTPException:
             raise
@@ -1314,7 +1349,7 @@ if FASTAPI_OK:
         try:
             t = (ticker or "").strip().upper()
             if not t or len(t) > 16:
-                raise HTTPException(400, "ticker non valido")
+                raise HTTPException(400, _api_text('ticker non valido', 'Invalid ticker'))
             key = "h|" + t
             c = _mkt_cached(key, 3600)
             if c:
@@ -1406,7 +1441,7 @@ if FASTAPI_OK:
             row = conn.execute("SELECT pdf_path FROM memos WHERE id=?", (memo_id,)).fetchone()
         path = _resolve_memo_path(row[0] if row else None)
         if not path or not os.path.exists(path):
-            raise HTTPException(404, f"PDF non disponibile per memo {memo_id}")
+            raise HTTPException(404, _api_text(f'PDF non disponibile per memo {memo_id}', f'PDF unavailable for memo {memo_id}'))
         return FileResponse(path, media_type="application/pdf",
                             filename=os.path.basename(path))
 
@@ -1417,7 +1452,7 @@ if FASTAPI_OK:
             row = conn.execute("SELECT appendix_path FROM memos WHERE id=?", (memo_id,)).fetchone()
         path = _resolve_memo_path(row[0] if row else None)
         if not path or not os.path.exists(path):
-            raise HTTPException(404, f"Appendix non disponibile per memo {memo_id}")
+            raise HTTPException(404, _api_text(f'Appendix non disponibile per memo {memo_id}', f'Appendix unavailable for memo {memo_id}'))
         return FileResponse(path, media_type="application/pdf",
                             filename=os.path.basename(path))
 
@@ -1447,6 +1482,7 @@ if FASTAPI_OK:
         import re
         from bellomberg.core.paths import PROJECT_ROOT as valuation_root
         from bellomberg.valuation.dcf_quality import normalize_valuation_payload
+        from bellomberg.valuation.method_registry import method_presentation
         db = get_db()
         known = _known_tickers(db)
         notices = []
@@ -1454,7 +1490,7 @@ if FASTAPI_OK:
             snapshots = db.get_latest_valuation_snapshots()
         except Exception as exc:
             snapshots = {}
-            notices.append("snapshot valutazioni non disponibili: " + str(exc))
+            notices.append(_api_text('snapshot valutazioni non disponibili: ', 'Valuation snapshots unavailable: ') + str(exc))
 
         def generation_key(payload):
             if not all(isinstance(payload.get(key), str) and payload[key]
@@ -1498,6 +1534,7 @@ if FASTAPI_OK:
             detail.pop("acquisition_snapshot", None)
             sanity = detail.get("sanity") if isinstance(detail.get("sanity"), dict) else {}
             return {"detail": detail, "fair_value": fv, "price_at_thesis": price, "upside_pct": upside,
+                    "presentation": method_presentation(detail.get("valuation_decision")),
                     "valuation_decision": detail.get("valuation_decision"),
                     "valuation_usability": detail["valuation_usability"],
                     "analytical_quality": detail.get("analytical_quality"),
@@ -1590,7 +1627,7 @@ if FASTAPI_OK:
                         with open(_sc_path, "r", encoding="utf-8") as _scf:
                             detail = json.load(_scf)
                         if not isinstance(detail, dict):
-                            raise ValueError("sidecar non e' un oggetto")
+                            raise ValueError(_api_text("sidecar non e' un oggetto", 'Sidecar is not an object'))
                         canonical_ticker = detail.get("ticker")
                         if isinstance(canonical_ticker, str) and re.fullmatch(r"[A-Za-z0-9^][A-Za-z0-9.^=_/-]*", canonical_ticker.strip()):
                             tk_label = canonical_ticker.strip().upper()
@@ -1606,21 +1643,21 @@ if FASTAPI_OK:
                                 and re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", generation)):
                             expected_names.add((re.sub(r"[^A-Za-z0-9_-]", "_", tk_label) + "_" + generation).upper())
                         if identity_status != "canonical":
-                            errors.append("Identita' canonica assente: file legacy non verificato.")
+                            errors.append(_api_text("Identita' canonica assente: file legacy non verificato.", 'Canonical identity missing: unverified legacy file.'))
                         elif nome.upper() not in expected_names:
-                            errors.append("Identita' del sidecar discordante dal nome del modello.")
+                            errors.append(_api_text("Identita' del sidecar discordante dal nome del modello.", 'Sidecar identity does not match the model filename.'))
                         if detail.get("workbook_sha256") != actual_hash:
-                            errors.append("Generazione Excel/sidecar non verificata: impronta assente o discordante.")
+                            errors.append(_api_text('Generazione Excel/sidecar non verificata: impronta assente o discordante.', 'Excel/sidecar generation unverified: fingerprint missing or mismatched.'))
                         workbook_verified = not errors
                         if errors or flagged:
                             detail["sanity"] = {**(detail.get("sanity") or {}), "severity": "BLOCK",
                                                 "headline": "; ".join(errors) or "File FLAGGED"}
                             detail["warnings"] = list(detail.get("warnings") or []) + errors
                     else:
-                        detail = {"ticker": tk_label, "warnings": ["sidecar assente: generazione non verificabile"],
+                        detail = {"ticker": tk_label, "warnings": [_api_text('sidecar assente: generazione non verificabile', 'Sidecar missing: generation cannot be verified')],
                                   "sanity": {"severity": "BLOCK"}}
                 except Exception as exc:
-                    detail = {"ticker": tk_label, "warnings": ["sidecar non leggibile: " + str(exc)],
+                    detail = {"ticker": tk_label, "warnings": [_api_text('sidecar non leggibile: ', 'Unreadable sidecar: ') + str(exc)],
                               "sanity": {"severity": "BLOCK"}}
                 th = theses.get(tk_label.upper()) or {}
                 latest = snapshots.get(tk_label.upper())
@@ -1647,7 +1684,7 @@ if FASTAPI_OK:
                         affected.add(key)
                     warnings = fields["detail"].get("warnings")
                     issues = (warnings if isinstance(warnings, list) else []) + fields["valuation_usability"]["reasons"]
-                    reason = "Artefatto " + fn + " non verificabile: " + "; ".join(str(issue) for issue in issues)
+                    reason = _api_text('Artefatto {filename} non verificabile: {issues}', 'Artifact {filename} cannot be verified: {issues}').format(filename=fn, issues="; ".join(str(issue) for issue in issues))
                     for key in affected:
                         artifact_failures.setdefault(key, []).append(reason)
                 if current_generation:
@@ -1688,7 +1725,7 @@ if FASTAPI_OK:
                                    x.get("generated_at") or ""), reverse=True)
         out = {"count": len(models), "models": models}
         if missing_dirs:
-            notices.append("cartelle runtime assenti (dichiarato, non e' 'zero file'): " + ", ".join(missing_dirs))
+            notices.append(_api_text("cartelle runtime assenti (dichiarato, non e' 'zero file'): ", "Missing runtime directories (disclosed; this does not mean 'zero files'): ") + ", ".join(missing_dirs))
         if notices:
             out["nota"] = "; ".join(notices)
         return out
@@ -1700,14 +1737,14 @@ if FASTAPI_OK:
         # review 16/07: anche ':' bloccato — 'C:file.xlsx' e' drive-relative e os.path.join
         # lo risolverebbe FUORI dalle cartelle whitelisted.
         if os.sep in name or "/" in name or ".." in name or ":" in name or not name.lower().endswith(".xlsx"):
-            raise HTTPException(400, "nome file non valido")
+            raise HTTPException(400, _api_text('nome file non valido', 'Invalid file name'))
         for d in _val_dirs():
             p = os.path.join(d, name)
             if os.path.isfile(p):
                 return FileResponse(
                     p, filename=name,
                     media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        raise HTTPException(404, f"file '{name}' non trovato in report/ o models/")
+        raise HTTPException(404, _api_text(f"file '{name}' non trovato in report/ o models/", f"File '{name}' not found in report/ or models/"))
 
     @app.get("/memos/{memo_id}")
     def get_memo(memo_id: int):
@@ -1715,7 +1752,7 @@ if FASTAPI_OK:
         with db._conn() as conn:
             row = conn.execute("SELECT * FROM memos WHERE id=?", (memo_id,)).fetchone()
             if not row:
-                raise HTTPException(404, f"Memo {memo_id} not found")
+                raise HTTPException(404, _api_text(f'Memo {memo_id} non trovato', f'Memo {memo_id} not found'))
             return dict(row)
 
     @app.get("/memos/search/{query}")
@@ -1756,6 +1793,9 @@ if FASTAPI_OK:
             # "dall'archivio posso riportarle in pagina di mia spontanea volonta'"
             if d.get("archive_override") is not None:
                 d["archived"] = bool(d["archive_override"])
+        executions = db.esecuzioni_delle_decisioni(rows)
+        for d in rows:
+            d["esecuzione"] = executions.get(d["id"])
         return {"decisions": rows}
 
     @app.post("/decisions/{decision_id}/archive", dependencies=[Depends(require_session)])
@@ -1764,21 +1804,20 @@ if FASTAPI_OK:
         (null). Tocca SOLO la vista archivio: status e storia restano intatti."""
         b = body or {}
         if "archived" not in b:
-            raise HTTPException(400, "campo 'archived' mancante (true/false/null)")
+            raise HTTPException(400, _api_text("campo 'archived' mancante (true/false/null)", "Missing 'archived' field (true/false/null)"))
         val = b.get("archived")
         if val is not None and not isinstance(val, bool):
-            raise HTTPException(400, "'archived' deve essere true, false o null")
+            raise HTTPException(400, _api_text("'archived' deve essere true, false o null", "'archived' must be true, false or null"))
         db = get_db()
         try:
             ok = db.set_decision_archive(decision_id, val)
         except Exception as _ae:
             # review 17/07 F5: colonna non migrata (ALTER fallito a DB lockato) — 503
             # DICHIARATO invece del 500 nudo
-            raise HTTPException(503, "archive_override non disponibile (%s): riavviare il "
-                                     "backend a DB libero per completare la migrazione"
+            raise HTTPException(503, _api_text('archive_override non disponibile (%s): riavviare il backend a DB libero per completare la migrazione', 'archive_override unavailable (%s): restart the backend with the database idle to complete migration')
                                      % type(_ae).__name__)
         if not ok:
-            raise HTTPException(404, f"decisione {decision_id} inesistente")
+            raise HTTPException(404, _api_text(f'decisione {decision_id} inesistente', f'Decision {decision_id} not found'))
         return {"ok": True, "decision_id": decision_id, "archive_override": val}
 
     @app.post("/decisions/{decision_id}/veto", dependencies=[Depends(require_session)])
@@ -1788,7 +1827,7 @@ if FASTAPI_OK:
         non viene revocato dal bottone REVOCA."""
         reason = str((body or {}).get("reason") or "").strip()
         if not reason:
-            raise HTTPException(400, "motivo obbligatorio per il veto")
+            raise HTTPException(400, _api_text('motivo obbligatorio per il veto', 'A reason is required for a veto'))
         db = get_db()
         try:
             row = db.set_decision_veto(decision_id, reason)
@@ -1797,11 +1836,10 @@ if FASTAPI_OK:
             # altro errore (locked/disk) propaga col messaggio VERO, mai etichettato
             # "migrazione mancante" a caso
             if "no such column" in str(_ve).lower():
-                raise HTTPException(503, "colonna veto non disponibile: riavviare il backend "
-                                         "a DB libero per completare la migrazione 2")
+                raise HTTPException(503, _api_text('colonna veto non disponibile: riavviare il backend a DB libero per completare la migrazione 2', 'Veto column unavailable: restart the backend with the database idle to complete migration 2'))
             raise
         if not row:
-            raise HTTPException(404, f"decisione {decision_id} inesistente")
+            raise HTTPException(404, _api_text(f'decisione {decision_id} inesistente', f'Decision {decision_id} not found'))
         return {"ok": True, "decision": row}
 
     @app.post("/decisions/{decision_id}/veto/revoke", dependencies=[Depends(require_session)])
@@ -1813,11 +1851,10 @@ if FASTAPI_OK:
             row = db.revoke_decision_veto(decision_id)
         except Exception as _ve:
             if "no such column" in str(_ve).lower():
-                raise HTTPException(503, "colonna veto non disponibile: riavviare il backend "
-                                         "a DB libero per completare la migrazione 2")
+                raise HTTPException(503, _api_text('colonna veto non disponibile: riavviare il backend a DB libero per completare la migrazione 2', 'Veto column unavailable: restart the backend with the database idle to complete migration 2'))
             raise
         if not row:
-            raise HTTPException(404, f"decisione {decision_id} inesistente o senza veto attivo")
+            raise HTTPException(404, _api_text(f'decisione {decision_id} inesistente o senza veto attivo', f'Decision {decision_id} not found or without an active veto'))
         return {"ok": True, "decision": row}
 
     @app.post("/decisions/{decision_id}/note", dependencies=[Depends(require_session)])
@@ -1826,13 +1863,11 @@ if FASTAPI_OK:
         (blocco research) e risponde con add_research_note."""
         testo = str((body or {}).get("testo") or "").strip()
         if not testo:
-            raise HTTPException(400, "testo mancante")
+            raise HTTPException(400, _api_text('testo mancante', 'Missing text'))
         db = get_db()
         note_id = db.add_decision_note(decision_id, "PM", testo)
         if not note_id:
-            raise HTTPException(400, f"nota rifiutata: decisione {decision_id} inesistente, "
-                                     "non-RESEARCH o tabella non migrata "
-                                     "(tools/migrations/migra_decision_notes.py)")
+            raise HTTPException(400, _api_text(f'nota rifiutata: decisione {decision_id} inesistente, non-RESEARCH o tabella non migrata (tools/migrations/migra_decision_notes.py)', f'Note rejected: decision {decision_id} missing, not RESEARCH, or table not migrated (tools/migrations/migra_decision_notes.py)'))
         return {"ok": True, "note_id": note_id}
 
     @app.post("/decisions/{decision_id}/update", dependencies=[Depends(require_session)])
@@ -1840,10 +1875,10 @@ if FASTAPI_OK:
         db = get_db()
         kwargs = body.dict(exclude_none=True)
         if not kwargs:
-            raise HTTPException(400, "Nothing to update")
+            raise HTTPException(400, _api_text('Nessun campo da aggiornare', 'Nothing to update'))
         ok = db.update_decision(decision_id, **kwargs)
         if not ok:
-            raise HTTPException(404, f"Decision {decision_id} not found or no changes")
+            raise HTTPException(404, _api_text(f'Decisione {decision_id} non trovata o nessuna modifica', f'Decision {decision_id} not found or no changes'))
         return {"ok": True, "decision_id": decision_id}
 
     @app.get("/trades")
@@ -1852,11 +1887,70 @@ if FASTAPI_OK:
         db = get_db()
         return {"trades": db.get_recent_trades(n=limit)}
 
-    @app.post("/trade", dependencies=[Depends(require_session)])
-    def log_trade(body: TradeIn):
+    def _trade_request(body):
+        request = body.model_dump(exclude={"preview_id"})
+        for key in ("ticker", "action", "valuta"):
+            request[key] = request[key].strip().upper()
+        return request
+
+    def _trade_fx(day, currency):
+        """Historical observations never use a date after the operation."""
+        from datetime import date, timedelta
+        from decimal import Decimal
+        from bellomberg.cli.price_updater import get_fx_to_eur_con_fonte
+        historical = day < date.today().isoformat()
+        missing = None
+        if historical and currency != "EUR":
+            try:
+                from bellomberg.portfolio import portfolio_analytics as pa
+                when = date.fromisoformat(day)
+                series = pa._build_fx_history([currency], (when - timedelta(days=7)).isoformat(),
+                                              (when + timedelta(days=1)).isoformat())
+                if series is not None and not series.empty:
+                    series = series[series.index <= pa.pd.Timestamp(day)]
+                rate, observed, note = pa._fx_lookup_storico(series)(day, currency)
+                if rate is not None and Decimal(str(rate)).is_finite() and rate > 0:
+                    return {"tasso": rate, "fonte": "storico", "data": observed, "nota": note}
+                missing = note or "serie storica senza un cambio valido"
+            except Exception as exc:
+                missing = _api_text(f'serie storica non disponibile ({type(exc).__name__})', f'Historical series unavailable ({type(exc).__name__})')
+        rate, source = get_fx_to_eur_con_fonte(currency)
+        if rate is None:
+            raise HTTPException(503, _api_text(f'FX {currency}->EUR non disponibile', f'FX {currency}->EUR unavailable'))
+        if source not in ("live", "identity"):
+            raise HTTPException(503, _api_text(f'FX {currency}->EUR non utilizzabile per la cassa: fonte {source}', f'FX {currency}->EUR unavailable for cash: source {source}'))
+        number = Decimal(str(rate))
+        if not number.is_finite() or number <= 0:
+            raise HTTPException(422, _api_text(f'FX {currency}->EUR non positivo o non finito', f'FX {currency}->EUR not positive or not finite'))
+        return {"tasso": float(number), "fonte": "identity" if currency == "EUR" else "corrente",
+                "data": date.today().isoformat(),
+                "nota": (_api_text(f'FX storico {currency} del {day} n.d.: {missing}; usato il cambio corrente per il saldo corrente.', f'Historical FX {currency} for {day} unavailable: {missing}; current FX is used for the current cash balance.') if missing else None)}
+
+    def _prepare_trade(body: TradeIn):
         db = get_db()
-        action = body.action.upper()
+        from bellomberg.storage.memory_db import normalizza_data_trade, CashNotInitialized
+        from datetime import date
+        trade_date, conventional = normalizza_data_trade(body.data)
+        historical = trade_date[:10] < date.today().isoformat()
+        action = body.action.strip().upper()
         ticker = body.ticker.upper().strip()
+        if not ticker:
+            raise ValueError(_api_text('ticker vuoto', 'Empty ticker'))
+        if action not in ("BUY", "SELL", "ADD", "TRIM", "DIVIDEND"):
+            raise ValueError(_api_text('action deve essere BUY/SELL/TRIM/ADD/DIVIDEND', 'action must be BUY/SELL/TRIM/ADD/DIVIDEND'))
+        if body.senza_decisione and body.linked_decision_id is not None:
+            raise ValueError(_api_text('decisione esplicita e senza decisione insieme: scegli un solo legame', 'Explicit decision and no decision conflict: choose only one link'))
+        origin = "explicit" if body.linked_decision_id is not None else "none" if body.senza_decisione else "unknown"
+        trade = {"ticker": ticker, "action": action, "quantita": body.quantita, "prezzo": body.prezzo,
+                 "valuta": body.valuta.strip().upper(), "note": body.note, "pm_rationale": body.pm_rationale,
+                 "linked_decision_id": body.linked_decision_id, "data": trade_date,
+                 "ora_convenzionale": conventional, "link_origin": origin}
+        context = db.trade_context(ticker, body.linked_decision_id)
+        db._assert_trade_after_opening(trade, context.get("opening"))
+        retroactive = any(r["data"] > trade_date for r in context["trades"])
+        if context["cash"] is None:
+            raise CashNotInitialized(_api_text('saldo cassa non inizializzato: registra prima il saldo iniziale', 'Cash balance not initialized: register the opening cash balance first'))
+        decision = db._validate_trade_decision(trade, context)
         # Validazione ticker (bugfix #164, trade fantasma PSHP):
         # SELL/TRIM/ADD/DIVIDEND richiedono una posizione attiva esistente.
         # BUY resta libero (apre nuove posizioni). Dal 01/08 la lettura serve a
@@ -1871,7 +1965,9 @@ if FASTAPI_OK:
                 ).fetchone()
                 _lp = conn.execute(
                     "SELECT prezzo, timestamp FROM position_prices WHERE UPPER(ticker)=? "
-                    "ORDER BY timestamp DESC LIMIT 1", (ticker,)).fetchone()
+                    + ("AND substr(timestamp,1,10)=? " if historical else "")
+                    + "ORDER BY timestamp DESC LIMIT 1",
+                    (ticker, trade_date[:10]) if historical else (ticker,)).fetchone()
                 ultimo_prezzo = _lp[0] if _lp else None
                 ultimo_prezzo_ts = _lp[1] if _lp else None
         except Exception as _pe:
@@ -1879,21 +1975,18 @@ if FASTAPI_OK:
             # passare SELL su ticker inesistenti o oltre il posseduto senza check.
             # Dal 01/08 vale anche per BUY: senza valuta/ultimo prezzo la guardia
             # sarebbe cieca (e log_trade fallirebbe comunque sul DB occupato).
-            raise HTTPException(503, "verifica posizione non riuscita (DB occupato): "
-                                     f"{action} non eseguito, riprova. ({_pe})")
-        if action in ("SELL", "TRIM", "ADD", "DIVIDEND"):
+            raise HTTPException(503, _api_text(f'verifica posizione non riuscita (DB occupato): {action} non eseguito, riprova. ({_pe})', f'Position check failed (database busy): {action} not executed; try again. ({_pe})'))
+        if action in ("SELL", "TRIM", "ADD", "DIVIDEND") and not retroactive:
             if pos_row is None:
                 raise HTTPException(
                     400,
-                    f"Ticker '{ticker}' non presente tra le posizioni attive: "
-                    f"{action} rifiutato. Usa BUY per aprire una nuova posizione.",
+                    _api_text(f"Ticker '{ticker}' non presente tra le posizioni attive: {action} rifiutato. Usa BUY per aprire una nuova posizione.", f"Ticker '{ticker}' is not among active positions: {action} rejected. Use BUY to open a new position."),
                 )
             held = pos_row[0]
             if action in ("SELL", "TRIM") and held is not None and body.quantita > float(held):
                 raise HTTPException(
                     400,
-                    f"Quantita {body.quantita:g} superiore a quella posseduta "
-                    f"({float(held):g} {ticker}): {action} rifiutato.",
+                    _api_text(f'Quantita {body.quantita:g} superiore a quella posseduta ({float(held):g} {ticker}): {action} rifiutato.', f'Quantity {body.quantita:g} exceeds the holding ({float(held):g} {ticker}): {action} rejected.'),
                 )
         # GUARDIA PREZZI (specifica decisa dal PM 01/08, §9-quattuortrigies coda §3):
         # valuta discorde -> 422 · oltre x3/:3 dall'ultimo prezzo noto -> 422 col
@@ -1913,61 +2006,184 @@ if FASTAPI_OK:
                              azione=action,
                              ultimo_prezzo_data=(ultimo_prezzo_ts if pos_row else None))
         if _g["esito"] == "rifiuto":
-            raise HTTPException(422, "GUARDIA PREZZI: " + _g["motivo"])
+            raise HTTPException(422, _api_text('GUARDIA PREZZI: ', 'PRICE GUARD: ') + _g["motivo"])
         guardia_note = _g["motivo"] if _g["esito"] == "avviso" else None
+        if historical and ultimo_prezzo is None:
+            guardia_note = _api_text('Prezzo storico di confronto n.d.; verificati importo e valuta, confronto di scala non disponibile.', 'Historical comparison price unavailable; amount and currency checked, scale comparison unavailable.')
         try:
             from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
             try:
-                from bellomberg.cli.price_updater import get_fx_to_eur_con_fonte
-                _fx, _fx_source = get_fx_to_eur_con_fonte(body.valuta)
-                if _fx is None:
-                    raise ValueError(f"FX {body.valuta}->EUR non disponibile")
-                if _fx_source not in ("live", "identity"):
-                    raise ValueError(
-                        f"FX {body.valuta}->EUR non utilizzabile per la cassa: fonte {_fx_source}")
-                fx_dec = Decimal(str(_fx))
-                if not fx_dec.is_finite() or fx_dec <= 0:
-                    raise HTTPException(
-                        422, f"FX {body.valuta}->EUR non positivo o non finito")
+                fx = _trade_fx(trade_date[:10], trade["valuta"])
+                fx_dec = Decimal(str(fx["tasso"]))
                 amount = (Decimal(str(body.quantita)) * Decimal(str(body.prezzo))
                           * fx_dec)
                 if not amount.is_finite():
-                    raise HTTPException(422, "controvalore del trade non finito")
+                    raise HTTPException(422, _api_text('controvalore del trade non finito', 'Trade amount is not finite'))
                 amount_cents = int((amount * 100).quantize(
                     Decimal("1"), rounding=ROUND_HALF_UP))
             except (InvalidOperation, ValueError, TypeError) as e:
-                raise HTTPException(503, f"trade non eseguito: {e}")
-            rounding_note = ("controvalore inferiore a mezzo centesimo: delta cassa "
-                             "arrotondato esplicitamente a 0,00 EUR"
+                raise HTTPException(503, _api_text(f'trade non eseguito: {e}', f'Trade not executed: {e}'))
+            rounding_note = (_api_text('controvalore inferiore a mezzo centesimo: delta cassa arrotondato esplicitamente a 0,00 EUR', 'Amount below half a cent: cash delta explicitly rounded to EUR 0.00')
                              if amount_cents == 0 else None)
             delta_cents = (-amount_cents if action in ("BUY", "ADD")
                            else amount_cents)
-            result = db.execute_trade(
-                cash_delta_cents=delta_cents,
-                # 01/08: ticker TRIMMATO come nei check qui sopra (minore F22 del
-                # 27/07: " MSTR" passava la guardia su MSTR ma finiva in DB con lo
-                # spazio — classe del bug #164 dalla porta di servizio)
-                ticker=ticker,
-                action=body.action.upper(),
-                quantita=body.quantita,
-                prezzo=body.prezzo,
-                valuta=body.valuta,
-                note=body.note,
-                pm_rationale=body.pm_rationale,
-                linked_decision_id=body.linked_decision_id,
-            )
-            trade_id = result["trade_id"]
-            new_cash = result["cash_eur"]
-            return {"ok": True, "trade_id": trade_id, "cash_disponibile_eur": new_cash,
+            trade["fx_fonte"] = fx["fonte"]
+            realized_rate = fx["tasso"] if not historical or fx["fonte"] in ("identity", "storico") else None
+            trade["_realized_fx"] = realized_rate
+            rates = {(trade_date[:10], trade["valuta"]): realized_rate}
+            for row in context["trades"]:
+                key = (row["data"][:10], row["valuta"])
+                if row["action"] in ("SELL", "TRIM") and row["data"] > trade_date and key not in rates:
+                    try:
+                        observed = _trade_fx(*key)
+                        rates[key] = observed["tasso"] if observed["fonte"] in ("identity", "storico") else None
+                    except Exception:
+                        rates[key] = None  # disclosed in replay notes, never a numeric proxy
+            plan = db._trade_replay_plan(trade, context, rates)
+            if plan:
+                plan.pop("updates")
+            cash_note = (_api_text(f"Registrazione sul saldo corrente con FX {fx['fonte']}; gli snapshot NAV passati non vengono riscritti.", f"Recorded against current cash with FX {fx['fonte']}; past NAV snapshots are not rewritten."))
+            response = {"ok": True, "cash_disponibile_eur": (context["cash"]["balance_cents"] + delta_cents) / 100,
+                    "cash_delta_eur": delta_cents / 100,
                     "cash_source": "sqlite:cash_state", "cash_note": rounding_note,
-                    "guardia_note": guardia_note}
+                    "guardia_note": guardia_note, "data": trade_date, "ora_convenzionale": bool(conventional),
+                    "link_origin": origin, "decisione": decision, "fx": fx, "ricalcolo": plan,
+                    "cassa_nota": cash_note}
+            return {"trade": trade, "response": response, "expected_context": context["fingerprint"],
+                    "cash_delta_cents": delta_cents, "realized_fx": rates, "db_path": os.path.realpath(db.db_path)}
         except HTTPException:
             raise
         except Exception as e:
-            from bellomberg.storage.memory_db import CashNotInitialized
-            if isinstance(e, CashNotInitialized):
-                raise HTTPException(503, str(e))
-            raise HTTPException(400, str(e))
+            _trade_error(e)
+
+    _TRADE_PREVIEW_TTL = 120
+    _TRADE_PREVIEWS = {}
+    _TRADE_PREVIEW_LOCK = threading.Lock()
+
+    def _trade_error(exc):
+        from bellomberg.storage.memory_db import CashNotInitialized, RicalcoloImpossibile
+        if isinstance(exc, HTTPException):
+            raise exc
+        raise HTTPException(503 if isinstance(exc, CashNotInitialized) else
+                            409 if isinstance(exc, RicalcoloImpossibile) else 400, str(exc))
+
+    @app.post("/trade/preview", dependencies=[Depends(require_session)])
+    def preview_trade(body: TradeIn):
+        """Read-only preparation: no INSERT/UPDATE/rollback simulation on the ledger."""
+        try:
+            prepared = _prepare_trade(body)
+            token, now = secrets.token_urlsafe(32), time.monotonic()
+            with _TRADE_PREVIEW_LOCK:
+                expired = [key for key, value in _TRADE_PREVIEWS.items() if value["expires"] <= now]
+                for key in expired:
+                    del _TRADE_PREVIEWS[key]
+                if len(_TRADE_PREVIEWS) >= 256:
+                    del _TRADE_PREVIEWS[next(iter(_TRADE_PREVIEWS))]
+                _TRADE_PREVIEWS[token] = {"expires": now + _TRADE_PREVIEW_TTL,
+                                          "request": _trade_request(body), "prepared": prepared}
+            return {**prepared["response"], "preview_id": token, "expires_in_seconds": _TRADE_PREVIEW_TTL}
+        except Exception as exc:
+            _trade_error(exc)
+
+    @app.post("/trade", dependencies=[Depends(require_session)])
+    def log_trade(body: TradeIn):
+        try:
+            db = get_db()
+            if body.preview_id is not None:
+                with _TRADE_PREVIEW_LOCK:
+                    preview = _TRADE_PREVIEWS.pop(body.preview_id, None)
+                if (preview is None or preview["expires"] <= time.monotonic()
+                        or preview["request"] != _trade_request(body)):
+                    raise HTTPException(409, _api_text('anteprima scaduta, gia usata o corpo modificato: ripeti la conferma', 'Preview expired, already used or request changed: preview and confirm again'))
+                prepared = preview["prepared"]
+                if prepared["db_path"] != os.path.realpath(db.db_path):
+                    raise HTTPException(409, _api_text("archivio cambiato: ripeti l'anteprima", 'Database changed: request a new preview'))
+            else:
+                prepared = _prepare_trade(body)
+            result = db.execute_trade(cash_delta_cents=prepared["cash_delta_cents"],
+                                      expected_context=prepared["expected_context"],
+                                      realized_fx=prepared["realized_fx"], **prepared["trade"])
+            performance_note = None
+            try:
+                from bellomberg.portfolio import twr_engine
+                twr_engine.invalidate_cache()
+            except Exception as exc:
+                # The ledger is already committed: returning an HTTP failure
+                # here would invite a duplicate execution on the next retry.
+                performance_note = _api_text(f'Trade registrato; cache performance non aggiornata ({type(exc).__name__}).', f'Trade recorded; performance cache not updated ({type(exc).__name__}).')
+            return {**prepared["response"], "trade_id": result["trade_id"],
+                    "cash_disponibile_eur": result["cash_eur"], "ricalcolo": result["ricalcolo"],
+                    "performance_note": performance_note}
+        except Exception as exc:
+            _trade_error(exc)
+
+    _OPENING_PREVIEWS = {}
+    _OPENING_PREVIEW_LOCK = threading.Lock()
+
+    def _opening_request(body):
+        request = body.model_dump(exclude={"preview_id"})
+        for key in ("ticker", "valuta"):
+            request[key] = request[key].strip().upper()
+        return request
+
+    @app.post("/positions/opening/preview", dependencies=[Depends(require_session)])
+    def preview_opening_position(body: OpeningPositionIn):
+        try:
+            db = get_db()
+            request = _opening_request(body)
+            prepared = db.prepare_position_opening(**request)
+            token, now = secrets.token_urlsafe(32), time.monotonic()
+            with _OPENING_PREVIEW_LOCK:
+                for key in list(_OPENING_PREVIEWS):
+                    if _OPENING_PREVIEWS[key]["expires"] <= now:
+                        del _OPENING_PREVIEWS[key]
+                if len(_OPENING_PREVIEWS) >= 256:
+                    del _OPENING_PREVIEWS[next(iter(_OPENING_PREVIEWS))]
+                _OPENING_PREVIEWS[token] = {
+                    "request": request, "prepared": prepared,
+                    "db_path": os.path.realpath(db.db_path), "expires": now + _TRADE_PREVIEW_TTL}
+            return {"ok": True, **{k: v for k, v in prepared.items() if k != "expected_context"},
+                    "preview_id": token, "expires_in_seconds": _TRADE_PREVIEW_TTL}
+        except Exception as exc:
+            _trade_error(exc)
+
+    @app.post("/positions/opening", dependencies=[Depends(require_session)])
+    def create_opening_position(body: OpeningPositionIn):
+        try:
+            db = get_db()
+            with _OPENING_PREVIEW_LOCK:
+                preview = _OPENING_PREVIEWS.pop(body.preview_id, None)
+            if (preview is None or preview["expires"] <= time.monotonic()
+                    or preview["request"] != _opening_request(body)
+                    or preview["db_path"] != os.path.realpath(db.db_path)):
+                raise HTTPException(409, _api_text('anteprima saldo scaduta, gia usata o modificata: ripeti la conferma', 'Balance preview expired, already used or changed: preview and confirm again'))
+            prepared = preview["prepared"]
+            opening = db.create_position_opening(expected_context=prepared["expected_context"],
+                                                 **preview["request"])
+            note = prepared["performance_note"]
+            try:
+                from bellomberg.portfolio import twr_engine, portfolio_analytics
+                twr_engine.invalidate_cache()
+                portfolio_analytics._ANALYTICS_CACHE.clear()
+            except Exception as exc:
+                # Already committed: never invite duplicate creation with an HTTP error.
+                note += _api_text(f' Cache performance non aggiornata ({type(exc).__name__}).', f' Performance cache not updated ({type(exc).__name__}).')
+            return {"ok": True, "opening": opening, "position": prepared["position"],
+                    "cash_delta_eur": 0, "cash_disponibile_eur": prepared["cash_disponibile_eur"],
+                    "performance_note": note}
+        except Exception as exc:
+            _trade_error(exc)
+
+    @app.get("/positions/opening")
+    def list_opening_positions():
+        return {"openings": get_db().get_opening_positions()}
+
+    @app.get("/positions/opening/{ticker}")
+    def get_opening_position(ticker: str):
+        rows = get_db().get_opening_positions(ticker.strip().upper())
+        if not rows:
+            raise HTTPException(404, _api_text('saldo iniziale documentato non trovato', 'Documented opening balance not found'))
+        return {"opening": rows[0]}
 
     @app.get("/positions/{ticker}/tesi")
     def get_tesi_posizione(ticker: str):
@@ -1994,12 +2210,15 @@ if FASTAPI_OK:
             r = get_db().update_tesi(ticker, body.tesi, conferma=body.conferma,
                                      autore=body.autore or "app")
         except _sqlite3.Error as e:
-            raise HTTPException(503, f"posizioni non scrivibili "
-                                     f"({type(e).__name__}: {e}): riprovare")
+            raise HTTPException(503, _api_text(f'posizioni non scrivibili ({type(e).__name__}: {e}): riprovare', f'Positions cannot be written ({type(e).__name__}: {e}): try again'))
         if "error" in r:
             msg = r["error"]
             # posizione inesistente = 404; guardie e input malformato = 422
-            raise HTTPException(404 if "non trovata" in msg else 422, msg)
+            code = r.get("code")
+            status = 404 if code == "thesis_position_missing" else 422
+            if code:
+                raise _CodedHTTPException(status, msg, code)
+            raise HTTPException(status, msg)
         return r
 
     @app.post("/cash/movement", dependencies=[Depends(require_session)])
@@ -2018,10 +2237,12 @@ if FASTAPI_OK:
                 conferma_soglia=body.conferma_soglia,
                 conferma_duplicato=body.conferma_duplicato)
         except ValueError as e:
+            from bellomberg.storage.memory_db import CashConfirmationRequired
+            if isinstance(e, CashConfirmationRequired):
+                raise _CodedHTTPException(422, str(e), e.code) from e
             raise HTTPException(422, str(e))
         except _sqlite3.Error as e:
-            raise HTTPException(503, f"registro cassa non scrivibile "
-                                     f"({type(e).__name__}: {e}): riprovare")
+            raise HTTPException(503, _api_text(f'registro cassa non scrivibile ({type(e).__name__}: {e}): riprovare', f'Cash ledger cannot be written ({type(e).__name__}: {e}): try again'))
         except Exception as e:
             from bellomberg.storage.memory_db import CashNotInitialized
             if isinstance(e, CashNotInitialized):
@@ -2138,9 +2359,9 @@ if FASTAPI_OK:
             raise _err500(e, "get_edge_scan_endpoint")
         if isinstance(r, dict) and r.get("error"):
             _ts = r.get("_timestamp")
-            raise HTTPException(503, "edge scan non disponibile: %s%s"
+            raise HTTPException(503, _api_text('edge scan non disponibile: %s%s', 'Edge scan unavailable: %s%s')
                                 % (r["error"],
-                                   " (guasto rilevato alle %s)" % _ts if _ts else ""))
+                                   _api_text(' (guasto rilevato alle %s)', ' (failure detected at %s)') % _ts if _ts else ""))
         return r
 
     @app.get("/signals/position_doctor/{ticker}")
@@ -2161,10 +2382,10 @@ if FASTAPI_OK:
         try:
             from bellomberg.portfolio.vol_surface import build_vol_surface
             if not 1 <= max_expiries <= 8 or not 1 <= max_days <= 3650:
-                raise HTTPException(422, "Scadenze richieste: da 1 a 8; orizzonte: da 1 a 3650 giorni")
+                raise HTTPException(422, _api_text('Scadenze richieste: da 1 a 8; orizzonte: da 1 a 3650 giorni', 'Request 1 to 8 expiries; horizon: 1 to 3650 days'))
             selected = [part.strip() for part in expiries.split(",")] if expiries is not None else None
             if selected is not None and not all(selected):
-                raise HTTPException(422, "Seleziona almeno una scadenza valida")
+                raise HTTPException(422, _api_text('Seleziona almeno una scadenza valida', 'Select at least one valid expiry'))
             r = build_vol_surface(ticker, max_expiries=max_expiries, max_days=max_days,
                                   expiries=selected, include_context=include_context)
             if not include_context:
@@ -2277,14 +2498,13 @@ if FASTAPI_OK:
             _muti = providers_blocked()
             return {"fonti_mute": _muti or None,
                     "avviso": ("copertura PARZIALE: provider bloccati " + ", ".join(sorted(_muti))
-                               + " — poche/zero news NON significano quiete") if _muti else None,
+                               + _api_text(' — poche/zero news NON significano quiete', ' — few/no news items do NOT imply calm')) if _muti else None,
                     "providers_contingentati": sorted(NEWS_PROVIDER_LIMITS),
                     # P2 (12/08): freschezza del feed — chiave SEMPRE presente,
                     # n.d./illeggibile dichiarati (pattern 25). La "prossima
                     # esecuzione" NON sta qui: e' NextRunTime di /tasks/scheduled.
                     "ultimo_giro": stato_ultimo_giro(),
-                    "nota": ("solo cause globali del limiter; esito reale delle chiamate e "
-                             "provider non contingentati non misurati qui"),
+                    "nota": (_api_text('solo cause globali del limiter; esito reale delle chiamate e provider non contingentati non misurati qui', 'Global limiter causes only; actual call outcomes and providers without a quota are not measured here')),
                     "timestamp": datetime.now().isoformat()}
         except Exception as e:
             raise _err500(e, "get_news_providers")
@@ -2302,7 +2522,7 @@ if FASTAPI_OK:
             return {"ticker": ticker.upper(), "count": len(items), "items": items,
                     "fonti_mute": _muti or None,
                     "avviso": ("copertura PARZIALE: provider bloccati " + ", ".join(sorted(_muti))
-                               + " — poche/zero news qui NON significa quiete") if _muti else None,
+                               + _api_text(' — poche/zero news qui NON significa quiete', ' — few/no news items here do NOT imply calm')) if _muti else None,
                     "timestamp": datetime.now().isoformat()}
         except Exception as e:
             raise _err500(e, "get_news_ticker")
@@ -2317,7 +2537,7 @@ if FASTAPI_OK:
             return {"query": q, "count": len(items), "items": items,
                     "fonti_mute": _muti or None,
                     "avviso": ("copertura PARZIALE: provider bloccati " + ", ".join(sorted(_muti))
-                               + " — poche/zero news qui NON significa quiete") if _muti else None,
+                               + _api_text(' — poche/zero news qui NON significa quiete', ' — few/no news items here do NOT imply calm')) if _muti else None,
                     "timestamp": datetime.now().isoformat()}
         except Exception as e:
             raise _err500(e, "get_news_search")
@@ -2332,7 +2552,7 @@ if FASTAPI_OK:
             return {"by_ticker": data, "n_tickers": len(data),
                     "fonti_mute": _muti or None,
                     "avviso": ("copertura PARZIALE: provider bloccati " + ", ".join(sorted(_muti))
-                               + " — un ticker a 0 news puo' essere cecita', non quiete") if _muti else None,
+                               + _api_text(" — un ticker a 0 news puo' essere cecita', non quiete", ' — zero news for a ticker may indicate lack of visibility, not calm')) if _muti else None,
                     "timestamp": datetime.now().isoformat()}
         except Exception as e:
             raise _err500(e, "get_news_portfolio")
@@ -2402,7 +2622,7 @@ if FASTAPI_OK:
                     "categories_requested": cats,
                     "fonti_mute": _muti or None,
                     "avviso": ("copertura PARZIALE: provider bloccati " + ", ".join(sorted(_muti))
-                               + " — pochi/zero item macro NON significano quiete") if _muti else None,
+                               + _api_text(' — pochi/zero item macro NON significano quiete', ' — few/no macro items do NOT imply calm')) if _muti else None,
                     "timestamp": datetime.now().isoformat()}
         except Exception as e:
             raise _err500(e, "get_news_macro")
@@ -2528,9 +2748,7 @@ if FASTAPI_OK:
             return {"count": len(events), "items": events,
                     "timestamp": _dt.now().isoformat(),
                     "fonti_mute": fonti_mute or None,
-                    "avviso": (("calendario Finnhub PARZIALE: la baseline cablata "
-                                "(FOMC/ECB/NFP/CPI) c'e'; manca: %s — un calendario corto "
-                                "NON significa settimana vuota")
+                    "avviso": ((_api_text("calendario Finnhub PARZIALE: la baseline cablata (FOMC/ECB/NFP/CPI) c'e'; manca: %s — un calendario corto NON significa settimana vuota", 'PARTIAL Finnhub calendar: the embedded baseline (FOMC/ECB/NFP/CPI) is present; missing: %s — a short calendar does NOT mean an empty week'))
                                % ", ".join(fonti_mute)) if fonti_mute else None}
         except Exception as e:
             raise _err500(e, "get_economic_calendar")
@@ -2732,7 +2950,7 @@ if FASTAPI_OK:
         """
         sym = (symbol or "").strip().upper()
         if not sym:
-            return {"ok": False, "symbol": "", "error": "Empty symbol"}
+            return {"ok": False, "symbol": "", "error": _api_text('Simbolo vuoto', 'Empty symbol')}
 
         # Cache hit
         now = time.time()
@@ -2781,13 +2999,13 @@ if FASTAPI_OK:
                 "currency": currency if ok else None,
                 "last_price": last_price if ok else None,
                 "exchange": exchange if ok else None,
-                "error": None if ok else f"No price data found for '{sym}'. Check ticker (need suffix like .L, .MI, .DE, .HK?)",
+                "error": None if ok else _api_text(f"Nessun prezzo per '{sym}'. Verifica il ticker (serve un suffisso come .L, .MI, .DE, .HK?)", f"No price data found for '{sym}'. Check ticker (need suffix like .L, .MI, .DE, .HK?)"),
                 "timestamp": datetime.now().isoformat(),
             }
             _TICKER_VALIDATION_CACHE[sym] = (now, result)
             return result
         except Exception as e:
-            err = {"ok": False, "symbol": sym, "error": f"yfinance error: {str(e)[:200]}",
+            err = {"ok": False, "symbol": sym, "error": _api_text(f'Errore yfinance: {str(e)[:200]}', f'yfinance error: {str(e)[:200]}'),
                    "timestamp": datetime.now().isoformat()}
             # audit/11 §5: NIENTE cache negativa per errori transitori di rete — un
             # timeout Yahoo marcava un ticker valido come non validabile per 5 minuti
@@ -2859,7 +3077,7 @@ if FASTAPI_OK:
         try:
             t = (ticker or "").strip().upper()
             if not t or len(t) > 16:
-                raise HTTPException(400, "ticker non valido")
+                raise HTTPException(400, _api_text('ticker non valido', 'Invalid ticker'))
             from bellomberg.market_data.benchmark_series import compute_benchmark_series
             return compute_benchmark_series(ticker=t, force=force)
         except HTTPException:
@@ -2929,8 +3147,7 @@ if FASTAPI_OK:
             existing = active_running[0] if active_running else next(iter(_CONSIGLIERE_PROCS))
             raise HTTPException(
                 409,
-                f"A consigliere run is already in progress (task_id={existing}). "
-                "Cancel it first via POST /consigliere/cancel_all or STOP button."
+                _api_text(f'Una run consigliere e gia in corso (task_id={existing}). Fermala prima con POST /consigliere/cancel_all o il pulsante STOP.', f'A consigliere run is already in progress (task_id={existing}). Cancel it first via POST /consigliere/cancel_all or STOP button.')
             )
         # Verifica prima del throttle: un 428/503 non penalizza il click corretto
         # successivo. Il 409 sopra conserva la precedenza storica.
@@ -3004,7 +3221,7 @@ if FASTAPI_OK:
 
         background_tasks.add_task(_bg_run)
         return {"task_id": task_id, "status": "running",
-                "message": "Consigliere run started. Check /consigliere/status/" + task_id}
+                "message": _api_text('Run consigliere avviata. Stato: /consigliere/status/', 'Consigliere run started. Check /consigliere/status/') + task_id}
 
     @app.post("/consigliere/cancel/{task_id}", dependencies=[Depends(require_session)])
     def cancel_consigliere(task_id: str):
@@ -3014,23 +3231,23 @@ if FASTAPI_OK:
             # Maybe it's not in our handle map but state exists; mark cancelled anyway
             state = run_state.get(task_id)
             if not state:
-                raise HTTPException(404, f"Task {task_id} not found")
+                raise HTTPException(404, _api_text(f'Task {task_id} non trovato', f'Task {task_id} not found'))
             if state.get("status") in ("completed", "failed", "cancelled"):
                 return {"task_id": task_id, "status": state.get("status"),
-                        "message": "Already terminated"}
+                        "message": _api_text('Gia terminata', 'Already terminated')}
             # No proc handle but state exists - just mark cancelled
             state["status"] = "cancelled"
             state["finished"] = datetime.now().isoformat()
             state["error"] = "cancelled by user (no proc handle)"
             return {"task_id": task_id, "status": "cancelled",
-                    "message": "Marked cancelled (no live proc handle found)"}
+                    "message": _api_text('Segnata come annullata (nessun processo attivo trovato)', 'Marked cancelled (no live proc handle found)')}
 
         try:
             proc.kill()  # SIGKILL on POSIX, TerminateProcess on Windows
             try: proc.wait(timeout=5)
             except subprocess.TimeoutExpired: pass
         except Exception as e:
-            raise _err500(e, "cancel_consigliere", "Failed to kill process")
+            raise _err500(e, "cancel_consigliere", _api_text('Impossibile terminare il processo', 'Failed to kill process'))
         finally:
             _CONSIGLIERE_PROCS.pop(task_id, None)
 
@@ -3040,13 +3257,13 @@ if FASTAPI_OK:
         state["error"] = "cancelled by user"
         run_state.runs[task_id] = state
         return {"task_id": task_id, "status": "cancelled",
-                "message": "Subprocess killed, run terminated."}
+                "message": _api_text('Processo terminato, run conclusa.', 'Subprocess killed, run terminated.')}
 
     @app.get("/consigliere/status/{task_id}")
     def consigliere_status(task_id: str):
         state = run_state.get(task_id)
         if not state:
-            raise HTTPException(404, f"Task {task_id} not found")
+            raise HTTPException(404, _api_text(f'Task {task_id} non trovato', f'Task {task_id} not found'))
         return state
 
     @app.get("/consigliere/active")
@@ -3115,8 +3332,7 @@ if FASTAPI_OK:
                 except Exception as e:
                     errors.append({"pid": getattr(p, "pid", "?"), "error": str(e)})
         except ImportError:
-            errors.append({"warning": "psutil not installed - cannot scan orphans. "
-                                       "pip install psutil to enable."})
+            errors.append({"warning": _api_text('psutil non installato: ricerca processi orfani non disponibile. Installare psutil per abilitarla.', 'psutil not installed - cannot scan orphans. pip install psutil to enable.')})
         return {"killed": killed, "errors": errors, "n_killed": len(killed)}
 
     # ===== AGENTS =====
@@ -3138,24 +3354,25 @@ if FASTAPI_OK:
         try:
             from bellomberg.core.llm_client import modello_o_buco as _mob
         except Exception as e:
-            _mob = lambda *a, _cause=str(e), **k: "n.d. (llm_client non importabile: " + _cause + ")"
+            _mob = lambda *a, _cause=str(e), **k: _api_text('n.d. (llm_client non importabile: ', 'n/a (llm_client cannot be imported: ') + _cause + ")"
+        from bellomberg.core.presentation import message
         AGENT_META = {
-            "capo":         {"role": "Senior Analyst PM",       "color": "#ff9500"},
-            "macro":        {"role": "Macro Strategist",        "color": "#ffc760"},
-            "quant":        {"role": "Quant",                   "color": "#00e5ff"},
-            "options":      {"role": "Options Flow",            "color": "#a78bfa"},
-            "fundamentals": {"role": "Fundamentals Analyst",    "color": "#00ff95"},
-            "crypto":       {"role": "Crypto Specialist",       "color": "#fbbf24"},
-            "eventdesk":    {"role": "Event Desk (News+Geo)",   "color": "#f472b6"},
+            "capo":         {"role": message("Analista senior PM", "Senior Analyst PM"), "color": "#ff9500"},
+            "macro":        {"role": message("Stratega macroeconomico", "Macro Strategist"), "color": "#ffc760"},
+            "quant":        {"role": message("Analista quantitativo", "Quant"), "color": "#00e5ff"},
+            "options":      {"role": message("Flussi opzioni", "Options Flow"), "color": "#a78bfa"},
+            "fundamentals": {"role": message("Analista fondamentale", "Fundamentals Analyst"), "color": "#00ff95"},
+            "crypto":       {"role": message("Specialista cripto", "Crypto Specialist"), "color": "#fbbf24"},
+            "eventdesk":    {"role": message("Eventi (Notizie+Geopolitica)", "Event Desk (News+Geo)"), "color": "#f472b6"},
             # legacy pre-fusione (lookup per thread/tool-log vecchi; MAI enumerati):
-            "politics":     {"role": "Geopolitics Specialist",  "color": "#f472b6"},
-            "news":         {"role": "News / Catalyst",         "color": "#94a3b8"},
+            "politics":     {"role": message("Specialista geopolitico", "Geopolitics Specialist"), "color": "#f472b6"},
+            "news":         {"role": message("Notizie / Catalizzatori", "News / Catalyst"), "color": "#94a3b8"},
         }
         agents = []
         for aid, name in AGENT_DISPLAY_NAMES.items():
             if aid in LEGACY_AGENT_IDS:
                 continue  # fusione 15/07: i desk ritirati non compaiono nella rail
-            meta = AGENT_META.get(aid, {"role": "Specialist", "color": "#8aa0b6"})
+            meta = AGENT_META.get(aid, {"role": message("Specialista", "Specialist"), "color": "#8aa0b6"})
             agents.append({"id": aid, "name": name, **meta, "model": _mob("chat", aid)})
         # ENGINES additivo (26/07, audit/21 App. E): il footer ENGINE derivava il
         # motore dal "model" per-agente — che e' il modello della CHAT (Sonnet),
@@ -3201,7 +3418,7 @@ if FASTAPI_OK:
         try:
             import json as _json
             if not os.path.exists(AGENTS_LIVE_PATH):
-                return {"running": False, "message": "No active run."}
+                return {"running": False, "message": _api_text('Nessuna run attiva.', 'No active run.')}
             # 27/08 (review del lotto heartbeat, changelog (90)): il consigliere
             # scrive il file con temporaneo + os.replace, e su Windows nella
             # finestra del replace (stimata ~0,01-0,3 ms secondo la cadenza) una
@@ -3228,16 +3445,16 @@ if FASTAPI_OK:
                 if isinstance(_ultimo, FileNotFoundError) and not os.path.exists(AGENTS_LIVE_PATH):
                     # sparito fra exists() e open(): un reset legittimo
                     # (POST /agents/live/reset), non un guasto
-                    return {"running": False, "message": "No active run."}
+                    return {"running": False, "message": _api_text('Nessuna run attiva.', 'No active run.')}
                 return {"running": False, "heartbeat": "illeggibile",
-                        "message": "read error: heartbeat illeggibile dopo 3 letture (%s: %s)"
+                        "message": _api_text('errore lettura: heartbeat illeggibile dopo 3 letture (%s: %s)', 'Read error: heartbeat unreadable after 3 reads (%s: %s)')
                                    % (type(_ultimo).__name__, str(_ultimo)[:160])}
             if not isinstance(state, dict):
                 # JSON valido ma non un oggetto: prima usciva com'era (il try
                 # sotto inghiottiva l'AttributeError) e il frontend riceveva una
                 # lista al posto dello stato (review 27/08, seconda passata)
                 return {"running": False, "heartbeat": "illeggibile",
-                        "message": "read error: il heartbeat non e' un oggetto JSON (%s)"
+                        "message": _api_text("errore lettura: heartbeat non e' un oggetto JSON (%s)", 'Read error: heartbeat is not a JSON object (%s)')
                                    % type(state).__name__}
             try:
                 upd = state.get("updated_at")
@@ -3254,7 +3471,7 @@ if FASTAPI_OK:
             # sempre «illeggibile» da «nessuna run» (review 27/08, seconda
             # passata; raggiunto dal test con OSError(22))
             return {"running": False, "heartbeat": "illeggibile",
-                    "message": f"read error: {e}"}
+                    "message": _api_text(f'Errore lettura: {e}', f'read error: {e}')}
 
     # ============================================================
     # MANDATO DEL PM (criterio (5), lotto B) — la pagina Mandato (F11).
@@ -3283,14 +3500,15 @@ if FASTAPI_OK:
         import-time (guardia AST in tests/test_mandato_pm.py).
         """
         import bellomberg.core.mandato_pm as _mp
+        from bellomberg.core.presentation import error_text as _mandato_error_text
         try:
             corpo, non_leggibile = _mp.stato_per_api()
         except Exception as e:
             # L'API non ha exception_handler: un guasto che sfugge diventa un 500 muto
             # che scavalca anche la riga di log. Ogni ramo cattura per conto suo.
-            raise _err500(e, "get_mandato", "lettura del mandato del PM")
+            raise _err500(e, "get_mandato", _api_text('lettura del mandato del PM', 'Reading the PM mandate'))
         if non_leggibile:
-            raise HTTPException(503, "mandato non leggibile (%s): %s"
+            raise HTTPException(503, _api_text('mandato non leggibile (%s): %s', 'Mandate unreadable (%s): %s')
                                      % (non_leggibile, corpo.get("dettaglio") or ""))
         return corpo
 
@@ -3326,10 +3544,9 @@ if FASTAPI_OK:
             sette blocchi e basta, quindi non ci passa.
         """
         import bellomberg.core.mandato_pm as _mp
+        from bellomberg.core.presentation import error_text as _mandato_error_text
         if isinstance(corpo, dict) and corpo.get("origine") is not None:
-            raise HTTPException(422, "origine: non si dichiara dal client — la misura il "
-                                     "backend confrontando i valori col profilo di esempio. "
-                                     "Togli `origine` dal corpo e manda i sette blocchi.")
+            raise HTTPException(422, _api_text('origine: non si dichiara dal client — la misura il backend confrontando i valori col profilo di esempio. Togli `origine` dal corpo e manda i sette blocchi.', 'origin is measured by the backend by comparing values with the example profile; the client cannot declare it. Remove `origine` from the request and send the seven sections.'))
         _m, errori = _mp.valida(corpo)
         if errori:
             # Una riga per campo: la pagina divide su `\n`. Non un dict {campo: motivo},
@@ -3341,30 +3558,30 @@ if FASTAPI_OK:
         except ValueError as e:
             # `salva` rivalida per conto suo: se arriva qui vuol dire che il mandato e'
             # diventato invalido fra le due chiamate. Resta un rifiuto, non un guasto.
-            raise HTTPException(422, str(e))
+            raise HTTPException(422, _mandato_error_text(e))
         except _mp.MandatoMancante as e:
             # Il messaggio nomina la CAUSA e MAI un percorso: con causa «esempio» il
             # `.percorso` di questa eccezione e' il file DELL'ESEMPIO del repo (guasto
             # dell'installazione), non il mandato del PM — scriverlo darebbe la colpa
             # al file sbagliato.
-            raise HTTPException(503, "mandato non salvato (%s): %s"
-                                     % (e.causa, e.dettaglio or "riprovare fra un istante"))
+            raise HTTPException(503, _api_text('mandato non salvato (%s): %s', 'Mandate not saved (%s): %s')
+                                     % (e.causa, e.dettaglio or _api_text('riprovare fra un istante', 'try again shortly')))
         except (PermissionError, OSError) as e:
             # `salva()` rilegge il file precedente per farne il backup SENZA la ritenta a
             # 3 tentativi che protegge `carica()`: su Windows quel punto solleva un
             # PermissionError nudo mentre un'altra scrittura e' in corso. E' un «riprova».
-            raise HTTPException(503, "mandato in uso (%s: %s): riprovare fra un istante"
-                                     % (type(e).__name__, str(e)[:160]))
+            raise HTTPException(503, _api_text('mandato in uso (%s: %s): riprovare fra un istante', 'Mandate in use (%s: %s): try again shortly')
+                                     % (type(e).__name__, _mandato_error_text(e)[:160]))
         except Exception as e:
-            raise _err500(e, "put_mandato", "scrittura del mandato del PM")
+            raise _err500(e, "put_mandato", _api_text('scrittura del mandato del PM', 'Saving the PM mandate'))
         try:
             nuovo, non_leggibile_dopo = _mp.stato_per_api()
         except Exception as e:
-            raise _err500(e, "put_mandato", "rilettura del mandato dopo il salvataggio")
+            raise _err500(e, "put_mandato", _api_text('rilettura del mandato dopo il salvataggio', 'Reading back the saved mandate'))
         if non_leggibile_dopo:
             # Salvato ma non rileggibile: lo si DICE, invece di rendere un corpo vuoto che
             # la pagina disegnerebbe come «mandato perso».
-            raise HTTPException(503, "mandato SALVATO ma non rileggibile subito dopo (%s): %s"
+            raise HTTPException(503, _api_text('mandato SALVATO ma non rileggibile subito dopo (%s): %s', 'Mandate SAVED but immediate readback failed (%s): %s')
                                      % (non_leggibile_dopo, nuovo.get("dettaglio") or ""))
         return nuovo
 
@@ -3372,30 +3589,32 @@ if FASTAPI_OK:
     def get_mandato_anteprima():
         """Testo esatto che i modelli ricevono dal mandato salvato."""
         import bellomberg.core.mandato_pm as _mp
+        from bellomberg.core.presentation import error_text as _mandato_error_text
         try:
             return _mp.anteprima(_mp.carica())
         except _mp.MandatoMancante as e:
             status = 428 if e.causa in ("assente", "incompleto") else 503
-            raise HTTPException(status, "mandato non pronto (%s): %s" % (e.causa, str(e)))
+            raise HTTPException(status, _api_text('mandato non pronto (%s): %s', 'Mandate not ready (%s): %s') % (e.causa, _mandato_error_text(e)))
         except ValueError as e:
-            raise HTTPException(422, str(e))
+            raise HTTPException(422, _mandato_error_text(e))
         except Exception as e:
-            raise _err500(e, "get_mandato_anteprima", "anteprima del mandato salvato")
+            raise _err500(e, "get_mandato_anteprima", _api_text('anteprima del mandato salvato', 'Previewing the saved mandate'))
 
     @app.post("/mandato/anteprima", dependencies=[Depends(require_session)])
     def post_mandato_anteprima(corpo=Body(...)):
         """Anteprima di valori non salvati: valida prima di costruire qualunque prompt."""
         import bellomberg.core.mandato_pm as _mp
+        from bellomberg.core.presentation import error_text as _mandato_error_text
         if isinstance(corpo, dict) and corpo.get("origine") is not None:
-            raise HTTPException(422, "origine: non si dichiara dal client - la misura il backend")
+            raise HTTPException(422, _api_text('origine: non si dichiara dal client - la misura il backend', 'origin is measured by the backend, not declared by the client'))
         try:
             return _mp.anteprima(corpo)
         except ValueError as e:
-            raise HTTPException(422, str(e))
+            raise HTTPException(422, _mandato_error_text(e))
         except _mp.MandatoMancante as e:
-            raise HTTPException(503, "mandato non leggibile (%s): %s" % (e.causa, str(e)))
+            raise HTTPException(503, _api_text('mandato non leggibile (%s): %s', 'Mandate unreadable (%s): %s') % (e.causa, _mandato_error_text(e)))
         except Exception as e:
-            raise _err500(e, "post_mandato_anteprima", "anteprima del mandato non salvato")
+            raise _err500(e, "post_mandato_anteprima", _api_text('anteprima del mandato non salvato', 'Previewing the unsaved mandate'))
 
     @app.get("/agents/scorecard")
     def get_agents_scorecard():
@@ -3417,7 +3636,7 @@ if FASTAPI_OK:
             return scorecard_for_api()
         except Exception as e:
             raise _err500(e, "get_agents_scorecard",
-                          "lettura snapshot track record")
+                          _api_text('lettura snapshot track record', 'Reading the track record snapshot'))
 
     @app.post("/agents/live/reset", dependencies=[Depends(require_session)])
     def reset_agents_live():
@@ -3425,8 +3644,8 @@ if FASTAPI_OK:
         try:
             if os.path.exists(AGENTS_LIVE_PATH):
                 os.remove(AGENTS_LIVE_PATH)
-                return {"ok": True, "message": "heartbeat cleared"}
-            return {"ok": True, "message": "no heartbeat to clear"}
+                return {"ok": True, "message": _api_text('heartbeat azzerato', 'heartbeat cleared')}
+            return {"ok": True, "message": _api_text('nessun heartbeat da azzerare', 'no heartbeat to clear')}
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
@@ -3451,7 +3670,7 @@ if FASTAPI_OK:
                 "session_id": sid,
                 "agent_id": body.agent_id,
                 "agent_name": AGENT_DISPLAY_NAMES.get(body.agent_id, body.agent_id),
-                "title": body.title or f"Chat con {AGENT_DISPLAY_NAMES.get(body.agent_id, body.agent_id)}",
+                "title": body.title or _api_text(f'Chat con {AGENT_DISPLAY_NAMES.get(body.agent_id, body.agent_id)}', f'Chat with {AGENT_DISPLAY_NAMES.get(body.agent_id, body.agent_id)}'),
             }
         except ValueError as e:
             raise HTTPException(400, str(e))
@@ -3464,7 +3683,7 @@ if FASTAPI_OK:
             from bellomberg.agents.chat_engine import get_session_info, get_messages
             info = get_session_info(session_id)
             if not info:
-                raise HTTPException(404, f"Session {session_id} not found")
+                raise HTTPException(404, _api_text(f'Sessione {session_id} non trovato', f'Session {session_id} not found'))
             msgs = get_messages(session_id)
             return {
                 **info,
@@ -3476,15 +3695,10 @@ if FASTAPI_OK:
                 # cachato (usage.input_tokens con il prompt caching acceso), non
                 # l'input totale. Da rendere se si mostra il numero.
                 "tokens_semantica": {
-                    "tokens_in": ("token di input NON cachati (usage.input_tokens): "
-                                  "in chat il prompt caching e' sempre attivo, quindi "
-                                  "l'input TOTALE e' tokens_in + cache_read + cache_write"),
-                    "tokens_out": "token di output, somma sulle iterazioni del tool loop",
-                    "cache_read_cache_write": ("NON in tabella (sarebbe una migrazione): "
-                                               "viaggiano sull'evento `done` dello stream, "
-                                               "insieme al costo in EUR"),
-                    "costo": ("il costo VERO di una risposta e' su `done.cost_eur`; "
-                              "sommare i tokens_in d'archivio da' un SOTTO-conteggio"),
+                    "tokens_in": (_api_text("token di input NON cachati (usage.input_tokens): in chat il prompt caching e' sempre attivo, quindi l'input TOTALE e' tokens_in + cache_read + cache_write", 'NON-cached input tokens (usage.input_tokens): chat always uses prompt caching; TOTAL input is tokens_in + cache_read + cache_write')),
+                    "tokens_out": _api_text('token di output, somma sulle iterazioni del tool loop', 'Output tokens, summed across tool loop iterations'),
+                    "cache_read_cache_write": (_api_text("NON in tabella (sarebbe una migrazione): viaggiano sull'evento `done` dello stream, insieme al costo in EUR", 'NOT stored in this table: returned in the stream `done` event together with EUR cost')),
+                    "costo": (_api_text("il costo VERO di una risposta e' su `done.cost_eur`; sommare i tokens_in d'archivio da' un SOTTO-conteggio", 'Actual response cost is in `done.cost_eur`; summing archived tokens_in UNDERCOUNTS input')),
                 },
             }
         except HTTPException:
@@ -3508,7 +3722,7 @@ if FASTAPI_OK:
             from bellomberg.agents.chat_engine import update_session_title
             res = update_session_title(session_id, body.title)
             if res is None:
-                raise HTTPException(404, f"Session {session_id} not found")
+                raise HTTPException(404, _api_text(f'Sessione {session_id} non trovato', f'Session {session_id} not found'))
             return res
         except ValueError as e:
             raise HTTPException(400, str(e))
@@ -3535,10 +3749,10 @@ if FASTAPI_OK:
             from bellomberg.agents.chat_engine import stream_chat, get_session_info
             info = get_session_info(session_id)
             if not info:
-                raise HTTPException(404, f"Session {session_id} not found")
+                raise HTTPException(404, _api_text(f'Sessione {session_id} non trovato', f'Session {session_id} not found'))
             agent_id = info.get("specialist") or info.get("agent_id")
             if not agent_id:
-                raise HTTPException(400, "Session missing agent_id")
+                raise HTTPException(400, _api_text('Sessione priva di agent_id', 'Session missing agent_id'))
             return StreamingResponse(
                 stream_chat(session_id, agent_id, body.message),
                 media_type="text/event-stream",
@@ -3556,9 +3770,9 @@ def api_port(env=None):
     try:
         port = int(raw)
     except (TypeError, ValueError) as exc:
-        raise ValueError("BELLOMBERG_API_PORT deve essere un intero tra 1024 e 65535") from exc
+        raise ValueError(_api_text('BELLOMBERG_API_PORT deve essere un intero tra 1024 e 65535', 'BELLOMBERG_API_PORT must be an integer between 1024 and 65535')) from exc
     if not 1024 <= port <= 65535:
-        raise ValueError("BELLOMBERG_API_PORT deve essere tra 1024 e 65535")
+        raise ValueError(_api_text('BELLOMBERG_API_PORT deve essere tra 1024 e 65535', 'BELLOMBERG_API_PORT must be between 1024 and 65535'))
     return port
 
 

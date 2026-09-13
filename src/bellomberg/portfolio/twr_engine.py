@@ -49,10 +49,12 @@ IRR money-weighted (modello ibrido per ere, coerente con i regimi TWR):
 """
 import time
 import sqlite3
+import math
 from datetime import datetime, date
 from typing import Dict, Any, Optional, List, Tuple
 
 from bellomberg.storage.memory_db import MemoryDB, SQLITE_PATH, connect_sqlite
+from bellomberg.core.presentation import message as _message, render_payload
 
 _CACHE: Dict[str, Any] = {}
 CACHE_TTL_SEC = 600  # 10 min, come portfolio_analytics
@@ -90,8 +92,7 @@ def build_recon_note(nav_live: float, snaps: List[Dict[str, Any]],
         "delta_pct": round(delta_pct, 3) if delta_pct is not None else None,
         "tolerance_pct": tolerance_pct,
         "breach": (delta_pct is not None and abs(delta_pct) > tolerance_pct),
-        "note": "delta = NAV live (prezzi correnti) vs ultimo snapshot ufficiale persistito; "
-                f"breach = |delta| oltre {tolerance_pct}% dichiarato",
+        "note": _message('delta = NAV live (prezzi correnti) vs ultimo snapshot ufficiale persistito; breach = |delta| oltre {v0}% dichiarato', 'delta = live NAV (current prices) versus the latest persisted official snapshot; breach = |delta| above {v0}% as disclosed', v0=tolerance_pct),
     }
 
 
@@ -119,18 +120,28 @@ def record_nav_snapshot(db: Optional[MemoryDB] = None) -> Dict[str, Any]:
         try:
             if not _table_exists(conn, "nav_snapshots"):
                 _log("nav_snapshots assente: snapshot saltato (lancia tools/migrations/setup_twr_tables.py)")
-                return {"ok": False, "reason": "nav_snapshots table missing"}
+                return {"ok": False, "reason": _message('tabella nav_snapshots assente', 'nav_snapshots table missing')}
+            # Mark the start of valuation. A balance inserted during the read
+            # must not certify this older NAV as covering that new balance.
+            now_iso = datetime.now().isoformat(timespec="microseconds")
             snap = db.get_portfolio_summary()
+            has_opening = (_table_exists(conn, "position_openings") and
+                           conn.execute("SELECT 1 FROM position_openings LIMIT 1").fetchone() is not None)
+            if has_opening and snap.get("stale_positions"):
+                return {"ok": False, "reason": _message(
+                    "Saldi iniziali: prezzi mancanti o vecchi per {tickers}; nessuno snapshot ufficiale al costo.",
+                    "Opening balances: missing or old prices for {tickers}; no official snapshot at cost.",
+                    tickers=", ".join(snap["stale_positions"]))}
             if snap.get("fx_incomplete"):
                 _log("FX incompleto, snapshot non scritto: " + str(snap["fx_incomplete"]))
-                return {"ok": False, "reason": "FX incompleto: " + str(snap["fx_incomplete"])}
+                return {"ok": False, "reason": _message("FX incompleto: {missing}", "Incomplete FX: {missing}", missing=str(snap["fx_incomplete"]))}
             _fx_non_misurati = {
                 cur: source for cur, source in (snap.get("fx_sources") or {}).items()
                 if source != "live"
             }
             if _fx_non_misurati:
                 _log("FX non live, snapshot non scritto: " + str(_fx_non_misurati))
-                return {"ok": False, "reason": "FX non live: " + str(_fx_non_misurati)}
+                return {"ok": False, "reason": _message("FX non live: {sources}", "Non-live FX: {sources}", sources=str(_fx_non_misurati))}
             nav_total = float(snap.get("nav_total_eur") or 0)
             invested = float(snap.get("totale_valore_mercato_eur") or 0)
             cash = float(snap.get("cash_disponibile_eur") or 0)
@@ -140,12 +151,11 @@ def record_nav_snapshot(db: Optional[MemoryDB] = None) -> Dict[str, Any]:
             # riprova. Chiave presente e nulla = dichiarazione del lettore.
             if "cash_source" in snap and snap["cash_source"] is None:
                 _log("cassa NON misurata, snapshot non scritto: " + str(snap.get("cash_source_note")))
-                return {"ok": False, "reason": "cassa NON misurata: " + str(snap.get("cash_source_note"))}
+                return {"ok": False, "reason": _message("cassa NON misurata: {reason}", "Cash NOT measured: {reason}", reason=snap.get("cash_source_note"))}
             if nav_total <= 0:
                 _log("NAV <= 0: snapshot non scritto")
                 return {"ok": False, "reason": "nav <= 0"}
             today_iso = date.today().isoformat()
-            now_iso = datetime.now().isoformat(timespec="seconds")
             conn.execute(
                 "INSERT INTO nav_snapshots (date, nav_total_eur, invested_eur, cash_eur, source, created_at) "
                 "VALUES (?,?,?,?,?,?) "
@@ -216,6 +226,42 @@ def get_official_series() -> Dict[str, Any]:
     ledger = get_cash_movements()
     notes: List[str] = []
 
+    openings = MemoryDB().get_opening_positions()
+    if openings:
+        # Registration time, not the balance's as_of, determines which observed
+        # NAV includes every holding. No synthetic trade or historical cash.
+        def instant(value):
+            parsed = datetime.fromisoformat(value)
+            return parsed.astimezone()  # naive snapshot timestamps are local by contract
+        latest = max(openings, key=lambda row: instant(row["created_at"]))
+        added = latest["created_at"]
+        covered = []
+        latest_day = max(row["as_of"][:10] for row in openings)
+        for snap in snaps:
+            try:
+                if (snap.get("source") == "price_updater"
+                        and instant(snap["created_at"]) >= instant(added)
+                        and snap["date"] >= latest_day):
+                    covered.append(snap)
+            except (ValueError, TypeError, KeyError):
+                continue  # cannot certify which balances this observation includes
+        excluded = len(snaps) - len(covered)
+        d0 = covered[0]["date"] if covered else None
+        notes.append(_message('Saldi iniziali registrati fino a {v0}; primo snapshot successivo: {v1}. Snapshot precedenti o non verificabili esclusi: {v2}. Storia degli acquisti ignota: nessuna ricostruzione del periodo precedente.', 'Opening balances registered through {v0}; first subsequent snapshot: {v1}. Earlier or unverifiable snapshots excluded: {v2}. Purchase history unknown: no reconstruction of the earlier period.', v0=added, v1=d0 or _message('n.d.', 'n/a'), v2=excluded))
+        flows, previous = [], d0
+        for snap in covered:
+            flows.append(round(sum((1 if row["type"] == "DEPOSIT" else -1) * float(row["amount_eur"])
+                                   for row in ledger if previous < row["date"] <= snap["date"]), 2))
+            previous = snap["date"]
+        return {"dates": [s["date"] for s in covered],
+                "values_eur": [float(s["nav_total_eur"]) for s in covered],
+                "flows_eur": flows, "regimes": ["official"] * len(covered),
+                "official_since": d0, "seamless_transition": False,
+                "notes": notes, "snapshots": covered, "ledger": ledger,
+                "position_openings": openings, "baseline_added_at": added,
+                "snapshot_prima_del_baseline": excluded,
+                "recon_error": _message('Saldi iniziali: periodo precedente al primo snapshot coperto non ricostruibile.', 'Opening balances: the period before the first covered snapshot cannot be reconstructed.')}
+
     recon = {}
     try:
         from bellomberg.portfolio.portfolio_analytics import compute_nav_history
@@ -228,7 +274,7 @@ def get_official_series() -> Dict[str, Any]:
         except Exception:
             pass
     if recon.get("error"):
-        notes.append(f"ricostruzione storica non disponibile: {recon['error']}")
+        notes.append(_message('ricostruzione storica non disponibile: {v0}', 'Historical reconstruction unavailable: {v0}', v0=recon['error']))
 
     d0 = snaps[0]["date"] if snaps else None
 
@@ -280,14 +326,11 @@ def get_official_series() -> Dict[str, Any]:
             prev_date = dstr
         pre_ledger = [m for m in ledger if m["date"] <= (d0 or "9999-12-31")]
         if pre_ledger:
-            notes.append(f"{len(pre_ledger)} movimenti del ledger precedono il primo snapshot: nel tratto "
-                         "ricostruito i flussi sono gia' impliciti nei trade (non doppio-contati).")
+            notes.append(_message("{v0} movimenti del ledger precedono il primo snapshot: nel tratto ricostruito i flussi sono gia' impliciti nei trade (non doppio-contati).", '{v0} ledger movements precede the first snapshot: flows in the reconstructed segment are already implicit in trades (not counted twice).', v0=len(pre_ledger)))
         if not seamless and dates:
-            notes.append(f"transizione {d0}: ricostruzione e snapshot non si sovrappongono, "
-                         "r del giorno di salto = 0 (perimetro non confrontabile).")
+            notes.append(_message('transizione {v0}: ricostruzione e snapshot non si sovrappongono, r del giorno di salto = 0 (perimetro non confrontabile).', 'Transition {v0}: reconstruction and snapshots do not overlap; return on the transition day = 0 (non-comparable scope).', v0=d0))
         if not ledger:
-            notes.append("ledger cash_movements vuoto: nel regime official i flussi esterni valgono 0 "
-                         "finche' non registri depositi/prelievi con tools/migrations/setup_twr_tables.py.")
+            notes.append(_message("ledger cash_movements vuoto: nel regime official i flussi esterni valgono 0 finche' non registri depositi/prelievi con tools/migrations/setup_twr_tables.py.", 'Empty cash_movements ledger: external flows are zero in the official regime until deposits/withdrawals are recorded with tools/migrations/setup_twr_tables.py.'))
 
     return {
         "dates": dates, "values_eur": values, "flows_eur": flows, "regimes": regimes,
@@ -459,6 +502,18 @@ def _build_irr_flows(ctx: Dict[str, Any], live_summary: Dict[str, Any]) -> Tuple
     ledger = ctx.get("ledger") or []
     d0 = snaps[0]["date"] if snaps else None
     flows: List[Tuple[str, float]] = []
+    foreign = set()
+    if ctx.get("position_openings"):
+        if len(snaps) < 2:
+            return [], 0.0, _message('IRR n.d.: servono due snapshot successivi alla registrazione di tutti i saldi iniziali.', 'IRR unavailable: two snapshots after registration of all opening balances are required.')
+        terminal_day = snaps[-1]["date"]
+        flows.append((d0, -float(snaps[0]["nav_total_eur"])))
+        for movement in ledger:
+            if d0 < movement["date"] <= terminal_day:
+                amount = float(movement["amount_eur"])
+                flows.append((movement["date"], -amount if movement["type"] == "DEPOSIT" else amount))
+        return flows, float(snaps[-1]["nav_total_eur"]), (
+            _message('Snapshot osservati dal {v0} al {v1}; NAV iniziale e flussi esterni documentati. Ultima registrazione saldo: {v2}; acquisti precedenti ignoti.', 'Observed snapshots from {v0} to {v1}; initial NAV and external flows documented. Latest balance registration: {v2}; earlier purchases unknown.', v0=d0, v1=terminal_day, v2=ctx['baseline_added_at']))
 
     # Era A: flussi impliciti nei trade fino a d0 incluso (o tutta la storia se no snapshot)
     try:
@@ -467,7 +522,7 @@ def _build_irr_flows(ctx: Dict[str, Any], live_summary: Dict[str, Any]) -> Tuple
             rows = conn.execute(
                 "SELECT ticker, action, quantita, prezzo, valuta, data "
                 "FROM trade_history ORDER BY data ASC").fetchall()
-        from bellomberg.cli.price_updater import get_fx_to_eur
+        from bellomberg.cli.price_updater import get_fx_to_eur_con_fonte
         for r in rows:
             dstr = (r["data"] or "")[:10]
             if not dstr:
@@ -477,8 +532,15 @@ def _build_irr_flows(ctx: Dict[str, Any], live_summary: Dict[str, Any]) -> Tuple
             action = (r["action"] or "").upper()
             qty = float(r["quantita"] or 0)
             px = float(r["prezzo"] or 0)
-            ccy = (r["valuta"] or "EUR").upper()
-            fx = get_fx_to_eur(ccy) or 1.0
+            ccy = (r["valuta"] or "").upper()
+            if ccy == "EUR":
+                fx, source = 1.0, "identity"
+            else:
+                fx, source = get_fx_to_eur_con_fonte(ccy)
+                foreign.add(ccy)
+            if (not ccy or fx is None or not math.isfinite(fx) or fx <= 0
+                    or source not in ("live", "identity")):
+                return [], 0.0, _message('IRR non calcolabile: FX {v0}->EUR n.d. o fonte {v1} non utilizzabile', 'IRR cannot be calculated: FX {v0}->EUR unavailable or source {v1} unusable', v0=ccy or _message('valuta n.d.', 'currency unavailable'), v1=source)
             amt = qty * px * fx
             if action in ("BUY", "ADD"):
                 flows.append((dstr, -amt))
@@ -486,11 +548,15 @@ def _build_irr_flows(ctx: Dict[str, Any], live_summary: Dict[str, Any]) -> Tuple
                 flows.append((dstr, amt))
     except Exception as e:
         _log(f"irr trade flows failed: {e}")
-        return [], 0.0, "unavailable"
+        return [], 0.0, _message("IRR non calcolabile: {error}", "IRR cannot be calculated: {error}", error=str(e))
+
+    fx_note = (_message("; FX corrente (non storico) per {currencies}",
+                        "; current (not historical) FX for {currencies}",
+                        currencies=", ".join(sorted(foreign))) if foreign else "")
 
     if not snaps:
         terminal = float(live_summary.get("totale_valore_mercato_eur") or 0)
-        return flows, terminal, "trades"
+        return flows, terminal, _message("trades{fx_note}", "trades{fx_note}", fx_note=fx_note)
 
     # Transizione: la cassa del primo snapshot entra nel perimetro misurato
     cash_d0 = float(snaps[0].get("cash_eur") or 0)
@@ -505,7 +571,34 @@ def _build_irr_flows(ctx: Dict[str, Any], live_summary: Dict[str, Any]) -> Tuple
         flows.append((m["date"], -amt if m.get("type") == "DEPOSIT" else amt))
 
     terminal = float(live_summary.get("nav_total_eur") or 0)
-    return flows, terminal, "hybrid: trades fino al primo snapshot + cash iniziale + ledger dopo"
+    return flows, terminal, _message("hybrid: trades fino al primo snapshot + cash iniziale + ledger dopo{fx_note}",
+                                     "hybrid: trades through the first snapshot + initial cash + subsequent ledger{fx_note}", fx_note=fx_note)
+
+
+def _performance_coverage(db, ctx):
+    """Calendar coverage, independent of return calculations or invented cash history."""
+    snaps = sorted({s["date"] for s in ctx.get("snapshots", [])})
+    first, last = (snaps[0], snaps[-1]) if snaps else (None, None)
+    coverage = {"primo_trade": None, "primo_snapshot": first, "ultimo_snapshot": last,
+                "official_since": ctx.get("official_since"), "n_trade_prima_del_primo_snapshot": None,
+                "giorni_senza_snapshot": None, "nota": None}
+    try:
+        with db._conn() as conn:
+            rows = conn.execute("SELECT data FROM trade_history ORDER BY data,id").fetchall()
+        days = [datetime.fromisoformat(r["data"]).date().isoformat() for r in rows]
+        coverage["primo_trade"] = min(days) if days else None
+        if first:
+            coverage["n_trade_prima_del_primo_snapshot"] = sum(d < first for d in days)
+            coverage["giorni_senza_snapshot"] = (date.fromisoformat(last) - date.fromisoformat(first)).days + 1 - len(snaps)
+        coverage["nota"] = (_message("Primo trade: {v0}; primo snapshot: {v1}. Prima degli snapshot la serie e ricostruita senza storia completa della cassa. Giorni di calendario senza snapshot nell'intervallo: {v2}. Le registrazioni retrodatate non riscrivono gli snapshot NAV passati.", 'First trade: {v0}; first snapshot: {v1}. Before snapshots, the series is reconstructed without complete cash history. Calendar days without a snapshot in the interval: {v2}. Backdated entries do not rewrite past NAV snapshots.', v0=coverage['primo_trade'] or _message('n.d.', 'n/a'), v1=first or _message('n.d.', 'n/a'), v2=coverage['giorni_senza_snapshot'] if first else _message('n.d.', 'n/a')))
+    except Exception as exc:
+        coverage["nota"] = _message('Copertura non verificabile: {v0}: {v1}', 'Coverage cannot be verified: {v0}: {v1}', v0=type(exc).__name__, v1=exc)
+    if ctx.get("position_openings"):
+        coverage.update({"baseline_added_at": ctx["baseline_added_at"],
+                         "snapshot_prima_del_baseline": ctx["snapshot_prima_del_baseline"],
+                         "position_openings": ctx["position_openings"]})
+        coverage["nota"] = (_message('Ultimo saldo iniziale registrato: {v0}; periodo coperto: {v1} - {v2}. Snapshot precedenti o non verificabili esclusi: {v3}. Data di acquisto e storia precedente ignote. Giorni senza snapshot nel periodo: {v4}.', 'Latest opening balance registered: {v0}; covered period: {v1} - {v2}. Earlier or unverifiable snapshots excluded: {v3}. Purchase date and earlier history unknown. Days without a snapshot in the period: {v4}.', v0=ctx['baseline_added_at'], v1=first or _message('n.d.', 'n/a'), v2=last or _message('n.d.', 'n/a'), v3=ctx['snapshot_prima_del_baseline'], v4=coverage['giorni_senza_snapshot'] if first else _message('n.d.', 'n/a')))
+    return coverage
 
 
 # ============================================================
@@ -519,7 +612,7 @@ def compute_twr_payload(force: bool = False) -> Dict[str, Any]:
     if not force and "payload" in _CACHE:
         entry = _CACHE["payload"]
         if time.time() - entry["ts"] < CACHE_TTL_SEC:
-            return entry["data"]
+            return render_payload(entry["data"])
 
     ctx = get_official_series()
     dates = ctx["dates"]
@@ -530,8 +623,11 @@ def compute_twr_payload(force: bool = False) -> Dict[str, Any]:
     snaps = ctx["snapshots"]
 
     if len(dates) < 2:
-        return {"error": "serie insufficiente (servono >=2 punti): " + (ctx.get("recon_error") or "nessun dato"),
+        return {"error": _message("serie insufficiente (servono >=2 punti): {reason}",
+                                  "Insufficient series (at least 2 points required): {reason}",
+                                  reason=ctx.get("recon_error") or _message("nessun dato", "no data")),
                 "official_since": ctx.get("official_since"),
+                "copertura": _performance_coverage(MemoryDB(), ctx),
                 "timestamp": datetime.now().isoformat()}
 
     # rendimenti per segmento (mai attraverso un cambio di perimetro non sovrapposto)
@@ -562,7 +658,8 @@ def compute_twr_payload(force: bool = False) -> Dict[str, Any]:
     live = db.get_portfolio_summary()
     irr_flows, terminal, irr_basis = _build_irr_flows(ctx, live)
     today_iso = date.today().isoformat()
-    irr = compute_irr(irr_flows, terminal, today_iso) if irr_flows else None
+    irr_as_of = snaps[-1]["date"] if ctx.get("position_openings") and snaps else today_iso
+    irr = compute_irr(irr_flows, terminal, irr_as_of) if irr_flows else None
 
     # riconciliazione NAV live vs ultimo snapshot ufficiale (helper puro sotto)
     nav_live = float(live.get("nav_total_eur") or 0)
@@ -583,22 +680,21 @@ def compute_twr_payload(force: bool = False) -> Dict[str, Any]:
         except Exception:
             pass
         if table_ok:
-            notes.append("nessuno snapshot NAV ancora (tabella nav_snapshots pronta ma vuota): serie "
-                         "interamente ricostruita da chiusure. In attesa del primo snapshot: si scrive a "
-                         "fine del prossimo giro prezzi (15-30 min) o subito col bottone REFRESH PREZZI.")
+            notes.append(_message('nessuno snapshot NAV ancora (tabella nav_snapshots pronta ma vuota): serie interamente ricostruita da chiusure. In attesa del primo snapshot: si scrive a fine del prossimo giro prezzi (15-30 min) o subito col bottone REFRESH PREZZI.', 'No NAV snapshot yet (nav_snapshots table ready but empty): the series is entirely reconstructed from closing prices. Awaiting the first snapshot at the end of the next price update (15-30 min), or immediately via REFRESH PRICES.'))
         else:
-            notes.append("nessuno snapshot NAV ancora: serie interamente ricostruita da chiusure. "
-                         "Lancia tools/migrations/setup_twr_tables.py e riavvia il backend per attivare il regime ufficiale.")
+            notes.append(_message('nessuno snapshot NAV ancora: serie interamente ricostruita da chiusure. Lancia tools/migrations/setup_twr_tables.py e riavvia il backend per attivare il regime ufficiale.', 'No NAV snapshot yet: the series is entirely reconstructed from closing prices. Run tools/migrations/setup_twr_tables.py and restart the backend to activate the official regime.'))
 
     n_official = sum(1 for r in regimes if r == "official")
     n_recon = len(regimes) - n_official
     payload = {
         "as_of": {
             "computed_at": datetime.now().isoformat(timespec="seconds"),
-            "price_basis": "official: snapshot NAV (prezzi del giro price_updater); reconstructed: chiusure daily yfinance auto-adjusted",
-            "fx_basis": "official: FX live al momento dello snapshot; reconstructed: FX daily storico (CB a FX storico dal 23/07, F-CONT-1)",
+            "price_basis": _message('official: snapshot NAV (prezzi del giro price_updater); reconstructed: chiusure daily yfinance auto-adjusted', 'official: NAV snapshot (prices from the price_updater run); reconstructed: auto-adjusted daily yfinance closes'),
+            "fx_basis": _message('official: FX live al momento dello snapshot; reconstructed: FX daily storico (CB a FX storico dal 23/07, F-CONT-1)', 'official: live FX at snapshot time; reconstructed: historical daily FX (cost basis at historical FX since 23/07, F-CONT-1)'),
         },
         "dates": dates,
+        "copertura": _performance_coverage(db, ctx),
+        "irr_as_of": irr_as_of,
         "twr_index": metrics["index"],
         "regimes": regimes,
         "values_eur": [round(v, 2) for v in values],
@@ -634,17 +730,14 @@ def compute_twr_payload(force: bool = False) -> Dict[str, Any]:
         ],
         "reconciliation": recon_note,
         "notes": notes,
-        "methodology": ("TWR GIPS r_t=(V_t-V_{t-1}-F_t)/V_{t-1}, flussi a fine giornata (w=0); "
-                        "F = solo flussi esterni (ledger) nel regime official, net-invested-at-cost "
-                        "(dCB - dRealized) nel regime reconstructed pre-ledger. "
-                        "Drawdown/vol/Sharpe calcolati sull'indice TWR. IRR = XIRR money-weighted."),
+        "methodology": (_message("TWR GIPS r_t=(V_t-V_{t-1}-F_t)/V_{t-1}, flussi a fine giornata (w=0); F = solo flussi esterni (ledger) nel regime official, net-invested-at-cost (dCB - dRealized) nel regime reconstructed pre-ledger. Drawdown/vol/Sharpe calcolati sull'indice TWR. IRR = XIRR money-weighted.", 'TWR GIPS r_t=(V_t-V_{t-1}-F_t)/V_{t-1}, end-of-day flows (w=0); F = external ledger flows only in the official regime, net-invested-at-cost (dCB - dRealized) in the pre-ledger reconstructed regime. Drawdown/volatility/Sharpe calculated on the TWR index. IRR = money-weighted XIRR.')),
         "n_days": len(dates),
         "timestamp": datetime.now().isoformat(),
     }
     _CACHE["payload"] = {"ts": time.time(), "data": payload}
     _log(f"payload TWR: {len(dates)} giorni ({n_recon} ricostruiti + {n_official} ufficiali), "
          f"TWR {metrics['twr_total_pct']:+.2f}%, maxDD {metrics['max_drawdown_pct']:.2f}%")
-    return payload
+    return render_payload(payload)
 
 
 def invalidate_cache():

@@ -1,3 +1,4 @@
+import { useT } from '@/i18n/provider';
 // F14 · vista SCIE — l'oggetto per cui la pagina si riconosce (Opus 5, 27/07)
 //
 // 27 corsie (una per ticker, ordinate per PRIMO movimento) su 172 giorni di
@@ -18,7 +19,7 @@ import type { CSSProperties } from 'react';
 import { fmtNum } from '@/lib/format';
 import {
   Corsia, Mossa, Arco, StatoCancello,
-  ggmmaa, oraDi, testiDi, mesiDellArco, entra, esce, segnoPL,
+  ggmmaa, oraTrade, testiDi, mesiDellArco, entra, esce, segnoPL,
 } from '@/lib/movimenti';
 
 interface Props {
@@ -42,12 +43,13 @@ interface PropsSegno {
 }
 
 function Segno({ m, corsia, cancello, riga, righe }: PropsSegno) {
+  const tr = useT();
   const t = m.trade;
   const uscita = esce(t.action);
   const dividendo = t.action === 'DIVIDEND';
   const { rationale, nota } = testiDi(t);
   const commento = rationale || nota;
-  const ora = oraDi(t.data);
+  const ora = oraTrade(t);
 
   // col cancello aperto l'uscita prende da sola il colore del suo esito
   let esito = '';
@@ -61,7 +63,7 @@ function Segno({ m, corsia, cancello, riga, righe }: PropsSegno) {
   const stile: CSSProperties = { left: `${(m.f * 100).toFixed(3)}%` };
   if (!dividendo) stile.height = `${(m.rel * (uscita ? 34 : 58)).toFixed(2)}%`;
 
-  const peso = m.ctrl == null ? 'n.d.' : `${(m.rel * 100).toFixed(0)}%`;
+  const peso = m.ctrl == null ? tr('movements.nd') : `${(m.rel * 100).toFixed(0)}%`;
 
   // ⚠️ DA CHE PARTE SI APRE LA LETTURA. La tip e' assoluta dentro la corsia,
   // e l'unico antenato che ritaglia e' `.pb{overflow:auto}`: quello che esce
@@ -73,16 +75,16 @@ function Segno({ m, corsia, cancello, riga, righe }: PropsSegno) {
   // qualunque sia la corsia, la lettura ha sempre l'intero riquadro davanti.
   const apreGiu = riga < righe / 2;
 
-  const etichetta = `${corsia.ticker} ${t.action} del ${ggmmaa(t.data)}, `
-    + `${fmtNum(t.quantita, 0)} per ${fmtNum(t.prezzo, 2)} ${t.valuta}`
-    + `, controvalore ${m.ctrl == null ? 'non disponibile' : `${fmtNum(m.ctrl, 2)} ${t.valuta}`}`
-    + `, peso nella corsia ${peso}`
+  const etichetta = tr('movements.tradeOn', {a: corsia.ticker, b: t.action, c: ggmmaa(t.data)})
+    + tr('movements.qtyAt', {a: fmtNum(t.quantita, 0), b: fmtNum(t.prezzo, 2), c: t.valuta})
+    + tr('movements.notionalAria', {a: m.ctrl == null ? tr('movements.notAvailable') : `${fmtNum(m.ctrl, 2)} ${t.valuta}`})
+    + tr('movements.laneWeightAria', {a: peso})
     + (uscita
         ? cancello === 'chiuso'
-          ? ', P e L realizzato non disponibile: non consegnato dal backend'
+          ? tr('movements.pnlNotProvidedAria')
           : typeof t.realized_eur === 'number' && isFinite(t.realized_eur)
-            ? `, realizzato ${fmtNum(t.realized_eur, 2)} euro`
-            : ', nessun realizzato su questa riga'
+            ? tr('movements.realizedAria', {a: fmtNum(t.realized_eur, 2)})
+            : tr('movements.noRealizedAria')
         : '');
 
   return (
@@ -102,13 +104,13 @@ function Segno({ m, corsia, cancello, riga, righe }: PropsSegno) {
           : { left: stile.left, bottom: 'calc(38% + 12px)' }}
       >
         <b>{corsia.ticker} · {t.action}</b>
-        <div className="kv"><span>quando</span>
+        <div className="kv"><span>{tr('movements.whenLower')}</span>
           <span className="num">{ggmmaa(t.data)} {ora || '—'}</span></div>
-        <div className="kv"><span>quanto</span>
+        <div className="kv"><span>{tr('movements.amountLower')}</span>
           <span className="num">{fmtNum(t.quantita, 0)} × {fmtNum(t.prezzo, 2)} {t.valuta}</span></div>
-        <div className="kv"><span>controvalore</span>
+        <div className="kv"><span>{tr('movements.notionalLower')}</span>
           <span className="num">
-            {m.ctrl == null ? 'n.d.' : `${fmtNum(m.ctrl, 2)} ${t.valuta || '?'}`}
+            {m.ctrl == null ? tr('movements.nd') : `${fmtNum(m.ctrl, 2)} ${t.valuta || '?'}`}
           </span></div>
         {/* Senza controvalore il peso non e' 0%, e' incalcolabile: uno 0%
             sarebbe un numero inventato su un dato che non c'e'.
@@ -116,16 +118,16 @@ function Segno({ m, corsia, cancello, riga, righe }: PropsSegno) {
             corsia nella STESSA valuta, non a tutta la corsia — su MSTR, che
             ha righe in USD e in EUR, le due cose sono diverse. */}
         <div className="kv">
-          <span>peso fra i {t.valuta} della corsia</span>
+          <span>{tr('movements.weightAmong')} {t.valuta} {tr('movements.withinLane')}</span>
           <span className="num">{peso}</span></div>
         {uscita && (cancello === 'chiuso'
-          ? <i>P&amp;L REALIZZATO: DIETRO IL CANCELLO — GET /trades non consegna realized_eur</i>
+          ? <i>{tr('movements.pnlGateDetail')}</i>
           : typeof t.realized_eur === 'number' && isFinite(t.realized_eur)
-            ? <div className="kv"><span>realizzato</span>
+            ? <div className="kv"><span>{tr('movements.realizedLower')}</span>
                 <span className="num">
                   {(t.realized_eur > 0 ? '+' : '') + fmtNum(t.realized_eur, 2)} €
                 </span></div>
-            : <i>nessun realizzato su questa riga</i>)}
+            : <i>{tr('movements.noRealizedRow')}</i>)}
         {commento && <i>« {commento} »</i>}
       </div>
     </>
@@ -133,6 +135,7 @@ function Segno({ m, corsia, cancello, riga, righe }: PropsSegno) {
 }
 
 export default function Scie({ corsie, arco, cancello, selezione, onSeleziona }: Props) {
+  const tr = useT();
   const mesi = mesiDellArco(arco);
 
   return (
@@ -155,10 +158,10 @@ export default function Scie({ corsie, arco, cancello, selezione, onSeleziona }:
               type="button"
               className="lk"
               onClick={() => onSeleziona(c.ticker)}
-              aria-label={`${c.ticker}, ${c.n} movimenti dal ${ggmmaa(c.primo)} al ${ggmmaa(c.ultimo)}`
-                + `, in ${c.valute.join(' e ')}`
-                + `. ${c.ticker === selezione ? 'Corsia scelta: togli la scelta' : 'Apri il diario di questa corsia'}`}
-              title={`${c.ticker} — ${c.n} movimenti, dal ${ggmmaa(c.primo)} al ${ggmmaa(c.ultimo)}`}
+              aria-label={tr('movements.laneAria', {a: c.ticker, b: c.n, c: ggmmaa(c.primo), d: ggmmaa(c.ultimo)})
+                + tr('movements.inCurrencies', {a: c.valute.join(tr('movements.and'))})
+                + `. ${c.ticker === selezione ? tr('movements.clearSelectedLane') : tr('movements.openLaneDiary')}`}
+              title={tr('movements.laneTitle', {a: c.ticker, b: c.n, c: ggmmaa(c.primo), d: ggmmaa(c.ultimo)})}
             >
               <span className="tk">{c.ticker}</span>
               {/* una corsia MISTA lo dice: MSTR ha righe in USD e in EUR, e

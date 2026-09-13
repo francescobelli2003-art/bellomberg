@@ -536,11 +536,17 @@ def tool_tavily_search(query, max_results=5):
                 "url": res.get("url", ""),
                 "content": res.get("content", "")[:600],
                 "score": res.get("score"),
+                # audit 11/09 (run 10/09 memo #53): il «35% di rialzo Fed» preso dal web e'
+                # finito in tabella scenari senza data; Tavily la data la manda e qui si buttava
+                "published_date": res.get("published_date"),
             })
         return {
             "query": query,
             "answer": data.get("answer", ""),
             "results": risultati_clean,
+            "nota": ("published_date = data di pubblicazione dichiarata dalla fonte (None = non "
+                     "fornita): un numero preso dal web vale alla sua data — cita il vintage, "
+                     "non presentarlo come quota corrente"),
         }
     except Exception as e:
         return {"error": "Tavily error: " + str(e)}

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { OhlcBar } from '@/lib/api';
+import { useT } from '@/i18n/provider';
+import { linguaCorrente, localeDi } from '@/i18n/lingua';
 
 /**
  * UI v3 T2 - TerminalChart: candele/area professionali su lightweight-charts (motore TradingView OSS).
@@ -73,8 +75,9 @@ function rsi14(bars: OhlcBar[], n = 14) {
 }
 
 const fmtPx = (v: number) =>
-  v >= 1000 ? v.toLocaleString('it-IT', { maximumFractionDigits: 0 })
-  : v >= 10 ? v.toFixed(2) : v.toFixed(4);
+  v >= 1000 ? v.toLocaleString(localeDi(linguaCorrente()), { maximumFractionDigits: 0 })
+  : v.toLocaleString(localeDi(linguaCorrente()), { minimumFractionDigits: v >= 10 ? 2 : 4,
+      maximumFractionDigits: v >= 10 ? 2 : 4, useGrouping: false });
 
 export default function TerminalChart({ bars, mode = 'candle', height = 360, fill = false, log = false, showSma = true, showVwap = false, showRsi = false, overlays, valueLegend = false }: {
   bars: OhlcBar[]; mode?: Mode; height?: number;
@@ -85,9 +88,18 @@ export default function TerminalChart({ bars, mode = 'candle', height = 360, fil
   /** valueLegend: legenda a solo valore (serie NAV/TWR con o=h=l=c, la OHLC sarebbe rumore) */
   valueLegend?: boolean;
 }) {
+  const tr = useT();
+  const locale = localeDi(linguaCorrente());
+  const liveChart = useRef<any>(null);
+  const refreshLegend = useRef<(() => void) | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const legendRef = useRef<HTMLDivElement>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState(false);
+
+  useEffect(() => {
+    liveChart.current?.applyOptions({ localization: { locale } });
+    refreshLegend.current?.();
+  }, [locale]);
 
   useEffect(() => {
     const el = boxRef.current;
@@ -102,14 +114,15 @@ export default function TerminalChart({ bars, mode = 'candle', height = 360, fil
       try {
         lw = await import('lightweight-charts');
       } catch {
-        if (!dead) setErr('motore grafico mancante: nella cartella  app/  esegui  npm install lightweight-charts  e ricarica');
+        if (!dead) setErr(true);
         return;
       }
       if (dead || !boxRef.current) return;
-      setErr(null);
+      setErr(false);
 
       const hNow = () => (fill ? Math.max(200, el.clientHeight || height) : height);
       chart = lw.createChart(el, {
+        localization: { locale: localeDi(linguaCorrente()) },
         width: el.clientWidth, height: hNow(),
         layout: {
           background: { color: 'transparent' }, textColor: P.text,
@@ -125,6 +138,7 @@ export default function TerminalChart({ bars, mode = 'candle', height = 360, fil
           horzLine: { color: 'rgba(41,211,242,0.45)', width: 1 as any, style: 3, labelBackgroundColor: '#0c111e' },
         },
       });
+      liveChart.current = chart;
 
       // v5: addSeries(lw.CandlestickSeries, opts) - v4: addCandlestickSeries(opts)
       const v5 = typeof chart.addSeries === 'function' && lw.CandlestickSeries;
@@ -216,7 +230,8 @@ export default function TerminalChart({ bars, mode = 'candle', height = 360, fil
         if (valueLegend) {
           // serie a valore (NAV/TWR/P&L/underwater): valore + delta, mai piu' di 2 decimali
           const fv = (v: number) => Math.abs(v) >= 1000
-            ? v.toLocaleString('it-IT', { maximumFractionDigits: 0 }) : v.toFixed(2);
+            ? v.toLocaleString(localeDi(linguaCorrente()), { maximumFractionDigits: 0 })
+            : v.toLocaleString(localeDi(linguaCorrente()), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
           const d = prev ? x.c - prev.c : 0;
           const cl = d >= 0 ? '#21e0a0' : '#ff3d60';
           lg.innerHTML =
@@ -231,10 +246,11 @@ export default function TerminalChart({ bars, mode = 'candle', height = 360, fil
           ' <span style="color:#8D9FC4">H</span> ' + fmtPx(x.h) +
           ' <span style="color:#8D9FC4">L</span> ' + fmtPx(x.l) +
           ' <span style="color:#8D9FC4">C</span> <span style="font-weight:600;color:' + cls + '">' + fmtPx(x.c) + '</span>' +
-          ' <span style="font-weight:600;color:' + (chg >= 0 ? '#21e0a0' : '#ff3d60') + '">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</span>' +
-          (x.v ? ' <span style="color:#8D9FC4">V</span> ' + Intl.NumberFormat('it-IT', { notation: 'compact' }).format(x.v) : '');
+          ' <span style="font-weight:600;color:' + (chg >= 0 ? '#21e0a0' : '#ff3d60') + '">' + (chg >= 0 ? '+' : '') + chg.toLocaleString(localeDi(linguaCorrente()), { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%</span>' +
+          (x.v ? ' <span style="color:#8D9FC4">V</span> ' + Intl.NumberFormat(localeDi(linguaCorrente()), { notation: 'compact' }).format(x.v) : '');
       };
       setLegend(null);
+      refreshLegend.current = () => setLegend(null);
       const byTime = new Map(bars.map(b => [b.t, b]));
       chart.subscribeCrosshairMove((param: any) => {
         const t = param?.time;
@@ -283,6 +299,10 @@ export default function TerminalChart({ bars, mode = 'candle', height = 360, fil
     // rimuovere subito lo fa atterrare su un oggetto disposed (bug noto della lib)
     return () => {
       dead = true;
+      if (liveChart.current === chart) {
+        liveChart.current = null;
+        refreshLegend.current = null;
+      }
       try { ro?.disconnect(); } catch {}
       try { cleanupExtra?.(); } catch {}
       const dying = chart;
@@ -293,10 +313,10 @@ export default function TerminalChart({ bars, mode = 'candle', height = 360, fil
 
   const hStyle = fill ? { height: '100%', minHeight: 200 } : { height };
   if (!bars.length) {
-    return <div className="flex items-center justify-center text-faint text-2xs font-mono" style={hStyle}>nessun dato</div>;
+    return <div className="flex items-center justify-center text-faint text-2xs font-mono" style={hStyle}>{tr('ui.no_data')}</div>;
   }
   if (err) {
-    return <div className="flex items-center justify-center text-amber text-2xs font-mono px-6 text-center" style={hStyle}>{err}</div>;
+    return <div className="flex items-center justify-center text-amber text-2xs font-mono px-6 text-center" style={hStyle}>{tr('ui.chart_engine_missing')}</div>;
   }
   return (
     <div className="relative" style={fill ? { height: '100%', display: 'flex', flexDirection: 'column', minHeight: 200 } : undefined}>

@@ -1,0 +1,72 @@
+name: Feature request
+description: Propose a change or an addition to Bellomberg.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Bellomberg is developed in a private repository and published through an allowlisted export; accepted proposals are applied upstream and appear in a later sync. Keep the proposal concrete and free of personal or portfolio data. For questions, use Discussions (see `SUPPORT.md`).
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit you are using
+      placeholder: "0.8.0 (commit abc1234)"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Desktop application (Electron, pages, navigation)
+        - Backend API (bellomberg-api)
+        - Committee, agents or chat
+        - Valuation and fundamentals
+        - Portfolio ledger, cash and performance
+        - Options and Vol Deck
+        - Data providers and news
+        - Installation, build or CI
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you cannot do today, or what is harder than it should be. Name the page (F-number) if it applies.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What should happen instead. Be specific about inputs, outputs and where missing or stale data should be declared.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: data
+    attributes:
+      label: Data sources and dependencies
+      description: New providers, libraries or keys the change would need, and whether they are free, paid or account-bound.
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Project rules
+      description: Proposals that conflict with these are unlikely to be accepted; say so explicitly if yours does.
+      options:
+        - label: Missing, invalid or stale data stays declared (`n.d.`, `STALE`, error); the proposal introduces no silent default or proxy.
+        - label: The proposal does not add a second portfolio source next to SQLite.
+        - label: The proposal does not require Bellomberg to place orders or act as a broker.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: This request contains no secrets and no personal or portfolio data.
+          required: true

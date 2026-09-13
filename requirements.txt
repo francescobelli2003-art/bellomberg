@@ -15,6 +15,7 @@ arch>=6.3.0
 squarify>=0.4.4
 chromadb>=0.4.20
 fastapi>=0.115.0
+starlette>=0.46.0  # API middleware/JSON response: import diretto, range compatibile con FastAPI verificato
 uvicorn[standard]>=0.32.0
 psutil>=5.9.0  # quick-win audit/21: import lazy in bellomberg_api (scan zombie 8765), era fuori lista
 pypdf>=4.0.0  # 02/09 (B7): lettore_trimestrali._estrai_pdf lo importa dentro un try che diceva «illeggibile» a ogni PDF senza il pacchetto - CI rossa dal 31/08

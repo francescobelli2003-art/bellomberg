@@ -1,3 +1,4 @@
+import { t as tr } from '@/i18n/t';
 // F14 MOVIMENTI v4 "TRE VISTE" — impianto scelto dal PM 27/07 sui PNG di
 // mockup_f14_movements (opzione B, contro A "le scie" e C "due pagine").
 // Le SCIE non sono state scartate: sono una delle tre viste.
@@ -19,10 +20,12 @@ import { RefreshCw, Wallet } from 'lucide-react';
 import { Bellomberg } from '@/lib/api';
 import type { MovimentoCassa } from '@/lib/api';
 import { fmtNum } from '@/lib/format';
+import { leggiDetail } from '@/lib/quota';
+import { useT } from '@/i18n/provider';
 import {
   Trade,
   raggruppaPerMese, arcoDi, costruisciCorsie,
-  statoCancello, contaRealizzato, contaOreSegnaposto, ORA_SEGNAPOSTO,
+  statoCancello, contaRealizzato, contaOreSegnaposto,
   fondiRegistro, testiDiRiga, tickerDiRiga, contaFlussi,
 } from '@/lib/movimenti';
 import Registro from '@/components/movimenti/Registro';
@@ -33,10 +36,10 @@ import './movimenti.css';
 type Vista = 'registro' | 'scie' | 'diario';
 type Filtro = 'TUTTI' | 'BUY' | 'TRIM' | 'ADD' | 'DIVIDEND' | 'CASSA' | 'COMMENTO';
 
-const VISTE: { id: Vista; nome: string }[] = [
-  { id: 'registro', nome: 'REGISTRO' },
-  { id: 'scie', nome: 'SCIE' },
-  { id: 'diario', nome: 'DIARIO' },
+const viste = (): { id: Vista; nome: string }[] => [
+  { id: 'registro', nome: tr('movements.register') },
+  { id: 'scie', nome: tr('movements.trails') },
+  { id: 'diario', nome: tr('movements.diary') },
 ];
 
 // Il tetto chiesto al backend. Serve come COSTANTE e non come letterale
@@ -57,11 +60,18 @@ const LIMITE = 100;
 const LIMITE_CASSA = 200;
 
 export default function MovementsPage() {
+  const tr = useT();
+  const VISTE = viste();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [cassa, setCassa] = useState<MovimentoCassa[]>([]);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
-  const [errCassa, setErrCassa] = useState<string | null>(null);
+  type ErroreArchivio = { kind: 'shape' } | { kind: 'transport'; detail: string };
+  const [erroreT, setErr] = useState<ErroreArchivio | null>(null);
+  const [erroreC, setErrCassa] = useState<ErroreArchivio | null>(null);
+  const mostraErrore = (e: ErroreArchivio | null, archive: 'trades' | 'movements') => e == null ? null
+    : e.kind === 'shape' ? tr('movements.shapeError', { archive }) : e.detail || tr('movements.errorUnknown');
+  const err = mostraErrore(erroreT, 'trades');
+  const errCassa = mostraErrore(erroreC, 'movements');
   /* ── LA CURA §2.3: «LETTO» NON È «OSSERVABILE» ───────────────────────────
      Erano un interruttore solo (`noto`), e da quell'unico interruttore
      dipendevano DUE affermazioni di natura diversa:
@@ -106,7 +116,8 @@ export default function MovementsPage() {
 
   // il testo del backend si rende VERBATIM: e' l'unica cosa che sa davvero
   // cos'e' andato storto (il detail ora porta anche il tipo)
-  const motivoDi = (e: any) => e?.response?.data?.detail || e?.message || String(e);
+  const motivoDi = (e: any): ErroreArchivio => ({ kind: 'transport',
+    detail: leggiDetail(e?.response?.data?.detail) || leggiDetail(e?.message) || (e instanceof Error ? '' : leggiDetail(e)) });
 
   /** Una lista di oggetti, non solo «un array».
    *  ⚠️ `Array.isArray` guarda il CONTENITORE. Misurato: `{trades:[1,2]}` passava
@@ -145,7 +156,7 @@ export default function MovementsPage() {
           // vuoto, non un errore" — un fallback silenzioso proprio nel punto
           // in cui i dati entrano. Ora la forma sbagliata e' un KO dichiarato.
           if (!listaDiRighe(r?.trades)) {
-            setErr('lista `trades` assente o con elementi non-oggetto: il backend ha risposto 200 con una forma inattesa');
+            setErr({ kind: 'shape' });
           } else {
             setTrades(r.trades as unknown as Trade[]);
             setLettoT(true);        // ⚠ solo su una lista VERA: un 200 malformato non e' una lettura
@@ -157,7 +168,7 @@ export default function MovementsPage() {
         else {
           const r = rc.value as { movements?: unknown };
           if (!listaDiRighe(r?.movements)) {
-            setErrCassa('lista `movements` assente o con elementi non-oggetto: il backend ha risposto 200 con una forma inattesa');
+            setErrCassa({ kind: 'shape' });
           } else {
             setCassa(r.movements as unknown as MovimentoCassa[]);
             setLettoC(true);
@@ -224,9 +235,9 @@ export default function MovementsPage() {
   /** quante righe ci sono in archivio: si sommano solo gli archivi LETTI —
    *  contare a zero quello non letto lo spaccerebbe per vuoto */
   const nMov = (lettoT ? trades.length : 0) + (lettoC ? cassa.length : 0);
-  const nd = (v: number | string) => (lettoQualcosa ? v : 'n.d.');
+  const nd = (v: number | string) => (lettoQualcosa ? v : tr('movements.nd'));
   /** i numeri che parlano SOLO dei titoli non li sblocca la lettura della cassa */
-  const ndT = (v: number | string) => (lettoT ? v : 'n.d.');
+  const ndT = (v: number | string) => (lettoT ? v : tr('movements.nd'));
   // se il backend consegna esattamente il tetto chiesto, quella NON e' la
   // storia: e' la finestra piu' recente, e va dichiarato. Due archivi, due
   // finestre: dichiarate separate perche' si riempiono in momenti diversi.
@@ -254,7 +265,7 @@ export default function MovementsPage() {
 
   // I mesi si contano sulle righe RESE, non su tutte: un separatore che dice
   // "23 movimenti" sopra nove righe filtrate sarebbe un numero che mente.
-  const mesiVisti = useMemo(() => raggruppaPerMese(filtrate), [filtrate]);
+  const mesiVisti = useMemo(() => raggruppaPerMese(filtrate), [filtrate, tr]);
 
   // frecce sul commutatore: e' un gruppo di bottoni, si scorre come tale
   const frecce = (e: ReactKeyboardEvent) => {
@@ -280,7 +291,7 @@ export default function MovementsPage() {
     <div className="f14m">
       {/* ── la plancia: viste, filtri o legenda, contatori ───────── */}
       <div className="cmd">
-        <div className="vst" ref={vstRef} role="group" aria-label="Vista dei movimenti" onKeyDown={frecce}>
+        <div className="vst" ref={vstRef} role="group" aria-label={tr('movements.viewLabel')} onKeyDown={frecce}>
           {VISTE.map(v => (
             <button
               key={v.id}
@@ -297,8 +308,8 @@ export default function MovementsPage() {
                 {v.id === 'registro' ? nd(filtrate.length)
                   /* le CORSIE parlano solo di titoli: leggere la cassa non le
                      rende note, e il loro n.d. non deve spegnersi per sbaglio */
-                  : v.id === 'scie' ? `${ndT(corsie.length)} CORSIE`
-                  : `${nd(soloConTesto.length)} NOTE`}
+                  : v.id === 'scie' ? tr('movements.laneCount', {a: ndT(corsie.length)})
+                  : tr('movements.noteCount', {a: nd(soloConTesto.length)})}
               </span>
             </button>
           ))}
@@ -311,8 +322,8 @@ export default function MovementsPage() {
           <div className="leg">
             <i><span className="sw in" />BUY {verbi.buy}</i>
             <i><span className="sw add" />ADD {verbi.add}</i>
-            <i><span className="sw out" />USCITA {verbi.uscite}</i>
-            <i><span className="sw dv" />DIVIDENDO {verbi.dividendi}</i>
+            <i><span className="sw out" />{tr('movements.exit')} {verbi.uscite}</i>
+            <i><span className="sw dv" />{tr('movements.dividend')} {verbi.dividendi}</i>
           </div>
         ) : (
           <div className="fil">
@@ -331,7 +342,7 @@ export default function MovementsPage() {
                 disabled={!conteggi[f] && filtro !== f}
                 onClick={() => setFiltro(f)}
               >
-                {f === 'COMMENTO' ? 'CON COMMENTO' : f} {conteggi[f] || 0}
+                {f === 'COMMENTO' ? tr('movements.withComment') : f === 'TUTTI' ? tr('movements.all') : f === 'CASSA' ? tr('movements.cash') : f === 'DIVIDEND' ? tr('movements.dividend') : f} {conteggi[f] || 0}
               </button>
             ))}
             {/* Questo chip si SMONTA quando lo premi (la selezione sparisce e
@@ -342,7 +353,7 @@ export default function MovementsPage() {
               <button
                 type="button"
                 className="tolg"
-                aria-label={`Togli la scelta della corsia ${selezione}`}
+                aria-label={tr('movements.clearLane', {a: selezione})}
                 onClick={e => {
                   const gruppo = (e.currentTarget.parentElement as HTMLElement | null);
                   setSelezione(null);
@@ -357,7 +368,7 @@ export default function MovementsPage() {
 
         <div className="kpi">
           <div>
-            <span className="k">Movimenti</span>
+            <span className="k">{tr('movements.movements')}</span>
             <span className="v num">{nd(nMov)}</span>
             {/* Questo contatore ha cambiato SIGNIFICATO: da «mosse sui titoli»
                 a «cose successe». Il sub dice di cosa e' fatto — e se un
@@ -370,26 +381,26 @@ export default function MovementsPage() {
             {lettoQualcosa && (
               <span className="sub">
                 {totaleIntero
-                  ? `${trades.length} MOSSE SUI TITOLI + ${cassa.length} DI CASSA`
+                  ? tr('movements.bothCounts', {a: trades.length, b: cassa.length})
                   : lettoT
-                    ? `${trades.length} MOSSE SUI TITOLI · CASSA NON LETTA`
-                    : `${cassa.length} DI CASSA · TITOLI NON LETTI`}
+                    ? tr('movements.tradesOnlyCount', {a: trades.length})
+                    : tr('movements.cashOnlyCount', {a: cassa.length})}
               </span>
             )}
           </div>
-          <div><span className="k">Titoli</span><span className="v num">{ndT(corsie.length)}</span></div>
+          <div><span className="k">{tr('movements.securities')}</span><span className="v num">{ndT(corsie.length)}</span></div>
           <div>
-            <span className="k">Arco</span>
-            <span className="v num">{arco ? `${arco.giorni} gg` : 'n.d.'}</span>
+            <span className="k">{tr('movements.span')}</span>
+            <span className="v num">{arco ? tr('movements.days', {a: arco.giorni}) : tr('movements.nd')}</span>
           </div>
           <div>
-            <span className="k">Flussi</span>
+            <span className="k">{tr('movements.flows')}</span>
             {/* ⚠️ MAI verde/rosso su questi numeri: in questa fascia quei due
                 colori sono il SEGNO DEL P&L (`.kpi .v.su/.giu`), e un prelievo
                 non e' una perdita. Il verso lo dice il segno davanti al numero,
                 che e' vero in ogni stato. */}
             {!lettoC
-              ? <span className="v gate">n.d.</span>
+              ? <span className="v gate">{tr('movements.nd')}</span>
               : <>
                   {/* ⚠️ DUE decimali, non zero. Con `fmtNum(…, 0)` ogni netto
                       fra −0,50 e +0,50 usciva «−0 €» o «+0 €»: un deflusso vero
@@ -402,16 +413,16 @@ export default function MovementsPage() {
                     {(flussi.netto >= 0 ? '+' : '−') + fmtNum(Math.abs(flussi.netto), 2)} €
                   </span>
                   <span className="sub">
-                    NON È IL SALDO CASSA
+                    {tr('movements.notBalance')}
                     {/* la seconda cosa che questo numero non e', accanto al
                         numero e non in un altro blocco della plancia */}
-                    {finestraCassa && ' · SOLO LA FINESTRA'}
-                    {flussi.ignoti > 0 && ` · ${flussi.ignoti} RIGHE NON CONTEGGIATE`}
+                    {finestraCassa && tr('movements.windowOnly')}
+                    {flussi.ignoti > 0 && tr('movements.uncounted', {a: flussi.ignoti})}
                   </span>
                 </>}
           </div>
           <div>
-            <span className="k">Realizzato</span>
+            <span className="k">{tr('movements.realized')}</span>
             {/* Tre stati, non due. `null` = la colonna non arriva proprio.
                 `vuoto` = arriva ma nessuna riga la valorizza (il caso normale
                 di una migrazione in due tempi): prima usciva "+0,00 €" IN
@@ -422,7 +433,7 @@ export default function MovementsPage() {
                 un'affermazione sulla forma di un payload mai ricevuto (la
                 garanzia F21 «n.d. su tutti e quattro» valeva 3/4, audit/24 B.6). */}
             {!lettoT
-              ? <span className="v gate">n.d.</span>
+              ? <span className="v gate">{tr('movements.nd')}</span>
               /* ⚠️ LA CURA §2.3, qui e' il punto dove mordeva: con `letto` da
                  solo, una lettura riuscita e VUOTA avrebbe fatto uscire «AL
                  CANCELLO» — perche' `contaRealizzato([])` torna null a causa
@@ -432,11 +443,11 @@ export default function MovementsPage() {
                  puo' avere righe di cassa a schermo, e senza il qualificatore
                  sembrerebbe negarle */
               : !osservabileT
-              ? <span className="v gate">n.d. — NESSUNA RIGA SUI TITOLI DA OSSERVARE</span>
+              ? <span className="v gate">{tr('movements.noObservableTrade')}</span>
               : realizzato === null
-              ? <span className="v gate">AL CANCELLO</span>
+              ? <span className="v gate">{tr('movements.atGate')}</span>
               : realizzato.stato === 'vuoto'
-                ? <span className="v gate">n.d. — COLONNA VUOTA</span>
+                ? <span className="v gate">{tr('movements.emptyColumn')}</span>
                 : <>
                     <span className={'v num ' + (realizzato.somma >= 0 ? 'su' : 'giu')}>
                       {(realizzato.somma >= 0 ? '+' : '') + fmtNum(realizzato.somma, 2)} €
@@ -447,7 +458,7 @@ export default function MovementsPage() {
                         cifra nuda racconterebbe un risultato diffuso dove i
                         dati dicono una posizione sola. */}
                     <span className="sub">
-                      {realizzato.n} USCITE · {realizzato.vinte}↑ {realizzato.perse}↓
+                      {realizzato.n} {tr('movements.exitsDot')} {realizzato.vinte}↑ {realizzato.perse}↓
                       {realizzato.pari > 0 && ` ${realizzato.pari}=`}
                       {realizzato.quotaMaggiore > 0
                         && ` · ${realizzato.tickerMaggiore} ${Math.round(realizzato.quotaMaggiore * 100)}%`}
@@ -460,9 +471,9 @@ export default function MovementsPage() {
               className="agg"
               onClick={carica}
               disabled={loading}
-              aria-label="Aggiorna i movimenti"
+              aria-label={tr('movements.refreshLabel')}
             >
-              <RefreshCw size={12} className={loading ? 'spin' : ''} /> AGGIORNA
+              <RefreshCw size={12} className={loading ? 'spin' : ''} /> {tr('movements.refresh')}
             </button>
           </div>
         </div>
@@ -478,14 +489,14 @@ export default function MovementsPage() {
           <h1>
             {/* l'intestazione dice cosa la vista È, non cosa ha caricato in
                 questo istante: quello lo dichiara la riga di stato accanto */}
-            {vista === 'registro' ? 'REGISTRO — TITOLI E CASSA, PER DATA VERA'
+            {vista === 'registro' ? tr('movements.registerTitle')
               /* le corsie vengono dai soli trade: le sblocca `lettoT`, non la
                  lettura della cassa (era `noto`, che da oggi comprenderebbe
                  anche un archivio che con le corsie non c'entra) */
               : vista === 'scie' ? (lettoT
-                  ? `LE SCIE — ${corsie.length} CORSIE${arco ? ` × ${arco.giorni} GIORNI` : ''}`
-                  : 'LE SCIE — CORSIE n.d.')
-              : 'DIARIO — LE PAROLE DEL PM'}
+                  ? tr('movements.trailsTitle', {a: corsie.length, b: arco ? tr('movements.timesDays', {a: arco.giorni}) : ''})
+                  : tr('movements.trailsUnknown'))
+              : tr('movements.diaryTitle')}
           </h1>
           {/* Ogni numero di questa riga descrive la STESSA popolazione: prima
               "54 VOCI SU 69 MOVIMENTI" mescolava il filtrato col globale, e
@@ -493,7 +504,7 @@ export default function MovementsPage() {
               (review 27/07, MEDIA). Ora il denominatore e' dichiarato. */}
           <span className="side">
             {vista === 'scie'
-              ? 'ALTEZZA = PESO DENTRO LA SUA CORSIA · FRA CORSIE NON SI CONFRONTA (VALUTE DIVERSE)'
+              ? tr('movements.heightMeaning')
               : !lettoQualcosa
                 /* «0 RIGHE RESE SU 0 IN ARCHIVIO» a lettura fallita era un
                    conteggio affermato sull'ignoto (audit/24 B.6). Ma la frase
@@ -502,7 +513,7 @@ export default function MovementsPage() {
                    «ARCHIVIO NON LETTO», e l'archivio era stato letto. Ora
                    dipende da `letto` (un fatto avvenuto), non dall'esito
                    dell'ULTIMA lettura. */
-                ? 'NESSUNO DEI DUE ARCHIVI È STATO LETTO — CONTEGGI n.d.'
+                ? tr('movements.bothUnread')
               : vista === 'registro'
                 /* ⚠️ «ALMENO» quando una finestra è piena. Senza, la stessa riga
                    diceva «102 IN ARCHIVIO» e due frasi dopo «potrebbero
@@ -510,7 +521,7 @@ export default function MovementsPage() {
                    consegna un totale — serve la finestra e basta
                    (`bellomberg_api.py:1894`, `count = len(rows)`). F7 lo scrive
                    già così: «almeno N movimenti» (`TradeEntryPage.tsx:925`). */
-                ? `${filtrate.length} RIGHE RESE SU ${finestra || finestraCassa ? 'ALMENO ' : ''}${nMov} IN ARCHIVIO`
+                ? tr('movements.renderedCount', {a: filtrate.length, b: finestra || finestraCassa ? tr('movements.atLeast') : '', c: nMov})
                   /* ⚠️ La composizione «(75 SUI TITOLI + 2 DI CASSA)» NON sta
                      qui quando entrambi sono letti: la dice gia' il `sub` del
                      KPI Movimenti, sullo stesso schermo. Questa riga ha
@@ -523,37 +534,37 @@ export default function MovementsPage() {
                   + (totaleIntero
                       ? ''
                       : lettoT
-                        ? ' (SOLI TITOLI: LA CASSA NON È STATA LETTA)'
-                        : ' (SOLA CASSA: I TITOLI NON SONO STATI LETTI)')
+                        ? tr('movements.onlyTradesAside')
+                        : tr('movements.onlyCashAside'))
                   /* dallo STATO, non dal confronto dei conteggi: un filtro che
                      non scarta nulla è attivo lo stesso, e dirlo spento era
                      falso (es. CON COMMENTO con tutte le righe commentate) */
-                  + (filtroAttivo ? ' · FILTRO ATTIVO' : '')
-                : `${soloConTesto.length} VOCI CON COMMENTO SU ${filtrate.length} RIGHE RESE`}
+                  + (filtroAttivo ? tr('movements.filterActive') : '')
+                : tr('movements.commentsCount', {a: soloConTesto.length, b: filtrate.length})}
             {/* la concentrazione sta ACCANTO alla somma, mai la somma da sola:
                 sui dati veri una sola uscita fa il 62% dei guadagni */}
             {realizzato && realizzato.stato === 'ok' && vista !== 'scie'
-              && ` · ${realizzato.n} USCITE: ${realizzato.vinte} IN GUADAGNO, ${realizzato.perse} IN PERDITA`
-                 + (realizzato.pari > 0 ? `, ${realizzato.pari} IN PARI` : '')
+              && tr('movements.realizedCounts', {a: realizzato.n, b: realizzato.vinte, c: realizzato.perse})
+                 + (realizzato.pari > 0 ? tr('movements.flatCount', {a: realizzato.pari}) : '')
                  + (realizzato.quotaMaggiore > 0
-                    ? ` · ${realizzato.tickerMaggiore} DA SOLA VALE IL ${Math.round(realizzato.quotaMaggiore * 100)}% DEI GUADAGNI`
+                    ? tr('movements.concentration', {a: realizzato.tickerMaggiore, b: Math.round(realizzato.quotaMaggiore * 100)})
                     : '')}
             {/* due archivi, due tetti: si dichiarano SEPARATI perche' si
                 riempiono in momenti diversi, e dire «finestra» senza dire di
                 quale dei due lascerebbe il PM a indovinare quale meta' e' monca */}
-            {finestra && ` · ⚠ FINESTRA TITOLI: IL BACKEND NE CONSEGNA AL MASSIMO ${LIMITE}, POTREBBERO ESSERCENE ALTRI`}
-            {finestraCassa && ` · ⚠ FINESTRA CASSA: AL MASSIMO ${LIMITE_CASSA} MOVIMENTI, POTREBBERO ESSERCENE ALTRI`}
+            {finestra && tr('movements.tradeWindow', {a: LIMITE})}
+            {finestraCassa && tr('movements.cashWindow', {a: LIMITE_CASSA})}
             {/* ⚠️ LA CURA §2.3: questa e' un'affermazione sulla FORMA del
                 payload dei trade, quindi vuole `osservabile` e non `letto` —
                 su zero righe `statoCancello([])` dice 'chiuso' senza aver
                 osservato niente (audit/24 §B.6). */}
             {osservabileT && cancello === 'chiuso' && vista !== 'scie'
-              && ' · P&L REALIZZATO NON CONSEGNATO DA GET /trades (9 COLONNE SU 13)'}
+              && tr('movements.realizedMissing')}
             {/* l'ora non e' misurata dappertutto: su una parte delle righe e'
                 il segnaposto dell'importatore, e spacciarla per un orario
                 sarebbe una precisione inventata */}
             {oreFinte > 0
-              && ` · ⚠ ${oreFinte} RIGHE SU ${trades.length} PORTANO ${ORA_SEGNAPOSTO} ESATTE: È IL SEGNAPOSTO DELL'IMPORT, NON UN ORARIO MISURATO`}
+              && tr('movements.conventionalCount', {a: oreFinte, b: trades.length})}
           </span>
         </div>
 
@@ -566,8 +577,8 @@ export default function MovementsPage() {
               "nessun movimento". Era il false-empty segnalato dall'audit. */}
           {loading && registro.length === 0 && (
             <div className="stato load">
-              <span className="tt">Caricamento</span>
-              <span className="tx">Lettura di GET /trades e GET /cash/movements sul backend.</span>
+              <span className="tt">{tr('movements.loading')}</span>
+              <span className="tx">{tr('movements.loadingDetail')}</span>
             </div>
           )}
 
@@ -581,27 +592,25 @@ export default function MovementsPage() {
           {(err || errCassa) && registro.length === 0 && (
             <div className="stato ko">
               <span className="tt">
-                {err && errCassa ? 'Storico non disponibile' : 'Storico incompleto'}
+                {err && errCassa ? tr('movements.unavailable') : tr('movements.incomplete')}
               </span>
               <span className="tx">
-                {err && <>I movimenti sui titoli — il backend ha risposto: <b>{err}</b>. </>}
+                {err && <>{tr('movements.tradeErrorPrefix')} <b>{err}</b>. </>}
                 {!err && lettoT && (
-                  <>I movimenti sui titoli sono stati <b>letti</b>, e non ce n'è nessuno. </>
+                  <>{tr('movements.tradeRead')} <b>{tr('movements.readPlural')}</b>{tr('movements.noneRead')} </>
                 )}
-                {errCassa && <>La cassa — il backend ha risposto: <b>{errCassa}</b>. </>}
+                {errCassa && <>{tr('movements.cashErrorPrefix')} <b>{errCassa}</b>. </>}
                 {!errCassa && lettoC && (
-                  <>La cassa è stata <b>letta</b>, e non ha movimenti. </>
+                  <>{tr('movements.cashRead')} <b>{tr('movements.readCash')}</b>{tr('movements.noCash')} </>
                 )}
-                Le righe degli archivi in errore <b>non sono perse</b>: è la lettura
-                ad essere fallita. Riprova con AGGIORNA.
+                {tr('movements.readFailedHelp')}
                 {/* ⚠️ Senza questa frase, la fascia scriveva MOVIMENTI 0 a 17px nel
                     colore del dato mentre qui si diceva «non disponibile» — cioè
                     la resa che la review del 27/07 aveva bollato come ALTA, che
                     torna raggiungibile proprio perché `letto` non torna indietro.
                     Lo zero È l'ultima misura, ma va detto di quando è. */}
                 {lettoQualcosa && (
-                  <> I conteggi in testata sono quelli dell'<b>ultima lettura
-                  riuscita</b>: possono essere vecchi.</>
+                  <> {tr('movements.headerOld')}<b>{tr('movements.lastSuccess')}</b>{tr('movements.possiblyOld')}</>
                 )}
               </span>
             </div>
@@ -609,10 +618,9 @@ export default function MovementsPage() {
 
           {vuoto && (
             <div className="stato vuoto">
-              <span className="tt">Nessun movimento registrato</span>
+              <span className="tt">{tr('movements.empty')}</span>
               <span className="tx">
-                Il backend ha risposto correttamente con una lista vuota.
-                Questo è un archivio vuoto, non un errore.
+                {tr('movements.emptyDetail')}
               </span>
             </div>
           )}
@@ -624,19 +632,15 @@ export default function MovementsPage() {
             filtrate.length > 0
               ? <Registro righe={filtrate} mesi={mesiVisti} cancello={cancello} />
               : <div className="stato vuoto">
-                  <span className="tt">Nessun movimento con questo filtro</span>
+                  <span className="tt">{tr('movements.emptyFilter')}</span>
                   {/* lo stesso qualificatore della riga di stato: senza, questa
                       frase dava per «l'archivio» quello che è solo la metà letta */}
                   <span className="tx">
                     {totaleIntero
-                      ? <>L'archivio ha {nMov} movimenti</>
+                      ? <>{tr('movements.archiveHas')} {nMov} {tr('movements.movesLower')}</>
                       : lettoT
-                        ? <>Dei movimenti letti ce ne sono {nMov} (soli titoli: la cassa
-                            non è stata letta)</>
-                        : <>Dei movimenti letti ce ne sono {nMov} (sola cassa: i titoli
-                            non sono stati letti)</>}: nessuno passa il filtro
-                    attivo{selezione ? ` (${selezione})` : ''}. È il filtro, non un guasto —
-                    togli il filtro per rivederli tutti.
+                        ? <>{tr('movements.readCount')} {nMov} {tr('movements.tradesOnlyLower')}</>
+                        : <>{tr('movements.readCount')} {nMov} {tr('movements.cashOnlyLower')}</>}{tr('movements.noneMatch')}{selezione ? ` (${selezione})` : ''}{tr('movements.clearFilterHelp')}
                   </span>
                 </div>
           )}
@@ -651,13 +655,11 @@ export default function MovementsPage() {
           {registro.length > 0 && vista === 'scie' && (
             trades.length === 0
               ? <div className="stato vuoto">
-                  <span className="tt">Le scie disegnano i titoli</span>
+                  <span className="tt">{tr('movements.trailsSecurities')}</span>
                   <span className="tx">
-                    A schermo {cassa.length === 1
-                      ? <>c'è <b>1 movimento di cassa</b></>
-                      : <>ci sono <b>{cassa.length} movimenti di cassa</b></>} e nessuna
-                    riga sui titoli: un flusso di cassa non ha un titolo, quindi non ha
-                    una corsia. Il <b>REGISTRO</b> li elenca comunque.
+                    {tr('movements.onScreen')} {cassa.length === 1
+                      ? <>{tr('movements.thereIs')} <b>{tr('movements.oneCashMove')}</b></>
+                      : <>{tr('movements.thereAre')} <b>{cassa.length} {tr('movements.cashMoves')}</b></>} {tr('movements.cashNoLane')} <b>{tr('movements.register')}</b> {tr('movements.registerLists')}
                   </span>
                 </div>
               : arco
@@ -679,7 +681,7 @@ export default function MovementsPage() {
                   }}
                 />
               : <div className="stato vuoto">
-                  <span className="tt">Le scie non si possono disegnare</span>
+                  <span className="tt">{tr('movements.cannotDraw')}</span>
                   {/* ⚠️ Prima diceva «il REGISTRO le mostra tutte, nell'ordine in
                       cui sono arrivate»: due affermazioni, tutte e due false. Il
                       registro rende `filtrate`, che con un filtro attivo può non
@@ -687,11 +689,7 @@ export default function MovementsPage() {
                       date illeggibili non ordinano affatto, `fondiRegistro` le
                       manda in fondo, in un gruppo che si dichiara. */}
                   <span className="tx">
-                    Le scie posano ogni mossa lungo un arco di tempo, e l'arco si
-                    costruisce sulle date: delle <b>{trades.length} righe sui titoli
-                    nessuna porta una data leggibile</b>, quindi non c'è un arco su cui
-                    posarle. Non è un archivio vuoto — il <b>REGISTRO</b> le elenca
-                    comunque, in fondo, sotto <b>DATA NON LEGGIBILE</b>.
+                    {tr('movements.timelineHelp')} <b>{trades.length} {tr('movements.noReadableDates')}</b>{tr('movements.noTimeline')} <b>{tr('movements.register')}</b> {tr('movements.listsUnknown')} <b>{tr('movements.unknownDate')}</b>.
                   </span>
                 </div>
           )}
@@ -700,17 +698,17 @@ export default function MovementsPage() {
               ? <Diario righe={soloConTesto} cancello={cancello} />
               : <div className="stato vuoto">
                   <span className="tt">
-                    {filtroAttivo ? 'Nessuna nota con questo filtro' : 'Nessuna nota'}
+                    {filtroAttivo ? tr('movements.noFilteredNotes') : tr('movements.noNotes')}
                   </span>
                   {/* ⚠️ «Con il filtro attuale» si diceva anche SENZA nessun
                       filtro: con TUTTI e nessuna corsia scelta, un archivio
                       senza commenti veniva incolpato di un filtro che non c'era */}
                   <span className="tx">
-                    Delle {inSelezione.length} righe{selezione ? ` di ${selezione}` : ''},
-                    {' '}{conteggi.COMMENTO} hanno un commento.
+                    {tr('movements.ofThe')} {inSelezione.length} {tr('movements.rows')}{selezione ? tr('movements.ofTicker', {a: selezione}) : ''},
+                    {' '}{conteggi.COMMENTO} {tr('movements.haveComment')}
                     {filtroAttivo
-                      ? ' Con il filtro attuale non ne resta nessuna.'
-                      : ' Nessuna di loro porta parole.'}
+                      ? tr('movements.filterNoNotes')
+                      : tr('movements.noWords')}
                   </span>
                 </div>
           )}
@@ -720,33 +718,14 @@ export default function MovementsPage() {
       {/* Un AGGIORNA fallito con dati gia' a schermo era INVISIBILE: la
           tabella restava quella vecchia e nessuno lo diceva. Ora lo dice —
           e con role=alert lo dice anche a chi non guarda lo schermo. */}
-      {/* ⚠️ QUESTA GUARDIA È IL REPERTO PIÙ GRAVE DELLA REVIEW, e la sbagliavo io.
-          Era `(err || errCassa) && registro.length > 0`, e `registro.length > 0`
-          può essere soddisfatto INTERAMENTE dall'altro archivio. Stato reale, al
-          PRIMO caricamento: `/trades` risponde con 75 righe, `/cash/movements`
-          cade. Uscivano tre affermazioni false in una frase — «Aggiornamento»
-          (non c'era stato nessun aggiornamento), «restano le righe dell'ultima
-          lettura riuscita» (della cassa non ce n'era MAI stata una), e il
-          puntatore «(la cassa)» su righe che a schermo non esistevano — mentre
-          la riga di stato, pochi pixel sopra, diceva correttamente «LA CASSA NON
-          È STATA LETTA».
-          La domanda giusta non è «ci sono righe a schermo?»: è «questo archivio
-          era già stato letto una volta?». Se sì, quello che si vede è vecchio;
-          se no, non c'è niente di vecchio da dichiarare — c'è un archivio mai
-          letto, e a dirlo è già la riga di stato. */}
-      {((err && lettoT) || (errCassa && lettoC)) && registro.length > 0 && (
+      {/* Ogni archivio dichiara il proprio errore anche al primo caricamento.
+          Solo una lettura precedente riuscita consente di parlare di righe
+          potenzialmente vecchie; il successo dell'altro archivio non lo prova. */}
+      {(err || errCassa) && registro.length > 0 && (
         <div className="stato ko avviso" role="alert">
           <span className="tx">
-            <b>Rilettura fallita</b> — {err && lettoT && <>titoli: {err}. </>}
-            {errCassa && lettoC && <>cassa: {errCassa}. </>}
-            A schermo restano{' '}
-            {err && lettoT && errCassa && lettoC
-              ? <>tutte le righe dell'ultima lettura riuscita: <b>possono essere vecchie</b></>
-              : err && lettoT
-                ? <>i movimenti sui titoli dell'ultima lettura riuscita: <b>possono essere
-                    vecchi</b> (la cassa è fresca)</>
-                : <>i movimenti di cassa dell'ultima lettura riuscita: <b>possono essere
-                    vecchi</b> (i titoli sono freschi)</>}.
+            {err && <><b>{tr(lettoT ? 'movements.staleSecurities' : 'movements.unreadSecurities')}</b> — {err}. </>}
+            {errCassa && <><b>{tr(lettoC ? 'movements.staleCash' : 'movements.unreadCash')}</b> — {errCassa}. </>}
           </span>
         </div>
       )}

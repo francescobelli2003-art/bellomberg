@@ -58,7 +58,7 @@ def test_get_anteprima_restituisce_esattamente_il_blocco_prompt(client):
     m = mp.carica()
     assert r.status_code == 200
     assert r.json() == {"testo": mp.blocco_prompt(m), "impronta": mp.impronta(m),
-                        "origine": m["origine"]}
+                        "origine": m["origine"], "output_language": "it"}
 
 
 def test_post_anteprima_valida_non_scrive_e_calcola_origine(client):

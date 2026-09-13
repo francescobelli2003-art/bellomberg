@@ -78,6 +78,7 @@ except Exception:
     ARCH_OK = False
 
 from bellomberg.storage.memory_db import MemoryDB
+from bellomberg.core.presentation import message as _message, render_payload
 
 
 CACHE_TTL_SEC = 600
@@ -145,9 +146,7 @@ def prezzi_speciali() -> Dict[str, Any]:
 def ko_negozio_prezzi(esito: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """L'errore DICHIARATO se il negozio non si legge, altrimenti None (regola PM 14/07)."""
     if esito["origine"] in ("assente", "illeggibile"):
-        return {"error": "negozio dei prezzi speciali %s: %s — senza quella lista il perimetro "
-                         "simulabile e la scala in euro dei percentili cambierebbero"
-                         % (esito["origine"], esito["motivo"]),
+        return {"error": _message("negozio dei prezzi speciali {origin}: {reason} — senza quella lista il perimetro simulabile e la scala in euro dei percentili cambierebbero", "Special price store {origin}: {reason} — without that list, the simulated scope and EUR percentile scale would change", origin=esito["origine"], reason=esito["motivo"]),
                 "negozio_prezzi": {"origine": esito["origine"], "motivo": esito["motivo"]},
                 "timestamp": datetime.now().isoformat()}
     return None
@@ -293,7 +292,7 @@ def _fit_garch_per_asset(returns: np.ndarray):
       - fallback_idx: indici asset col fit fallito (dichiarati a valle, regola 14/07)
     """
     if not ARCH_OK:
-        raise RuntimeError("arch library not installed - FHS unavailable")
+        raise RuntimeError(_message('libreria arch non installata - FHS non disponibile', 'arch library not installed - FHS unavailable'))
     n_obs, n_assets = returns.shape
     std_resid = np.zeros((n_obs, n_assets))
     sigma_fc = np.zeros(n_assets)
@@ -403,7 +402,7 @@ def _stress_window_returns(tickers: List[str], scenario: str,
         from bellomberg.cli.price_updater import data_ticker_map
         dl_map = data_ticker_map(tickers, riservati=("SPY",))
     except Exception as e:
-        return None, "alias yfinance non risolvibile: %s" % str(e)[:160]
+        return None, _message("alias yfinance non risolvibile: {error}", "Cannot resolve yfinance alias: {error}", error=str(e)[:160])
 
     # Cache disco per scenario e coppie reali->fonte: la finestra e' storia immutabile.
     alias_key = ",".join("%s=%s" % item for item in sorted(dl_map.items()))
@@ -417,7 +416,7 @@ def _stress_window_returns(tickers: List[str], scenario: str,
                 _payload = json.load(f)
             win = pd.DataFrame(_payload["data"], index=pd.to_datetime(_payload["index"]),
                                columns=_payload["columns"]).astype(float)
-            cache_src = f"cache disco ({(time.time() - os.path.getmtime(_cp)) / 86400.0:.0f}gg)"
+            cache_src = _message('cache disco ({v0:.0f}gg)', 'Disk cache ({v0:.0f} days)', v0=(time.time() - os.path.getmtime(_cp)) / 86400.0)
     except Exception as e:
         _log(f"stress cache illeggibile ({str(e)[:80]}): riscarico")
         win = None
@@ -437,11 +436,11 @@ def _stress_window_returns(tickers: List[str], scenario: str,
                 prices = prices.to_frame("SPY")
             win = prices.ffill().pct_change().dropna(how="all")
         except Exception as e:
-            return None, f"download finestra {scenario} fallito: {str(e)[:120]}"
+            return None, _message('download finestra {v0} fallito: {v1}', 'Failed to download {v0} window: {v1}', v0=scenario, v1=str(e)[:120])
         cache_src = "download"
 
     if win is None or win.empty or "SPY" not in win.columns or win["SPY"].notna().sum() < 10:
-        return None, f"nessun dato utile nella finestra {start}..{end} (SPY incluso)"
+        return None, _message('nessun dato utile nella finestra {v0}..{v1} (SPY incluso)', 'No usable data in window {v0}..{v1} (including SPY)', v0=start, v1=end)
 
     # Salva SOLO un download appena passato dal gate di validita' su SPY:
     # mai cacheare spazzatura (un fallimento totale non finisce su disco).
@@ -490,9 +489,9 @@ def _stress_window_returns(tickers: List[str], scenario: str,
                     beta = float(rt.loc[common].cov(s) / var_s)
         if beta is None:
             beta = 1.0
-            proxied[t] = "PROXY 1.00 x SPY (storia non disponibile nella finestra; beta non stimabile)"
+            proxied[t] = _message('PROXY 1.00 x SPY (storia non disponibile nella finestra; beta non stimabile)', 'PROXY 1.00 x SPY (history unavailable in the window; beta cannot be estimated)')
         else:
-            proxied[t] = f"PROXY {beta:.2f} x SPY (storia non disponibile nella finestra)"
+            proxied[t] = _message('PROXY {v0:.2f} x SPY (storia non disponibile nella finestra)', 'PROXY {v0:.2f} x SPY (history unavailable in the window)', v0=beta)
         out[t] = beta * spy_win
     df = pd.DataFrame(out, index=win.index)[list(tickers)]
     meta = {"window": {"start": start, "end": end, "trading_days": int(n_win),
@@ -527,13 +526,13 @@ def _apply_stress(sim_returns: np.ndarray, scenario: str,
 
     if scenario in ("gfc_2008", "covid_2020"):
         tickers = list(returns_df.columns) if returns_df is not None else []
-        win_df, wmeta = (None, "returns_df mancante (serve per ordine colonne/beta)") \
+        win_df, wmeta = (None, _message('returns_df mancante (serve per ordine colonne/beta)', 'Missing returns_df (needed for column order/beta)')) \
             if not tickers else _stress_window_returns(tickers, scenario, returns_df)
         if win_df is None:
             _log(f"stress {scenario} NON applicabile ({wmeta}): fallback DICHIARATO a shock_3sigma")
             arr, m3 = _apply_stress(sim_returns, "shock_3sigma", cov=cov)
             meta.update({"applied": "shock_3sigma", "fallback": True,
-                         "fallback_reason": str(wmeta), "shock_note": m3.get("shock_note")})
+                         "fallback_reason": wmeta if isinstance(wmeta, str) else str(wmeta), "shock_note": m3.get("shock_note")})
             return arr, meta
         stress_returns = win_df.values  # (n_stress_days, n_assets)
         n_stress = min(len(stress_returns), n_periods)
@@ -542,8 +541,7 @@ def _apply_stress(sim_returns: np.ndarray, scenario: str,
         meta.update(wmeta)
         meta["replaced_days"] = int(n_stress)
         if len(stress_returns) > n_periods:
-            meta["window_truncated"] = (f"finestra di {len(stress_returns)} giorni troncata "
-                                        f"all'orizzonte di {n_periods}")
+            meta["window_truncated"] = (_message("finestra di {v0} giorni troncata all'orizzonte di {v1}", 'Window of {v0} days truncated to the {v1}-day horizon', v0=len(stress_returns), v1=n_periods))
         return sim_out, meta
 
     if scenario == "shock_3sigma":
@@ -554,13 +552,11 @@ def _apply_stress(sim_returns: np.ndarray, scenario: str,
         sim_out = sim_returns.copy()
         # Day 0: -3 sigma shock per asset
         sim_out[:, 0, :] = -3.0 * sigma_proxy
-        meta["shock_note"] = ("-3σ simultaneo su tutti gli asset al giorno 0 (correlazione 1 "
-                              "per costruzione quel giorno); correlazioni dei giorni successivi "
-                              "NON stressate")
+        meta["shock_note"] = (_message('-3σ simultaneo su tutti gli asset al giorno 0 (correlazione 1 per costruzione quel giorno); correlazioni dei giorni successivi NON stressate', '-3σ simultaneous shock on all assets on day 0 (correlation 1 by construction that day); correlations on subsequent days are NOT stressed'))
         return sim_out, meta
 
     meta.update({"applied": "none", "fallback": True,
-                 "fallback_reason": f"scenario sconosciuto '{scenario}'"})
+                 "fallback_reason": _message("scenario sconosciuto '{v0}'", "Unknown scenario '{v0}'", v0=scenario)})
     return sim_returns, meta
 
 
@@ -637,7 +633,7 @@ def run_monte_carlo(
     Default args = FHS + 5y lookback + zero drift + no stress.
     """
     if not (NUMPY_OK and YF_OK and SCIPY_OK):
-        return {"error": "librerie mancanti (numpy/yfinance/scipy)",
+        return {"error": _message('librerie mancanti (numpy/yfinance/scipy)', 'Missing libraries (numpy/yfinance/scipy)'),
                 "timestamp": datetime.now().isoformat()}
 
     # Il negozio PRIMA della cache e del DB: la chiave di cache non lo contiene, quindi un
@@ -690,7 +686,7 @@ def run_monte_carlo(
                 if vista is entry["data"]:
                     vista = dict(vista)
                 vista.update(_extra_meta)
-            return vista
+            return render_payload(vista)
 
     if seed is not None:
         np.random.seed(int(seed))
@@ -699,7 +695,7 @@ def run_monte_carlo(
     if _override_weights is not None:
         weights = dict(_override_weights)
         if not weights:
-            return {"error": "empty override weights", "timestamp": datetime.now().isoformat()}
+            return {"error": _message('pesi override vuoti', 'empty override weights'), "timestamp": datetime.now().isoformat()}
         tot_w = sum(weights.values())
         weights = {t: w / tot_w for t, w in weights.items()}
         base_nav = float(_override_nav) if _override_nav else 0.0
@@ -710,7 +706,7 @@ def run_monte_carlo(
         # Legacy v2 path
         base_weights, base_total_ex_skip = _get_holdings_weights(salta)
         if not base_weights:
-            return {"error": "no portfolio holdings", "timestamp": datetime.now().isoformat()}
+            return {"error": _message('nessuna posizione in portafoglio', 'no portfolio holdings'), "timestamp": datetime.now().isoformat()}
 
         weights = dict(base_weights)
         if remove_tickers:
@@ -729,7 +725,7 @@ def run_monte_carlo(
                     weights[t] = per_new
 
         if not weights:
-            return {"error": "empty portfolio after what-if", "timestamp": datetime.now().isoformat()}
+            return {"error": _message('portafoglio vuoto dopo what-if', 'empty portfolio after what-if'), "timestamp": datetime.now().isoformat()}
 
         tot_w = sum(weights.values())
         weights = {t: w / tot_w for t, w in weights.items()}
@@ -743,15 +739,15 @@ def run_monte_carlo(
     try:
         returns_df = _download_returns(tickers, years=lookback_years)
     except Exception as e:
-        return {"error": "portfolio returns failed: " + str(e),
+        return {"error": _message("Rendimenti di portafoglio non disponibili: {error}", "Portfolio returns failed: {error}", error=str(e)),
                 "timestamp": datetime.now().isoformat()}
     if returns_df is None:
-        return {"error": "cannot download returns",
+        return {"error": _message('impossibile scaricare i rendimenti', 'cannot download returns'),
                 "timestamp": datetime.now().isoformat()}
 
     available = [t for t in tickers if t in returns_df.columns]
     if len(available) < 2:
-        return {"error": f"only {len(available)} ticker(s) with returns",
+        return {"error": _message('solo {v0} ticker con rendimenti', 'only {v0} ticker(s) with returns', v0=len(available)),
                 "timestamp": datetime.now().isoformat()}
 
     rdf = returns_df[available].dropna(how="any")
@@ -766,9 +762,7 @@ def run_monte_carlo(
     if _panel_len > 0 and len(rr) < 0.6 * _panel_len:
         _youngest = min(available, key=lambda t: int(returns_df[t].notna().sum()))
         calibration_note = (
-            f"campione di calibrazione TAGLIATO a {len(rr)} obs dal ticker piu' giovane "
-            f"({_youngest}: {int(returns_df[_youngest].notna().sum())} obs su {_panel_len} del panel "
-            f"{lookback_years}y): vol e correlazioni stimate su finestra corta")
+            _message("campione di calibrazione TAGLIATO a {v0} obs dal ticker piu' giovane ({v1}: {v2} obs su {v3} del panel {v4}y): vol e correlazioni stimate su finestra corta", 'Calibration sample TRUNCATED to {v0} observations by the youngest ticker ({v1}: {v2} observations out of {v3} in the {v4}y panel): volatility and correlations estimated over a short window', v0=len(rr), v1=_youngest, v2=int(returns_df[_youngest].notna().sum()), v3=_panel_len, v4=lookback_years))
         _log("CALIBRAZIONE: " + calibration_note)
 
     mu_daily_historical = rr.mean(axis=0)
@@ -791,7 +785,7 @@ def run_monte_carlo(
         # DICHIARATI nel payload, non solo nel log
         garch_fallback_assets = [available[i] for i in fhs_meta.get("garch_fallback_idx", [])]
     else:
-        return {"error": f"unknown method '{method}'", "timestamp": datetime.now().isoformat()}
+        return {"error": _message("metodo sconosciuto '{v0}'", "unknown method '{v0}'", v0=method), "timestamp": datetime.now().isoformat()}
 
     # Apply stress scenario (modifies sim_returns); meta dichiara cosa e' stato
     # applicato DAVVERO (fix 14/07: niente piu' fallback silenziosi etichettati replay)
@@ -806,8 +800,7 @@ def run_monte_carlo(
             _wloss = float(np.prod(1.0 + _port_stress) - 1.0)
             stress_meta["window_loss_pct"] = round(_wloss * 100, 2)
             stress_meta["window_loss_eur"] = round(_wloss * base_nav, 0)
-            stress_meta["basis"] = ("rendimenti in valuta LOCALE per-asset scalati sul NAV EUR "
-                                    "(dichiarato; per il replay GFC direzione conservativa)")
+            stress_meta["basis"] = (_message('rendimenti in valuta LOCALE per-asset scalati sul NAV EUR (dichiarato; per il replay GFC direzione conservativa)', 'Per-asset LOCAL currency returns scaled on EUR NAV (declared; conservative direction for GFC replay)'))
 
     # Portfolio path
     port_daily = sim_returns @ w
@@ -896,9 +889,9 @@ def run_monte_carlo(
         "version": "v2",
         "method": method,
         "method_description": {
-            "parametric_t": f"Multivariate Student-t (df={DEFAULT_DF_T}) - LEGACY, risk-naive",
-            "fhs": "Filtered Historical Simulation (GARCH + bootstrap residuals) - bank-grade",
-            "block_bootstrap": "Politis-Romano block bootstrap - preserves vol clustering",
+            "parametric_t": _message('Student-t multivariata (df={v0}) - LEGACY, modello di rischio semplificato', 'Multivariate Student-t (df={v0}) - LEGACY, risk-naive', v0=DEFAULT_DF_T),
+            "fhs": _message('Simulazione storica filtrata (GARCH + bootstrap dei residui) - livello bancario', 'Filtered Historical Simulation (GARCH + bootstrap residuals) - bank-grade'),
+            "block_bootstrap": _message('Block bootstrap Politis-Romano - preserva il clustering della volatilità', 'Politis-Romano block bootstrap - preserves vol clustering'),
         }.get(method, method),
         "drift_mode": drift_mode,
         # ONESTO (fix 14/07): stress_scenario = quello APPLICATO davvero; se il
@@ -919,16 +912,14 @@ def run_monte_carlo(
         # il NAV EUR solo come SCALA. Per il replay GFC (USD in apprezzamento
         # nella finestra) la perdita EUR vera e' meno negativa: direzione
         # conservativa. Conversione EUR completa del motore = voce P1 nel MASTER.
-        "returns_basis": ("valuta LOCALE per-asset (FX non convertito, dichiarato): "
-                          "i campi *_eur scalano sul NAV EUR"),
+        "returns_basis": (_message('valuta LOCALE per-asset (FX non convertito, dichiarato): i campi *_eur scalano sul NAV EUR', 'LOCAL currency per asset (FX not converted, as declared): *_eur fields scale on EUR NAV')),
         "tickers_analyzed": available,
         "removed_tickers": remove_tickers or [],
         "added_tickers": add_tickers or [],
         "weights": {t: round(float(w[i]), 4) for i, t in enumerate(available)},
         "base_nav_eur": base_nav,
         # review 22/07: base di scala EUR dichiarata (perimetro simulato, ex-SKIP)
-        "base_nav_note": ("NAV del perimetro SIMULATO (somma valore_mercato dei ticker "
-                          "analizzabili, posizioni SKIP escluse); nel path v3 = nav_post"),
+        "base_nav_note": (_message('NAV del perimetro SIMULATO (somma valore_mercato dei ticker analizzabili, posizioni SKIP escluse); nel path v3 = nav_post', 'NAV of the SIMULATED scope (sum of valore_mercato for analyzable tickers, SKIP positions excluded); in the v3 path = nav_post')),
         "garch_fallback_assets": garch_fallback_assets,
         "percentiles_ratio": percentiles,
         "percentiles_eur": pct_eur,
@@ -970,7 +961,7 @@ def run_monte_carlo(
     _CACHE[cache_key] = {"ts": time.time(), "data": result}
     _log(f"MC done: method={method} E[R]={expected:.2f}% ES99={es99:.2f}% "
          f"P(loss>20%)={prob_l20:.1f}% P50_EUR={pct_eur['p50']:,.0f}")
-    return _vista_paths(result, sample_paths_n)
+    return render_payload(_vista_paths(result, sample_paths_n))
 
 
 # ============================================================
@@ -1013,8 +1004,7 @@ def run_monte_carlo_v3(
     db = MemoryDB()
     snap = db.get_portfolio_summary()
     if snap.get("fx_incomplete"):
-        return {"error": "FX incompleto: pesi Monte Carlo EUR n.d. (" +
-                         ", ".join(snap["fx_incomplete"]) + ")",
+        return {"error": _message("FX incompleto: pesi Monte Carlo EUR n.d. ({currencies})", "Incomplete FX: EUR Monte Carlo weights unavailable ({currencies})", currencies=", ".join(snap["fx_incomplete"])),
                 "timestamp": datetime.now().isoformat()}
     positions = snap.get("positions", []) or []
 
@@ -1029,7 +1019,7 @@ def run_monte_carlo_v3(
 
     nav_pre = sum(holdings_eur_pre.values())
     if nav_pre <= 0 and not modifications:
-        return {"error": "no portfolio holdings", "timestamp": datetime.now().isoformat()}
+        return {"error": _message('nessuna posizione in portafoglio', 'no portfolio holdings'), "timestamp": datetime.now().isoformat()}
 
     weights_pre = {t: round(v / nav_pre, 6) for t, v in holdings_eur_pre.items()} if nav_pre > 0 else {}
 
@@ -1045,19 +1035,19 @@ def run_monte_carlo_v3(
         amt_pct = mod.get("amount_pct")
 
         if not ticker_raw:
-            skipped.append({"ticker": "", "reason": "empty ticker"})
+            skipped.append({"ticker": "", "reason": _message("ticker vuoto", "empty ticker")})
             continue
 
         sym = _yf_ticker(ticker_raw, salta)
         if not sym:
             skipped.append({"ticker": ticker_raw,
-                            "reason": "ticker in SKIP list (crypto/no yfinance proxy)"})
+                            "reason": _message('ticker nella lista SKIP (crypto/nessun proxy yfinance)', 'ticker in SKIP list (crypto/no yfinance proxy)')})
             continue
 
         if action == "add":
             if not amt_eur or float(amt_eur) <= 0:
                 skipped.append({"ticker": ticker_raw,
-                                "reason": "ADD requires positive amount_eur"})
+                                "reason": _message('ADD richiede amount_eur positivo', 'ADD requires positive amount_eur')})
                 continue
             # Validate ticker exists in yfinance
             try:
@@ -1065,12 +1055,11 @@ def run_monte_carlo_v3(
                 h = yf.Ticker(_dt5(sym)).history(period="5d")
                 if h.empty or h["Close"].dropna().empty:
                     skipped.append({"ticker": ticker_raw,
-                                    "reason": f"yfinance returned empty history for '{sym}'. "
-                                              "Check suffix (.L .MI .DE .HK .T)"})
+                                    "reason": _message("yfinance ha restituito uno storico vuoto per '{v0}'. Controlla il suffisso (.L .MI .DE .HK .T)", "yfinance returned empty history for '{v0}'. Check suffix (.L .MI .DE .HK .T)", v0=sym)})
                     continue
             except Exception as e:
                 skipped.append({"ticker": ticker_raw,
-                                "reason": f"yfinance error: {str(e)[:80]}"})
+                                "reason": _message('errore yfinance: {v0}', 'yfinance error: {v0}', v0=str(e)[:80])})
                 continue
             holdings_eur_post[sym] = holdings_eur_post.get(sym, 0.0) + float(amt_eur)
             applied.append({"action": "add", "ticker": sym, "amount_eur": float(amt_eur)})
@@ -1078,15 +1067,14 @@ def run_monte_carlo_v3(
         elif action == "remove":
             if sym not in holdings_eur_post:
                 skipped.append({"ticker": ticker_raw,
-                                "reason": f"'{sym}' not currently in portfolio"})
+                                "reason": _message("'{v0}' non è attualmente in portafoglio", "'{v0}' not currently in portfolio", v0=sym)})
                 continue
             # review 27/08: un importo NON positivo finiva nel ramo «chiusura senza
             # importo» con una nota falsa (e da oggi `truncated: false` a certificarla);
             # `add` e `trim` lo scartano gia' con un motivo, `remove` no
             if (amt_eur is not None and float(amt_eur) <= 0) or (amt_pct is not None and float(amt_pct) <= 0):
                 skipped.append({"ticker": ticker_raw,
-                                "reason": "REMOVE requires positive amount_eur/amount_pct "
-                                          "(omit both = full close)"})
+                                "reason": _message('REMOVE richiede amount_eur/amount_pct positivo (ometti entrambi = chiusura totale)', 'REMOVE requires positive amount_eur/amount_pct (omit both = full close)')})
                 continue
             cur = holdings_eur_post[sym]
             # F43 (2), 27/08: le chiavi di prima tengono il CHIESTO; quanto viene
@@ -1107,8 +1095,7 @@ def run_monte_carlo_v3(
                     # vince l'EUR (com'era): la percentuale non sparisce zitta
                     applied_meta["amount_pct_ignorata"] = float(amt_pct)
                 if troncata:
-                    note = (f"chiesti {chiesto:.2f} EUR ma la posizione residua valeva {cur:.2f} EUR: "
-                            f"chiusa per intero, {chiesto - cur:.2f} EUR non applicati")
+                    note = (_message('chiesti {v0:.2f} EUR ma la posizione residua valeva {v1:.2f} EUR: chiusa per intero, {v2:.2f} EUR non applicati', 'Requested {v0:.2f} EUR but the remaining position was worth {v1:.2f} EUR: closed in full, {v2:.2f} EUR not applied', v0=chiesto, v1=cur, v2=chiesto - cur))
             elif amt_pct is not None:
                 pct_chiesta = float(amt_pct)
                 effettivo = cur * min(pct_chiesta, 100.0) / 100.0
@@ -1116,13 +1103,12 @@ def run_monte_carlo_v3(
                 applied_meta = {"action": "remove", "ticker": sym, "amount_pct": pct_chiesta,
                                 "amount_eur_resolved": round(effettivo, 2)}
                 if troncata:
-                    note = (f"chiesto il {pct_chiesta:g}% ma la posizione e' il 100%: "
-                            f"chiusa per intero")
+                    note = (_message("chiesto il {v0:g}% ma la posizione e' il 100%: chiusa per intero", 'Requested {v0:g}% but the position is 100%: closed in full', v0=pct_chiesta))
             else:
                 effettivo = cur
                 troncata = False
                 applied_meta = {"action": "remove", "ticker": sym, "amount_eur": cur,
-                                "note": "full position closed (no amount specified)"}
+                                "note": _message('posizione chiusa per intero (nessun importo specificato)', 'full position closed (no amount specified)')}
             applied_meta["amount_eur_effettivo"] = round(effettivo, 2)
             applied_meta["truncated"] = troncata
             if note:
@@ -1137,11 +1123,11 @@ def run_monte_carlo_v3(
         elif action == "trim":
             if sym not in holdings_eur_post:
                 skipped.append({"ticker": ticker_raw,
-                                "reason": f"'{sym}' not currently in portfolio"})
+                                "reason": _message("'{v0}' non è attualmente in portafoglio", "'{v0}' not currently in portfolio", v0=sym)})
                 continue
             if not amt_pct or float(amt_pct) <= 0:
                 skipped.append({"ticker": ticker_raw,
-                                "reason": "TRIM requires positive amount_pct (0-100)"})
+                                "reason": _message('TRIM richiede amount_pct positivo (0-100)', 'TRIM requires positive amount_pct (0-100)')})
                 continue
             pct_chiesta = float(amt_pct)
             pct = min(pct_chiesta, 100.0)
@@ -1159,19 +1145,18 @@ def run_monte_carlo_v3(
                     "amount_eur_effettivo": round(cur - new_val, 2),
                     "truncated": pct_chiesta > 100.0}
             if voce["truncated"]:
-                voce["note"] = (f"chiesto il {pct_chiesta:g}% ma il tetto del trim e' il 100%: "
-                                f"posizione chiusa per intero")
+                voce["note"] = (_message("chiesto il {v0:g}% ma il tetto del trim e' il 100%: posizione chiusa per intero", 'Requested {v0:g}% but trim is capped at 100%: position closed in full', v0=pct_chiesta))
             applied.append(voce)
 
         else:
             skipped.append({"ticker": ticker_raw,
-                            "reason": f"unknown action '{action}' (use add/remove/trim)"})
+                            "reason": _message("azione sconosciuta '{v0}' (usa add/remove/trim)", "unknown action '{v0}' (use add/remove/trim)", v0=action)})
 
     nav_post = sum(holdings_eur_post.values())
     weights_post = {t: round(v / nav_post, 6) for t, v in holdings_eur_post.items()} if nav_post > 0 else {}
 
     if not holdings_eur_post:
-        return {"error": "empty portfolio after modifications",
+        return {"error": _message('portafoglio vuoto dopo le modifiche', 'empty portfolio after modifications'),
                 "weights_pre": weights_pre,
                 "nav_pre_eur": round(nav_pre, 2),
                 "skipped_modifications": skipped,

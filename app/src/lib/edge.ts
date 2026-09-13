@@ -1,3 +1,5 @@
+import { t as tr } from '@/i18n/t';
+import { fmtNum } from '@/lib/format';
 /* ════════════════════════════════════════════════════════════
    F13 EDGE SCANNER — UN SOLO GIUDIZIO SU COSA DICE LA SCANSIONE
    ────────────────────────────────────────────────────────────
@@ -261,8 +263,8 @@ export function leggiCopertura(payload: Record<string, unknown>): Copertura {
   if (!oggetto(c)) {
     return {
       dichiarata: false,
-      motivo: 'il backend non dichiara la copertura (campo `copertura` assente: processo '
-        + 'più vecchio del contratto (79) del 22/08 — al riavvio compare da sola)',
+      motivo: tr('edge.f051')
+        + tr('edge.f052'),
     };
   }
   // ⚠️ niente `?? 0`: un conteggio che manca direbbe «0/0 posizioni … ZERO MISURATO»
@@ -277,17 +279,17 @@ export function leggiCopertura(payload: Record<string, unknown>): Copertura {
   const fattorialiSu = interoONull(c.fattoriali_su);
   const fattorialiKo = testoONull(c.fattoriali_ko);
   const pezzi: string[] = [];
-  if (totaliLetti == null || scansionateLette == null) pezzi.push('posizioni non contate dal backend');
+  if (totaliLetti == null || scansionateLette == null) pezzi.push(tr('edge.f053'));
   const nDeg = Object.keys(degradata).length;
   const nNM = Object.keys(nessunaMisura).length;
-  if (nDeg) pezzi.push(`${nDeg} ${nDeg === 1 ? 'nome con un rilevatore muto' : 'nomi con un rilevatore muto'}`);
-  if (nNM) pezzi.push(`${nNM} ${nNM === 1 ? 'nome senza nessuna misura' : 'nomi senza nessuna misura'}`);
-  if (fattorialiKo) pezzi.push(`fattoriali non calcolati (${taglia(fattorialiKo, 80)})`);
-  else if (fattorialiSu == null) pezzi.push('fattoriali non dichiarati');
-  else if (fattorialiSu < totali) pezzi.push(`fattoriali su ${fattorialiSu} nomi di ${totali}`);
-  if (nonScansionate.length) pezzi.push(`${nonScansionate.length} non scansionate`);
+  if (nDeg) pezzi.push(`${nDeg} ${nDeg === 1 ? tr('edge.f054') : tr('edge.f055')}`);
+  if (nNM) pezzi.push(`${nNM} ${nNM === 1 ? tr('edge.f056') : tr('edge.f057')}`);
+  if (fattorialiKo) pezzi.push(tr('edge.f058', {a: taglia(fattorialiKo, 80)}));
+  else if (fattorialiSu == null) pezzi.push(tr('edge.f059'));
+  else if (fattorialiSu < totali) pezzi.push(tr('edge.f060', {a: fattorialiSu, b: totali}));
+  if (nonScansionate.length) pezzi.push(tr('edge.f061', {a: nonScansionate.length}));
   else if (totaliLetti != null && scansionateLette != null && scansionate < totali) {
-    pezzi.push(`${totali - scansionate} non scansionate (non elencate)`);
+    pezzi.push(tr('edge.f062', {a: totali - scansionate}));
   }
   return {
     dichiarata: true,
@@ -316,8 +318,8 @@ export function leggiEta(payload: Record<string, unknown>): EtaScan {
   if (!oggetto(k)) {
     return {
       dichiarata: false,
-      motivo: 'età della scansione non dichiarata (campo `cache` assente: backend più vecchio '
-        + 'del contratto (80) del 22/08 — al riavvio compare da sola)',
+      motivo: tr('edge.f063')
+        + tr('edge.f064'),
     };
   }
   const ttlS = interoONull(k.ttl_s);
@@ -333,7 +335,7 @@ export function leggiEta(payload: Record<string, unknown>): EtaScan {
     if (eta == null || eta < 0) {
       return {
         dichiarata: false,
-        motivo: `risposta dalla cache ma \`eta_s\` illeggibile (${String(k.eta_s)}): l'età non si sa`,
+        motivo: tr('edge.f065', {a: String(k.eta_s)}),
       };
     }
     return {
@@ -349,8 +351,8 @@ export function leggiEta(payload: Record<string, unknown>): EtaScan {
   }
   return {
     dichiarata: false,
-    motivo: `campo \`cache\` fuori contratto (servita_da_cache = ${String(k.servita_da_cache)}): `
-      + 'non si sa se la scansione è fresca o dalla cache',
+    motivo: tr('edge.f066', {a: String(k.servita_da_cache)})
+      + tr('edge.f067'),
   };
 }
 
@@ -397,11 +399,11 @@ export function leggiScan(payload: unknown, o: OpzioniLettura): EsitoScan {
     };
   }
   if (payload == null) {
-    return { stato: 'guasto', motivo: 'nessuna risposta dall\'edge scanner', origine: 'chiamata', quando: null };
+    return { stato: 'guasto', motivo: tr('edge.f068'), origine: 'chiamata', quando: null };
   }
   return {
     stato: 'guasto',
-    motivo: 'risposta fuori contratto: manca `signals` (forma inattesa dal backend)',
+    motivo: tr('edge.f069'),
     origine: 'forma',
     quando: null,
   };
@@ -427,49 +429,49 @@ export function vuotoScan(
   if (v.segnali.length > 0) {
     return {
       tono: 'filtro',
-      testo: `Nessun segnale di categoria «${categoria}» con forza ≥${soglia}: `
-        + `${v.segnali.length} ${v.segnali.length === 1 ? 'segnale' : 'segnali'} nelle altre categorie.`,
+      testo: tr('edge.f070', {a: categoria, b: soglia})
+        + tr('edge.f071', {a: v.segnali.length, b: v.segnali.length === 1 ? tr('edge.f072') : tr('edge.f073')}),
     };
   }
   if (v.illeggibili > 0) {
     return {
       tono: 'nd',
-      testo: `${v.illeggibili} ${v.illeggibili === 1 ? 'riga arrivata' : 'righe arrivate'} con forza ≥${soglia}, `
-        + 'ma senza la forma di un segnale: questo zero non è qualificabile, è una risposta illeggibile.',
+      testo: tr('edge.f074', {a: v.illeggibili, b: v.illeggibili === 1 ? tr('edge.f075') : tr('edge.f076'), c: soglia})
+        + tr('edge.f077'),
     };
   }
   let totali = '';
   if (v.nTotali != null) {
-    if (v.nTotali <= 0) totali = ' Nessun segnale a nessuna forza.';
+    if (v.nTotali <= 0) totali = tr('edge.f078');
     else if (soglia <= sogliaMinima) {
-      totali = ` Esistono ${v.nTotali} ${v.nTotali === 1 ? 'segnale' : 'segnali'} sotto la soglia minima `
-        + `della pagina (${sogliaMinima}): da qui non si possono mostrare.`;
+      totali = tr('edge.f079', {a: v.nTotali, b: v.nTotali === 1 ? tr('edge.f072') : tr('edge.f073')})
+        + tr('edge.f080', {a: sogliaMinima});
     } else {
-      totali = ` Esistono ${v.nTotali} ${v.nTotali === 1 ? 'segnale' : 'segnali'} sotto la soglia: abbassala per vederli.`;
+      totali = tr('edge.f081', {a: v.nTotali, b: v.nTotali === 1 ? tr('edge.f072') : tr('edge.f073')});
     }
   }
   const c = v.copertura;
   if (!c.dichiarata) {
     return {
       tono: 'nd',
-      testo: `Nessun segnale con forza ≥${soglia} — ma ${c.motivo}: questo zero non è qualificabile.${totali}`,
+      testo: tr('edge.f082', {a: soglia, b: c.motivo, c: totali}),
     };
   }
   if (c.grado === 'degradata') {
     return {
       tono: 'parziale',
-      testo: `Nessun segnale con forza ≥${soglia} — ZERO PARZIALE: ${c.motivoDegrado}. `
-        + 'Dove un rilevatore non ha risposto, l\'assenza del segnale non è una misura.' + totali,
+      testo: tr('edge.f083', {a: soglia, b: c.motivoDegrado})
+        + tr('edge.f084') + totali,
     };
   }
   const caveat = c.soloPrezzo.length
-    ? ` Su ${c.soloPrezzo.length} ${c.soloPrezzo.length === 1 ? 'nome' : 'nomi'} l'unico rilevatore `
-      + 'applicabile è lo z-score di prezzo: lì l\'assenza di segnali di volatilità non è una misura.'
+    ? tr('edge.f085', {a: c.soloPrezzo.length, b: c.soloPrezzo.length === 1 ? tr('edge.f086') : tr('edge.f087')})
+      + tr('edge.f088')
     : '';
   return {
     tono: 'misurato',
-    testo: `Nessun segnale con forza ≥${soglia} su ${c.scansionate} posizioni su ${c.totali}, `
-      + 'ogni rilevatore applicabile ha risposto: è uno ZERO MISURATO.' + caveat + totali,
+    testo: tr('edge.f089', {a: soglia, b: c.scansionate, c: c.totali})
+      + tr('edge.f090') + caveat + totali,
   };
 }
 
@@ -491,43 +493,43 @@ export interface EtaResa {
  *  della pagina (si passa da fuori: niente orologio dentro un modulo che si prova). */
 export function etaScan(eta: EtaScan, ricevutoAlMs: number, adessoMs: number): EtaResa {
   if (!eta.dichiarata) {
-    return { secondi: null, testo: eta.motivo, breve: 'ETÀ N.D.', scaduta: false, tono: 'nd' };
+    return { secondi: null, testo: eta.motivo, breve: tr('edge.f091'), scaduta: false, tono: 'nd' };
   }
   const trascorsi = Number.isFinite(ricevutoAlMs) && Number.isFinite(adessoMs)
     ? Math.max(0, (adessoMs - ricevutoAlMs) / 1000) : 0;
   const secondi = eta.etaAllaRispostaS + trascorsi;
   const ora = eta.scansioneDelle ? oraIt(eta.scansioneDelle) : null;
-  const quando = ora ? ` (alle ${ora})` : '';
+  const quando = ora ? tr('edge.f092', {a: ora}) : '';
   const scaduta = eta.ttlS != null && secondi >= eta.ttlS;
-  const ttl = eta.ttlS != null ? `TTL ${durata(eta.ttlS)}` : 'TTL non dichiarato';
+  const ttl = eta.ttlS != null ? `TTL ${durata(eta.ttlS)}` : tr('edge.f093');
   const motivoTtl = eta.ttlMotivo ? ` — ${eta.ttlMotivo}` : '';
   // «può rifare», non «rifà»: lo stato del server non è misurato da qui (un altro
   // chiamante può averla già riscaldata, o la richiesta può accodarsi).
   const coda = scaduta
-    ? ' Oltre il TTL: la prossima richiesta può rifare la scansione '
-      + `(${Math.round(LATENZE_MISURATE.caldoS)}-${Math.round(LATENZE_MISURATE.freddoS)} s misurati).`
+    ? tr('edge.f094')
+      + tr('edge.f095', {a: Math.round(LATENZE_MISURATE.caldoS), b: Math.round(LATENZE_MISURATE.freddoS)})
     : '';
   if (eta.fuoriCache) {
     return {
       secondi, scaduta: false, tono: 'fresca',
-      testo: `Scansione diretta fuori cache, conclusa ${durata(secondi)} fa${quando}`
+      testo: tr('edge.f096', {a: durata(secondi), b: quando})
         + (eta.ttlMotivo ? ` — ${eta.ttlMotivo}` : '') + '.',
-      breve: `${durata(secondi)} fa · FUORI CACHE`,
+      breve: tr('edge.f097', {a: durata(secondi)}),
     };
   }
   if (eta.servitaDaCache) {
     return {
       secondi, scaduta, tono: scaduta ? 'scaduta' : 'cache',
-      testo: `Scansione conclusa ${durata(secondi)} fa${quando}, servita dalla cache del backend: `
-        + `i rilevatori non sono stati re-interrogati per questa risposta (${ttl}${motivoTtl}).${coda}`,
-      breve: `${durata(secondi)} fa · ${scaduta ? 'TTL SCADUTO' : 'CACHE'}`,
+      testo: tr('edge.f098', {a: durata(secondi), b: quando})
+        + tr('edge.f099', {a: ttl, b: motivoTtl, c: coda}),
+      breve: tr('edge.f100', {a: durata(secondi), b: scaduta ? tr('edge.f101') : 'CACHE'}),
     };
   }
   return {
     secondi, scaduta, tono: scaduta ? 'scaduta' : 'fresca',
-    testo: `Scansione fresca, conclusa ${durata(secondi)} fa${quando}: i rilevatori sono stati `
-      + `interrogati per questa risposta (${ttl}${motivoTtl}).${coda}`,
-    breve: `${durata(secondi)} fa · ${scaduta ? 'TTL SCADUTO' : 'FRESCA'}`,
+    testo: tr('edge.f102', {a: durata(secondi), b: quando})
+      + tr('edge.f103', {a: ttl, b: motivoTtl, c: coda}),
+    breve: tr('edge.f100', {a: durata(secondi), b: scaduta ? tr('edge.f101') : tr('edge.f104')}),
   };
 }
 
@@ -541,24 +543,24 @@ export interface RigaCopertura {
 }
 
 export function rigaCopertura(c: Copertura): RigaCopertura {
-  if (!c.dichiarata) return { pezzi: [{ testo: 'copertura non dichiarata', tono: 'allarme' }], nota: c.motivo };
+  if (!c.dichiarata) return { pezzi: [{ testo: tr('edge.f105'), tono: 'allarme' }], nota: c.motivo };
   const p: RigaCopertura['pezzi'] = [];
   if (c.contate) {
-    p.push({ testo: `${c.scansionate}/${c.totali} posizioni`, tono: c.scansionate < c.totali ? 'allarme' : 'neutro' });
+    p.push({ testo: tr('edge.f106', {a: c.scansionate, b: c.totali}), tono: c.scansionate < c.totali ? 'allarme' : 'neutro' });
   } else {
-    p.push({ testo: 'posizioni non contate', tono: 'allarme' });
+    p.push({ testo: tr('edge.f107'), tono: 'allarme' });
   }
-  if (c.piena.length) p.push({ testo: `${c.piena.length} a copertura piena`, tono: 'neutro' });
-  if (c.soloPrezzo.length) p.push({ testo: `${c.soloPrezzo.length} solo z-score`, tono: 'neutro' });
+  if (c.piena.length) p.push({ testo: tr('edge.f108', {a: c.piena.length}), tono: 'neutro' });
+  if (c.soloPrezzo.length) p.push({ testo: tr('edge.f109', {a: c.soloPrezzo.length}), tono: 'neutro' });
   const nDeg = Object.keys(c.degradata).length;
-  if (nDeg) p.push({ testo: `${nDeg} con un rilevatore muto`, tono: 'allarme' });
+  if (nDeg) p.push({ testo: tr('edge.f110', {a: nDeg}), tono: 'allarme' });
   const nNM = Object.keys(c.nessunaMisura).length;
-  if (nNM) p.push({ testo: `${nNM} senza misura`, tono: 'allarme' });
-  if (c.nonScansionate.length) p.push({ testo: `${c.nonScansionate.length} non scansionate`, tono: 'allarme' });
+  if (nNM) p.push({ testo: tr('edge.f111', {a: nNM}), tono: 'allarme' });
+  if (c.nonScansionate.length) p.push({ testo: tr('edge.f061', {a: c.nonScansionate.length}), tono: 'allarme' });
   if (c.fattorialiSu != null) {
-    p.push({ testo: `fattoriali su ${c.fattorialiSu}`, tono: c.fattorialiSu < c.totali ? 'allarme' : 'neutro' });
-  } else if (c.fattorialiKo) p.push({ testo: 'fattoriali KO', tono: 'allarme' });
-  else p.push({ testo: 'fattoriali n.d.', tono: 'allarme' });
+    p.push({ testo: tr('edge.f112', {a: c.fattorialiSu}), tono: c.fattorialiSu < c.totali ? 'allarme' : 'neutro' });
+  } else if (c.fattorialiKo) p.push({ testo: tr('edge.f113'), tono: 'allarme' });
+  else p.push({ testo: tr('edge.f114'), tono: 'allarme' });
   return { pezzi: p, nota: c.nota };
 }
 
@@ -566,24 +568,24 @@ export function rigaCopertura(c: Copertura): RigaCopertura {
 
 /** `~6,4 min`: il lock del backend, nella forma del ponte (non si arrotonda a «6 min»). */
 function lockTesto(): string {
-  return `~${(LATENZE_MISURATE.lockS / 60).toFixed(1).replace('.', ',')} min`;
+  return `~${fmtNum(LATENZE_MISURATE.lockS / 60, 1)} min`;
 }
 
 /** La copy mentre si aspetta. `limiteMs` = timeout della pagina (0 = nessun limite). */
 export function copyAttesa(secondiTrascorsi: number, limiteMs: number, forzata: boolean): string {
   const L = LATENZE_MISURATE;
-  const da = `in attesa da ${durata(Math.max(0, secondiTrascorsi))}`;
-  const costo = `${Math.round(L.caldoS)}-${Math.round(L.freddoS)} s su ${L.posizioni} posizioni (misurati il ${L.misurateIl})`;
+  const da = tr('edge.f115', {a: durata(Math.max(0, secondiTrascorsi))});
+  const costo = tr('edge.f116', {a: Math.round(L.caldoS), b: Math.round(L.freddoS), c: L.posizioni, d: L.misurateIl});
   let s = forzata
-    ? `Scansione forzata ${da}: i rilevatori vengono re-interrogati, costo ${costo}; se un'altra scansione `
-      + `è già in corso si accoda dietro di essa (fino a ~${Math.round(2 * L.freddoS)} s in tutto).`
-    : `Scansiono il portafoglio — ${da}. Tre casi: se la cache del backend è calda risponde in `
-      + `~${String(L.cacheS).replace('.', ',')} s; una scansione fresca costa ${costo}; se una scansione è già `
-      + `in corso, questa richiesta aspetta che finisca (fino a ${lockTesto()}).`;
+    ? tr('edge.f117', {a: da, b: costo})
+      + tr('edge.f118', {a: Math.round(2 * L.freddoS)})
+    : tr('edge.f119', {a: da})
+      + tr('edge.f120', {a: fmtNum(L.cacheS, 2), b: costo})
+      + tr('edge.f121', {a: lockTesto()});
   if (secondiTrascorsi > L.freddoS) {
-    s += ' Oltre il massimo misurato di una scansione: probabilmente in coda.';
+    s += tr('edge.f122');
   }
-  s += limiteMs > 0 ? ` Limite della pagina ${durata(limiteMs / 1000)}.` : ' Nessun limite di attesa.';
+  s += limiteMs > 0 ? tr('edge.f123', {a: durata(limiteMs / 1000)}) : tr('edge.f124');
   return s;
 }
 
@@ -598,11 +600,11 @@ export function esitoChiamata(err: unknown, limiteMs: number): EsitoChiamata {
   if (e?.code === 'ECONNABORTED' || /timeout of \d+ ?ms exceeded/i.test(msg)) {
     return {
       timeout: true,
-      motivo: `nessuna risposta entro ${durata(limiteMs / 1000)} (limite della pagina): una scansione a freddo `
-        + `ha misurato fino a ${Math.round(LATENZE_MISURATE.freddoS)} s, più l'eventuale coda dietro un'altra `
-        + 'scansione. Il backend continua a scansionare anche dopo questo abort: RIPROVA riusa la scansione '
-        + `quando è finita (la pagina riaspetta fino a ${durata(limiteMs / 1000)}: se dietro c'è una coda `
-        + 'di scansioni può servire un secondo tentativo); RIFAI si accoderebbe dietro di essa.',
+      motivo: tr('edge.f125', {a: durata(limiteMs / 1000)})
+        + tr('edge.f126', {a: Math.round(LATENZE_MISURATE.freddoS)})
+        + tr('edge.f127')
+        + tr('edge.f128', {a: durata(limiteMs / 1000)})
+        + tr('edge.f129'),
     };
   }
   const stato = e?.response?.status;
@@ -611,7 +613,7 @@ export function esitoChiamata(err: unknown, limiteMs: number): EsitoChiamata {
     return { timeout: false, motivo: `HTTP ${stato}${det ? ' — ' + taglia(det, 300) : ''}` };
   }
   const m = msg.trim();
-  return { timeout: false, motivo: m ? taglia(m, 300) : 'chiamata fallita senza motivo' };
+  return { timeout: false, motivo: m ? taglia(m, 300) : tr('edge.f130') };
 }
 
 /** Solo il motivo, per chi non ha bisogno di sapere se era un timeout. */
@@ -623,7 +625,7 @@ export function motivoChiamata(err: unknown, limiteMs: number): string {
 
 /** `12 s` · `3 min` · `1 h 5 min` · `2 h` — una durata leggibile, senza decimali. */
 export function durata(s: number): string {
-  if (!Number.isFinite(s) || s < 0) return 'n.d.';
+  if (!Number.isFinite(s) || s < 0) return tr('edge.f030');
   const tondi = Math.round(s);
   if (tondi < 60) return `${tondi} s`;
   const min = Math.floor(tondi / 60);

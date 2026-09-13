@@ -25,7 +25,7 @@ Famiglie (negozio in data/ -> esempio tracciato -> chi lo legge):
                               ultima fonte di price_updater). Le due sezioni sono INDIPENDENTI
                               -> portfolio_analytics/factors/garch/montecarlo/risk, price_updater
 
-SOLO stdlib: nessun import di progetto. La regola del percorso dati e' quella di memory_db.DB_DIR
+Stdlib e helper di presentazione bilingue; nessun import di DB o provider. La regola del percorso dati e' quella di memory_db.DB_DIR
 (BELLOMBERG_DATA_DIR relativo alla radice o assoluto), replicata come in classificazione.py.
 I consumatori rileggono il negozio A OGNI CHIAMATA (come fonti_correnti/termini_correnti): una
 modifica a mano si vede senza riavviare, e le prove possono puntare `PERCORSO_*` altrove.
@@ -35,6 +35,7 @@ import os
 import re
 from typing import Any, Callable, Dict, Optional, Tuple
 from bellomberg.core.paths import DATA_DIR
+from bellomberg.core.presentation import message as _message, error_text
 
 PERCORSO_ALIAS = str(DATA_DIR / "alias_fonti.json")
 ESEMPIO_ALIAS = "alias_fonti.example.json"
@@ -68,8 +69,7 @@ def carica(path: str, esempio: str, valida: Callable[[Dict[str, Any]], Any],
     vuoto = {} if vuoto is None else vuoto
     if not os.path.exists(path):
         return {nome: vuoto, "origine": "assente",
-                "motivo": "negozio non trovato: %s (copia %s in data/ e mettici i TUOI dati)"
-                          % (path, esempio)}
+                "motivo": _message('negozio non trovato: {v0} (copia {v1} in data/ e mettici i TUOI dati)', 'Store not found: {v0} (copy {v1} into data/ and enter YOUR data)', v0=path, v1=esempio)}
     try:
         with open(path, encoding="utf-8") as fh:
             # Stessa regola del negozio veicoli, anche sugli oggetti annidati.
@@ -77,51 +77,52 @@ def carica(path: str, esempio: str, valida: Callable[[Dict[str, Any]], Any],
             grezzo = json.load(fh, object_pairs_hook=_senza_doppie)
     except Exception as e:
         return {nome: vuoto, "origine": "illeggibile",
-                "motivo": "%s: %s" % (type(e).__name__, e)}
+                "motivo": _message('{v0}: {v1}', '{v0}: {v1}', v0=type(e).__name__, v1=error_text(e))}
     if not isinstance(grezzo, dict):
         return {nome: vuoto, "origine": "illeggibile",
-                "motivo": "il negozio non e' un oggetto JSON ma %s" % type(grezzo).__name__}
+                "motivo": _message("il negozio non e' un oggetto JSON ma {v0}", 'Store is not a JSON object but {v0}', v0=type(grezzo).__name__)}
     try:
         voci = valida({k: v for k, v in grezzo.items() if not str(k).startswith("_")})
     except ValueError as e:
-        return {nome: vuoto, "origine": "illeggibile", "motivo": str(e)}
+        return {nome: vuoto, "origine": "illeggibile", "motivo": error_text(e)}
     return {nome: voci, "origine": path, "motivo": None}
 
 
 def stringa_piena(chiave: Any, valore: Any) -> str:
     """Il valore di una voce dev'essere una stringa non vuota: torna la stringa ripulita."""
     if not isinstance(valore, str) or not valore.strip():
-        raise ValueError("voce %r malformata: serve una stringa non vuota" % (chiave,))
+        raise ValueError(_message('voce {v0!r} malformata: serve una stringa non vuota', 'Malformed entry {v0!r}: a nonempty string is required', v0=chiave))
     return valore.strip()
 
 
 def mappa_canonica(grezzo: Any, valida_valore: Callable[[Any, Any], Any],
-                   cosa: str = "chiave") -> Dict[str, Any]:
+                   cosa: Optional[str] = None) -> Dict[str, Any]:
     """{CHIAVE: valore validato}. Ogni lookup fa .upper().strip(): una chiave scritta in
     minuscolo o con spazi non verrebbe MAI trovata e il log direbbe «voce assente», vero per
     il codice e falso per chi l'ha appena scritta — quindi e' malformata, come un doppione."""
+    cosa = _message("chiave", "key") if cosa is None else cosa
     if not isinstance(grezzo, dict):
-        raise ValueError("%s: serve un oggetto JSON, non %s" % (cosa, type(grezzo).__name__))
+        raise ValueError(_message('{v0}: serve un oggetto JSON, non {v1}', '{v0}: a JSON object is required, not {v1}', v0=cosa, v1=type(grezzo).__name__))
     out: Dict[str, Any] = {}
     for k, v in grezzo.items():
         kk = str(k).strip().upper()
         if kk != k or kk in out or not kk or re.search(r"\s", kk):
-            raise ValueError("%s %r non canonica o doppia: scrivila MAIUSCOLA, senza spazi e "
-                             "una volta sola (%r)" % (cosa, k, kk))
+            raise ValueError(_message('{v0} {v1!r} non canonica o doppia: scrivila MAIUSCOLA, senza spazi e una volta sola ({v2!r})', 'Noncanonical or duplicate {v0} {v1!r}: write it UPPERCASE, without spaces, once only ({v2!r})', v0=cosa, v1=k, v2=kk))
         out[kk] = valida_valore(k, v)
     return out
 
 
-def lista_canonica(grezzo: Any, cosa: str = "simbolo") -> Tuple[str, ...]:
+def lista_canonica(grezzo: Any, cosa: Optional[str] = None) -> Tuple[str, ...]:
     """Tupla di simboli MAIUSCOLI, non vuoti, senza doppioni, nell'ordine del file."""
+    cosa = _message("simbolo", "symbol") if cosa is None else cosa
     if not isinstance(grezzo, list):
-        raise ValueError("%s: serve una lista JSON, non %s" % (cosa, type(grezzo).__name__))
+        raise ValueError(_message('{v0}: serve una lista JSON, non {v1}', '{v0}: a JSON list is required, not {v1}', v0=cosa, v1=type(grezzo).__name__))
     out = []
     for x in grezzo:
         if not isinstance(x, str) or not x.strip() or x.strip().upper() != x:
-            raise ValueError("%s %r malformato: scrivilo MAIUSCOLO, senza spazi" % (cosa, x))
+            raise ValueError(_message('{v0} {v1!r} malformato: scrivilo MAIUSCOLO, senza spazi', 'Malformed {v0} {v1!r}: write it UPPERCASE, without spaces', v0=cosa, v1=x))
         if x in out:
-            raise ValueError("%s %r doppio" % (cosa, x))
+            raise ValueError(_message('{v0} {v1!r} doppio', 'Duplicate {v0} {v1!r}', v0=cosa, v1=x))
         out.append(x)
     return tuple(out)
 
@@ -129,7 +130,7 @@ def lista_canonica(grezzo: Any, cosa: str = "simbolo") -> Tuple[str, ...]:
 def _sezioni_ammesse(grezzo: Dict[str, Any], ammesse: Tuple[str, ...]) -> None:
     fuori = sorted(set(grezzo) - set(ammesse))
     if fuori:
-        raise ValueError("sezione %r sconosciuta: ammesse %s" % (fuori[0], ", ".join(ammesse)))
+        raise ValueError(_message('sezione {v0!r} sconosciuta: ammesse {v1}', 'Unknown section {v0!r}: allowed {v1}', v0=fuori[0], v1=", ".join(ammesse)))
 
 
 # ============================================================
@@ -143,20 +144,18 @@ def _valida_alias(grezzo: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
     def _simbolo(chiave, valore):
         simbolo = stringa_piena(chiave, valore)
         if simbolo != simbolo.upper() or re.search(r"\s", simbolo):
-            raise ValueError("alias %r malformato: scrivilo MAIUSCOLO e senza spazi" % simbolo)
+            raise ValueError(_message('alias {v0!r} malformato: scrivilo MAIUSCOLO e senza spazi', 'Malformed alias {v0!r}: write it UPPERCASE without spaces', v0=simbolo))
         return simbolo
 
     yfinance = mappa_canonica(grezzo.get("yfinance", {}), _simbolo, "alias yfinance")
     correlazione = mappa_canonica(
-        grezzo.get("correlazione", {}), _simbolo, "proxy correlazione")
+        grezzo.get("correlazione", {}), _simbolo, _message('proxy correlazione', 'correlation proxy'))
     riservati = sorted(set(yfinance) & {"BTC", "ETH", "SOL"})
     if riservati:
-        raise ValueError("alias yfinance %r ridefinisce una conversione canonica pubblica" %
-                         riservati[0])
+        raise ValueError(_message('alias yfinance {v0!r} ridefinisce una conversione canonica pubblica', 'yfinance alias {v0!r} redefines a public canonical conversion', v0=riservati[0]))
     for k in sec:
         if "." in k:
-            raise ValueError("alias sec %r: la chiave e' la BASE di listino (prima del punto), "
-                             "lookup_cik confronta la base e non la troverebbe mai" % k)
+            raise ValueError(_message("alias sec {v0!r}: la chiave e' la BASE di listino (prima del punto), lookup_cik confronta la base e non la troverebbe mai", 'SEC alias {v0!r}: the key is the listing BASE (before the dot); lookup_cik compares the base and would never find it', v0=k))
     return {"finnhub": finnhub, "sec": sec,
             "yfinance": yfinance, "correlazione": correlazione}
 
@@ -170,7 +169,7 @@ def carica_alias(path: Optional[str] = None) -> Dict[str, Any]:
 def _valida_iv(grezzo: Dict[str, Any]) -> Tuple[str, ...]:
     _sezioni_ammesse(grezzo, ("tickers",))
     if "tickers" not in grezzo:
-        raise ValueError("manca la chiave 'tickers' (la lista dichiarata dei simboli)")
+        raise ValueError(_message("manca la chiave 'tickers' (la lista dichiarata dei simboli)", 'Missing tickers key (the declared symbol list)'))
     return lista_canonica(grezzo["tickers"])
 
 
@@ -187,10 +186,9 @@ def _valida_fattori(regioni_valide):
         def _regione(k, v):
             v = stringa_piena(k, v)
             if regioni_valide is not None and v not in regioni_valide:
-                raise ValueError("regione %r di %r sconosciuta: ammesse %s"
-                                 % (v, k, ", ".join(sorted(regioni_valide))))
+                raise ValueError(_message('regione {v0!r} di {v1!r} sconosciuta: ammesse {v2}', 'Unknown region {v0!r} for {v1!r}: allowed {v2}', v0=v, v1=k, v2=", ".join(sorted(regioni_valide))))
             return v
-        regioni = mappa_canonica(grezzo.get("regioni", {}), _regione, "override di regione")
+        regioni = mappa_canonica(grezzo.get("regioni", {}), _regione, _message('override di regione', 'region override'))
         return {"crypto_correlati": crypto, "regioni": regioni}
     return _v
 
@@ -210,10 +208,9 @@ def _valida_lei(grezzo: Dict[str, Any]) -> Dict[str, str]:
     def _lei(k, v):
         v = stringa_piena(k, v)
         if not _LEI.match(v):
-            raise ValueError("voce %r: %r non ha la forma di un LEI (20 caratteri alfanumerici, "
-                             "le ultime due cifre di controllo)" % (k, v))
+            raise ValueError(_message('voce {v0!r}: {v1!r} non ha la forma di un LEI (20 caratteri alfanumerici, le ultime due cifre di controllo)', 'Entry {v0!r}: {v1!r} does not have LEI format (20 alphanumeric characters, last two are check digits)', v0=k, v1=v))
         return v
-    return mappa_canonica(grezzo, _lei, "simbolo")
+    return mappa_canonica(grezzo, _lei, _message('simbolo', 'symbol'))
 
 
 def carica_lei(path: Optional[str] = None) -> Dict[str, Any]:
@@ -229,30 +226,30 @@ def _valida_istituzioni(grezzo: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     _sezioni_ammesse(grezzo, ("cik", "cef"))
     cik_grezzo = grezzo.get("cik", {})
     if not isinstance(cik_grezzo, dict):
-        raise ValueError("cik: serve un oggetto JSON slug -> CIK")
+        raise ValueError(_message('cik: serve un oggetto JSON slug -> CIK', 'cik: a JSON object slug -> CIK is required'))
     cik: Dict[str, str] = {}
     for slug, v in cik_grezzo.items():
         if not _SLUG.match(str(slug)):
-            raise ValueError("slug %r malformato: minuscolo, lettere/cifre/_" % (slug,))
+            raise ValueError(_message('slug {v0!r} malformato: minuscolo, lettere/cifre/_', 'Malformed slug {v0!r}: lowercase, letters/digits/_', v0=slug))
         v = stringa_piena(slug, v)
         if not _CIK.match(v):
-            raise ValueError("CIK di %r malformato: servono 10 cifre, non %r" % (slug, v))
+            raise ValueError(_message('CIK di {v0!r} malformato: servono 10 cifre, non {v1!r}', 'Malformed CIK for {v0!r}: 10 digits required, not {v1!r}', v0=slug, v1=v))
         cik[slug] = v
 
     def _cef(k, v):
         if not isinstance(v, dict):
-            raise ValueError("cef %r: serve un oggetto {investor, manager, not_in_13f}" % (k,))
+            raise ValueError(_message('cef {v0!r}: serve un oggetto {{investor, manager, not_in_13f}}', 'cef {v0!r}: an object {{investor, manager, not_in_13f}} is required', v0=k))
         fuori = sorted(set(v) - {"investor", "manager", "not_in_13f"})
         if fuori:
-            raise ValueError("cef %r: campo %r sconosciuto" % (k, fuori[0]))
+            raise ValueError(_message('cef {v0!r}: campo {v1!r} sconosciuto', 'cef {v0!r}: unknown field {v1!r}', v0=k, v1=fuori[0]))
         inv = stringa_piena("%s.investor" % k, v.get("investor"))
         if inv not in cik:
-            raise ValueError("cef %r: investor %r non e' uno slug della sezione cik" % (k, inv))
+            raise ValueError(_message("cef {v0!r}: investor {v1!r} non e' uno slug della sezione cik", 'cef {v0!r}: investor {v1!r} is not a slug in the cik section', v0=k, v1=inv))
         out = {"investor": inv, "manager": stringa_piena("%s.manager" % k, v.get("manager"))}
         if v.get("not_in_13f") is not None:
             out["not_in_13f"] = stringa_piena("%s.not_in_13f" % k, v.get("not_in_13f"))
         return out
-    cef = mappa_canonica(grezzo.get("cef", {}), _cef, "fondo chiuso")
+    cef = mappa_canonica(grezzo.get("cef", {}), _cef, _message('fondo chiuso', 'closed-end fund'))
     return {"cik": cik, "cef": cef}
 
 
@@ -266,13 +263,13 @@ def carica_istituzioni(path: Optional[str] = None) -> Dict[str, Any]:
 def _id_sessione(k: Any) -> int:
     s = str(k).strip()
     if not s.isdigit():
-        raise ValueError("id di sessione %r malformato: serve un intero" % (k,))
+        raise ValueError(_message('id di sessione {v0!r} malformato: serve un intero', 'Malformed session ID {v0!r}: an integer is required', v0=k))
     return int(s)
 
 
 def _lista_parole(k, v):
     if not isinstance(v, list) or not all(isinstance(x, str) and x.strip() for x in v):
-        raise ValueError("voce %r: serve una lista di parole (stringhe non vuote)" % (k,))
+        raise ValueError(_message('voce {v0!r}: serve una lista di parole (stringhe non vuote)', 'Entry {v0!r}: a list of words (nonempty strings) is required', v0=k))
     return list(v)
 
 
@@ -281,26 +278,26 @@ def _valida_correzioni(grezzo: Dict[str, Any]) -> Dict[str, Dict[int, Any]]:
     corr_grezze = grezzo.get("correzioni", {})
     int_grezzi = grezzo.get("intatti", {})
     if not isinstance(corr_grezze, dict) or not isinstance(int_grezzi, dict):
-        raise ValueError("correzioni e intatti sono oggetti JSON con l'id di sessione per chiave")
+        raise ValueError(_message("correzioni e intatti sono oggetti JSON con l'id di sessione per chiave", 'correzioni and intatti must be JSON objects keyed by session ID'))
     correzioni: Dict[int, Dict[str, Any]] = {}
     for k, v in corr_grezze.items():
         sid = _id_sessione(k)
         if not isinstance(v, dict):
-            raise ValueError("correzione %r: serve un oggetto {titolo, cosa_c_era, perche}" % (k,))
+            raise ValueError(_message('correzione {v0!r}: serve un oggetto {{titolo, cosa_c_era, perche}}', 'Correction {v0!r}: an object {{titolo, cosa_c_era, perche}} is required', v0=k))
         fuori = sorted(set(v) - {"titolo", "cosa_c_era", "perche", "deve_contenere"})
         if fuori:
-            raise ValueError("correzione %r: campo %r sconosciuto" % (k, fuori[0]))
+            raise ValueError(_message('correzione {v0!r}: campo {v1!r} sconosciuto', 'Correction {v0!r}: unknown field {v1!r}', v0=k, v1=fuori[0]))
         voce = {c: stringa_piena("%s.%s" % (k, c), v.get(c))
                 for c in ("titolo", "cosa_c_era", "perche")}
         voce["deve_contenere"] = _lista_parole(k, v.get("deve_contenere", []))
         if sid in correzioni:
-            raise ValueError("correzione %r doppia" % (k,))
+            raise ValueError(_message('correzione {v0!r} doppia', 'Duplicate correction {v0!r}', v0=k))
         correzioni[sid] = voce
     intatti: Dict[int, list] = {}
     for k, v in int_grezzi.items():
         sid = _id_sessione(k)
         if sid in correzioni:
-            raise ValueError("id %r sta sia in correzioni sia in intatti" % (k,))
+            raise ValueError(_message('id {v0!r} sta sia in correzioni sia in intatti', 'ID {v0!r} is in both correzioni and intatti', v0=k))
         intatti[sid] = _lista_parole(k, v)
     return {"correzioni": correzioni, "intatti": intatti}
 
@@ -327,25 +324,21 @@ def _valida_prezzi(grezzo: Dict[str, Any]) -> Dict[str, Any]:
     # «nessun simbolo da saltare», che e' la stessa cosa che dice un negozio ASSENTE — ma qui
     # il negozio c'e' e il KO dei motori non scatterebbe. Una lista vuota va scritta `[]`.
     if "senza_yfinance" not in grezzo:
-        raise ValueError("manca la sezione obbligatoria 'senza_yfinance': scrivila, anche "
-                         "vuota ([]), cosi' «nessun simbolo da saltare» e' una DICHIARAZIONE "
-                         "e non una dimenticanza")
-    senza = frozenset(lista_canonica(grezzo["senza_yfinance"], "simbolo"))
+        raise ValueError(_message("manca la sezione obbligatoria 'senza_yfinance': scrivila, anche vuota ([]), cosi' «nessun simbolo da saltare» e' una DICHIARAZIONE e non una dimenticanza", "Missing required senza_yfinance section: include it even if empty ([]), so no symbols to skip is a DECLARATION rather than an omission"))
+    senza = frozenset(lista_canonica(grezzo["senza_yfinance"], _message('simbolo', 'symbol')))
     # `lista_canonica` (usata anche dalla lista IV) rifiuta gli spazi in TESTA e in CODA ma
     # non quelli INTERNI: qui un «ALFA BETA» non combacerebbe con nessun ticker del DB e lo
     # skip sarebbe muto. Il limite dell'helper condiviso resta suo; qui si stringe.
     for sim in sorted(senza):
         if re.search(r"\s", sim):
-            raise ValueError("simbolo %r malformato: niente spazi dentro il simbolo "
-                             "(non combacerebbe con nessun ticker)" % sim)
+            raise ValueError(_message('simbolo {v0!r} malformato: niente spazi dentro il simbolo (non combacerebbe con nessun ticker)', 'Malformed symbol {v0!r}: no internal spaces (it would not match any ticker)', v0=sim))
 
     def _id(k, v):
         v = stringa_piena(k, v)
         if not _ID_COINGECKO.match(v):
-            raise ValueError("id CoinGecko %r di %r malformato: minuscolo, cifre e trattini "
-                             "singoli (come nell'URL dell'API)" % (v, k))
+            raise ValueError(_message("id CoinGecko {v0!r} di {v1!r} malformato: minuscolo, cifre e trattini singoli (come nell'URL dell'API)", 'Malformed CoinGecko ID {v0!r} for {v1!r}: lowercase, digits and single hyphens (as in the API URL)', v0=v, v1=k))
         return v
-    coingecko = mappa_canonica(grezzo.get("coingecko", {}), _id, "simbolo")
+    coingecko = mappa_canonica(grezzo.get("coingecko", {}), _id, _message('simbolo', 'symbol'))
     return {"senza_yfinance": senza, "coingecko": coingecko}
 
 
@@ -370,14 +363,12 @@ _ID_TEMA = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+)*$")
 
 def _valida_temi_titoli(grezzo: Dict[str, Any]) -> Dict[str, list]:
     if not isinstance(grezzo, dict):
-        raise ValueError("il negozio dei temi: serve un oggetto JSON, non %s"
-                         % type(grezzo).__name__)
+        raise ValueError(_message('il negozio dei temi: serve un oggetto JSON, non {v0}', 'Topic store: a JSON object is required, not {v0}', v0=type(grezzo).__name__))
     out: Dict[str, list] = {}
     for k, v in grezzo.items():
         kk = str(k)
         if not _ID_TEMA.match(kk):
-            raise ValueError("id di tema %r malformato: e' lo slug del registro, minuscolo, "
-                              "cifre e trattini bassi (come `tema_esempio`)" % (k,))
+            raise ValueError(_message("id di tema {v0!r} malformato: e' lo slug del registro, minuscolo, cifre e trattini bassi (come `tema_esempio`)", 'Malformed topic ID {v0!r}: registry slug must use lowercase, digits and underscores (like tema_esempio)', v0=k))
         # NIENTE controllo del doppione qui, ed e' una scelta misurata, non una svista: la
         # chiave non viene trasformata (nelle altre famiglie `mappa_canonica` la porta in
         # MAIUSCOLO, e li' due chiavi diverse possono collidere), quindi un `kk in out`
@@ -387,13 +378,12 @@ def _valida_temi_titoli(grezzo: Dict[str, Any]) -> Dict[str, list]:
         # famiglie: una chiave scritta due volte nel negozio applica la seconda in silenzio.
         # Curarlo vuol dire un `object_pairs_hook` nel caricatore COMUNE, cioe' toccare le
         # altre sette: e' un lotto suo.
-        simboli = lista_canonica(v, "tema %s: titolo" % kk)
+        simboli = lista_canonica(v, _message('tema {v0}: titolo', 'Topic {v0}: security', v0=kk))
         if not simboli:
             # una lista vuota si legge «nessun titolo», che e' ANCHE il ripiego del negozio
             # assente: due stati diversi con la stessa forma. Per togliere un legame si
             # toglie la voce, cosi' `temi_senza_riscontro` non ha nulla da dichiarare.
-            raise ValueError("tema %s: lista vuota — per togliere il legame togli la voce, "
-                             "non lasciare la lista vuota" % kk)
+            raise ValueError(_message('tema {v0}: lista vuota — per togliere il legame togli la voce, non lasciare la lista vuota', 'Topic {v0}: empty list — remove the entry to remove the link; do not leave an empty list', v0=kk))
         out[kk] = list(simboli)
     return out
 

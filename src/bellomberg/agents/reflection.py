@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from bellomberg.core.paths import DATA_DIR
+from bellomberg.core.language import current_language, prompt_for_language, scoped_language
 from bellomberg.core.llm_refusal import refusal_reason as _refusal_reason
 
 LESSONS_PATH = str(DATA_DIR / "reflection_lessons.json")
@@ -71,6 +72,7 @@ def _extract_action_table(memo_markdown: str, max_chars: int = 1200) -> str:
     return m.group(0)[:max_chars] if m else "(ACTION TABLE non trovata nel memo)"
 
 
+@scoped_language
 def generate_lesson(memo_markdown: str = "", memo_id: Optional[int] = None,
                     usage_out: Optional[Dict[str, Any]] = None) -> str:
     """Genera e salva la lezione post-run. Ritorna la lezione ('' su fallimento).
@@ -142,7 +144,7 @@ def generate_lesson(memo_markdown: str = "", memo_id: Optional[int] = None,
             # Sonnet 5 (26/07): omesso = adaptive acceso; SPENTO esplicito — con
             # un budget cosi' corto il thinking mangerebbe la lezione stessa
             thinking={"type": "disabled"},
-            system=REFLECTION_PROMPT,
+            system=prompt_for_language(REFLECTION_PROMPT),
             messages=[{"role": "user", "content": user_msg}],
         )
         if _u_out is not None:
@@ -185,18 +187,27 @@ def generate_lesson(memo_markdown: str = "", memo_id: Optional[int] = None,
         return ""
 
     prev.append({"date": datetime.now().isoformat(timespec="seconds"),
-                 "memo_id": memo_id, "lesson": lesson})
+                 "memo_id": memo_id, "lesson": lesson, "language": current_language()})
     _save_lessons(prev)
     _log(f"lezione generata ({len(lesson)} char) e salvata per il priming della prossima run")
     return lesson
 
 
 def get_latest_lesson_block(max_chars: int = 900) -> str:
-    """Blocco per il priming della run SUCCESSIVA (memoria del Capo)."""
+    """Blocco per il priming della run SUCCESSIVA (memoria del Capo).
+    Audit 11/09: una lezione marcata `duplicato` (run ripetuta archiviata, v.
+    tools/maintenance/archivia_run_duplicata.py) non prima la run successiva; si risale
+    all'ultima lezione non marcata. Nulla viene cancellato dal file."""
     lessons = _load_lessons()
     if not lessons:
         return ""
-    last = lessons[-1]
+    last = None
+    for cand in reversed(lessons):
+        if isinstance(cand, dict) and not cand.get("duplicato"):
+            last = cand
+            break
+    if last is None:
+        return ""
     return ("--- LEZIONE DALL'ULTIMA RUN (#210 reflection, ancorata allo scorekeeper) ---\n"
             + "[" + str(last.get("date", ""))[:10] + "]\n"
             + str(last.get("lesson", "")))[:max_chars]

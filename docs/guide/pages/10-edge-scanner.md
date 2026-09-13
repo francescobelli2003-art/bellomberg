@@ -17,6 +17,13 @@ signals by category and strength, with the evidence available from its sources.
 5. Ask the relevant specialist what would invalidate the signal, then record
    your reasoning if it becomes an investment thesis.
 
+The category filter works on the received signals. Changing a strength threshold
+requests the corresponding view and can reuse the backend scan; a forced rescan
+is a separate action. After a timeout, the backend may still be working: use the
+retry action described by the page rather than queuing a forced rescan.
+The last successful result retains its original threshold and age if a newer
+request fails. Switching interface language does not launch another scan.
+
 ## Strength is not a probability
 A ranking or strength score is a prioritisation rule, not a calibrated
 probability of profit. Different signal families can have different definitions

@@ -4,10 +4,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const ts = require('typescript');
-const scope = { exports: {}, setTimeout, clearTimeout, DOMException, require: () => ({}) };
-vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, '../../src/lib/vol-deck.ts'), 'utf8'), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-}).outputText, scope);
+const { creaCaricatore, ambienteBrowser } = require('../i18n/_carica.cjs');
+ambienteBrowser();
+const load = creaCaricatore({ stub: { './api': { API_BASE: 'http://synthetic.invalid', requestHeaders: () => ({}) } } });
+const scope = { exports: load('lib/vol-deck.ts') };
 const { watchDownload } = scope.exports;
 const state = (name, count = 0) => ({ id: 'job-a', ticker: 'DEMO', state: name, n_contracts: count });
 

@@ -62,7 +62,7 @@ echo [%TS%] backend unreachable/KO, calling python db_backup_direct... >> "%LOG%
 python tools\ops\db_backup_direct.py >> "%LOG%" 2>&1
 
 if %ERRORLEVEL% NEQ 0 (
-    echo [%TS%] *** ERROR: python fallback failed or quick_check KO (v. righe sopra) *** >> "%LOG%"
+    echo [%TS%] *** ERROR: python fallback failed or quick_check KO ^(v. righe sopra^) *** >> "%LOG%"
     goto :FAIL
 )
 

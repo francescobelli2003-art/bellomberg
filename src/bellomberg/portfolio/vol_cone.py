@@ -32,6 +32,8 @@ Convenzioni DICHIARATE (regola no-fallback 14/07):
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence
+from bellomberg.core.language import scoped_language
+from bellomberg.core.presentation import message as _message, render_payload
 
 from bellomberg.market_data.iv_history import YOUNG_THRESHOLD_OBS   # soglia dichiarata UNA volta (review B5)
 
@@ -89,16 +91,19 @@ def _rolling_vol_series(rets: Sequence[float], window: int) -> List[float]:
     return out
 
 
+@scoped_language
 def build_cone(closes: Sequence[float],
                windows: Sequence[int] = WINDOWS) -> Dict[str, Any]:
     """CORE PURO (testabile a valori a mano): dalle chiusure (vecchio->nuovo)
     al cone per finestra. Nessuna rete, nessuna cache."""
     closes = list(closes or [])
     if len(closes) < 3:
-        return {"error": f"chiusure insufficienti (n={len(closes)}, servono >=3)"}
+        return {"error": _message("chiusure insufficienti (n={n}, servono >=3)",
+                                  "insufficient closing prices (n={n}, at least 3 required)", n=len(closes))}
     if any((c is None) or (not isinstance(c, (int, float))) or (c != c)
            or (c <= 0) for c in closes):
-        return {"error": "chiusure non valide (valori nulli, NaN, non numerici o <=0)"}
+        return {"error": _message("chiusure non valide (valori nulli, NaN, non numerici o <=0)",
+                                  "invalid closing prices (null, NaN, nonnumeric or <=0 values)")}
     rets = [closes[i] / closes[i - 1] - 1.0 for i in range(1, len(closes))]
 
     out_windows: List[Dict[str, Any]] = []
@@ -106,8 +111,9 @@ def build_cone(closes: Sequence[float],
         serie = _rolling_vol_series(rets, w)
         if not serie:
             out_windows.append({"window": int(w), "n_obs": 0,
-                                "error": (f"dati insufficienti per la finestra {w}g "
-                                          f"(rendimenti={len(rets)}, servono >={w})")})
+                                "error": _message("dati insufficienti per la finestra {w}g (rendimenti={n}, servono >={w})",
+                                                  "insufficient data for the {w}d window (returns={n}, at least {w} required)",
+                                                  w=w, n=len(rets))})
             continue
         s = sorted(serie)
         out_windows.append({
@@ -145,6 +151,7 @@ def _fetch_closes(ticker: str) -> List[float]:
     return [float(c) for c in h.tolist()]
 
 
+@scoped_language
 def compute_vol_cone(ticker: str, force: bool = False) -> Dict[str, Any]:
     """Wrapper con fetch + implied + cache. Errori mai cachati."""
     ticker = (ticker or "").upper().strip()
@@ -152,24 +159,26 @@ def compute_vol_cone(ticker: str, force: bool = False) -> Dict[str, Any]:
     st = stato_iv_tickers()
     if st["origine"] in ("assente", "illeggibile"):
         return {"ticker": ticker,
-                "error": (f"negozio iv_tickers {st['origine']}: {st['motivo']} — nessuna "
-                          f"lista vol dichiarata, nessun cono"),
+                "error": _message("negozio iv_tickers {state}: {reason} — nessuna lista vol dichiarata, nessun cono",
+                                  "iv_tickers registry status {state}: {reason} — no declared volatility list, no cone",
+                                  state=st['origine'], reason=st['motivo']),
                 "src": "vol_cone"}
     if ticker not in st["tickers"]:
         return {"ticker": ticker,
-                "error": (f"ticker fuori dalla lista vol dichiarata "
-                          f"{list(st['tickers'])} (si estende nel negozio data/iv_tickers.json)"),
+                "error": _message("ticker fuori dalla lista vol dichiarata {tickers} (si estende nel negozio data/iv_tickers.json)",
+                                  "ticker outside the declared volatility list {tickers} (extend it in data/iv_tickers.json)",
+                                  tickers=list(st['tickers'])),
                 "src": "vol_cone"}
 
     now = time.time()
     ck = f"cone:{ticker}"
     if not force and ck in _CACHE and now - _CACHE[ck]["ts"] < CACHE_TTL_SEC:
-        return _CACHE[ck]["data"]
+        return render_payload(_CACHE[ck]["data"])
 
     try:
         closes = _fetch_closes(ticker)
     except Exception as e:
-        return {"ticker": ticker, "error": f"chiusure non disponibili: {e}",
+        return {"ticker": ticker, "error": _message("chiusure non disponibili: {error}", "closing prices unavailable: {error}", error=str(e)),
                 "src": "vol_cone (closes yfinance)"}
 
     cone = build_cone(closes)
@@ -183,7 +192,7 @@ def compute_vol_cone(ticker: str, force: bool = False) -> Dict[str, Any]:
         from bellomberg.portfolio.vol_surface import build_vol_surface
         vs = build_vol_surface(ticker)
         if vs.get("error"):
-            implied = {"error": f"vol_surface: {vs['error']}"}
+            implied = {"error": _message("vol_surface: {error}", "vol_surface: {error}", error=vs['error'])}
         else:
             implied = {"slices": [{"expiry": s.get("expiry"),
                                    "days": s.get("days"),
@@ -208,7 +217,8 @@ def compute_vol_cone(ticker: str, force: bool = False) -> Dict[str, Any]:
             w = _nearest_window(_to_trading_days(sl["days"]), WINDOWS)
             if w not in ok_windows:
                 confronto.append({**sl, "window": w,
-                                  "error": f"finestra {w}g senza cone (dati insufficienti)"})
+                                  "error": _message("finestra {w}g senza cone (dati insufficienti)",
+                                                    "no cone for the {w}d window (insufficient data)", w=w)})
                 continue
             if w not in serie_per_w:
                 serie_per_w[w] = _rolling_vol_series(rets, w)
@@ -225,7 +235,12 @@ def compute_vol_cone(ticker: str, force: bool = False) -> Dict[str, Any]:
         "realized": {"windows": cone["windows"], "n_returns": cone["n_returns"]},
         "implied": implied,
         "confronto": confronto,
-        "basis": BASIS,
+        "basis": _message(BASIS,
+                          "realized: daily simple returns on yfinance closing prices " + HISTORY_PERIOD
+                          + ", rolling sample standard deviation (ddof=1), annualized by sqrt(252) — "
+                          "same convention as vol_surface rv30; linearly interpolated percentiles; "
+                          "comparison = % of realized values <= matched expiry ATM IV "
+                          "(calendar days converted to trading days x252/365, then nearest window)"),
         "src": "vol_cone (closes yfinance; implied vol_surface/Polygon)",
     }
     # cache SOLO se completo: con implied.error il prossimo giro ritenta Polygon
@@ -233,4 +248,4 @@ def compute_vol_cone(ticker: str, force: bool = False) -> Dict[str, Any]:
         _CACHE[ck] = {"ts": now, "data": out}
     else:
         _log(f"{ticker}: implied non disponibile ({implied['error']}) — non cachato")
-    return out
+    return render_payload(out)

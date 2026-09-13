@@ -1,4 +1,6 @@
 """DCF-Q1 evidence beside resolved inputs; generated snapshot, not a new DCF."""
+from bellomberg.core.language import scoped_language, text as _lt
+from bellomberg.reporting.i18n_excel import label as _xt
 from math import ceil, isfinite
 
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -7,6 +9,7 @@ from openpyxl.utils import get_column_letter
 from bellomberg.valuation.dcf_quality import MATERIAL_DRIVERS, _finite
 
 
+@scoped_language
 def append_sector_quality_sheet(wb, payload):
     """Expose the same method/acquisition decision before any draft figures."""
     from bellomberg.valuation.dcf_quality import assess_valuation_usability
@@ -19,15 +22,15 @@ def append_sector_quality_sheet(wb, payload):
     for column, width in (("A", 26), ("B", 27), ("C", 90)):
         ws.column_dimensions[column].width = width
     rows = [
-        ["VALUTAZIONE SETTORIALE", payload.get("ticker"), payload.get("company")],
-        ["Fair value", "UTILIZZABILE" if usability["usable"] else "NON UTILIZZABILE / BOZZA",
-         "; ".join(usability["reasons"]) or "Controlli del contratto superati"],
-        ["Metodo", decision.get("method_id"), decision.get("rationale")],
-        ["Decisione / supporto", decision.get("decision_status"), decision.get("support_status")],
-        ["Requisiti", decision.get("requirements_status"), ", ".join(decision.get("missing_fields") or [])],
-        ["Snapshot / generazione", payload.get("snapshot_id"), payload.get("generation_id")],
-        ["Nota", "Dati e ipotesi distinti", "I calcoli nei fogli successivi non sono FV validati se questa scheda dichiara BOZZA."],
-        ["FONTE / CAMPO", "STATO / DATA", "DETTAGLIO"],
+        [_xt("VALUTAZIONE SETTORIALE"), payload.get("ticker"), payload.get("company")],
+        ["Fair value", _xt("UTILIZZABILE") if usability["usable"] else _xt("NON UTILIZZABILE / BOZZA"),
+         "; ".join(usability["reasons"]) or _xt("Controlli del contratto superati")],
+        [_xt("Metodo"), decision.get("method_id"), decision.get("rationale")],
+        [_xt("Decisione / supporto"), decision.get("decision_status"), decision.get("support_status")],
+        [_xt("Requisiti"), decision.get("requirements_status"), ", ".join(decision.get("missing_fields") or [])],
+        [_xt("Snapshot / generazione"), payload.get("snapshot_id"), payload.get("generation_id")],
+        [_xt("Nota"), _xt("Dati e ipotesi distinti"), _xt("I calcoli nei fogli successivi non sono FV validati se questa scheda dichiara BOZZA.")],
+        [_xt("FONTE / CAMPO"), _xt("STATO / DATA"), _xt("DETTAGLIO")],
     ]
     for source, value in bundle.get("case", {}).get("sources", {}).items():
         rows.append([source, str(value.get("status")) + " / " + str(value.get("as_of") or "n.d."),
@@ -45,6 +48,7 @@ def append_sector_quality_sheet(wb, payload):
     return ws
 
 
+@scoped_language
 def append_quality_sheet(wb, report):
     """Append the documentary report; current scenario edits visibly invalidate it.
 
@@ -81,15 +85,15 @@ def append_quality_sheet(wb, report):
 
     snap = report.get("snapshot") or {}
     bridge = report.get("revision_bridge") or {}
-    line(1, f"{snap.get('ticker') or 'DCF'} | ASSUNZIONI E REVISIONI", True)
-    line(2, f"{report.get('status', 'n.d.')} | Data analisi: {snap.get('as_of') or 'n.d.'}")
-    line(3, report.get("note") or "La completezza documentale non certifica il fair value.")
-    line(4, "Snapshot alla generazione: modifiche ai driver richiedono rivalutazione delle prove e del ponte.")
-    line(5, "PONTE DELLE REVISIONI", True)
-    line(6, bridge.get("note") or "Ponte n.d.: nessuna attribuzione disponibile.")
+    line(1, _lt(f"{snap.get('ticker') or 'DCF'} | ASSUNZIONI E REVISIONI",f"{snap.get('ticker') or 'DCF'} | ASSUMPTIONS AND REVISIONS"), True)
+    line(2, _lt(f"{report.get('status', 'n.d.')} | Data analisi: {snap.get('as_of') or 'n.d.'}",f"{report.get('status', 'n.d.')} | Analysis date: {snap.get('as_of') or 'n.d.'}"))
+    line(3, report.get("note") or _xt("La completezza documentale non certifica il fair value."))
+    line(4, _xt("Snapshot alla generazione: modifiche ai driver richiedono rivalutazione delle prove e del ponte."))
+    line(5, _xt("PONTE DELLE REVISIONI"), True)
+    line(6, bridge.get("note") or _xt("Ponte n.d.: nessuna attribuzione disponibile."))
     row = 7
     if bridge.get("status") == "CALCOLATO":
-        headers = ["Driver", "FV prima", "FV dopo", "Effetto FV"]
+        headers = ["Driver", _xt("FV prima"), _xt("FV dopo"), _xt("Effetto FV")]
         for col, label in enumerate(headers, 1):
             text(row, col, label, True)
         row += 1
@@ -98,44 +102,37 @@ def append_quality_sheet(wb, report):
             for col, key in enumerate(("previous", "current", "delta"), 2):
                 ws.cell(row, col, step[key]).number_format = "#,##0.00"
             row += 1
-        line(row, f"Valuta {bridge.get('currency')} | delta {bridge.get('delta')} | "
-             f"residuo {bridge.get('residual')} | valori fotografati alla generazione")
+        line(row, _lt(f"Valuta {bridge.get('currency')} | delta {bridge.get('delta')} | residuo {bridge.get('residual')} | valori fotografati alla generazione",f"Currency {bridge.get('currency')} | delta {bridge.get('delta')} | residual {bridge.get('residual')} | values captured at generation"))
     else:
-        line(row, "EFFETTO SUL FAIR VALUE: n.d. — " + str(bridge.get("reason") or "dati insufficienti"))
+        line(row, _xt("EFFETTO SUL FAIR VALUE: n.d. — ") + str(bridge.get("reason") or _xt("dati insufficienti")))
     row += 1
     if report.get("previous_snapshot_note"):
         line(row, report["previous_snapshot_note"])
         row += 1
     for rev in report.get("revision_rows", []):
         operator = {"minimum": ">=", "maximum": "<=", "point": "="}.get(rev.get("value_type"), "n.d.")
-        line(row, f"{rev.get('metric', 'n.d.')} | {rev.get('period', 'n.d.')} | {rev.get('basis', 'n.d.')} | "
-             f"{rev.get('unit', 'n.d.')}\n"
-             f"{rev.get('previous_date', 'n.d.')} {operator} {rev.get('previous_value', 'n.d.')} -> "
-             f"{rev.get('source_date', 'n.d.')} {operator} {rev.get('current_value', 'n.d.')}\n"
-             f"{rev.get('rationale', 'Motivazione n.d.')}\n"
-             f"Prima: {rev.get('previous_source', 'n.d.')}\nDopo: {rev.get('source', 'n.d.')}\n"
-             f"Buchi: {'; '.join(rev.get('issues') or []) or 'nessuno nel contratto'}")
+        line(row, _lt(f"{rev.get('metric', 'n.d.')} | {rev.get('period', 'n.d.')} | {rev.get('basis', 'n.d.')} | {rev.get('unit', 'n.d.')}\n{rev.get('previous_date', 'n.d.')} {operator} {rev.get('previous_value', 'n.d.')} -> {rev.get('source_date', 'n.d.')} {operator} {rev.get('current_value', 'n.d.')}\n{rev.get('rationale', _xt('Motivazione n.d.'))}\nPrima: {rev.get('previous_source', 'n.d.')}\nDopo: {rev.get('source', 'n.d.')}\nBuchi: {'; '.join(rev.get('issues') or []) or _xt('nessuno nel contratto')}",f"{rev.get('metric', 'n.d.')} | {rev.get('period', 'n.d.')} | {rev.get('basis', 'n.d.')} | {rev.get('unit', 'n.d.')}\n{rev.get('previous_date', 'n.d.')} {operator} {rev.get('previous_value', 'n.d.')} -> {rev.get('source_date', 'n.d.')} {operator} {rev.get('current_value', 'n.d.')}\n{rev.get('rationale', _xt('Motivazione n.d.'))}\nBefore: {rev.get('previous_source', 'n.d.')}\nAfter: {rev.get('source', 'n.d.')}\nGaps: {'; '.join(rev.get('issues') or []) or _xt('nessuno nel contratto')}"))
         row += 1
     # Global errors (periods, unexpected records, unsupported controls) must be
     # visible too; driver-prefixed duplicates already appear next to each input.
     prefixes = tuple(f"{r.get('scenario')}/{r.get('driver')}: " for r in report.get("rows", []))
     for issue in report.get("issues", []):
         if not str(issue).startswith(prefixes):
-            line(row, "BUCO: " + str(issue))
+            line(row, _xt("BUCO: ") + str(issue))
             row += 1
     for name, rationale in (report.get("scenario_rationale") or {}).items():
         line(row, f"SCENARIO {name}: {rationale}")
         row += 1
     controls = report.get("model_controls") or {}
     if controls:
-        line(row, "CONTROLLI DEL MODELLO (snapshot)", True)
+        line(row, _xt("CONTROLLI DEL MODELLO (snapshot)"), True)
         row += 1
         for key, value in controls.items():
             line(row, f"{key}: {value}")
             row += 1
-    line(row, "DRIVER RISOLTI E PROVE DELLE ASSUNZIONI", True)
+    line(row, _xt("DRIVER RISOLTI E PROVE DELLE ASSUNZIONI"), True)
     row += 1
-    headers = ["Scenario", "Driver"] + (snap.get("forecast_years") or ["Y1", "Y2", "Y3", "Y4", "Y5"]) + ["Confronto col foglio"]
+    headers = ["Scenario", "Driver"] + (snap.get("forecast_years") or ["Y1", "Y2", "Y3", "Y4", "Y5"]) + [_xt("Confronto col foglio")]
     for col, label in enumerate(headers, 1):
         text(row, col, label, True)
     row += 1
@@ -173,13 +170,7 @@ def append_quality_sheet(wb, report):
         ws.row_dimensions[row].height = 32
         row += 1
         evidence = item.get("evidence") or {}
-        description = (f"{evidence.get('kind', 'Fonte n.d.')} | metrica: {evidence.get('metric', 'n.d.')} | "
-            f"base: {evidence.get('basis', 'n.d.')}\n"
-            f"Fonte: {evidence.get('source', item.get('provenance') or 'n.d.')}\n"
-            f"Data: {evidence.get('source_date', 'n.d.')} | valida fino: {evidence.get('valid_until', 'n.d.')} | "
-            f"riferimento: {evidence.get('source_locator', 'n.d.')}\n"
-            f"Motivazione: {evidence.get('rationale', 'n.d.')}\n"
-            f"Buchi: {'; '.join(item.get('issues') or []) or 'nessuno nel contratto'}")
+        description = (_lt(f"{evidence.get('kind', _xt('Fonte n.d.'))} | metrica: {evidence.get('metric', 'n.d.')} | base: {evidence.get('basis', 'n.d.')}\nFonte: {evidence.get('source', item.get('provenance') or 'n.d.')}\nData: {evidence.get('source_date', 'n.d.')} | valida fino: {evidence.get('valid_until', 'n.d.')} | riferimento: {evidence.get('source_locator', 'n.d.')}\nMotivazione: {evidence.get('rationale', 'n.d.')}\nBuchi: {'; '.join(item.get('issues') or []) or _xt('nessuno nel contratto')}",f"{evidence.get('kind', _xt('Fonte n.d.'))} | metric: {evidence.get('metric', 'n.d.')} | basis: {evidence.get('basis', 'n.d.')}\nSource: {evidence.get('source', item.get('provenance') or 'n.d.')}\nDate: {evidence.get('source_date', 'n.d.')} | valid until: {evidence.get('valid_until', 'n.d.')} | reference: {evidence.get('source_locator', 'n.d.')}\nRationale: {evidence.get('rationale', 'n.d.')}\nGaps: {'; '.join(item.get('issues') or []) or _xt('nessuno nel contratto')}"))
         line(row, description)
         row += 1
     ws["A4"] = (f'=IF(COUNTIF(H{first_driver_row}:H{row},"MODIFICATO")>0,'
@@ -244,13 +235,13 @@ def _append_managed_care_quality(wb, report):
                 next_row+=1
         return base_row
     years = (report.get('snapshot') or {}).get('forecast_years') or []
-    append(['ASSUNZIONI E REVISIONI', report.get('status'), report.get('note')])
-    append(['Snapshot alla generazione; variazioni agli input richiedono un nuovo calcolo e nuovi controlli.'])
+    append([_xt('ASSUNZIONI E REVISIONI'), report.get('status'), report.get('note')])
+    append([_xt('Snapshot alla generazione; variazioni agli input richiedono un nuovo calcolo e nuovi controlli.')])
     for issue in report.get('issues', []):
-        append(['BUCO', str(issue)])
+        append([_xt('BUCO'), str(issue)])
     for name, rationale in (report.get('scenario_rationale') or {}).items():
         append(['SCENARIO', name, rationale])
-    append(['Scenario', 'Driver'] + years + ['Unita / periodo / entita'])
+    append(['Scenario', 'Driver'] + years + [_xt('Unita / periodo / entita')])
     for item in report.get('rows', []):
         values = item.get('values')
         values = values if isinstance(values, list) else [values]
@@ -266,10 +257,10 @@ def _append_managed_care_quality(wb, report):
             ' | '.join(str(evidence.get(k) or 'n.d.') for k in ('unit', 'period', 'entity'))])
         for col in range(3, 3 + len(data)):
             ws.cell(data_row, col).number_format = '0.00%' if evidence.get('unit') == 'ratio' else '#,##0.0000'
-        append(['Fonte', evidence.get('source'), evidence.get('source_date'), evidence.get('valid_until'),
+        append([_xt('Fonte'), evidence.get('source'), evidence.get('source_date'), evidence.get('valid_until'),
                    evidence.get('basis'), evidence.get('rationale')])
     for revision in report.get('revision_rows', []):
-        append(['Revisione', json.dumps(revision, ensure_ascii=False)])
+        append([_xt('Revisione'), json.dumps(revision, ensure_ascii=False)])
     for column in range(1, max(len(years) + 4, ws.max_column + 1)):
         ws.column_dimensions[get_column_letter(column)].width = 25 if column > 2 else 35
     for row in ws:

@@ -12,6 +12,7 @@ Uso:
 import os
 import re
 from datetime import datetime
+from bellomberg.reporting.i18n import label as _t, number as _n, localized, date_label
 from bellomberg.storage.memory_db import REPORT_DIR   # B4 (02/09): report/ ancorato al repo
 from bellomberg.reporting.style_research import (  # #178: stile research light (era style_citadel dark)
     COLORS, SEQ, apply_citadel_style, add_branding, add_footer,
@@ -58,6 +59,7 @@ def _save(fig, name):
 # CHART GENERATORS
 # ============================================================
 
+@localized
 def chart_portfolio_treemap(positions):
     """Allocation treemap stile Citadel."""
     if not MPL_AVAILABLE or not positions:
@@ -87,11 +89,12 @@ def chart_portfolio_treemap(positions):
         ax.pie(sizes, labels=labels, colors=colors, autopct="",
                wedgeprops={"edgecolor": COLORS["bg"], "linewidth": 2},
                textprops={"fontsize": 9, "color": COLORS["fg"]})
-    add_branding(fig, "Portfolio Allocation - Treemap", "Weight % per position")
+    add_branding(fig, _t("Portfolio Allocation - Treemap"), _t("Weight % per position"))
     add_footer(fig)
     return _save(fig, "01_portfolio_treemap")
 
 
+@localized
 def chart_pl_bar(positions):
     """P/L EUR per posizione."""
     if not MPL_AVAILABLE or not positions:
@@ -111,12 +114,13 @@ def chart_pl_bar(positions):
         ax.text(v, i, " " + fmt_eur(v), va="center", fontsize=8, fontweight="bold",
                 color=COLORS["green"] if v >= 0 else COLORS["red"])
     ax.axvline(0, color=COLORS["muted"], linewidth=0.6)
-    ax.set_xlabel("P/L (EUR)")
-    add_branding(fig, "P/L by Position", "EUR - sorted descending")
+    ax.set_xlabel(_t("P/L (EUR)"))
+    add_branding(fig, _t("P/L by Position"), _t("EUR - sorted descending"))
     add_footer(fig)
     return _save(fig, "02_pl_per_position")
 
 
+@localized
 def chart_correlation_heatmap(correlation_data, tickers):
     """Heatmap correlazione top 10 - dati estratti da Quant blackboard se presenti."""
     if not MPL_AVAILABLE or not correlation_data or not tickers:
@@ -145,11 +149,12 @@ def chart_correlation_heatmap(correlation_data, tickers):
                     ha="center", va="center", color="black" if abs(matrix[i,j]) > 0.5 else COLORS["fg"],
                     fontsize=8)
     plt.colorbar(im, ax=ax, label="Correlation")
-    add_branding(fig, "Correlation Matrix", "Pair-wise correlations - 6mo returns")
+    add_branding(fig, _t("Correlation Matrix"), _t("Pair-wise correlations - 6mo returns"))
     add_footer(fig)
     return _save(fig, "03_correlation_heatmap")
 
 
+@localized
 def chart_yield_curve(macro_data):
     """Yield curve Fed/2Y/10Y."""
     if not MPL_AVAILABLE or not macro_data:
@@ -172,13 +177,14 @@ def chart_yield_curve(macro_data):
         ax.annotate("{:.2f}%".format(v), xy=(i, v), xytext=(0, 14),
                     textcoords="offset points", ha="center", fontweight="bold",
                     color=COLORS["gold_light"], fontsize=11)
-    ax.set_ylabel("Yield (%)")
+    ax.set_ylabel(_t("Yield (%)"))
     status = macro_data.get("yield_curve_status", "")
-    add_branding(fig, "US Yield Curve", status)
+    add_branding(fig, _t("US Yield Curve"), status)
     add_footer(fig)
     return _save(fig, "04_yield_curve")
 
 
+@localized
 def chart_macro_dashboard_bars(macro_data):
     """Bar chart orizzontale indicatori macro key."""
     if not MPL_AVAILABLE or not macro_data:
@@ -203,11 +209,12 @@ def chart_macro_dashboard_bars(macro_data):
     ax.barh(labels, vals, color=COLORS["cyan"], alpha=0.82, edgecolor=COLORS["cyan_dark"], linewidth=1)
     for i, v in enumerate(vals):
         ax.text(v, i, "  {:.2f}".format(v), va="center", fontweight="bold", fontsize=10, color=COLORS["gold_light"])
-    add_branding(fig, "Macro Indicators Dashboard", "FRED St. Louis Fed - latest readings")
+    add_branding(fig, _t("Macro Indicators Dashboard"), _t("FRED St. Louis Fed - latest readings"))
     add_footer(fig)
     return _save(fig, "05_macro_indicators")
 
 
+@localized
 def chart_concentration_top_positions(positions):
     """Bar verticale: top 10 posizioni per peso."""
     if not MPL_AVAILABLE or not positions:
@@ -223,15 +230,16 @@ def chart_concentration_top_positions(positions):
     for b, w in zip(bars, weights):
         ax.text(b.get_x() + b.get_width()/2, b.get_height(), "{:.1f}%".format(w),
                 ha="center", va="bottom", color=COLORS["gold_light"], fontweight="bold", fontsize=9)
-    ax.set_ylabel("Weight %")
-    ax.axhline(10, color=COLORS["red"], linewidth=0.8, linestyle="--", alpha=0.7, label="10% concentration threshold")
-    ax.axhline(20, color=COLORS["red"], linewidth=1.2, linestyle="--", alpha=0.9, label="20% high concentration")
+    ax.set_ylabel(_t("Weight %"))
+    ax.axhline(10, color=COLORS["red"], linewidth=0.8, linestyle="--", alpha=0.7, label=_t("10% concentration threshold"))
+    ax.axhline(20, color=COLORS["red"], linewidth=1.2, linestyle="--", alpha=0.9, label=_t("20% high concentration"))
     ax.legend()
-    add_branding(fig, "Top 10 Positions - Concentration Check", "Single-position weights vs threshold")
+    add_branding(fig, _t("Top 10 Positions - Concentration Check"), _t("Single-position weights vs threshold"))
     add_footer(fig)
     return _save(fig, "06_concentration_top")
 
 
+@localized
 def chart_macro_evolution(macro_data, indicator_key, indicator_label):
     """Time series storia 12 mesi per UN indicatore (es. CPI, VIX)."""
     if not MPL_AVAILABLE or not macro_data:
@@ -248,11 +256,12 @@ def chart_macro_evolution(macro_data, indicator_key, indicator_label):
     ax.set_xticks([0])
     ax.set_xticklabels([ind.get("date", "")[:10]])
     ax.set_ylabel(indicator_label)
-    add_branding(fig, indicator_label + " - Latest", ind.get("description", ""))
+    add_branding(fig, indicator_label + _t(" - Latest"), ind.get("description", ""))
     add_footer(fig)
     return _save(fig, "07_macro_evol_" + indicator_key)
 
 
+@localized
 def chart_options_oi_summary(options_dict):
     """Sintesi OI calls vs puts per ogni ticker analizzato."""
     if not MPL_AVAILABLE or not options_dict:
@@ -279,13 +288,14 @@ def chart_options_oi_summary(options_dict):
     ax.bar(x + w/2, puts, width=w, color=COLORS["red"], label="Put OI", alpha=0.85)
     ax.set_xticks(x)
     ax.set_xticklabels(tickers)
-    ax.set_ylabel("Open Interest")
+    ax.set_ylabel(_t("Open Interest"))
     ax.legend()
-    add_branding(fig, "Options Open Interest", "Call vs Put per ticker analyzed")
+    add_branding(fig, _t("Options Open Interest"), _t("Call vs Put per ticker analyzed"))
     add_footer(fig)
     return _save(fig, "08_options_oi")
 
 
+@localized
 def chart_options_iv_pc(options_dict):
     """ATM IV + Put/Call ratio per ticker."""
     if not MPL_AVAILABLE or not options_dict:
@@ -308,23 +318,24 @@ def chart_options_iv_pc(options_dict):
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
     ax1.bar(x, ivs, color=COLORS["gold"], alpha=0.85)
     ax1.set_ylabel("ATM IV (%)")
-    ax1.set_title("ATM Implied Volatility", color=COLORS["gold"], fontweight="bold")
+    ax1.set_title(_t("ATM Implied Volatility"), color=COLORS["gold"], fontweight="bold")
     for xi, vi in zip(x, ivs):
         ax1.text(xi, vi, "{:.1f}%".format(vi), ha="center", va="bottom", color=COLORS["gold_light"], fontsize=9)
     pc_colors = [COLORS["red"] if p > 1 else COLORS["green"] for p in pcs]
     ax2.bar(x, pcs, color=pc_colors, alpha=0.85)
-    ax2.axhline(1.0, color=COLORS["white"], linestyle="--", linewidth=1, alpha=0.7, label="Neutral 1.0")
-    ax2.set_ylabel("Put/Call OI Ratio")
-    ax2.set_title("Put/Call Ratio (>1 = bearish positioning)", color=COLORS["gold"], fontweight="bold")
+    ax2.axhline(1.0, color=COLORS["white"], linestyle="--", linewidth=1, alpha=0.7, label=_t("Neutral 1.0"))
+    ax2.set_ylabel(_t("Put/Call OI Ratio"))
+    ax2.set_title(_t("Put/Call Ratio (>1 = bearish positioning)"), color=COLORS["gold"], fontweight="bold")
     ax2.set_xticks(x); ax2.set_xticklabels(tickers)
     ax2.legend()
     for xi, vi in zip(x, pcs):
         ax2.text(xi, vi, "{:.2f}".format(vi), ha="center", va="bottom", color=COLORS["fg"], fontsize=9)
-    fig.suptitle("Options Positioning Snapshot", color=COLORS["gold"], fontweight="bold", fontsize=15)
+    fig.suptitle(_t("Options Positioning Snapshot"), color=COLORS["gold"], fontweight="bold", fontsize=15)
     add_footer(fig)
     return _save(fig, "09_options_iv_pc")
 
 
+@localized
 def chart_options_max_pain_distance(options_dict):
     """Distance spot vs max pain per ticker."""
     if not MPL_AVAILABLE or not options_dict:
@@ -348,12 +359,13 @@ def chart_options_max_pain_distance(options_dict):
     for i, v in enumerate(dists):
         ax.text(v, i, "  {:+.1f}%".format(v), va="center", color=COLORS["gold_light"], fontweight="bold", fontsize=9)
     ax.axvline(0, color=COLORS["muted"], linewidth=0.8)
-    ax.set_xlabel("Distance Spot vs Max Pain (%)")
-    add_branding(fig, "Max Pain Gravitational Pull", "Negative = spot above max pain (gravity down)")
+    ax.set_xlabel(_t("Distance Spot vs Max Pain (%)"))
+    add_branding(fig, _t("Max Pain Gravitational Pull"), _t("Negative = spot above max pain (gravity down)"))
     add_footer(fig)
     return _save(fig, "10_max_pain")
 
 
+@localized
 def chart_polymarket_probs(politics_report_text):
     """Estrai probabilita Polymarket dal report Politics."""
     if not MPL_AVAILABLE or not politics_report_text:
@@ -385,8 +397,8 @@ def chart_polymarket_probs(politics_report_text):
         ax.text(p, b.get_y() + b.get_height()/2, "  {}%".format(p),
                 va="center", color=COLORS["gold_light"], fontweight="bold", fontsize=10)
     ax.set_xlim(0, 100)
-    ax.set_xlabel("Implied Probability %")
-    add_branding(fig, "Polymarket Implied Probabilities", "From Politics Specialist report")
+    ax.set_xlabel(_t("Implied Probability %"))
+    add_branding(fig, _t("Polymarket Implied Probabilities"), _t("From Politics Specialist report"))
     add_footer(fig)
     return _save(fig, "11_polymarket")
 
@@ -397,12 +409,13 @@ def _bucket_settori(positions):
     for posizione in positions:
         settore = (posizione.get("sector") or posizione.get("settore") or "").strip()
         if not settore:
-            settore = "n.d. (settore assente)"
+            settore = _t("n.d. (settore assente)")
         peso = float(posizione.get("peso_pct") or 0)
         buckets[settore] = buckets.get(settore, 0.0) + peso
     return buckets
 
 
+@localized
 def chart_sector_breakdown(positions):
     """Breakdown per il settore presente nei dati della posizione."""
     if not MPL_AVAILABLE or not positions:
@@ -423,11 +436,12 @@ def chart_sector_breakdown(positions):
     for at in autotexts:
         at.set_color(COLORS["bg"])
         at.set_fontweight("bold")
-    add_branding(fig, "Sector Breakdown", "Aggregate weight from position sector data")
+    add_branding(fig, _t("Sector Breakdown"), _t("Aggregate weight from position sector data"))
     add_footer(fig)
     return _save(fig, "12_geo_breakdown")
 
 
+@localized
 def chart_risk_summary_panel(quant_report_text, portfolio_data):
     """Panel sintetico delle metriche risk estratte dal Quant report."""
     if not MPL_AVAILABLE:
@@ -458,14 +472,15 @@ def chart_risk_summary_panel(quant_report_text, portfolio_data):
     for i, v in enumerate(vals):
         ax.text(v, i, "  {:+.2f}".format(v), va="center", color=COLORS["gold_light"], fontweight="bold", fontsize=10)
     ax.axvline(0, color=COLORS["muted"], linewidth=0.8)
-    ax.axvline(1.0, color=COLORS["green"], linewidth=0.6, linestyle="--", alpha=0.7, label="Sharpe 1.0 baseline")
+    ax.axvline(1.0, color=COLORS["green"], linewidth=0.6, linestyle="--", alpha=0.7, label=_t("Sharpe 1.0 baseline"))
     ax.legend()
-    ax.set_xlabel("Sharpe Ratio (6mo annualized)")
-    add_branding(fig, "Sharpe Ratio per Position", "From Quant Specialist analysis")
+    ax.set_xlabel(_t("Sharpe Ratio (6mo annualized)"))
+    add_branding(fig, _t("Sharpe Ratio per Position"), _t("From Quant Specialist analysis"))
     add_footer(fig)
     return _save(fig, "13_sharpe_positions")
 
 
+@localized
 def chart_news_count(news_report_text):
     """Sintesi conteggio news per ticker estratti dal News report."""
     if not MPL_AVAILABLE or not news_report_text:
@@ -487,8 +502,8 @@ def chart_news_count(news_report_text):
     ax.barh(labels, counts, color=COLORS["cyan"], alpha=0.85)
     for i, v in enumerate(counts):
         ax.text(v, i, "  " + str(v), va="center", color=COLORS["gold_light"], fontweight="bold")
-    ax.set_xlabel("Mentions in News Report")
-    add_branding(fig, "News Coverage Density", "Top tickers mentioned in News Specialist report")
+    ax.set_xlabel(_t("Mentions in News Report"))
+    add_branding(fig, _t("News Coverage Density"), _t("Top tickers mentioned in News Specialist report"))
     add_footer(fig)
     return _save(fig, "14_news_density")
 
@@ -497,6 +512,7 @@ def chart_news_count(news_report_text):
 # PDF COMPOSITION
 # ============================================================
 
+@localized
 def build_quant_appendix(blackboard=None, portfolio_data=None, macro_data=None,
                         options_data_dict=None, correlation_data=None,
                         output_path=None):
@@ -546,26 +562,26 @@ def build_quant_appendix(blackboard=None, portfolio_data=None, macro_data=None,
         except Exception as e:
             print("  [FAIL] " + label + ": " + str(e))
 
-    _try("Portfolio Treemap", chart_portfolio_treemap, positions)
-    _try("Concentration Top", chart_concentration_top_positions, positions)
-    _try("Sector Breakdown", chart_sector_breakdown, positions)
-    _try("P/L per Position", chart_pl_bar, positions)
-    _try("Sharpe Panel", chart_risk_summary_panel, quant_text, portfolio_data)
-    _try("Correlation Heatmap", chart_correlation_heatmap, correlation_data, [p.get("ticker") for p in positions[:8]])
-    _try("Yield Curve", chart_yield_curve, macro_data)
-    _try("Macro Indicators Bars", chart_macro_dashboard_bars, macro_data)
-    _try("Options IV + P/C", chart_options_iv_pc, options_data_dict)
-    _try("Options OI Summary", chart_options_oi_summary, options_data_dict)
-    _try("Max Pain Distance", chart_options_max_pain_distance, options_data_dict)
-    _try("Polymarket Probs", chart_polymarket_probs, politics_text)
-    _try("News Density", chart_news_count, news_text)
+    _try(_t("Portfolio Treemap"), chart_portfolio_treemap, positions)
+    _try(_t("Concentration Top"), chart_concentration_top_positions, positions)
+    _try(_t("Sector Breakdown"), chart_sector_breakdown, positions)
+    _try(_t("P/L per Position"), chart_pl_bar, positions)
+    _try(_t("Sharpe Panel"), chart_risk_summary_panel, quant_text, portfolio_data)
+    _try(_t("Correlation Heatmap"), chart_correlation_heatmap, correlation_data, [p.get("ticker") for p in positions[:8]])
+    _try(_t("Yield Curve"), chart_yield_curve, macro_data)
+    _try(_t("Macro Indicators Bars"), chart_macro_dashboard_bars, macro_data)
+    _try(_t("Options IV + P/C"), chart_options_iv_pc, options_data_dict)
+    _try(_t("Options OI Summary"), chart_options_oi_summary, options_data_dict)
+    _try(_t("Max Pain Distance"), chart_options_max_pain_distance, options_data_dict)
+    _try(_t("Polymarket Probs"), chart_polymarket_probs, politics_text)
+    _try(_t("News Density"), chart_news_count, news_text)
 
     # Compose PDF
     print("[CHARTS] Composing PDF appendix...")
     doc = SimpleDocTemplate(output_path, pagesize=A4,
                             leftMargin=1.5*cm, rightMargin=1.5*cm,
                             topMargin=1.5*cm, bottomMargin=1.5*cm,
-                            title="Quantitative Appendix - Weekly Research")
+                            title=_t("Quantitative Appendix - Weekly Research"))
 
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("t", parent=styles["Title"], fontSize=22, leading=26,
@@ -583,18 +599,18 @@ def build_quant_appendix(blackboard=None, portfolio_data=None, macro_data=None,
 
     story = []
     story.append(Spacer(1, 3*cm))
-    story.append(Paragraph("Quantitative Appendix", title_style))
-    story.append(Paragraph(datetime.now().strftime("%A, %d %B %Y"), subtitle_style))
-    story.append(Paragraph("Multi-Agent Consigliere - All-charts dashboard", subtitle_style))
+    story.append(Paragraph(_t("Quantitative Appendix"), title_style))
+    story.append(Paragraph(date_label(weekday=True), subtitle_style))
+    story.append(Paragraph(_t("Multi-Agent Consigliere - All-charts dashboard"), subtitle_style))
     story.append(PageBreak())
 
     # Gruppi per pagina
     sections = {
-        "Portfolio Composition": ["Portfolio Treemap", "Concentration Top", "Sector Breakdown", "P/L per Position"],
-        "Quantitative Risk": ["Sharpe Panel", "Correlation Heatmap"],
-        "Macro Snapshot": ["Yield Curve", "Macro Indicators Bars"],
-        "Options Positioning": ["Options IV + P/C", "Options OI Summary", "Max Pain Distance"],
-        "News & Politics": ["Polymarket Probs", "News Density"],
+        _t("Portfolio Composition"): [_t("Portfolio Treemap"), _t("Concentration Top"), _t("Sector Breakdown"), _t("P/L per Position")],
+        _t("Quantitative Risk"): [_t("Sharpe Panel"), _t("Correlation Heatmap")],
+        _t("Macro Snapshot"): [_t("Yield Curve"), _t("Macro Indicators Bars")],
+        _t("Options Positioning"): [_t("Options IV + P/C"), _t("Options OI Summary"), _t("Max Pain Distance")],
+        _t("News & Politics"): [_t("Polymarket Probs"), _t("News Density")],
     }
 
     for section_name, chart_labels in sections.items():
@@ -614,7 +630,7 @@ def build_quant_appendix(blackboard=None, portfolio_data=None, macro_data=None,
             except Exception as e:
                 print("  [PDF EMBED FAIL] " + label + ": " + str(e))
         if added == 0:
-            story.append(Paragraph("[No data available for this section]", caption_style))
+            story.append(Paragraph(_t("[No data available for this section]"), caption_style))
         story.append(PageBreak())
 
     # Background dark per ogni pagina
@@ -625,8 +641,8 @@ def build_quant_appendix(blackboard=None, portfolio_data=None, macro_data=None,
         canvas.setFont("Helvetica", 8)
         canvas.setFillColor(rl_colors.HexColor(COLORS["muted"]))
         canvas.drawCentredString(A4[0]/2, 0.7*cm,
-                                  "Quantitative Appendix - " + datetime.now().strftime("%d/%m/%Y")
-                                  + "  -  Page " + str(doc_obj.page))
+                                  _t("Quantitative Appendix - ") + datetime.now().strftime("%d/%m/%Y")
+                                  + _t("  -  Page ") + str(doc_obj.page))
         canvas.restoreState()
 
     doc.build(story, onFirstPage=add_dark_bg, onLaterPages=add_dark_bg)

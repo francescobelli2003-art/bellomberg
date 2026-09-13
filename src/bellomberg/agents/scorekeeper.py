@@ -216,10 +216,18 @@ def compute_scorecard(db=None, force: bool = False) -> Dict[str, Any]:
     cutoff_new = (datetime.now() - timedelta(days=MIN_AGE_DAYS)).isoformat()
     cutoff_old = (datetime.now() - timedelta(days=LOOKBACK_DAYS)).isoformat()
     with db._conn() as conn:
+        # audit 11/09 (Fable 5.1): le decisioni di una run marcata DUPLICATO (memory_db.
+        # MARCATORE_DUPLICATO in outcome_notes) non entrano nel track record: doppierebbero
+        # le call della stessa settimana (memo #54 ripeteva il #53 sette ore dopo). Il
+        # filtro si applica solo se la colonna esiste (schema minimo dei banchi offline:
+        # senza colonna non puo' esistere nessun marcatore).
+        _colonne = {r[1] for r in conn.execute("PRAGMA table_info(decisions)").fetchall()}
+        _filtro_dup = ("AND COALESCE(outcome_notes, '') NOT LIKE '[DUPLICATO%' "
+                       if "outcome_notes" in _colonne else "")
         rows = conn.execute(
             "SELECT id, memo_id, timestamp, action, ticker, eur_amount, confidence, status "
             "FROM decisions WHERE ticker IS NOT NULL AND timestamp >= ? AND timestamp < ? "
-            "ORDER BY timestamp", (cutoff_old, cutoff_new)).fetchall()
+            + _filtro_dup + "ORDER BY timestamp", (cutoff_old, cutoff_new)).fetchall()
 
         details: List[Dict[str, Any]] = []
         n_unmeasurable = 0

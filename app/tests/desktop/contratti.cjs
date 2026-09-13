@@ -25,7 +25,7 @@ check(!security.isAppDocument('https://example.org/', 'file:///app/index.html'),
 check(!security.isAppDocument('http://localhost:5174/', 'http://localhost:5173/'), 'different dev origin rejected');
 check(security.apiPort(undefined) === 8765 && security.apiPort('19876') === 19876, 'explicit API port');
 for (const port of ['0', '1e4', 'NaN', '65536']) { assert.throws(() => security.apiPort(port)); checks++; }
-const { portfolioValues } = loadModule('src/lib/portfolio-values.ts');
+const { portfolioValues } = require('../i18n/_carica.cjs').creaCaricatore()('lib/portfolio-values.ts');
 check(portfolioValues({ cash_source: null, cash_disponibile_eur: 0, nav_total_eur: 1200 }).nav === null, 'missing cash source invalidates NAV');
 check(portfolioValues({ cash_source: 'sqlite:cash_state', cash_disponibile_eur: 0, nav_total_eur: 1200 }).cash === 0, 'measured zero preserved');
 check(portfolioValues({ cash_source: 'sqlite:cash_state', cash_disponibile_eur: null, nav_total_eur: 1200 }).nav === null, 'null is not zero');
@@ -58,8 +58,16 @@ function bind(name, scope) {
 }
 const deferred = () => { let resolve; const promise = new Promise(r => resolve = r); return { promise, resolve }; };
 const settle = () => new Promise(resolve => setImmediate(resolve));
+const { creaCaricatore, ambienteBrowser } = require('../i18n/_carica.cjs');
+ambienteBrowser();
+globalThis.window = { bellomberg: { apiUrl: 'http://synthetic.invalid' }, location: { href: 'http://synthetic.invalid/' } };
+const caricaChat = creaCaricatore();
+const language = caricaChat('i18n/lingua.ts');
+const { t: tr } = caricaChat('i18n/t.ts');
+const { requestHeaders } = caricaChat('lib/api.ts');
+const { leggiDetail } = caricaChat('lib/quota.ts');
 function chatScope() {
-  const state = { messages: [], streaming: false };
+  const state = { messages: [], streaming: false, sessionsError: null };
   const scope = {
     input: 'synthetic question', selectedAgent: { id: 'quant' }, streaming: false, messagesLoading: false, ritirato: null, activeSession: 1,
     setInput() {}, setPin() {}, setHot() {}, setActiveSession() {}, setMsgsErr() {}, setSessions() {}, setMessagesLoading() {},
@@ -67,6 +75,8 @@ function chatScope() {
     setStreaming(value) { state.streaming = value; },
     setMessages(value) { state.messages = typeof value === 'function' ? value(state.messages) : value; },
     AbortController, TextDecoder, performance, console, getSessionToken() { return null; }, clearSessionAndReload() {},
+    tr, requestHeaders, linguaCorrente: language.linguaCorrente,
+    leggiDetail, setSessionsErr(value) { state.sessionsError = value; },
     titoloDaMessaggio: text => text,
     Bellomberg: { chatStreamUrl() { return 'synthetic://not-a-network-request'; }, chatListSessions() { return Promise.resolve({ sessions: [] }); } },
   };
@@ -145,6 +155,34 @@ async function main() {
   const crlf = chatScope(); crlf.scope.fetch = () => Promise.resolve(response('event: delta\r\ndata: {"text":"complete"}\r\n\r\nevent: done\r\ndata: {"ok":true}\r\n\r\n'));
   await bind('sendMessage', crlf.scope)();
   check(crlf.state.messages[1].content === 'complete' && crlf.state.messages[1].ok === true, 'CRLF SSE parsed with final confirmation');
+
+  const frozen = chatScope(); frozen.scope.activeSession = null;
+  const creating = deferred(); let sentHeaders;
+  frozen.scope.Bellomberg.chatCreateSession = () => creating.promise;
+  frozen.scope.fetch = (_url, options) => { sentHeaders = options.headers; return Promise.resolve(response('event: meta\ndata: {"output_language":"it"}\n\nevent: done\ndata: {"ok":true}\n\n')); };
+  language.impostaLinguaCorrente('it');
+  localStorage.setItem('bellomberg_token_v1', 'synthetic-before-await');
+  const sending = bind('sendMessage', frozen.scope)();
+  language.impostaLinguaCorrente('en'); localStorage.setItem('bellomberg_token_v1', 'synthetic-after-await');
+  creating.resolve({ session_id: 9 }); await sending;
+  check(sentHeaders['X-BB-Language'] === 'it', 'chat stream language captured before session creation await');
+  check(sentHeaders['X-BB-Token'] === 'synthetic-before-await', 'authentication snapshot belongs to the same send');
+  check(frozen.state.messages[1].output_language === 'it', 'actual stream language read back from meta');
+  check(frozen.state.messages[0].output_language == null, 'user prose is not attested from the interface language');
+  const langHistory = chatScope();
+  langHistory.scope.Bellomberg.chatGetSession = () => Promise.resolve({ messages: [
+    { role: 'assistant', content: 'ORIGINAL LEGACY', output_language: null },
+    { role: 'assistant', content: 'ORIGINAL ENGLISH', output_language: 'en' },
+  ] });
+  bind('history', langHistory.scope)(); await settle();
+  check(langHistory.state.messages[0].content === 'ORIGINAL LEGACY' && langHistory.state.messages[0].output_language == null, 'legacy text and unknown language preserved');
+  check(langHistory.state.messages[1].content === 'ORIGINAL ENGLISH' && langHistory.state.messages[1].output_language === 'en', 'historical output language preserved without translating text');
+  language.impostaLinguaCorrente('it');
+  const archiveFailure = chatScope();
+  archiveFailure.scope.Bellomberg.chatListSessions = () => Promise.reject({ message: 'synthetic archive failure' });
+  archiveFailure.scope.fetch = () => Promise.resolve(response('event: done\ndata: {"ok":true}\n\n'));
+  await bind('sendMessage', archiveFailure.scope)(); await settle();
+  check(archiveFailure.state.sessionsError?.detail?.includes('synthetic archive failure'), 'archive refresh failure remains visible after a completed reply');
   console.log('release contracts: ' + checks + ' checks passed; no network, Electron, or private data');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

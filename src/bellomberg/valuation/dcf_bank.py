@@ -30,6 +30,8 @@ V4 (§9-novies n.1, 21/07):
 Interfaccia verso dcf_engine: build_bank_spec(ticker, info, wacc_inputs, ...)
 + build_bank_model(spec, output_path, ..., history=None). Robusto e guarded.
 """
+from bellomberg.core.language import scoped_language, text as _lt
+from bellomberg.reporting.i18n_excel import label as _xt
 from datetime import datetime
 from typing import Dict, Any, List
 
@@ -564,11 +566,11 @@ def _sheet_historical_bank(wb, spec, history, cor=None):
     dichiarate nel Thesis, non inventate qui (nota misurata §9-sexies n.3)."""
     ws = wb.create_sheet("Historical (banca)")
     _src = str((history or {}).get("_source") or "SEC/ESEF XBRL")
-    T(ws, "A1", f"Storico banca riga-per-riga ({_src})")
+    T(ws, "A1", _lt(f'Storico banca riga-per-riga ({_src})',f'Line-by-line bank history ({_src})'))
     if not history or history.get("error"):
-        L(ws, "A3", "Storico non disponibile per questo nome: "
+        L(ws, "A3", _xt("Storico non disponibile per questo nome: ")
           + str((history or {}).get("error", "n.d.")), italic=True, color=GREYTX)
-        L(ws, "A4", "(book value da yfinance dichiarato in Thesis; CET1/RWA = Pillar 3, fuori ESEF)",
+        L(ws, "A4", _xt("(book value da yfinance dichiarato in Thesis; CET1/RWA = Pillar 3, fuori ESEF)"),
           italic=True, color=GREYTX)
         ws.column_dimensions["A"].width = 40
         return
@@ -577,7 +579,7 @@ def _sheet_historical_bank(wb, spec, history, cor=None):
     if not years:
         # cintura (review V4): col contratto sec_xbrl/esef years non e' mai vuoto
         # senza error, ma un foglio rotto non deve far saltare il workbook
-        L(ws, "A3", "Storico senza anni (contratto inatteso): foglio vuoto dichiarato",
+        L(ws, "A3", _xt("Storico senza anni (contratto inatteso): foglio vuoto dichiarato"),
           italic=True, color=GREYTX)
         ws.column_dimensions["A"].width = 40
         return
@@ -589,24 +591,24 @@ def _sheet_historical_bank(wb, spec, history, cor=None):
     for k in ("coverage_note", "gaps", "index_note", "accounting_basis"):
         v = history.get(k)
         if v:
-            _notes.append(("BUCHI: " + "; ".join(str(x) for x in v[:3])) if k == "gaps" else str(v))
+            _notes.append((_xt("BUCHI: ") + "; ".join(str(x) for x in v[:3])) if k == "gaps" else str(v))
     if _notes:
         L(ws, "A2", " | ".join(_notes), italic=True, color=GREYTX)
-    H(ws, "A3", f"VOCE ({unit}{'m' if scale > 1 else ''})")
+    H(ws, "A3", _lt(f"VOCE ({unit}{('m' if scale > 1 else '')})",f"ITEM ({unit}{('m' if scale > 1 else '')})"))
     for i, y in enumerate(years):
         H(ws, f"{cols[i]}3", str(y))
-    ROWS = [("interest_revenue", "Interest revenue (lordo)"),
-            ("interest_expense_bank", "Interest expense"),
-            ("fee_commission_net", "Net fee & commission"),
-            ("fee_commission_income", "Fee & commission income"),
-            ("trading_income", "Trading income"),
-            ("impairment_ifrs9", "Impairment IFRS9 (costo del rischio)"),
-            ("net_income", "Net Income"),
-            ("equity", "Equity (se taggata nel filing)"),
-            ("loans_to_customers", "Loans to customers"),
-            ("loans_to_banks", "Loans to banks"),
-            ("deposits_from_customers", "Deposits from customers"),
-            ("deposits_from_banks", "Deposits from banks")]
+    ROWS = [("interest_revenue", _xt("Interest revenue (lordo)")),
+            ("interest_expense_bank", _xt("Interest expense")),
+            ("fee_commission_net", _xt("Net fee & commission")),
+            ("fee_commission_income", _xt("Fee & commission income")),
+            ("trading_income", _xt("Trading income")),
+            ("impairment_ifrs9", _xt("Impairment IFRS9 (costo del rischio)")),
+            ("net_income", _xt("Net Income")),
+            ("equity", _xt("Equity (se taggata nel filing)")),
+            ("loans_to_customers", _xt("Loans to customers")),
+            ("loans_to_banks", _xt("Loans to banks")),
+            ("deposits_from_customers", _xt("Deposits from customers")),
+            ("deposits_from_banks", _xt("Deposits from banks"))]
     r = 4
     rowmap = {}
     for key, label in ROWS:
@@ -621,12 +623,12 @@ def _sheet_historical_bank(wb, spec, history, cor=None):
         r += 1
     _extra = sorted(set(items) - {k for k, _ in ROWS})
     if _extra:
-        L(ws, f"A{r}", "(altre %d voci nel payload, leggibili via tool get_financial_history: %s)"
+        L(ws, f"A{r}", _xt("(altre %d voci nel payload, leggibili via tool get_financial_history: %s)")
           % (len(_extra), ", ".join(_extra[:6]) + ("..." if len(_extra) > 6 else "")),
           italic=True, color=GREYTX)
         r += 1
     r += 1
-    H(ws, f"A{r}", "DERIVATE (formule vive sulle righe sopra)")
+    H(ws, f"A{r}", _xt("DERIVATE (formule vive sulle righe sopra)"))
     r += 1
 
     def _has(key, i):
@@ -637,9 +639,9 @@ def _sheet_historical_bank(wb, spec, history, cor=None):
         # segno NON si normalizza (as-filed) e l'etichetta lo dice — il vecchio
         # default -1 negava la formula sotto un'etichetta "come nel filing" (falso).
         _sgn = "-" if (cor and (cor.get("sign") or 1.0) < 0) else ""
-        L(ws, f"A{r}", "Costo del rischio (bps su crediti clientela; %s)"
+        L(ws, f"A{r}", _xt("Costo del rischio (bps su crediti clientela; %s)")
           % (cor.get("sign_note") if cor else
-             "overlap <3 anni: segno NON normalizzato, come nel filing"))
+             _xt("overlap <3 anni: segno NON normalizzato, come nel filing")))
         for i in range(len(years)):
             # review V4 (B4): stesso filtro del mirror Python (loans > 0, non solo != 0)
             if _has("impairment_ifrs9", i) and _has("loans_to_customers", i) \
@@ -650,22 +652,22 @@ def _sheet_historical_bank(wb, spec, history, cor=None):
         _cor_row = r
         r += 1
         if cor:
-            L(ws, f"A{r}", "Media di ciclo (bps) — ancora THROUGH-THE-CYCLE, V4", bold=True)
+            L(ws, f"A{r}", _xt("Media di ciclo (bps) — ancora THROUGH-THE-CYCLE, V4"), bold=True)
             ws[f"B{r}"] = f"=AVERAGE(B{_cor_row}:{cols[-1]}{_cor_row})"
             ws[f"B{r}"].number_format = "0.0"
             ws[f"B{r}"].font = Font(bold=True, color=GOLD, size=9)
         else:
             # finestra rifiutata da _cost_of_risk_ttc: media semplice, MAI venduta come ciclo
-            L(ws, f"A{r}", "Media semplice della finestra (<3 anni: NON through-the-cycle, dichiarato)")
+            L(ws, f"A{r}", _xt("Media semplice della finestra (<3 anni: NON through-the-cycle, dichiarato)"))
             ws[f"B{r}"] = f"=AVERAGE(B{_cor_row}:{cols[-1]}{_cor_row})"
             ws[f"B{r}"].number_format = "0.0"
         r += 1
     else:
-        L(ws, f"A{r}", "Costo del rischio n.d.: impairment IFRS9 o crediti clientela non taggati "
-          "in questo storico (buco dichiarato)", italic=True, color=GREYTX)
+        L(ws, f"A{r}", _xt("Costo del rischio n.d.: impairment IFRS9 o crediti clientela non taggati "
+          "in questo storico (buco dichiarato)"), italic=True, color=GREYTX)
         r += 1
     if "loans_to_customers" in rowmap and "deposits_from_customers" in rowmap:
-        L(ws, f"A{r}", "Loans / Deposits (clientela)")
+        L(ws, f"A{r}", _xt("Loans / Deposits (clientela)"))
         for i in range(len(years)):
             if _has("loans_to_customers", i) and _has("deposits_from_customers", i) \
                     and (_safe(items["deposits_from_customers"][years[i]], 0) or 0) > 0:
@@ -794,35 +796,35 @@ def T(ws, c, t, size=12, color=NAVY):
 
 def _sheet_thesis(wb, spec, fv):
     ws = wb.create_sheet("Thesis & Assumptions", 0)
-    T(ws, "A1", f"{spec['company_name']} ({spec['ticker']}) - Tesi dell'analista")
-    L(ws, "A2", f"Motore BANCA v2+V4 (#203, §9-novies n.1) - {datetime.now():%d/%m/%Y %H:%M} - valuta {spec['currency']}", italic=True, color=GREYTX)
+    T(ws, "A1", _lt(f"{spec['company_name']} ({spec['ticker']}) - Tesi dell'analista",f"{spec['company_name']} ({spec['ticker']}) - Analyst thesis"))
+    L(ws, "A2", _lt(f"Motore BANCA v2+V4 (#203, §9-novies n.1) - {datetime.now():%d/%m/%Y %H:%M} - valuta {spec['currency']}",f"Motore BANCA v2+V4 (#203, §9-novies n.1) - {datetime.now():%d/%m/%Y %H:%M} - currency {spec['currency']}"), italic=True, color=GREYTX)
     # 16/07 (feedback PM sul file banca "non c'e' DCF, non c'e' niente"): il perche'
     # va DETTO DENTRO il file, non dedotto dal lettore.
-    L(ws, "A3", "LEGGIMI: questo e' un modello BANCA - il DCF NON si applica alle banche (policy del "
+    L(ws, "A3", _xt("LEGGIMI: questo e' un modello BANCA - il DCF NON si applica alle banche (policy del "
                 "sistema): la valutazione usa Residual Income, P/TBV GIUSTIFICATO da formula "
                 "(i peer nel foglio dedicato sono il CONFRONTO di mercato) e DDM multi-stage "
                 "COERENTE col RI (V4: stessi book/ROE path/payout). I fogli hanno "
                 "FORMULE VIVE con i valori gia' calcolati (ricalcolo Excel post-generazione, P0 "
-                "17/07): restano modificabili in Excel.",
+                "17/07): restano modificabili in Excel."),
       italic=True, color=GREYTX)
-    H(ws, "A4", "VARIANT VIEW")
-    L(ws, "A5", spec.get("variant_view") or "(non fornita: il modello usa fade standard - l'analista DEVE motivare il ROE path)")
-    H(ws, "A7", "ASSUMPTION"); H(ws, "B7", "VALORE"); H(ws, "C7", "FONTE")
-    rows = [("ROE corrente", f"{spec['roe']:.1%}", spec["_sources"].get("roe", "")),
-            ("ROE terminale", f"{spec['roe_terminal']:.1%}", spec["_sources"].get("roe_path", "")),
-            ("Fade (anni)", spec["fade_years"], ""),
+    H(ws, "A4", _xt("VARIANT VIEW"))
+    L(ws, "A5", spec.get("variant_view") or _xt("(non fornita: il modello usa fade standard - l'analista DEVE motivare il ROE path)"))
+    H(ws, "A7", _xt("ASSUMPTION")); H(ws, "B7", _xt("VALORE")); H(ws, "C7", _xt("FONTE"))
+    rows = [(_xt("ROE corrente"), f"{spec['roe']:.1%}", spec["_sources"].get("roe", "")),
+            (_xt("ROE terminale"), f"{spec['roe_terminal']:.1%}", spec["_sources"].get("roe_path", "")),
+            (_xt("Fade (anni)"), spec["fade_years"], ""),
             ("Payout", f"{spec['payout']:.1%}", spec["_sources"].get("payout", "")),
-            ("Cost of Equity Ke", f"{spec['ke']:.2%}", spec["_sources"].get("ke", "")),
-            ("Beta (clamped)", spec["beta"], spec["_sources"].get("beta", "")),
-            ("Crescita terminale g", f"{spec['growth_lt']:.2%}", spec["_sources"].get("g", "")),
+            (_xt("Cost of Equity Ke"), f"{spec['ke']:.2%}", spec["_sources"].get("ke", "")),
+            (_xt("Beta (clamped)"), spec["beta"], spec["_sources"].get("beta", "")),
+            (_xt("Crescita terminale g"), f"{spec['growth_lt']:.2%}", spec["_sources"].get("g", "")),
             ("Risk-free", f"{spec['rf']:.2%}", "market_inputs LIVE (FRED)")]
     r = 8
     for a, b, c in rows:
         L(ws, f"A{r}", a); L(ws, f"B{r}", str(b), bold=True); L(ws, f"C{r}", c, color=GREYTX); r += 1
-    H(ws, f"A{r+1}", "FAIR VALUE (calcolo numerico, mirror delle formule)")
+    H(ws, f"A{r+1}", _xt("FAIR VALUE (calcolo numerico, mirror delle formule)"))
     r += 2
-    for lab, key in [("Residual Income", "fair_value_ri"), ("P/TBV giustificato", "fair_value_ptbv"),
-                     ("DDM multi-stage (coerente RI, V4)", "fair_value_ddm"), ("BLEND (mediana metodi)", "fair_value_blend")]:
+    for lab, key in [(_xt("Residual Income"), "fair_value_ri"), (_xt("P/TBV giustificato"), "fair_value_ptbv"),
+                     (_xt("DDM multi-stage (coerente RI, V4)"), "fair_value_ddm"), (_xt("BLEND (mediana metodi)"), "fair_value_blend")]:
         L(ws, f"A{r}", lab); N(ws, f"B{r}", fv.get(key), "#,##0.00", bold=(key == "fair_value_blend"),
                               color=GOLD if key == "fair_value_blend" else INK); r += 1
     if spec.get("price"):
@@ -832,66 +834,65 @@ def _sheet_thesis(wb, spec, fv):
         # dichiarato, stesso del payload) e upside sul convertito; contratto non
         # verificabile o cambio n.d. = upside n.d. DICHIARATO (regola 14/07).
         fxq = spec.get("fx_quote") or {}
-        L(ws, f"A{r}", "Prezzo corrente" + (f" ({fxq['to']})" if fxq.get("to") else ""))
+        L(ws, f"A{r}", _xt("Prezzo corrente") + (f" ({fxq['to']})" if fxq.get("to") else ""))
         N(ws, f"B{r}", spec["price"], "#,##0.00"); r += 1
         if fv.get("fair_value_blend"):
             _blend_q = fv["fair_value_blend"]
             if fxq.get("rate"):
                 _blend_q = _blend_q * fxq["rate"]
-                L(ws, f"A{r}", f"Blend in {fxq['to']} (convertito @{fxq['rate']:.6g}, "
-                               f"src {fxq.get('src', 'yfinance')})")
+                L(ws, f"A{r}", _lt(f"Blend in {fxq['to']} (convertito @{fxq['rate']:.6g}, src {fxq.get('src', 'yfinance')})",f"Blend in {fxq['to']} (converted @{fxq['rate']:.6g}, src {fxq.get('src', 'yfinance')})"))
                 N(ws, f"B{r}", _blend_q, "#,##0.00", bold=True); r += 1
-            L(ws, f"A{r}", "Upside/Downside (blend)")
+            L(ws, f"A{r}", _xt("Upside/Downside (blend)"))
             if fxq.get("error"):
-                L(ws, f"B{r}", "n.d. — " + fxq["error"], color=GREYTX); r += 1
+                L(ws, f"B{r}", _xt("n.d. — ") + fxq["error"], color=GREYTX); r += 1
             else:
                 ups = _blend_q / spec["price"] - 1
                 N(ws, f"B{r}", ups, "+0.0%;-0.0%", bold=True, color=GOLD); r += 1
     # G5 audit/14: il delta tra metodi sta IN RIGA sempre, non solo nel warning >50%
     if fv.get("methods_divergence") is not None:
-        L(ws, f"A{r}", "Divergenza metodi usati (max/min - 1)")
+        L(ws, f"A{r}", _xt("Divergenza metodi usati (max/min - 1)"))
         N(ws, f"B{r}", fv["methods_divergence"], "+0.0%;-0.0%")
-        L(ws, f"C{r}", "G5: dove esistono due strade, il delta si dichiara", color=GREYTX); r += 1
+        L(ws, f"C{r}", _xt("G5: dove esistono due strade, il delta si dichiara"), color=GREYTX); r += 1
     # G4 audit/14 (Kairos, principio n.4): la domanda finale e' l'IRR di holding
     # period — entry oggi, dividendi del modello, exit a multipli normalizzati
     hi = fv.get("holding_irr") or {}
     r += 1
-    H(ws, f"A{r}", f"IRR DI HOLDING PERIOD ({HOLDING_YEARS} ANNI) — G4 audit/14"); r += 1
+    H(ws, f"A{r}", _lt(f'IRR DI HOLDING PERIOD ({HOLDING_YEARS} ANNI) — G4 audit/14',f'HOLDING PERIOD IRR ({HOLDING_YEARS} YEARS) — G4 audit/14')); r += 1
     if hi.get("irr") is not None:
         # review F6 finanza: il derating sta NEL label (entry P/B vs exit P/TBV)
-        L(ws, f"A{r}", f"IRR annuo (entry P/B {hi.get('entry_pb')}x -> exit P/TBV giustificato {hi.get('exit_ptbv_just')}x)")
+        L(ws, f"A{r}", _lt(f"IRR annuo (entry P/B {hi.get('entry_pb')}x -> exit P/TBV giustificato {hi.get('exit_ptbv_just')}x)",f"Annual IRR (entry P/B {hi.get('entry_pb')}x -> justified exit P/TBV {hi.get('exit_ptbv_just')}x)"))
         N(ws, f"B{r}", hi["irr"], "+0.0%;-0.0%", bold=True, color=GOLD); r += 1
         if hi.get("irr_exit_peer") is not None:
-            L(ws, f"A{r}", f"IRR annuo (exit P/B mediana peer {hi.get('exit_ptbv_peer')}x)")
+            L(ws, f"A{r}", _lt(f"IRR annuo (exit P/B mediana peer {hi.get('exit_ptbv_peer')}x)",f"Annual IRR (exit peer median P/B {hi.get('exit_ptbv_peer')}x)"))
             N(ws, f"B{r}", hi["irr_exit_peer"], "+0.0%;-0.0%"); r += 1
-            L(ws, f"A{r}", "  il delta tra le due exit e' la scommessa sul re-rating (G5)",
+            L(ws, f"A{r}", _xt("  il delta tra le due exit e' la scommessa sul re-rating (G5)"),
               italic=True, color=GREYTX); r += 1
         elif hi.get("peer_exit_note"):
             L(ws, f"A{r}", "  " + hi["peer_exit_note"], italic=True, color=GREYTX); r += 1
         L(ws, f"A{r}", "  " + str(hi.get("note") or ""), italic=True, color=GREYTX); r += 1
     else:
-        _nt = str(hi.get("note") or "input mancanti (dichiarato)")
-        L(ws, f"A{r}", _nt if _nt.startswith("IRR") else "IRR n.d.: " + _nt,
+        _nt = str(hi.get("note") or _xt("input mancanti (dichiarato)"))
+        L(ws, f"A{r}", _nt if _nt.startswith("IRR") else _xt("IRR n.d.: ") + _nt,
           italic=True, color=GREYTX); r += 1
     # V4 (§9-novies n.1): costo del rischio through-the-cycle = ANCORA DICHIARATA
     # (impairment IFRS9 / crediti, storico SEC/ESEF) — informa la view sul ROE,
     # NON aggiusta nulla in automatico (regola 14/07: il numero si argomenta).
     cor = fv.get("cost_of_risk_ttc")
     r += 1
-    H(ws, f"A{r}", "COSTO DEL RISCHIO THROUGH-THE-CYCLE (V4 — ancora dichiarata, nessun aggiustamento automatico)"); r += 1
+    H(ws, f"A{r}", _xt("COSTO DEL RISCHIO THROUGH-THE-CYCLE (V4 — ancora dichiarata, nessun aggiustamento automatico)")); r += 1
     if cor:
-        L(ws, f"A{r}", "Media di ciclo %d-%d (bps su crediti clientela)" % (min(cor["years"]), max(cor["years"])))
+        L(ws, f"A{r}", _xt("Media di ciclo %d-%d (bps su crediti clientela)") % (min(cor["years"]), max(cor["years"])))
         N(ws, f"B{r}", cor["avg_bps"], "0.0", bold=True, color=GOLD)
         L(ws, f"C{r}", "[src: %s] | %s" % (cor["source"], cor["sign_note"]), color=GREYTX); r += 1
-        L(ws, f"A{r}", "Ultimo FY %d (bps)" % cor["last_year"])
+        L(ws, f"A{r}", _xt("Ultimo FY %d (bps)") % cor["last_year"])
         N(ws, f"B{r}", cor["last_bps"], "0.0")
-        L(ws, f"C{r}", "serie per anno nel foglio Historical (banca)", color=GREYTX); r += 1
+        L(ws, f"C{r}", _xt("serie per anno nel foglio Historical (banca)"), color=GREYTX); r += 1
     else:
         # review V4 (A1): "assenti" era falso quando le serie esistono ma si
         # sovrappongono per <3 anni — il testo copre entrambi i casi, il dettaglio
         # vero sta nel foglio Historical
-        L(ws, f"A{r}", "n.d.: serie impairment IFRS9 / crediti clientela assenti o con "
-          "sovrapposizione <3 anni nello storico (buco dichiarato; v. foglio Historical)",
+        L(ws, f"A{r}", _xt("n.d.: serie impairment IFRS9 / crediti clientela assenti o con "
+          "sovrapposizione <3 anni nello storico (buco dichiarato; v. foglio Historical)"),
           italic=True, color=GREYTX); r += 1
     for w in fv.get("warnings", []):
         r += 1; L(ws, f"A{r}", "! " + w, bold=True, color="C00000")
@@ -901,21 +902,21 @@ def _sheet_thesis(wb, spec, fv):
 def _sheet_ri(wb, spec):
     ws = wb.create_sheet("Residual Income")
     cur = spec["currency"]
-    T(ws, "A1", f"Residual Income Model - {N_YEARS} anni ({cur}m)")
+    T(ws, "A1", _lt(f'Modello del reddito residuale - {N_YEARS} anni ({cur}m)',f'Residual Income Model - {N_YEARS} years ({cur}m)'))
     y0 = datetime.now().year
     cols = [get_column_letter(2 + i) for i in range(N_YEARS)]
     # inputs ancorati
-    H(ws, "A3", "INPUT"); L(ws, "A4", "Book Value (equity)"); N(ws, "B4", spec.get("book_value"))
-    L(ws, "A5", "Shares (m)"); N(ws, "B5", spec.get("shares"), "#,##0.0")
+    H(ws, "A3", "INPUT"); L(ws, "A4", _xt("Book Value (equity)")); N(ws, "B4", spec.get("book_value"))
+    L(ws, "A5", _xt("Shares (m)")); N(ws, "B5", spec.get("shares"), "#,##0.0")
     L(ws, "A6", "Ke"); N(ws, "B6", spec["ke"], "0.00%")
     L(ws, "A7", "Payout"); N(ws, "B7", spec["payout"], "0.0%")
-    L(ws, "A8", "g terminale"); N(ws, "B8", spec["growth_lt"], "0.00%")
-    H(ws, "A10", "MODELLO")
+    L(ws, "A8", _xt("g terminale")); N(ws, "B8", spec["growth_lt"], "0.00%")
+    H(ws, "A10", _xt("MODELLO"))
     for i in range(N_YEARS):
         H(ws, f"{cols[i]}10", f"{y0 + i}E")
-    labels = ["Opening Book Value", "ROE (path analista/fade)", "Net Income", "Equity Charge (Ke*BV)",
-              "Residual Income", "Discount Factor", "PV Residual Income", "Retained -> Book",
-              "Dividends (NI x payout)", "PV Dividends"]  # V4: righe DDM coerente
+    labels = [_xt("Opening Book Value"), _xt("ROE (path analista/fade)"), _xt("Net Income"), _xt("Equity Charge (Ke*BV)"),
+              _xt("Residual Income"), _xt("Discount Factor"), _xt("PV Residual Income"), _xt("Retained -> Book"),
+              _xt("Dividends (NI x payout)"), _xt("PV Dividends")]  # V4: righe DDM coerente
     for j, lab in enumerate(labels):
         L(ws, f"A{11 + j}", lab)
     for i in range(N_YEARS):
@@ -933,27 +934,27 @@ def _sheet_ri(wb, spec):
         ws[f"{c}19"] = f"={c}13*$B$7"; ws[f"{c}19"].number_format = "#,##0"
         ws[f"{c}20"] = f"={c}19*{c}16"; ws[f"{c}20"].number_format = "#,##0"
     last = cols[-1]
-    L(ws, "A22", "Sum PV RI"); ws["B22"] = f"=SUM(B17:{last}17)"; ws["B22"].number_format = "#,##0"
+    L(ws, "A22", _xt("Sum PV RI")); ws["B22"] = f"=SUM(B17:{last}17)"; ws["B22"].number_format = "#,##0"
     L(ws, "A23", "Terminal RI (Gordon)"); ws["B23"] = f"=IF($B$6>$B$8,{last}15*(1+$B$8)/($B$6-$B$8),0)"; ws["B23"].number_format = "#,##0"
-    L(ws, "A24", "PV Terminal"); ws["B24"] = f"=B23*{last}16"; ws["B24"].number_format = "#,##0"
-    L(ws, "A25", "EQUITY VALUE (RI)", bold=True); ws["B25"] = "=B4+B22+B24"; ws["B25"].number_format = "#,##0"
-    L(ws, "A26", "FAIR VALUE / SHARE (RI)", bold=True); ws["B26"] = "=B25/B5"; ws["B26"].number_format = "#,##0.00"
+    L(ws, "A24", _xt("PV Terminal")); ws["B24"] = f"=B23*{last}16"; ws["B24"].number_format = "#,##0"
+    L(ws, "A25", _xt("EQUITY VALUE (RI)"), bold=True); ws["B25"] = "=B4+B22+B24"; ws["B25"].number_format = "#,##0"
+    L(ws, "A26", _xt("FAIR VALUE / SHARE (RI)"), bold=True); ws["B26"] = "=B25/B5"; ws["B26"].number_format = "#,##0.00"
     ws["B26"].font = Font(bold=True, color=GOLD, size=11)
     # V4 (§9-novies n.1): blocco DDM COERENTE — stessi stati del RI, quindi con clean
     # surplus i due metodi convergono; un delta residuo = input incoerenti (payout/g),
     # non un artefatto di metodo (la forte divergenza del caso #46 era questo).
-    H(ws, "A28", "DDM MULTI-STAGE COERENTE (V4: stessi book/ROE path/payout del RI)")
-    L(ws, "A29", "Sum PV Dividends"); ws["B29"] = f"=SUM(B20:{last}20)"; ws["B29"].number_format = "#,##0"
+    H(ws, "A28", _xt("DDM MULTI-STAGE COERENTE (V4: stessi book/ROE path/payout del RI)"))
+    L(ws, "A29", _xt("Sum PV Dividends")); ws["B29"] = f"=SUM(B20:{last}20)"; ws["B29"].number_format = "#,##0"
     # terminale: payout ENDOGENO 1-g/ROE (probe 21/07: Gordon su DIV_10 con payout
     # esplicito era contraddittorio con g -> forte divergenza) = Book fine Y10 x P/TBV
     # giustificato, la stessa exit dell'IRR di holding (G4)
-    L(ws, "A30", "Terminal DDM = Book Y10 x (ROE-g)/(Ke-g) (payout term. endogeno 1-g/ROE)")
+    L(ws, "A30", _xt("Terminal DDM = Book Y10 x (ROE-g)/(Ke-g) (payout term. endogeno 1-g/ROE)"))
     ws["B30"] = f"=IF($B$6>$B$8,({last}11+{last}18)*({last}12-$B$8)/($B$6-$B$8),0)"; ws["B30"].number_format = "#,##0"
-    L(ws, "A31", "PV Terminal DDM"); ws["B31"] = f"=B30*{last}16"; ws["B31"].number_format = "#,##0"
-    L(ws, "A32", "EQUITY VALUE (DDM)", bold=True); ws["B32"] = "=B29+B31"; ws["B32"].number_format = "#,##0"
-    L(ws, "A33", "FAIR VALUE / SHARE (DDM)", bold=True); ws["B33"] = "=B32/B5"; ws["B33"].number_format = "#,##0.00"
+    L(ws, "A31", _xt("PV Terminal DDM")); ws["B31"] = f"=B30*{last}16"; ws["B31"].number_format = "#,##0"
+    L(ws, "A32", _xt("EQUITY VALUE (DDM)"), bold=True); ws["B32"] = "=B29+B31"; ws["B32"].number_format = "#,##0"
+    L(ws, "A33", _xt("FAIR VALUE / SHARE (DDM)"), bold=True); ws["B33"] = "=B32/B5"; ws["B33"].number_format = "#,##0.00"
     ws["B33"].font = Font(bold=True, color=GOLD, size=11)
-    L(ws, "A34", "Con clean surplus RI e DDM convergono: un delta residuo segnala input incoerenti, non il metodo.",
+    L(ws, "A34", _xt("Con clean surplus RI e DDM convergono: un delta residuo segnala input incoerenti, non il metodo."),
       italic=True, color=GREYTX)
     ws.column_dimensions["A"].width = 26
     for c in cols + ["B"]:
@@ -962,13 +963,13 @@ def _sheet_ri(wb, spec):
 
 def _sheet_peers(wb, spec, peers_data, peers_note=None):
     ws = wb.create_sheet("Peer Comps P-TBV")
-    T(ws, "A1", "Peer banche: P/TBV vs ROE (la retta del settore)")
+    T(ws, "A1", _xt("Peer banche: P/TBV vs ROE (la retta del settore)"))
     # 17/07 §9-sexies n.1: la LISTA e' dichiarata (geografia/analista/fallback) e ogni
     # riga porta la sua fonte; un P/B fuori banda resta VISIBILE ma senza numero in B
     # (fuori dalla MEDIAN, che ignora le celle vuote).
     if peers_note:
-        L(ws, "A2", "Lista: " + str(peers_note), italic=True, color=GREYTX)
-    H(ws, "A3", "Peer"); H(ws, "B3", "P/B"); H(ws, "C3", "ROE"); H(ws, "D3", "Div yield"); H(ws, "E3", "Fonte")
+        L(ws, "A2", _xt("Lista: ") + str(peers_note), italic=True, color=GREYTX)
+    H(ws, "A3", "Peer"); H(ws, "B3", "P/B"); H(ws, "C3", "ROE"); H(ws, "D3", _xt("Div yield")); H(ws, "E3", _xt("Fonte"))
     r = 4
     for pd_ in peers_data or []:
         L(ws, f"A{r}", pd_.get("name", "")); N(ws, f"B{r}", pd_.get("pb"), "0.00")
@@ -977,7 +978,7 @@ def _sheet_peers(wb, spec, peers_data, peers_note=None):
     _n_pb = sum(1 for x in (peers_data or []) if x.get("pb") is not None)
     _n_roe = sum(1 for x in (peers_data or []) if x.get("roe") is not None)
     if peers_data and _n_pb:
-        L(ws, f"A{r}", "MEDIANA", bold=True)
+        L(ws, f"A{r}", _xt("MEDIANA"), bold=True)
         ws[f"B{r}"] = f"=MEDIAN(B4:B{r-1})"; ws[f"B{r}"].number_format = "0.00"
         # review 17/07: MEDIAN su colonna ROE tutta vuota uscirebbe #NUM! nudo
         if _n_roe:
@@ -986,14 +987,14 @@ def _sheet_peers(wb, spec, peers_data, peers_note=None):
             L(ws, f"C{r}", "n.d.", color=GREYTX)
         r += 2
     elif peers_data:
-        L(ws, f"A{r}", "MEDIANA n.d.: nessun P/B valido tra i peer (v. colonna Fonte)",
+        L(ws, f"A{r}", _xt("MEDIANA n.d.: nessun P/B valido tra i peer (v. colonna Fonte)"),
           bold=True, color="C00000")
         r += 2
     else:
-        L(ws, "A4", "(peer non disponibili: v. nota Lista in alto / risultato del tool)", italic=True, color=GREYTX)
+        L(ws, "A4", _xt("(peer non disponibili: v. nota Lista in alto / risultato del tool)"), italic=True, color=GREYTX)
         r = 6
     if peers_data:
-        L(ws, f"A{r}", f"{spec['ticker']} P/B implicito al prezzo", bold=True)
+        L(ws, f"A{r}", _lt(f"{spec['ticker']} P/B implicito al prezzo",f"{spec['ticker']} P/B implied by price"), bold=True)
         if spec.get("price") and spec.get("bvps"):
             N(ws, f"B{r}", round(spec["price"] / spec["bvps"], 2), "0.00", bold=True, color=GOLD)
     ws.column_dimensions["A"].width = 30
@@ -1002,7 +1003,7 @@ def _sheet_peers(wb, spec, peers_data, peers_note=None):
 
 def _sheet_sensitivity(wb, spec):
     ws = wb.create_sheet("Sensitivity")
-    T(ws, "A1", "Fair value RI per Ke x ROE terminale (calcolo numerico)")
+    T(ws, "A1", _xt("Fair value RI per Ke x ROE terminale (calcolo numerico)"))
     kes = [round(spec["ke"] + d, 4) for d in (-0.02, -0.01, 0, 0.01, 0.02)]
     rts = [round(spec["roe_terminal"] + d, 4) for d in (-0.02, -0.01, 0, 0.01, 0.02)]
     H(ws, "A3", "Ke \\ ROE term")
@@ -1020,16 +1021,17 @@ def _sheet_sensitivity(wb, spec):
             v = _fv_residual_income(s2)
             base = (i == 2 and j == 2)
             N(ws, f"{get_column_letter(2 + j)}{4 + i}", v, "#,##0.00", bold=base, color=GOLD if base else INK)
-    L(ws, "A11", "Nota: griglia ricalcolata dal motore (mirror numerico delle formule), fade lineare.", italic=True, color=GREYTX)
+    L(ws, "A11", _xt("Nota: griglia ricalcolata dal motore (mirror numerico delle formule), fade lineare."), italic=True, color=GREYTX)
     ws.column_dimensions["A"].width = 14
 
 
+@scoped_language
 def build_bank_model(spec, output_path, peers_data=None, peers_note=None, history=None):
     """Workbook banca multi-foglio (#203). Ritorna anche i fair value numerici.
     V4 (§9-novies n.1): history = storico SEC/ESEF (contratto get_financial_history)
     -> foglio Historical (banca) + costo del rischio through-the-cycle dichiarato."""
     if not OPX_OK:
-        return {"ok": False, "error": "openpyxl non disponibile"}
+        return {"ok": False, "error": _xt("openpyxl non disponibile")}
     fv = compute_fair_values(spec)
     # G4 audit/14: IRR di holding period nel fv (fluisce in Thesis e nel payload);
     # la mediana P/B dei peer VALIDI e' la seconda exit (G5, delta di re-rating)
@@ -1052,14 +1054,14 @@ def build_bank_model(spec, output_path, peers_data=None, peers_note=None, histor
     if cor and not cor.get("mixed") and cor["avg_bps"] > 0:
         if cor["last_bps"] < 0.7 * cor["avg_bps"]:
             fv.setdefault("warnings", []).append(
-                "COSTO DEL RISCHIO FY%d %.0f bps SOTTO la media di ciclo %.0f bps (%d-%d) [src: %s]: "
-                "il ROE trailing ne beneficia — fade/roe_path da argomentare, nessun aggiustamento automatico (V4)."
+                _xt("COSTO DEL RISCHIO FY%d %.0f bps SOTTO la media di ciclo %.0f bps (%d-%d) [src: %s]: "
+                "il ROE trailing ne beneficia — fade/roe_path da argomentare, nessun aggiustamento automatico (V4).")
                 % (cor["last_year"], cor["last_bps"], cor["avg_bps"],
                    min(cor["years"]), max(cor["years"]), cor["source"]))
         elif cor["last_bps"] > 1.3 * cor["avg_bps"]:
             fv.setdefault("warnings", []).append(
-                "COSTO DEL RISCHIO FY%d %.0f bps SOPRA la media di ciclo %.0f bps (%d-%d) [src: %s]: "
-                "ROE trailing depresso rispetto al ciclo — un fade puramente meccanico puo' sottostimare (V4)."
+                _xt("COSTO DEL RISCHIO FY%d %.0f bps SOPRA la media di ciclo %.0f bps (%d-%d) [src: %s]: "
+                "ROE trailing depresso rispetto al ciclo — un fade puramente meccanico puo' sottostimare (V4).")
                 % (cor["last_year"], cor["last_bps"], cor["avg_bps"],
                    min(cor["years"]), max(cor["years"]), cor["source"]))
     wb = openpyxl.Workbook()

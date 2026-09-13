@@ -19,6 +19,10 @@ the eventual quality of its recommendations.
 5. When the run finishes, open [Memo Archive](14-memo-archive.md), review
    [Decisions](15-decisions.md) and later inspect [Agent Progress](13-agent-progress.md).
 
+The run captures its output language at launch. Changing the interface language
+while it runs changes interface labels, not the active research output. Read the
+run's recorded language; older runs may not declare it.
+
 ## Interpret execution carefully
 Recent logs can be bounded; a visible short list is not a complete audit log.
 Tool-call counts and distinct tools are different measures. Parallel desk
@@ -31,6 +35,9 @@ execution, not an independently guaranteed invoice.
 
 If a run seems stalled, inspect its last update and backend logs before starting
 another. Avoid duplicate runs while the first may still be active.
+If you request a stop, read the observed backend state afterwards. A failed or
+unconfirmed cancellation preserves the last observed state and reports the
+problem; clicking Stop is not itself proof that the run ended.
 A failed or incomplete run should not be assigned an invented score merely to
 fill [Agent Progress](13-agent-progress.md).
 

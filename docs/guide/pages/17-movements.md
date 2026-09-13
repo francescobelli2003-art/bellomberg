@@ -9,6 +9,8 @@
 Inspect the ledger over time: recorded trades, cash movements and the related
 history. Use this page to verify what was saved after a transaction or to
 investigate a discontinuity in performance.
+An opening position declared in F16 is not a trade or a cash movement: inspect
+its separate opening-position register and receipt in [Trade Entry](16-trade-entry.md).
 
 ## Use it
 1. Select the available filters and date range.
@@ -30,6 +32,12 @@ successful view while reporting an error, treat that view as stale rather than
 as proof of a current complete ledger.
 
 ## Reconcile before changing
+Execution time and insertion time are different. The latter is labelled UTC.
+A conventional execution time is marked on the row; legacy rows without an
+explicit flag retain an **origin not documented** label, even at noon. The row
+also distinguishes an explicit decision link, a manual transaction without a
+decision and a relationship that was not declared.
+
 Compare transaction quantities and currencies with your actual records. A market
 price update is not an executed fill, and a change in total wealth may be a cash
 flow rather than a trade gain.

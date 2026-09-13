@@ -11,6 +11,9 @@ Riferimenti: Sharpe (1966), Sortino (1994), Calmar (Young 1991),
 Omega (Keating-Shadwick 2002), Ulcer Index (Martin 1989), Cornish-Fisher (1937).
 """
 
+from bellomberg.core.language import scoped_language
+from bellomberg.core.presentation import error_text, message
+
 try:
     import numpy as np
     NP_OK = True
@@ -38,14 +41,15 @@ def _round(v, n=4):
     return round(v, n) if v is not None else None
 
 
+@scoped_language
 def compute_metrics(returns, rf_annual=0.0, benchmark=None):
     """Pacchetto completo di metriche da rendimenti giornalieri."""
     if not NP_OK:
-        return {"error": "numpy non disponibile"}
+        return {"error": message("numpy non disponibile", "numpy unavailable")}
     r = _clean(returns)
     n = len(r)
     if n < 5:
-        return {"error": "serie troppo corta", "n_obs": int(n)}
+        return {"error": message("serie troppo corta", "series too short"), "n_obs": int(n)}
 
     rf_daily = (1 + rf_annual) ** (1 / TRADING_DAYS) - 1
     excess = r - rf_daily
@@ -218,6 +222,7 @@ def _kelly(win_rate, avg_win, avg_loss):
     return win_rate - (1 - win_rate) / payoff
 
 
+@scoped_language
 def portfolio_metrics(benchmark_ticker="SPY"):
     """Metriche del portafoglio reale dalla serie TWR UFFICIALE (twr_engine, GIPS
     flow-adjusted). Fix 13/07 dei difetti a registro (b)+(g): prima la serie era il
@@ -228,7 +233,7 @@ def portfolio_metrics(benchmark_ticker="SPY"):
     builder duplicato. Fallback legacy dichiarato in _source se il motore TWR
     non risponde."""
     if not NP_OK:
-        return {"error": "numpy non disponibile"}
+        return {"error": message("numpy non disponibile", "numpy unavailable")}
 
     # 1) Serie ufficiale: indice TWR flow-adjusted (F3), con le date per l'allineamento
     rets, ret_dates, serie_src, twr_p = None, None, None, None
@@ -242,7 +247,7 @@ def portfolio_metrics(benchmark_ticker="SPY"):
             arr = np.asarray(idx, dtype=float)
             rets = np.diff(arr) / arr[:-1]
             ret_dates = [str(d)[:10] for d in dts[1:]]
-            serie_src = "twr_index ufficiale (twr_engine, GIPS flow-adjusted)"
+            serie_src = message("twr_index ufficiale (twr_engine, GIPS flow-adjusted)", "official twr_index (twr_engine, GIPS flow-adjusted)")
     except Exception:
         rets = None
     if rets is None:
@@ -251,22 +256,22 @@ def portfolio_metrics(benchmark_ticker="SPY"):
             from bellomberg.portfolio.portfolio_analytics import compute_nav_history
             nav = compute_nav_history()
         except Exception as e:
-            return {"error": "nav history: " + str(e)}
+            return {"error": message("nav history: {reason}", "nav history: {reason}", reason=error_text(e))}
         # Un errore DICHIARATO dal NAV (p.es. negozio dei prezzi speciali assente) va
         # propagato COM'E': tradurlo in «storico insufficiente» sarebbe un motivo falso —
         # vero per il numero di punti, falso sulla causa (review 05/09, lotto 6).
         if isinstance(nav, dict) and nav.get("error"):
-            return {"error": "nav history: " + str(nav["error"]),
+            return {"error": message("nav history: {reason}", "nav history: {reason}", reason=nav["error"]),
                     "negozio_prezzi": nav.get("negozio_prezzi")}
         pnl = nav.get("pnl_eur") or []
         cb = nav.get("cost_basis_eur") or []
         if len(pnl) < 10:
-            return {"error": "storico NAV insufficiente", "n": len(pnl)}
+            return {"error": message("storico NAV insufficiente", "insufficient NAV history"), "n": len(pnl)}
         ratio = np.array([1 + (p_ / c if c else 0) for p_, c in zip(pnl, cb)], dtype=float)
         rets = np.diff(ratio) / ratio[:-1]
         d_ = nav.get("dates") or []
         ret_dates = [str(x)[:10] for x in d_[1:]] if len(d_) == len(ratio) else None
-        serie_src = "LEGACY cumulative P/L ratio (CONTAMINATA dai flussi: twr_engine non disponibile)"
+        serie_src = message("LEGACY cumulative P/L ratio (CONTAMINATA dai flussi: twr_engine non disponibile)", "LEGACY cumulative P/L ratio (CONTAMINATED by cash flows: twr_engine unavailable)")
     finite = np.isfinite(rets)
     if ret_dates is not None and len(ret_dates) == len(rets):
         ret_dates = [d for d, ok in zip(ret_dates, finite) if ok]
@@ -277,12 +282,12 @@ def portfolio_metrics(benchmark_ticker="SPY"):
     # 2) Benchmark UFFICIALE in EUR total-return allineato per DATA sul calendario
     # TWR (25/07, fonte unica: benchmark_series — la STESSA serie che consuma F2;
     # prima qui c'era un builder yfinance duplicato e diverso da quello di F2)
-    bench_pair, bench_note = None, "benchmark non disponibile"
+    bench_pair, bench_note = None, message("benchmark non disponibile", "benchmark unavailable")
     try:
         from bellomberg.market_data.benchmark_series import compute_benchmark_series
         bs = compute_benchmark_series(ticker=benchmark_ticker, twr_payload=twr_p)
         if bs.get("error"):
-            bench_note = "benchmark non disponibile: " + str(bs["error"])
+            bench_note = message("benchmark non disponibile: {reason}", "benchmark unavailable: {reason}", reason=bs["error"])
         else:
             # i giorni CARRY (benchmark fermo, book che si muove: weekend crypto,
             # festivi US) sono esclusi dal pairing beta — stessa semantica del
@@ -299,29 +304,41 @@ def portfolio_metrics(benchmark_ticker="SPY"):
                     r_al = np.array([r for r, d in zip(rets, ret_dates) if d in keep], dtype=float)
                     b_al = np.array([b_rets[d] for d in ret_dates if d in keep], dtype=float)
                     bench_pair = (r_al, b_al)
-                    bench_note = ("allineato per DATA (" + str(len(common))
-                                  + " giorni comuni), benchmark ufficiale EUR total-return"
-                                  + (", " + str(bs["carried_days"])
-                                     + "g carry-forward esclusi dal pairing"
-                                     if bs.get("carried_days") else ""))
+                    carry_note = (message(
+                        ", {days}g carry-forward esclusi dal pairing",
+                        ", {days} carry-forward days excluded from pairing", days=bs["carried_days"])
+                        if bs.get("carried_days") else "")
+                    bench_note = message(
+                        "allineato per DATA ({days} giorni comuni), benchmark ufficiale EUR total-return{carry}",
+                        "aligned by DATE ({days} common days), official EUR total-return benchmark{carry}",
+                        days=len(common), carry=carry_note)
                 else:
                     # review B1: sovrapposizione corta NON e' "date mancanti" —
                     # niente tail-align posizionale (classe "beta artefatto 0,04")
-                    bench_note = ("sovrapposizione insufficiente col benchmark: "
-                                  + str(len(common)) + " giorni comuni (minimo 10)")
+                    bench_note = message(
+                        "sovrapposizione insufficiente col benchmark: {days} giorni comuni (minimo 10)",
+                        "insufficient benchmark overlap: {days} common days (minimum 10)", days=len(common))
             elif b_rets:
                 b_arr = np.array(bs["ret_daily"], dtype=float)
                 bench_pair = (rets, b_arr)
-                bench_note = ("date portafoglio non disponibili: tail-align legacy "
-                              "(benchmark ufficiale EUR total-return)")
+                bench_note = message("date portafoglio non disponibili: tail-align legacy (benchmark ufficiale EUR total-return)",
+                                     "portfolio dates unavailable: legacy tail alignment (official EUR total-return benchmark)")
     except Exception as e:
-        bench_pair, bench_note = None, "benchmark non disponibile: " + str(e)
+        bench_pair, bench_note = None, message("benchmark non disponibile: {reason}", "benchmark unavailable: {reason}", reason=error_text(e))
 
     try:
         from bellomberg.market_data.market_inputs import get_risk_free
         _rf = get_risk_free("EUR")
-    except Exception:
+        rf_status = "source_metadata_unavailable"
+        rf_source = "market_inputs.get_risk_free(EUR)"
+        rf_note = message("Il contratto scalare non espone fonte e freschezza del tasso: questo valore non è dichiarato live.",
+                          "The scalar contract does not expose source freshness or provenance: this value is not declared live.")
+    except Exception as e:
         _rf = 0.03
+        rf_status = "fallback"
+        rf_source = "advanced_metrics.static_fallback"
+        rf_note = message("Tasso privo di rischio: fallback statico 3% perché la fonte non risponde: {reason}",
+                          "Risk-free rate: static 3% fallback because the source is unavailable: {reason}", reason=error_text(e))
     # Metriche headline sulla serie ufficiale PIENA; blocco benchmark sulla coppia allineata
     m = compute_metrics(rets, rf_annual=_rf)
     if bench_pair is not None:
@@ -329,12 +346,16 @@ def portfolio_metrics(benchmark_ticker="SPY"):
         if isinstance(mb, dict) and mb.get("benchmark"):
             m["benchmark"] = mb["benchmark"]
     m["risk_free_used"] = _rf
-    m["_source"] = "advanced_metrics.portfolio_metrics — serie: " + serie_src
+    m["risk_free_status"] = rf_status
+    m["risk_free_source"] = rf_source
+    m["risk_free_note"] = rf_note
+    m["_source"] = message("advanced_metrics.portfolio_metrics — serie: {source}", "advanced_metrics.portfolio_metrics — series: {source}", source=serie_src)
     m["benchmark_ticker"] = benchmark_ticker
     m["benchmark_alignment"] = bench_note
     return m
 
 
+@scoped_language
 def reconcile_betas(threshold=0.35):
     """Guardrail di riconciliazione (voce 13/07, da audit memo #42): confronta il
     beta del book dai 3 motori — advanced_metrics (serie TWR vs SPY in EUR),
@@ -345,7 +366,7 @@ def reconcile_betas(threshold=0.35):
     artefatto 0,04 ha deciso da solo il "no hedge"). Ogni fonte e' opzionale:
     chi fallisce finisce in sources_failed, non abbatte il guardrail."""
     if not NP_OK:
-        return {"error": "numpy non disponibile"}
+        return {"error": message("numpy non disponibile", "numpy unavailable")}
     betas, failed = {}, {}
     try:
         m = portfolio_metrics()
@@ -353,10 +374,10 @@ def reconcile_betas(threshold=0.35):
         if b is not None:
             betas["advanced_metrics_twr"] = float(b)
         else:
-            failed["advanced_metrics_twr"] = str((m or {}).get("error")
-                                                 or "beta assente (benchmark non disponibile)")
+            failed["advanced_metrics_twr"] = ((m or {}).get("error")
+                                                 or message("beta assente (benchmark non disponibile)", "beta missing (benchmark unavailable)"))
     except Exception as e:
-        failed["advanced_metrics_twr"] = str(e)
+        failed["advanced_metrics_twr"] = error_text(e)
     try:
         from bellomberg.portfolio.portfolio_risk import compute_portfolio_risk
         r = compute_portfolio_risk()
@@ -364,9 +385,9 @@ def reconcile_betas(threshold=0.35):
         if b is not None:
             betas["portfolio_risk_spy"] = float(b)
         else:
-            failed["portfolio_risk_spy"] = str((r or {}).get("error") or "beta_vs_spy assente")
+            failed["portfolio_risk_spy"] = ((r or {}).get("error") or message("beta_vs_spy assente", "beta_vs_spy missing"))
     except Exception as e:
-        failed["portfolio_risk_spy"] = str(e)
+        failed["portfolio_risk_spy"] = error_text(e)
     try:
         from bellomberg.portfolio.portfolio_factors import compute_portfolio_factors
         f = compute_portfolio_factors()
@@ -374,29 +395,29 @@ def reconcile_betas(threshold=0.35):
         if b is not None:
             betas["factor_model_mkt"] = float(b)
         else:
-            failed["factor_model_mkt"] = str((f or {}).get("error") or "beta_market assente")
+            failed["factor_model_mkt"] = ((f or {}).get("error") or message("beta_market assente", "beta_market missing"))
     except Exception as e:
-        failed["factor_model_mkt"] = str(e)
+        failed["factor_model_mkt"] = error_text(e)
 
     out = {"betas": {k: round(v, 3) for k, v in betas.items()},
            "sources_failed": failed,
            "threshold": threshold,
            "definitions": {
-               "advanced_metrics_twr": "serie TWR ufficiale vs benchmark ufficiale EUR total-return (benchmark_series), allineati per data",
-               "portfolio_risk_spy": "rendimenti book in EUR vs SPY convertito in EUR, ~1y (fix E4 22/07)",
-               "factor_model_mkt": "loading Mkt-RF composito FF regionale, ~3y",
+               "advanced_metrics_twr": message("serie TWR ufficiale vs benchmark ufficiale EUR total-return (benchmark_series), allineati per data", "official TWR series vs official EUR total-return benchmark (benchmark_series), aligned by date"),
+               "portfolio_risk_spy": message("rendimenti book in EUR vs SPY convertito in EUR, ~1y (fix E4 22/07)", "book returns in EUR vs SPY converted to EUR, ~1y (fix E4 22/07)"),
+               "factor_model_mkt": message("loading Mkt-RF composito FF regionale, ~3y", "regional FF composite Mkt-RF loading, ~3y"),
            },
            "_source": "advanced_metrics.reconcile_betas (guardrail 13/07)"}
     if len(betas) < 2:
         out["verdict"] = "INSUFFICIENT_SOURCES"
-        out["note"] = "servono almeno 2 motori per riconciliare"
+        out["note"] = message("servono almeno 2 motori per riconciliare", "at least 2 engines are needed for reconciliation")
         return out
     vals = list(betas.values())
     out["max_spread"] = round(max(vals) - min(vals), 3)
     if out["max_spread"] > threshold:
         out["verdict"] = "UNRELIABLE"
-        out["note"] = ("i beta divergono oltre soglia: NON usare il beta come argomento "
-                       "decisionale finche' non riconciliato")
+        out["note"] = message("i beta divergono oltre soglia: NON usare il beta come argomento decisionale finche' non riconciliato",
+                               "betas diverge beyond the threshold: DO NOT use beta for decisions until reconciled")
     else:
         out["verdict"] = "RECONCILED"
         out["beta_consensus"] = round(float(np.median(vals)), 2)

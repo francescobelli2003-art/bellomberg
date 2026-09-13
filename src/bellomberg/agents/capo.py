@@ -11,6 +11,7 @@ import json
 from datetime import datetime
 from bellomberg.core.llm_client import OpenRouterClient, modello as _modello_llm
 from bellomberg.core.config import PM_DESC
+from bellomberg.core.language import prompt_for_language, scoped_language
 from bellomberg.core.llm_refusal import refusal_reason as _refusal_reason
 
 
@@ -78,8 +79,8 @@ Non sei un analista generico. Sei il Capo di Bellomberg, il terminale AI persona
 
 # HAI MEMORIA PERSISTENTE (FASE 1 ATTIVA)
 Ricevi in input:
-- I tuoi ultimi 2 memo (riassunti)
-- Tutte le decisioni passate con il loro stato (PENDING / EXECUTED / SKIPPED / EXPIRED) e l'esito %
+- Il memo precedente (primi 1500 caratteri)
+- Le ultime 20 decisioni con il loro stato (PENDING / EXECUTED / PARTIAL / SKIPPED / EXPIRED) e l'esito %, e TUTTE le righe con PAROLE DIRETTE del PM, ciascuna con lo stato fra parentesi quadre: lo stato dice se il PM ha eseguito, le parole dicono perche' e cosa vuole al suo posto
 - Tutti i feedback del PM (positivi, negativi, neutri, suggerimenti)
 
 DEVI USARE QUESTA MEMORIA, scrivendo in prosa:
@@ -108,6 +109,12 @@ La diversificazione si misura sul SETTORE/driver, NON sulla geografia. Tre banch
 Se uno specialista compare come [NO REPORT], il suo dominio e' SCOPERTO (Crypto -> esposizioni cripto effettive del book; Options -> strutture in opzioni; Event Desk -> news, catalyst datati, probabilita' politiche/geopolitiche):
 - ogni azione della ACTION TABLE su ticker di quel dominio va marcata confidence BASSA e la sua tesi deve contenere la nota esplicita "senza parere {nome specialista}", OPPURE l'azione va declassata a RESEARCH e rimandata alla settimana successiva;
 - MAI confidence MEDIA o ALTA su un dominio scoperto, anche se altri specialisti (Quant, Macro) forniscono dati parziali su quei nomi: i dati di contorno non sostituiscono il parere dello specialista di dominio.
+
+## ROUND PERSO O ROUND SENZA TOOL (audit run 10/09, 12/09)
+Il report di un desk puo' aprirsi con uno di questi due marcatori scritti dal codice, non dal desk:
+- "[ROUND N SENZA REPORT: ...]": il round N di quel desk e' uscito vuoto e sotto leggi l'ULTIMO round utile (numero, data e ora del round scelto sono nel marcatore). Se il round perso e' il 2, quel desk NON ha replicato al red team: non attribuirgli una replica.
+- "[ROUND N SENZA TOOL: ...]": il desk ha scritto quel round senza chiamare alcun tool: i numeri di quel report NON sono verificati con i tool, qualunque tag [src:] riportino.
+In entrambi i casi: dichiara nel memo, in una frase, il round perso o il round senza tool di quel desk e su quale round ti basi; confidence non sopra MEDIA (MAI ALTA) sulle proposte NUOVE di quel desk (nomi o azioni che non compaiono in un suo round precedente con tool); le proposte gia' presenti in un round precedente con tool seguono le regole ordinarie.
 
 ## DISCIPLINA DEGLI ALLEGGERIMENTI (TRIM)
 {MANDATO:trim}
@@ -423,6 +430,107 @@ def _blocco_red_team(rt, motivo_guasto=None):
     return righe
 
 
+def _e_segnaposto(testo):
+    """Stesso predicato di specialists.base (persistenza): un report che DICE di non esistere."""
+    t = str(testo or "")
+    return (not t.strip()) or t.startswith("[ERROR") or ("No output produced in round" in t[:120])
+
+
+def _round_int(k):
+    try:
+        return int(k)
+    except (TypeError, ValueError):
+        return -1
+
+
+# 12/09 (Fable 5.1, prerequisito 3 del mandato): tetto della testa del segnaposto citata
+# nei prefissi «[ROUND N SENZA REPORT: ...]» e «[NO REPORT] (a registro: ...)». Era 120,
+# MUTO: il segnaposto «(2 tentativi: ...)» di base.py e' lungo 122-129 char e arrivava
+# monco, con la parentesi che chiudeva subito dopo come se fosse intero (lezione «il
+# taglio che richiude il delimitatore»). Sopra il tetto il taglio si DICHIARA.
+SEGNAPOSTO_PREFISSO_MAX = 240
+
+
+def _testa_segnaposto(testo, tetto=SEGNAPOSTO_PREFISSO_MAX):
+    t = str(testo or "").strip()
+    return t if len(t) <= tetto else t[:tetto] + "[...]"
+
+
+def _orario_dichiarato(orari, sp_name, round_key):
+    """'2026-09-10 alle 16:10:28 (UTC+02:00)' dall'indice {desk: {round: iso}} che
+    Blackboard.write alimenta. ISO senza offset -> «fuso n.d.»; voce assente -> None.
+    Le chiavi round possono essere int (blackboard viva) o str (JSON/rescue)."""
+    try:
+        per_desk = (orari or {}).get(sp_name) or {}
+        iso = per_desk.get(round_key)
+        if iso is None:
+            iso = per_desk.get(str(round_key))
+        if iso is None:
+            iso = per_desk.get(_round_int(round_key))
+        if not iso:
+            return None
+        dt = datetime.fromisoformat(str(iso))
+    except Exception:
+        return None
+    off = dt.utcoffset()
+    if off is None:
+        fuso = "fuso n.d."
+    else:
+        secs = int(off.total_seconds())
+        segno = "+" if secs >= 0 else "-"
+        secs = abs(secs)
+        fuso = "UTC%s%02d:%02d" % (segno, secs // 3600, (secs % 3600) // 60)
+    return "%s alle %s (%s)" % (dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S"), fuso)
+
+
+def scegli_report_specialisti(data, orari=None):
+    """{desk: {round, report}} per il prompt del Capo.
+
+    Audit 11/09 (Fable 5.1, run 10/09 memo #53): qui c'era `max(rounds.keys())` senza guardia.
+    Con l'R2 uscito vuoto (segnaposto «No output produced in round 2», 37-44 char) il Capo
+    riceveva IL SEGNAPOSTO al posto del report R1 completo di quant e options (9.145 e
+    8.471 char): tre desk «muti» nel memo mentre i loro report R1 stavano nella blackboard.
+    Ora: se l'ultimo round e' un segnaposto e un round >= 1 precedente ha testo vero, il
+    Capo legge quello, con in testa la dichiarazione del round mancante. Il round 0 NON si
+    promuove (e' ricognizione): senza un R1/R2 vero resta il segnaposto, dichiarato.
+
+    12/09 (Fable 5.1): `orari` = {desk: {round: iso}} (Blackboard.orari_report) -> il prefisso
+    porta data, ora e fuso del round scelto; senza indice (regenerate_memo) dichiara
+    «orario n.d.». La testa del segnaposto arriva fino a SEGNAPOSTO_PREFISSO_MAX char e
+    oltre si dichiara il taglio."""
+    out = {}
+    for sp_name, rounds in (data or {}).items():
+        if not rounds or str(sp_name).startswith("_") or not isinstance(rounds, dict):
+            continue
+        chiavi = sorted(rounds.keys(), key=_round_int)
+        latest = chiavi[-1]
+        scelto = latest
+        if _e_segnaposto(rounds[latest]):
+            for k in reversed(chiavi[:-1]):
+                if _round_int(k) >= 1 and not _e_segnaposto(rounds[k]):
+                    scelto = k
+                    break
+        report = rounds[scelto]
+        no_report = False
+        if scelto != latest:
+            _quando = _orario_dichiarato(orari, sp_name, scelto)
+            report = ("[ROUND " + str(latest) + " SENZA REPORT: " + _testa_segnaposto(rounds[latest])
+                      + " — sotto l'ultimo report utile, Round " + str(scelto)
+                      + (", scritto il " + _quando if _quando else ", orario n.d.")
+                      + "]\n\n" + str(report))
+        elif _e_segnaposto(report):
+            # nessun round >= 1 con testo: il desk e' SCOPERTO. Il letterale [NO REPORT] e'
+            # quello su cui scatta la regola DOMINI SCOPERTI del system prompt; il segnaposto
+            # a registro resta citato (review 11/09: un R0 promosso a report sarebbe un
+            # ripiego silenzioso, un segnaposto travestito da report pure).
+            no_report = True
+            report = "[NO REPORT] (a registro: " + _testa_segnaposto(rounds[latest]) + ")"
+        out[sp_name] = {"round": _round_int(scelto) if _round_int(scelto) >= 0 else scelto,
+                        "report": report, "no_report": no_report}
+    return out
+
+
+@scoped_language
 def run_capo(blackboard, portfolio_data=None, memory_db=None, sizing_context=None, scoring_context=None):
     CAPO_MODEL = _modello_llm("capo")   # 05/09: dal .env; assente = ConfigurazioneLLMMancante
     # 05/09 (criterio 5, audit/26): il MANDATO del PM si legge dal disco a OGNI run e compila i
@@ -431,16 +539,15 @@ def run_capo(blackboard, portfolio_data=None, memory_db=None, sizing_context=Non
     # qualunque chiamata: mai la dottrina di ieri come ripiego (regola 14/07).
     import bellomberg.core.mandato_pm as _mandato_pm
     _mandato = _mandato_pm.carica()
-    _system = _mandato_pm.compila(CAPO_SYSTEM_PROMPT, _mandato)
+    _system = _mandato_pm.compila(prompt_for_language(CAPO_SYSTEM_PROMPT), _mandato)
     print("\n" + "=" * 70)
     print("BELLOMBERG CAPO synthesis (" + CAPO_MODEL + ") - memory-aware v4")  # voce 5: etichetta derivata dal model string, non puo' piu' invecchiare
     print("=" * 70)
 
-    specialist_reports = {}
-    for sp_name, rounds in blackboard.data.items():
-        if rounds and not sp_name.startswith("_"):
-            latest_round = max(rounds.keys())
-            specialist_reports[sp_name] = {"round": latest_round, "report": rounds[latest_round]}
+    # 12/09: l'indice degli orari vive nella Blackboard viva; nei rescue (regenerate_memo)
+    # e nei blackboard finti non c'e' -> il prefisso dichiara «orario n.d.»
+    specialist_reports = scegli_report_specialisti(
+        blackboard.data, orari=getattr(blackboard, "orari_report", None))
 
     try:
         from bellomberg.core.current_facts import current_facts_block
@@ -454,7 +561,7 @@ def run_capo(blackboard, portfolio_data=None, memory_db=None, sizing_context=Non
         "Oggi e' " + datetime.now().strftime("%A %d %B %Y, %H:%M") + " (CET).",
         "I tuoi specialisti hanno finito. Produci IL memo per il PM.",
         "Segui la STRUTTURA OUTPUT: prima la ACTION TABLE, poi BLUF, DECISIONI PRIORITARIE, CONTINUITA' DALLA SCORSA SETTIMANA, le 12 sezioni.",
-        "3500-5500 parole, TUTTO IN ITALIANO scorrevole e leggibile. Espandi i ticker col nome esteso alla prima menzione. Spiega ogni metrica tecnica in prosa. Cita le decisioni passate per ID dove rilevante.",
+        prompt_for_language("3500-5500 parole, TUTTO IN ITALIANO scorrevole e leggibile. Espandi i ticker col nome esteso alla prima menzione. Spiega ogni metrica tecnica in prosa. Cita le decisioni passate per ID dove rilevante."),
         "",
     ]
 
@@ -641,7 +748,10 @@ def run_capo(blackboard, portfolio_data=None, memory_db=None, sizing_context=Non
                      if n not in _committee and not str(n).startswith("_"))
     for sp_name in _committee + _legacy:
         r = specialist_reports.get(sp_name)
-        if r:
+        if r and r.get("no_report"):
+            # audit 11/09: stessa forma del ramo [NO REPORT] qui sotto, col segnaposto citato
+            user_msg_parts.append("\n--- " + sp_name.upper() + " --- " + str(r["report"]))
+        elif r:
             user_msg_parts.append("\n--- " + sp_name.upper() + " (Round " + str(r["round"]) + ") ---")
             txt = r["report"]
             if len(txt) > 30000:
@@ -726,7 +836,7 @@ def run_capo(blackboard, portfolio_data=None, memory_db=None, sizing_context=Non
                   + str(SOGLIA_COLLASSO_MEMO) + "): eco/annuncio invece del memo — UN retry col nudge")
             _messages = _messages + [
                 {"role": "assistant", "content": response.content},
-                {"role": "user", "content": NUDGE_COLLASSO_MEMO},
+                {"role": "user", "content": prompt_for_language(NUDGE_COLLASSO_MEMO)},
             ]
             continue
         break

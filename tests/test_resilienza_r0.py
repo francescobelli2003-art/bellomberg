@@ -234,13 +234,21 @@ def test_report_corto_con_tool_a_monte_non_scatta(bb):
 
 
 def test_round_2_fuori_perimetro_dichiarato(bb):
-    """La cura vale per R0/R1 (dov'e' stato misurato il collasso): in R2 il
-    comportamento resta quello di prima — perimetro dichiarato."""
+    """La guardia del COLLASSO vale per R0/R1 (dov'e' stato misurato): in R2 non
+    scatta, non c'e' nudge e la call resta UNA — perimetro dichiarato.
+
+    Aggiornato il 12/09 (prerequisito 3 del mandato PM): un round >= 1 chiuso con
+    ZERO chiamate tool ora lo DICHIARA in testa, anche in R2. Quindi qui si pretende
+    di piu' di prima, non di meno: (a) il testo del modello arriva INTERO, (b) la
+    dichiarazione c'e' e nomina il round giusto, (c) non e' il marcatore del
+    collasso (quello resta fuori perimetro in R2), (d) la call resta una sola."""
     def script(n, kwargs):
         return _text_resp(ANNUNCIO)
 
     client = _FakeClient(script)
     out = _MockSpecialist(bb, client=client).run(2)
 
-    assert out == ANNUNCIO
+    assert ANNUNCIO in out
+    assert out.startswith("[ROUND 2 SENZA TOOL")
+    assert "[COLLASSO" not in out
     assert len(client.calls) == 1

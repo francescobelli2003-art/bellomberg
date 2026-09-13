@@ -25,10 +25,12 @@ import json
 import os
 import time
 import traceback
+import tempfile
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 
 from bellomberg.core.paths import DATA_DIR
+from bellomberg.core.language import capture_language, scoped_language, text as _lt
 CACHE_PATH = str(DATA_DIR / "briefing_cache.json")
 CACHE_TTL_SEC = 4 * 3600  # 4 hours per slot
 NEWS_LOOKBACK_HOURS = 8
@@ -40,6 +42,12 @@ PERIOD_SLOTS = {
     "afternoon": {"hour": 15, "label": "Afternoon Briefing (15:30 CET)", "lookback_h": 5,  "focus": "US open + EU close"},
     "evening":   {"hour": 19, "label": "Evening Briefing (19:30 CET)",   "lookback_h": 5,  "focus": "US session + after-hours"},
 }
+
+
+def _slot_label(period):
+    labels = {"morning": "Briefing del mattino (07:30 CET)", "midday": "Briefing di metà giornata (11:30 CET)",
+              "afternoon": "Briefing del pomeriggio (15:30 CET)", "evening": "Briefing della sera (19:30 CET)"}
+    return _lt(labels[period], PERIOD_SLOTS[period]["label"])
 
 
 def _log(msg: str):
@@ -54,24 +62,75 @@ def _ensure_cache_dir():
     os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
 
 
+def _language_cache_path():
+    # Separate physical files also isolate simultaneous scheduler/API runs.
+    # The legacy file contains IT only; reading EN never imports old IT prose.
+    return CACHE_PATH if capture_language() == "it" else CACHE_PATH + ".en.v1.json"
+
+
+class BriefingCacheError(RuntimeError):
+    """Unreadable persisted output must never masquerade as first use."""
+
+
+def _validate_cache(cache):
+    if not isinstance(cache, dict):
+        raise ValueError(_lt("la radice della cache briefing deve essere un oggetto", "briefing cache root must be an object"))
+    containers = [cache]
+    if "_languages_v1" in cache:
+        languages = cache["_languages_v1"]
+        if not isinstance(languages, dict) or any(not isinstance(v, dict) for v in languages.values()):
+            raise ValueError(_lt("la mappa delle lingue della cache briefing deve contenere oggetti", "briefing cache language map must contain objects"))
+        containers.extend(languages.values())
+    for container in containers:
+        latest = container.get("_latest")
+        if latest is None and not any(slot in container for slot in PERIOD_SLOTS):
+            continue
+        if not isinstance(latest, str) or latest not in PERIOD_SLOTS or not isinstance(container.get(latest), dict):
+            raise ValueError(_lt("l'ultimo slot della cache briefing è assente o non valido", "briefing cache latest slot is missing or invalid"))
+        content = container[latest].get("briefing_md")
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError(_lt("l'ultimo testo della cache briefing è assente o vuoto", "briefing cache latest text is missing or empty"))
+
+
 def _load_cache() -> Dict[str, Any]:
-    if not os.path.exists(CACHE_PATH):
-        return {}
+    path = _language_cache_path()
     try:
-        with open(CACHE_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
+        with open(path, "r", encoding="utf-8") as f:
+            cache = json.load(f)
+        _validate_cache(cache)
+        return cache
+    except FileNotFoundError:
+        return {}
     except Exception as e:
         _log(f"cache load failed: {e}")
-        return {}
+        raise BriefingCacheError(str(e)) from e
+
+
+def _cache_failure(error: BriefingCacheError) -> Dict[str, Any]:
+    title = _lt("CACHE BRIEFING NON LEGGIBILE", "BRIEFING CACHE UNREADABLE")
+    message = _lt("Impossibile leggere il briefing salvato. Il file originale è conservato; nessun nuovo briefing è stato salvato.",
+                  "The saved briefing cannot be read. The original file is preserved; no new briefing was saved.")
+    return {"error": f"{title}: {error}", "error_code": "briefing_cache_unreadable",
+            "briefing_md": f"## {title}\n\n{message}\n\n{error}",
+            "language": capture_language(), "generated_at": None, "period": None, "stale": True}
 
 
 def _save_cache(data: Dict[str, Any]):
     _ensure_cache_dir()
+    temporary = None
     try:
-        with open(CACHE_PATH, "w", encoding="utf-8") as f:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=os.path.dirname(CACHE_PATH), delete=False) as f:
+            temporary = f.name
             json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, _language_cache_path())
     except Exception as e:
         _log(f"cache save failed: {e}")
+        raise
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def _current_period() -> str:
@@ -267,6 +326,7 @@ def _fetch_portfolio_snapshot() -> Dict[str, Any]:
         return {}
 
 
+@scoped_language
 def _build_briefing_prompt(period: str, news: List[Dict[str, Any]],
                             macro: Dict[str, Any], portfolio: Dict[str, Any]) -> str:
     """Costruisce il prompt per Haiku."""
@@ -313,7 +373,12 @@ def _build_briefing_prompt(period: str, news: List[Dict[str, Any]],
     except Exception:
         facts = "(fatti correnti non disponibili)"
 
-    return f"""Sei un Senior Research Analyst di Goldman Sachs che scrive il {slot['label']} per {PM_DESC}.
+    language_direction = _lt(
+        "Scrivi un briefing in italiano professionale stile FT Briefing / Bloomberg Daybook, MAX 4 paragrafi.\nOgni paragrafo 2-4 frasi complete, italiano scorrevole (non telegrafico). Termini tecnici inglesi OK.",
+        "Write a briefing in professional English, FT Briefing / Bloomberg Daybook style, MAX 4 paragraphs.\nEach paragraph contains 2-4 complete sentences in fluent English. Preserve original quotations verbatim.")
+    headings = _lt(("TONO DI MERCATO", "QUADRO MACRO", "IMPATTO SUL PORTAFOGLIO", "DA SEGUIRE OGGI"),
+                   ("MARKET TONE", "MACRO HIGHLIGHTS", "PORTFOLIO IMPACT", "WATCH TODAY"))
+    return f"""Sei un Senior Research Analyst di Goldman Sachs che scrive il {_slot_label(period)} per {PM_DESC}.
 Data corrente: {now}. Focus periodo: {slot['focus']}.
 
 {facts}
@@ -328,8 +393,7 @@ PORTFOLIO TOP HOLDINGS (NAV totale EUR {total_eur:,.0f}, cash disponibile EUR {c
 {port_block}
 
 ISTRUZIONI:
-Scrivi un briefing in italiano professionale stile FT Briefing / Bloomberg Daybook, MAX 4 paragrafi.
-Ogni paragrafo 2-4 frasi complete, italiano scorrevole (non telegrafico). Termini tecnici inglesi OK.
+{language_direction}
 
 REGOLE FERREE (anti-invenzione, la violazione invalida il briefing):
 - OGNI numero che scrivi (livelli, variazioni, probabilita') DEVE comparire in MARKET LEVELS, nelle NEWS qui sopra o nei FATTI CORRENTI. Se un dato non c'e', NON citarlo: ometti o scrivi che non e' disponibile.
@@ -339,27 +403,34 @@ REGOLE FERREE (anti-invenzione, la violazione invalida il briefing):
 
 Struttura obbligatoria (usa esattamente questi 4 header markdown ##):
 
-## MARKET TONE
+## {headings[0]}
 [Tono di mercato: risk-on/off, cosa ha mosso negli ultimi {slot['lookback_h']}h, livelli chiave VIX/yields/DXY]
 
-## MACRO HIGHLIGHTS
+## {headings[1]}
 [Top 2-3 news macro/geopolitiche del periodo con impatto cross-asset. PRIORITA' OBBLIGATORIA alla geopolitica (Iran/Israele, Ucraina/Russia, dazi, elezioni, OPEC) e alle banche centrali (Fed/BCE) rispetto alle news dei singoli titoli; se nelle news sopra non c'e' nulla di geo/macro rilevante, dillo esplicitamente in una frase]
 
-## PORTFOLIO IMPACT
+## {headings[2]}
 [Impatto specifico sulle posizioni del PM - cita ticker reali del portfolio]
 
-## WATCH TODAY
+## {headings[3]}
 [1-2 catalyst attesi nelle prossime ore o nel resto della giornata]
 
 NON aggiungere altri header. NON usare bullet point. Solo prosa fluida sotto ogni header."""
 
 
+@scoped_language
 def generate_briefing(period: Optional[str] = None) -> Dict[str, Any]:
     """Genera un nuovo briefing per lo slot indicato (o quello corrente)."""
     if period is None:
         period = _current_period()
     if period not in PERIOD_SLOTS:
         return {"error": f"unknown period: {period}"}
+
+    # Fail before providers or a paid model call; preserve the unreadable file.
+    try:
+        _load_cache()
+    except BriefingCacheError as e:
+        return _cache_failure(e)
 
     slot = PERIOD_SLOTS[period]
     _log(f"generating briefing for slot={period} ({slot['label']})")
@@ -417,7 +488,18 @@ def generate_briefing(period: Optional[str] = None) -> Dict[str, Any]:
         if msg is None:
             raise last_err or RuntimeError("briefing generation failed")
 
-        briefing_text = msg.content[0].text.strip()
+        # Il provider puo' restituire thinking/tool_use prima o fra i TextBlock.
+        # Solo i blocchi di testo sono il briefing: non pubblicare reasoning o vuoti.
+        blocks = msg.content or []
+        briefing_text = "\n".join(
+            block.text for block in blocks if getattr(block, "type", None) == "text"
+        ).strip()
+        if not briefing_text:
+            block_types = ", ".join(getattr(block, "type", _lt("sconosciuto", "unknown")) for block in blocks) or _lt("nessuno", "none")
+            _log(_lt(f"risposta SENZA blocchi di testo utilizzabile (blocchi: {block_types})",
+                     f"response WITHOUT usable text blocks (blocks: {block_types})"))
+            raise ValueError(_lt(f"risposta del modello senza testo (blocchi: {block_types})",
+                                 f"model response has no text (blocks: {block_types})"))
         tokens_in = msg.usage.input_tokens
         tokens_out = msg.usage.output_tokens
 
@@ -426,13 +508,15 @@ def generate_briefing(period: Optional[str] = None) -> Dict[str, Any]:
         traceback.print_exc()
         return {
             "error": str(e),
+            "language": capture_language(),
             "period": period,
             "generated_at": datetime.now().isoformat(),
         }
 
     result = {
         "period": period,
-        "slot_label": slot["label"],
+        "slot_label": _slot_label(period),
+        "language": capture_language(),
         "generated_at": datetime.now().isoformat(),
         "lookback_hours": slot["lookback_h"],
         "news_count": len(news),
@@ -443,29 +527,47 @@ def generate_briefing(period: Optional[str] = None) -> Dict[str, Any]:
         "tokens_out": tokens_out,
     }
 
-    # Save to cache
-    cache = _load_cache()
-    cache[period] = result
-    cache["_latest"] = period
-    cache["_latest_at"] = result["generated_at"]
+    # Save to cache; a concurrent corruption must not be overwritten either.
+    try:
+        cache = _load_cache()
+    except BriefingCacheError as e:
+        return _cache_failure(e)
+    localized = cache.setdefault("_languages_v1", {}).setdefault(capture_language(), {})
+    localized[period] = result
+    localized["_latest"] = period
+    localized["_latest_at"] = result["generated_at"]
+    if capture_language() == "it":
+        # Keep the existing IT interface for older readers; EN cannot overwrite it.
+        cache[period] = result
+        cache["_latest"] = period
+        cache["_latest_at"] = result["generated_at"]
     _save_cache(cache)
 
     _log(f"  briefing OK, {len(briefing_text)} chars, tokens in={tokens_in} out={tokens_out}")
     return result
 
 
+@scoped_language
 def get_current_briefing() -> Dict[str, Any]:
     """Ritorna l'ultimo briefing salvato (qualsiasi slot, il piu recente)."""
-    cache = _load_cache()
+    try:
+        cache = _load_cache()
+    except BriefingCacheError as e:
+        return _cache_failure(e)
+    language = capture_language()
+    cache = cache.get("_languages_v1", {}).get(language, cache if language == "it" else {})
     latest_slot = cache.get("_latest")
     if not latest_slot or latest_slot not in cache:
         return {
-            "briefing_md": "## NO BRIEFING YET\n\nIl briefing non e' ancora stato generato. Clicca REFRESH per crearne uno ora.",
+            "briefing_md": _lt("## BRIEFING NON DISPONIBILE\n\nIl briefing in italiano non è ancora stato generato. Clicca AGGIORNA per crearne uno ora.",
+                               "## NO BRIEFING YET\n\nThe English briefing has not been generated. Click REFRESH to create one now."),
+            "language": language,
             "generated_at": None,
             "period": None,
             "stale": True,
         }
-    b = cache[latest_slot]
+    b = dict(cache[latest_slot])
+    b.setdefault("language", language)
     # Check staleness
     try:
         gen_at = datetime.fromisoformat(b.get("generated_at", ""))
@@ -477,10 +579,33 @@ def get_current_briefing() -> Dict[str, Any]:
     return b
 
 
+@scoped_language
 def needs_refresh() -> bool:
     """True se il briefing corrente e' piu vecchio di TTL."""
     b = get_current_briefing()
     return b.get("stale", True)
+
+
+@scoped_language
+def main_direct(period: Optional[str] = None) -> int:
+    """Ramo diretto dello scheduler: esito KO dichiarato e nonzero senza testo."""
+    if period is None:
+        period = _current_period()
+    try:
+        result = generate_briefing(period)
+    except Exception as e:
+        _log(f"direct KO {period}: {e}")
+        return 1
+
+    text = result.get("briefing_md")
+    chars = len(text) if isinstance(text, str) else 0
+    slot = result.get("period") or period
+    if "error" in result or not isinstance(text, str) or not text.strip():
+        error = result.get("error") or _lt("briefing senza testo utilizzabile", "briefing has no usable text")
+        _log(f"direct KO {slot} chars= {chars}: {error}")
+        return 1
+    _log(f"direct OK {slot} chars= {chars}")
+    return 0
 
 
 if __name__ == "__main__":
@@ -488,3 +613,5 @@ if __name__ == "__main__":
     period = sys.argv[1] if len(sys.argv) > 1 else None
     result = generate_briefing(period)
     print(json.dumps(result, indent=2, default=str, ensure_ascii=False))
+    text = result.get("briefing_md")
+    sys.exit(1 if "error" in result or not isinstance(text, str) or not text.strip() else 0)

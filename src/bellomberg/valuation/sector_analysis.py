@@ -317,6 +317,7 @@ def valuation_results_block(results):
         rows.append(json.dumps({"ticker": ticker, "method_id": decision.get("method_id"),
             "snapshot_id": result.get("snapshot_id"), "generation_id": result.get("generation_id"),
             "valuation_usability": usability, "valuation_date": result.get("valuation_date"),
+            "information_cutoff": decision.get("as_of"),
             "valuation_basis": result.get("valuation_basis"), "fair_value": next((result[k] for k in
                 ("fair_value_final", "fair_value_weighted", "fair_value_blend", "fair_value_base", "fair_value_nav")
                 if result.get(k) is not None), None)}, ensure_ascii=False))

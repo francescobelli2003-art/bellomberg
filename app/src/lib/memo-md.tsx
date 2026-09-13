@@ -1,3 +1,4 @@
+import { t as tr } from '@/i18n/t';
 import React from 'react';
 
 /* ============================================================================
@@ -47,11 +48,11 @@ export function inline(testo: string, chiave: string): React.ReactNode[] {
     const k = `${chiave}-${i}`;
     if (p.startsWith('**') && p.endsWith('**')) out.push(<strong key={k}>{p.slice(2, -2)}</strong>);
     else if (p.startsWith('[src:')) out.push(
-      <span className="mdsrc" key={k} title="fonte dichiarata dal memo">
+      <span className="mdsrc" key={k} title={tr('memoarchive.f090')}>
         {p.slice(1, -1).replace(/^src:\s*/, '')}
       </span>);
     else if (/^#\d/.test(p)) out.push(
-      <span className="mdref" key={k} title="richiamo a una decisione in archivio">{p}</span>);
+      <span className="mdref" key={k} title={tr('memoarchive.f091')}>{p}</span>);
     else out.push(<React.Fragment key={k}>{p}</React.Fragment>);
   });
   return out;

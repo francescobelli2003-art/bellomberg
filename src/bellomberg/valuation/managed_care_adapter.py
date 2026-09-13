@@ -5,6 +5,8 @@ Records carry the S2 metadata plus scenario/driver/kind/rationale/valid_until.
 Each driver is bound to its value, entity, period, unit and accounting basis.
 The workbook is a dated snapshot of these engines, not a second calculator.
 """
+from bellomberg.core.language import scoped_language, text as _lt
+from bellomberg.reporting.i18n_excel import label as _xt
 from copy import deepcopy
 from datetime import timedelta
 from pathlib import Path
@@ -277,6 +279,7 @@ def generate_managed_care(bundle, *, output_dir, metadata):
     return _write_payload_sidecar(result)
 
 
+@scoped_language
 def build_managed_care_workbook(payload, output_dir):
     """Persist a new snapshot; do not overwrite or move any previous workbook."""
     from openpyxl import Workbook
@@ -289,9 +292,9 @@ def build_managed_care_workbook(payload, output_dir):
     wb = Workbook()
     ws = wb.active
     ws.title = 'Managed care'
-    rows = [['MANAGED CARE | SNAPSHOT', payload['ticker']], ['Fair value Base', payload.get('fair_value_base')],
-            ['Data dei flussi / valore', payload.get('valuation_date')], ['Base informativa', payload['acquisition_snapshot']['case']['as_of']],
-            ['Base valutazione', payload.get('valuation_basis')], ['Modifica ipotesi', 'Rigenerare il bundle e i controlli; questo file conserva il calcolo alla generazione.']]
+    rows = [['MANAGED CARE | SNAPSHOT', payload['ticker']], [_xt('Fair value Base'), payload.get('fair_value_base')],
+            [_xt('Data dei flussi / valore'), payload.get('valuation_date')], [_xt('Base informativa'), payload['acquisition_snapshot']['case']['as_of']],
+            [_xt('Base valutazione'), payload.get('valuation_basis')], [_xt('Modifica ipotesi'), _xt('Rigenerare il bundle e i controlli; questo file conserva il calcolo alla generazione.')]]
     for row in rows:
         ws.append(row)
     for scenario, data in payload['managed_care'].get('scenarios', {}).items():
@@ -310,7 +313,7 @@ def build_managed_care_workbook(payload, output_dir):
                     yield prefix, value
             flat_rows = [dict(flatten(row)) for row in table]
             keys = list(dict.fromkeys(key for row in flat_rows for key in row))
-            sheet.append(['Dato'] + [str(row.get('year')) for row in table])
+            sheet.append([_xt('Dato')] + [str(row.get('year')) for row in table])
             for key in keys:
                 sheet.append([key] + [row.get(key) for row in flat_rows])
     append_quality_sheet(wb, payload['analytical_quality'])

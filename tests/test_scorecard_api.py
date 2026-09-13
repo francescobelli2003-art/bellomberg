@@ -20,6 +20,7 @@ import json
 import os
 
 import pytest
+from bellomberg.core.language import language_context
 
 import bellomberg.agents.scorekeeper as sk
 
@@ -355,7 +356,7 @@ def test_guardia_strutturale_endpoint_non_ricalcola():
     fn = _funzione("src/bellomberg/api/bellomberg_api.py", "get_agents_scorecard")
     nomi, kwargs = _simboli(fn)
     ammessi = {"bellomberg.agents.scorekeeper", "scorecard_for_api",
-               "_err500", "e", "Exception"}
+               "_err500", "_api_text", "e", "Exception"}
     intrusi = nomi - ammessi
     assert not intrusi, (
         f"nomi non ammessi nell'endpoint: {sorted(intrusi)}. Deve limitarsi a "
@@ -369,6 +370,25 @@ def test_guardia_strutturale_endpoint_non_ricalcola():
                 args.vararg or args.kwarg), (
         "l'endpoint ha preso dei parametri: un `?refresh=` riaprirebbe il "
         "ricalcolo su HTTP dalla porta di servizio")
+
+
+@pytest.mark.parametrize('language,hint', [('it', 'lettura snapshot track record'), ('en', 'Reading the track record snapshot')])
+def test_endpoint_error_uses_real_language_helper_without_recalculation(monkeypatch, language, hint):
+    from bellomberg.api import bellomberg_api as api
+    from fastapi import HTTPException
+    reads = []
+    def failed_read():
+        reads.append(True)
+        raise OSError('Original snapshot diagnostic')
+    def forbidden(*a, **kw):
+        pytest.fail('Error handling must not recalculate the scorecard')
+    monkeypatch.setattr(sk, 'scorecard_for_api', failed_read)
+    monkeypatch.setattr(sk, 'compute_scorecard', forbidden)
+    with language_context(language), pytest.raises(HTTPException) as caught:
+        api.get_agents_scorecard()
+    assert caught.value.status_code == 500
+    assert caught.value.detail == hint + ' — OSError: Original snapshot diagnostic'
+    assert len(reads) == 1
 
 
 def test_anche_la_funzione_a_valle_non_ricalcola():

@@ -14,6 +14,25 @@ Set `BELLOMBERG_PIN` to exactly four ASCII digits. Missing/malformed PINs and th
 default `1234` are rejected. The PIN protects local application access; it is not
 an authentication design for exposing the API to the public internet.
 
+## Language is a profile preference
+
+Choose English or Italian after the first login, or in **F19 Settings** later.
+The choice is stored in `preferences.json` inside `BELLOMBERG_DATA_DIR`, separately
+from the portfolio and mandate. Saving includes a readback. Browser storage is a
+local display cache; it does not replace the saved profile preference.
+
+The interface updates without discarding drafts. Newly generated committee
+research, chat replies, briefings, news summaries and report labels use the
+selected language. A running generation keeps the language captured when it
+started. Existing documents, source quotations, notes and numerical records stay
+unchanged; changing language does not itself launch a model or email delivery.
+Historical records without language metadata remain explicitly unknown.
+
+When no preference file exists, background workflows retain the declared Italian
+compatibility default; the first-run interface still asks for an explicit choice.
+An unreadable preference is an error. Use the displayed readback/repair controls;
+explicit repair preserves a verified copy of the unreadable file.
+
 ## Enable the capabilities you need
 
 | Capability | Configuration | What to expect without it |

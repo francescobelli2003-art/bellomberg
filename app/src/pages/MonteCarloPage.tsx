@@ -1,9 +1,14 @@
+import { useT } from '@/i18n/provider';
+import { t as tr } from '@/i18n/t';
+import { linguaCorrente, localeDi, type Lingua } from '@/i18n/lingua';
+import { localizePayload } from '@/lib/api-presentation';
+import { leggiDetail } from '@/lib/quota';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Cpu, Play, RefreshCw, AlertCircle, Plus, X, Check } from 'lucide-react';
 import {
   Bellomberg, MonteCarloResult, TickerValidation, Position
 } from '@/lib/api';
-import { fmtEUR as fmtEURlib, fmtPct as fmtPctlib } from '@/lib/format';
+import { fmtEUR as fmtEURlib, fmtPct as fmtPctlib, fmtNum as fmtNumlib } from '@/lib/format';
 import { leggiNumero } from '@/lib/cassa';
 import {
   classificaRiga, contaBanco, costruisciPayload, targhettaBanco, etichettaSimula
@@ -25,32 +30,49 @@ interface DraftMod {
   amount_pct: string;
   validation?: TickerValidation;
   validating?: boolean;
+  inputLanguage?: Lingua;
 }
 
 // B-UI15: logica di formato UNICA in lib/format; qui solo la convenzione locale
-// della pagina — EUR a 0 decimali, percentuali con la VIRGOLA come i valori in euro
-// che ci stanno accanto (una sola convenzione numerica su tutta la plancia).
-const fmtEUR = (v: number | null | undefined) => fmtEURlib(v, false, 0);
-const fmtEUR2 = (v: number | null | undefined) => fmtEURlib(v, false, 2);
-const fmtPct = (v: number | null | undefined) => fmtPctlib(v, false).replace('.', ',');
-const fmtPctS = (v: number | null | undefined) => fmtPctlib(v, true).replace('.', ',');
+// della pagina — EUR a 0 decimali, numeri nella lingua corrente. Il buco lo dichiara
+// la pagina col segnaposto della lingua della UI: lib/format stampa un 'n/a' fisso.
+const naOr = (v: number | null | undefined, f: (x: number) => string) =>
+  v == null || !isFinite(v) ? tr('montecarlo.na') : f(v);
+const fmtEUR = (v: number | null | undefined) => naOr(v, x => fmtEURlib(x, false, 0));
+const fmtEUR2 = (v: number | null | undefined) => naOr(v, x => fmtEURlib(x, false, 2));
+const fmtPct = (v: number | null | undefined) => naOr(v, x => fmtPctlib(x, false));
+const fmtPctS = (v: number | null | undefined) => naOr(v, x => fmtPctlib(x, true));
+const fmtNum = (v: number | null | undefined, dec = 2) => naOr(v, x => fmtNumlib(x, dec));
 const fmtInt = (v: number | null | undefined) =>
-  v == null || !isFinite(v) ? 'n/a' : Math.round(v).toLocaleString('it-IT');
+  naOr(v, x => Math.round(x).toLocaleString(localeDi(linguaCorrente()), { useGrouping: true }));
 
-const MESI = ['GEN', 'FEB', 'MAR', 'APR', 'MAG', 'GIU', 'LUG', 'AGO', 'SET', 'OTT', 'NOV', 'DIC'];
 /** Timbro d'esecuzione della simulazione: "26 LUG 2026 · 10:41". Mai inventato:
  *  se il payload non porta il timestamp, si dichiara. */
 const stamp = (iso?: string) => {
-  if (!iso) return 'ORARIO N.D.';
+  if (!iso) return tr('montecarlo.f001');
   const d = new Date(iso);
-  if (isNaN(d.getTime())) return 'ORARIO N.D.';
+  if (isNaN(d.getTime())) return tr('montecarlo.f001');
   const p2 = (n: number) => String(n).padStart(2, '0');
-  return `${p2(d.getDate())} ${MESI[d.getMonth()]} ${d.getFullYear()} · ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  const month = d.toLocaleDateString(localeDi(linguaCorrente()), { month: 'short' }).replace('.', '').toUpperCase();
+  return `${p2(d.getDate())} ${month} ${d.getFullYear()} · ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+};
+
+/** Id del motore (metodo, drift, stress) -> la stessa etichetta dei select della
+ *  pagina. Un id senza etichetta si mostra com'e' e si dichiara: mai un nome inventato. */
+const engineIdLabel = (kind: 'method' | 'drift' | 'stress', id?: string | null): string => {
+  if (!id) return tr('montecarlo.na');
+  const labels: Record<string, string> = kind === 'method'
+    ? { fhs: tr('montecarlo.f006'), block_bootstrap: 'Block bootstrap', parametric_t: tr('montecarlo.f007') }
+    : kind === 'drift'
+      ? { zero: tr('montecarlo.f008'), shrinkage: tr('montecarlo.f009'), historical: tr('montecarlo.f010') }
+      : { none: tr('montecarlo.f015'), gfc_2008: 'GFC 2008', covid_2020: 'COVID 2020', shock_3sigma: 'shock −3σ' };
+  return Object.prototype.hasOwnProperty.call(labels, id) ? labels[id] : tr('montecarlo.unlabelledId', { id });
 };
 
 let modIdCounter = 1;
 
 export default function MonteCarloPage() {
+  const tr = useT();
   const [horizonDays, setHorizonDays] = useState(252);
   const [nSims, setNSims] = useState(10000);
   const [lookbackYears, setLookbackYears] = useState(5);
@@ -62,15 +84,16 @@ export default function MonteCarloPage() {
   const [positions, setPositions] = useState<Position[]>([]);
   const [posErr, setPosErr] = useState<string | null>(null);
 
-  const [result, setResult] = useState<MonteCarloResult | null>(null);
+  const [resultRaw, setResult] = useState<MonteCarloResult | null>(null);
   const [running, setRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ detail: string; draft?: DraftMod[] } | null>(null);
+  const result = useMemo(() => localizePayload(resultRaw), [resultRaw, tr]);
 
   useEffect(() => {
     // Buco DICHIARATO (regola 14/07): picker vuoto muto = falso "book vuoto"
     Bellomberg.portfolio()
       .then(p => { setPosErr(null); setPositions(p.positions || []); })
-      .catch((e: any) => setPosErr(e?.response?.data?.detail || e?.message || String(e)));
+      .catch((e: any) => setPosErr(leggiDetail(e?.response?.data?.detail ?? e?.message ?? e)));
   }, []);
 
   const ownedTickers = useMemo(
@@ -85,6 +108,7 @@ export default function MonteCarloPage() {
       ticker: '',
       amount_eur: '',
       amount_pct: action === 'trim' ? '20' : '',
+      inputLanguage: linguaCorrente(),
     }]);
   };
 
@@ -110,7 +134,7 @@ export default function MonteCarloPage() {
   // dell'endpoint — e la causa vera è dichiarata nel picker due centimetri
   // più in là (reperto della review).
   const ctxBanco = useMemo(() => ({ bookVuoto: ownedTickers.length === 0 }), [ownedTickers]);
-  const banco = useMemo(() => contaBanco(mods, ctxBanco), [mods, ctxBanco]);
+  const banco = useMemo(() => contaBanco(mods, ctxBanco), [mods, ctxBanco, tr]);
 
   const validateMod = async (id: number, tickerRaw: string) => {
     const t = tickerRaw.trim().toUpperCase();
@@ -122,7 +146,7 @@ export default function MonteCarloPage() {
     } catch (e: any) {
       updateMod(id, {
         validating: false,
-        validation: { ok: false, symbol: t, error: e?.message || 'validation failed' }
+        validation: { ok: false, symbol: t, error: leggiDetail(e?.response?.data?.detail ?? e?.message ?? e) }
       });
     }
   };
@@ -132,8 +156,7 @@ export default function MonteCarloPage() {
       // difesa in profondità: oggi irraggiungibile (il tasto è `disabled` sulla
       // STESSA condizione letta dallo stesso render), e la review lo conferma.
       // Resta perché `runSim` non deve dipendere da chi la chiama.
-      setError('MODIFICHE DA CORREGGERE — ' + banco.difetti
-        .map(x => `${x.riga.ticker.trim()}: ${x.motivo}`).join(' · '));
+      setError({ detail: '', draft: mods });
       return;
     }
     setRunning(true);
@@ -153,7 +176,7 @@ export default function MonteCarloPage() {
       if (r.error) throw new Error(r.error);
       setResult(r);
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e?.message || 'simulation failed');
+      setError({ detail: leggiDetail(e?.response?.data?.detail ?? e?.message ?? e) });
     } finally {
       setRunning(false);
     }
@@ -183,7 +206,7 @@ export default function MonteCarloPage() {
     }
     const pad = (hi - lo) * 0.04;
     return { lo: lo - pad, hi: hi + pad };
-  }, [result]);
+  }, [result?.fan_bands, result?.terminal_hist]);
 
   const outsideWindow = useMemo(() => {
     const th = result?.terminal_hist;
@@ -195,50 +218,50 @@ export default function MonteCarloPage() {
       if (mid < view.lo || mid > view.hi) out += c;
     });
     return { out, tot };
-  }, [result, view]);
+  }, [result?.terminal_hist, view]);
 
   return (
     <div className="obsx f5p animate-fadeIn">
       <div className="asst">
         <span className="lab">// Monte Carlo</span>
-        <span className="fld"><span className="k">metodo</span>
+        <span className="fld"><span className="k">{tr('montecarlo.f005')}</span>
           <select value={method} onChange={e => setMethod(e.target.value as Method)}>
-            <option value="fhs">FHS · GARCH + bootstrap residui</option>
+            <option value="fhs">{tr('montecarlo.f006')}</option>
             <option value="block_bootstrap">Block bootstrap</option>
-            <option value="parametric_t">Student-t parametrica (legacy)</option>
+            <option value="parametric_t">{tr('montecarlo.f007')}</option>
           </select></span>
         <span className="fld"><span className="k">drift</span>
           <select value={drift} onChange={e => setDrift(e.target.value as Drift)}>
-            <option value="zero">zero (neutrale)</option>
-            <option value="shrinkage">shrinkage 0,3x</option>
-            <option value="historical">storico (distorto)</option>
+            <option value="zero">{tr('montecarlo.f008')}</option>
+            <option value="shrinkage">{tr('montecarlo.f009')}</option>
+            <option value="historical">{tr('montecarlo.f010')}</option>
           </select></span>
         <span className="fld"><span className="k">lookback</span>
           <select value={lookbackYears} onChange={e => setLookbackYears(parseInt(e.target.value))}>
-            <option value={1}>1 anno</option><option value={2}>2 anni</option>
-            <option value={5}>5 anni</option><option value={10}>10 anni</option>
+            <option value={1}>{tr('montecarlo.f011')}</option><option value={2}>{tr('montecarlo.f012')}</option>
+            <option value={5}>{tr('montecarlo.f013')}</option><option value={10}>{tr('montecarlo.f014')}</option>
           </select></span>
         <span className="fld"><span className="k">stress</span>
           <select value={stress} onChange={e => setStress(e.target.value as Stress)}>
-            <option value="none">nessuno</option>
+            <option value="none">{tr('montecarlo.f015')}</option>
             <option value="gfc_2008">GFC 2008</option>
             <option value="covid_2020">COVID 2020</option>
             <option value="shock_3sigma">shock −3σ</option>
           </select></span>
-        <span className="fld"><span className="k">orizzonte</span>
+        <span className="fld"><span className="k">{tr('montecarlo.f016')}</span>
           <select value={horizonDays} onChange={e => setHorizonDays(parseInt(e.target.value))}>
-            <option value={21}>1 mese</option><option value={63}>3 mesi</option>
-            <option value={126}>6 mesi</option><option value={252}>1 anno</option>
-            <option value={504}>2 anni</option>
+            <option value={21}>{tr('montecarlo.f017')}</option><option value={63}>{tr('montecarlo.f018')}</option>
+            <option value={126}>{tr('montecarlo.f019')}</option><option value={252}>{tr('montecarlo.f011')}</option>
+            <option value={504}>{tr('montecarlo.f012')}</option>
           </select></span>
-        <span className="fld"><span className="k">traiettorie</span>
+        <span className="fld"><span className="k">{tr('montecarlo.f020')}</span>
           <select value={nSims} onChange={e => setNSims(parseInt(e.target.value))}>
-            <option value={3000}>3.000 (rapida)</option><option value={10000}>10.000</option>
-            <option value={25000}>25.000</option><option value={50000}>50.000 (lenta)</option>
+            <option value={3000}>{tr('montecarlo.f021')}</option><option value={10000}>{fmtInt(10000)}</option>
+            <option value={25000}>{fmtInt(25000)}</option><option value={50000}>{tr('montecarlo.f022')}</option>
           </select></span>
         <button className="go" onClick={() => runSim(true)} disabled={running || banco.bloccanti > 0}
                 title={banco.bloccanti > 0
-                  ? 'Da correggere: ' + banco.difetti.map(x => `${x.riga.ticker.trim()} — ${x.motivo}`).join(' · ')
+                  ? tr('montecarlo.f023') + banco.difetti.map(x => `${x.riga.ticker.trim()} — ${x.motivo}`).join(' · ')
                   : banco.inerti > 0
                     // niente accordo sbagliato («1 modifiche su 2»: era la
                     // stessa classe di «1 ILLEGGIBILI» che questo lotto chiude,
@@ -246,50 +269,53 @@ export default function MonteCarloPage() {
                     // UNA volta invece di ripeterlo per ogni riga inerte —
                     // il ticker è vuoto per definizione, non identificherebbe
                     // nulla. Entrambi rilievi della review.
-                    ? `${banco.entrano} modific${banco.entrano === 1 ? 'a' : 'he'} su `
-                      + `${banco.totale} spedit${banco.entrano === 1 ? 'a' : 'e'} al motore · `
-                      + `${banco.inerti} mess${banco.inerti === 1 ? 'a' : 'e'} da parte: `
+                    ? tr(banco.entrano === 1 ? 'montecarlo.dispatchOne' : 'montecarlo.dispatchMany', { sent: banco.entrano, total: banco.totale })
+                      + tr(banco.inerti === 1 ? 'montecarlo.asideOne' : 'montecarlo.asideMany', { count: banco.inerti })
                       // i motivi DISTINTI: ripetere «senza titolo» tre volte è
                       // rumore, ma se una riga è inerte per il book non caricato
                       // e un'altra perché il titolo manca davvero, sono due cose
                       + Array.from(new Set(banco.inerziali.map(x => x.motivo))).join(' · ')
                     : undefined}>
           {running ? <RefreshCw size={11} className="animate-spin" /> : <Play size={11} />}
-          {running ? 'SIMULO...' : etichettaSimula(banco, banco.bloccanti > 0)}
+          {running ? tr('montecarlo.f024') : etichettaSimula(banco, banco.bloccanti > 0)}
         </button>
       </div>
 
       <div className="p3 hero">
         <span className="tick tl" /><span className="tick br" />
-        <div className="p3h am">// BANCO DI PROVA · MODIFICHE AL PORTAFOGLIO
+        <div className="p3h am">{tr('montecarlo.f025')}
           <span className="side">{targhettaBanco(banco)}</span>
           <span style={{ display: 'flex', gap: 4, marginLeft: 10 }}>
             <button onClick={() => addMod('add')} className="addb"
                     style={{ color: '#21E0A0', borderColor: 'rgba(33,224,160,.4)' }}>
-              <Plus size={8} /> AGGIUNGI
+              <Plus size={8} /> {tr('montecarlo.f026')}
             </button>
             <button onClick={() => addMod('remove')} className="addb"
                     style={{ fontWeight: 600, color: '#FF3D60', borderColor: 'rgba(255,61,96,.4)' }}>
-              <Plus size={8} /> TOGLI
+              <Plus size={8} /> {tr('montecarlo.f027')}
             </button>
             <button onClick={() => addMod('trim')} className="addb"
                     style={{ color: '#29D3F2', borderColor: 'rgba(41,211,242,.4)' }}>
-              <Plus size={8} /> RIDUCI
+              <Plus size={8} /> {tr('montecarlo.f028')}
             </button>
           </span>
         </div>
 
+        {posErr !== null && <div className="dec ko" role="alert" style={{ margin: '8px 11px' }}>
+          {tr('montecarlo.portfolioUnavailable')} — {posErr || tr('montecarlo.errorMissing')}
+        </div>}
         {mods.length === 0 ? (
           <div className="note" style={{ padding: '8px 11px' }}>
-            Ogni modifica usa importi in euro REALI: nessun ribilanciamento finto. Il confronto
-            pre/post compare qui sotto dopo la simulazione.
+            {tr('montecarlo.f029')}
           </div>
         ) : (
           <div>
             {mods.map(m => {
               const g = classificaRiga(m, ctxBanco);
-              const lE = leggiNumero(m.amount_eur);
-              const lP = leggiNumero(m.amount_pct);
+              const lE = leggiNumero(m.amount_eur, m.inputLanguage, linguaCorrente());
+              const lP = leggiNumero(m.amount_pct, m.inputLanguage, linguaCorrente());
+              const validation = localizePayload(m.validation);
+              const inputHint = tr((m.inputLanguage ?? linguaCorrente()) === 'en' ? 'montecarlo.inputEnglish' : 'montecarlo.inputItalian');
               // ⚠ i rossi di campo si DERIVANO dal giudizio, non lo affiancano:
               // il rosso significa «è questo campo a spegnere SIMULA». Su una riga
               // inerte non si accende — la riga è messa da parte, il suo importo
@@ -298,7 +324,7 @@ export default function MonteCarloPage() {
               const inerte = g.stato === 'inerte';
               const eurKo = g.stato === 'blocca' && !!(lE && !lE.ok);
               const pctKo = g.stato === 'blocca' && !!(lP && (!lP.ok || (lP.ok && lP.valore > 100)));
-              const pctMotivo = lP && !lP.ok ? lP.motivo : 'oltre il 100';
+              const pctMotivo = lP && !lP.ok ? lP.motivo : tr('montecarlo.f030');
               return (
               <div key={m.id} className={inerte ? 'wif inerte' : 'wif'}>
                 <div className="col-span-1">
@@ -307,14 +333,14 @@ export default function MonteCarloPage() {
                     (m.action === 'add'    ? 'border-emerald text-emerald bg-emerald/5'
                     : m.action === 'remove' ? 'border-crimson text-crimson bg-crimson/5'
                                             : 'border-cyan text-cyan bg-cyan/5')
-                  }>{m.action === 'add' ? 'aggiungi' : m.action === 'remove' ? 'togli' : 'riduci'}</span>
+                  }>{m.action === 'add' ? tr('montecarlo.f031') : m.action === 'remove' ? tr('montecarlo.f032') : tr('montecarlo.f033')}</span>
                 </div>
 
                 <div className="col-span-3">
                   {m.action === 'add' ? (
                     <input
                       type="text"
-                      placeholder="ticker (es. NVDA, MC.PA)"
+                      placeholder={tr('montecarlo.f034', { examples: 'NVDA, MC.PA' })}
                       value={m.ticker}
                       onChange={e => updateMod(m.id, { ticker: e.target.value.toUpperCase() })}
                       onBlur={e => validateMod(m.id, e.target.value)}
@@ -326,7 +352,7 @@ export default function MonteCarloPage() {
                       onChange={e => updateMod(m.id, { ticker: e.target.value })}
                       className="w-full bg-bg border border-border px-2 py-1 text-text focus:outline-none focus:border-amber"
                     >
-                      <option value="">{posErr ? `-- book NON caricato (${posErr}) --` : '-- scegli dal portafoglio --'}</option>
+                      <option value="">{posErr !== null ? tr('montecarlo.f035', {a: posErr || tr('montecarlo.errorMissing')}) : tr('montecarlo.f036')}</option>
                       {ownedTickers.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                   )}
@@ -337,10 +363,10 @@ export default function MonteCarloPage() {
                     <div className="flex items-center gap-1">
                       <input
                         type="text" inputMode="decimal"
-                        placeholder="importo in euro"
+                        placeholder={tr('montecarlo.f037')}
                         value={m.amount_eur}
                         aria-invalid={eurKo}
-                        title={eurKo && lE && !lE.ok ? lE.motivo : undefined}
+                        title={eurKo && lE && !lE.ok ? lE.motivo : inputHint}
                         onChange={e => updateMod(m.id, { amount_eur: e.target.value })}
                         className={`w-full bg-bg border px-2 py-1 focus:outline-none ${eurKo ? 'border-crimson text-crimson' : 'border-border text-text focus:border-amber'}`}
                       />
@@ -357,14 +383,14 @@ export default function MonteCarloPage() {
                           placeholder="EUR"
                           value={m.amount_eur}
                           aria-invalid={eurKo}
-                          title={eurKo && lE && !lE.ok ? lE.motivo : undefined}
+                          title={eurKo && lE && !lE.ok ? lE.motivo : inputHint}
                           onChange={e => updateMod(m.id, { amount_eur: e.target.value, amount_pct: '' })}
                           className={`w-full bg-bg border px-2 py-1 focus:outline-none ${eurKo ? 'border-crimson text-crimson' : 'border-border text-text focus:border-amber'}`}
                         />
                         <span className="text-faint text-3xs">EUR</span>
                       </div>
                     </div>
-                    <div className="col-span-1 text-center text-faint">oppure</div>
+                    <div className="col-span-1 text-center text-faint">{tr('montecarlo.f038')}</div>
                     <div className="col-span-1">
                       <div className="flex items-center gap-1">
                         <input
@@ -372,7 +398,7 @@ export default function MonteCarloPage() {
                           placeholder="%"
                           value={m.amount_pct}
                           aria-invalid={pctKo}
-                          title={pctKo ? pctMotivo : undefined}
+                          title={pctKo ? pctMotivo : inputHint}
                           onChange={e => updateMod(m.id, { amount_pct: e.target.value, amount_eur: '' })}
                           className={`w-full bg-bg border px-2 py-1 focus:outline-none ${pctKo ? 'border-crimson text-crimson' : 'border-border text-text focus:border-amber'}`}
                         />
@@ -402,7 +428,7 @@ export default function MonteCarloPage() {
                     // il verdetto della riga viene prima di tutto: se non entra nel
                     // calcolo, un esito di validazione rimasto lì da un titolo poi
                     // cancellato parlerebbe di una riga che non c'è più.
-                    <span className="inerte flex items-center gap-1">◦ INERTE — {g.motivo}</span>
+                    <span className="inerte flex items-center gap-1">{tr('montecarlo.f039')} {g.motivo}</span>
                   ) : g.stato === 'blocca' ? (
                     // ⚠ Il motivo del BLOCCO va scritto QUI, non solo nel `title` di
                     // un tasto grigio. Su «importo mancante» e «serve un importo in
@@ -417,18 +443,18 @@ export default function MonteCarloPage() {
                   ) : (<>
                     {m.action === 'add' && m.validating && (
                       <span className="text-amber flex items-center gap-1">
-                        <RefreshCw size={9} className="animate-spin" /> verifico il ticker...
+                        <RefreshCw size={9} className="animate-spin" /> {tr('montecarlo.f040')}
                       </span>
                     )}
-                    {m.action === 'add' && m.validation && (
-                      m.validation.ok ? (
+                    {m.action === 'add' && validation && (
+                      validation.ok ? (
                         <span className="text-emerald flex items-center gap-1">
-                          <Check size={9} /> {m.validation.name} ({m.validation.currency}{' '}
-                          {m.validation.last_price?.toFixed(2)})
+                          <Check size={9} /> {validation.name} ({validation.currency}{' '}
+                          {fmtNum(validation.last_price, 2)})
                         </span>
                       ) : (
                         <span className="text-crimson flex items-center gap-1">
-                          <AlertCircle size={9} /> {m.validation.error}
+                          <AlertCircle size={9} /> {tr('montecarlo.f002')}: {validation.error || tr('montecarlo.errorMissing')}
                         </span>
                       )
                     )}
@@ -436,7 +462,7 @@ export default function MonteCarloPage() {
                 </div>
 
                 <div className="col-span-1 flex justify-end">
-                  <button onClick={() => removeMod(m.id)} className="xbtn" title="togli questa modifica">
+                  <button onClick={() => removeMod(m.id)} className="xbtn" title={tr('montecarlo.f041')}>
                     <X size={12} />
                   </button>
                 </div>
@@ -450,8 +476,10 @@ export default function MonteCarloPage() {
       {error && (
         <div className="p3 cr">
           <span className="tick tl" /><span className="tick br" />
-          <div className="p3h cr">// SIMULAZIONE FALLITA</div>
-          <div className="dec ko" style={{ margin: '8px 11px' }}>{error}</div>
+          <div className="p3h cr">{tr('montecarlo.f042')}</div>
+          <div className="dec ko" style={{ margin: '8px 11px' }}>{error.draft
+            ? tr('montecarlo.f003') + contaBanco(error.draft, ctxBanco).difetti.map(x => `${x.riga.ticker.trim()}: ${x.motivo}`).join(' · ')
+            : `${tr('montecarlo.f004')}: ${error.detail || tr('montecarlo.errorMissing')}`}</div>
         </div>
       )}
 
@@ -460,11 +488,11 @@ export default function MonteCarloPage() {
           {result.nav_pre_eur != null && result.nav_post_eur != null && (
             <div className="p3">
               <span className="tick tl" /><span className="tick br" />
-              <div className="p3h am">// BANCO DI PROVA · NAV PRIMA E DOPO LE MODIFICHE</div>
+              <div className="p3h am">{tr('montecarlo.f043')}</div>
               <div className="rcells">
-                <RCell k="NAV pre" v={fmtEUR(result.nav_pre_eur)} c="#ECF1FA" />
-                <RCell k="NAV post" v={fmtEUR(result.nav_post_eur)} c="#FFA51E" />
-                <RCell k="differenza"
+                <RCell k={tr('montecarlo.navPre')} v={fmtEUR(result.nav_pre_eur)} c="#ECF1FA" />
+                <RCell k={tr('montecarlo.navPost')} v={fmtEUR(result.nav_post_eur)} c="#FFA51E" />
+                <RCell k={tr('montecarlo.f044')}
                        v={(result.nav_post_eur - result.nav_pre_eur >= 0 ? '+' : '') + fmtEUR(result.nav_post_eur - result.nav_pre_eur)}
                        c={result.nav_post_eur - result.nav_pre_eur >= 0 ? '#21E0A0' : '#FF3D60'} />
               </div>
@@ -476,43 +504,43 @@ export default function MonteCarloPage() {
             <div className="col">
               <div className="p3 hero">
                 <span className="tick tl" /><span className="tick br" />
-                <div className="p3h am">// QUOTA DI PARTENZA
+                <div className="p3h am">{tr('montecarlo.f045')}
                   <span className="side">{stamp(result.timestamp)}</span></div>
                 <div style={{ padding: '9px 12px 10px' }}>
                   <div className="big num">{fmtEUR2(result.base_nav_eur)}</div>
                   <div className="sub">
-                    NAV INVESTITO · {result.n_assets} ASSET IN SIMULAZIONE · BASE DEL CALCOLO
+                    {tr('montecarlo.f046')} {result.n_assets} {tr('montecarlo.f047')}
                   </div>
                   <div className="statline">
-                    <span><i>atteso</i><b className="num" style={{ fontWeight: 600, color: result.expected_return_pct >= 0 ? '#21E0A0' : '#FF3D60' }}>{fmtPctS(result.expected_return_pct)}</b></span>
-                    <span><i>mediana</i><b className="num" style={{ fontWeight: 600, color: result.median_return_pct >= 0 ? '#21E0A0' : '#FF3D60' }}>{fmtPctS(result.median_return_pct)}</b></span>
-                    <span><i>volatilità</i><b className="num" style={{ color: '#29D3F2' }}>{fmtPct(result.stdev_pct)}</b></span>
-                    <span><i>sharpe</i><b className="num" style={{ color: '#FFA51E' }}>{result.sharpe_simulated?.toFixed(2).replace('.', ',') ?? 'n/a'}</b></span>
+                    <span><i>{tr('montecarlo.f048')}</i><b className="num" style={{ fontWeight: 600, color: result.expected_return_pct >= 0 ? '#21E0A0' : '#FF3D60' }}>{fmtPctS(result.expected_return_pct)}</b></span>
+                    <span><i>{tr('montecarlo.f049')}</i><b className="num" style={{ fontWeight: 600, color: result.median_return_pct >= 0 ? '#21E0A0' : '#FF3D60' }}>{fmtPctS(result.median_return_pct)}</b></span>
+                    <span><i>{tr('montecarlo.f050')}</i><b className="num" style={{ color: '#29D3F2' }}>{fmtPct(result.stdev_pct)}</b></span>
+                    <span><i>sharpe</i><b className="num" style={{ color: '#FFA51E' }}>{fmtNum(result.sharpe_simulated, 2)}</b></span>
                   </div>
                 </div>
               </div>
 
               <div className="p3 cr">
                 <span className="tick tl" /><span className="tick br" />
-                <div className="p3h cr">// LA TESI <span className="side">ORIZZONTE {result.horizon_days}G</span></div>
+                <div className="p3h cr">{tr('montecarlo.f051')} <span className="side">{tr('montecarlo.f052')} {result.horizon_days}{tr('montecarlo.f053')}</span></div>
                 <div style={{ padding: '9px 12px 10px' }}>
-                  <div className="tk">dove finisci (mediana)</div>
+                  <div className="tk">{tr('montecarlo.f054')}</div>
                   <div className="tesi num" style={{ fontWeight: 600, color: result.median_return_pct >= 0 ? '#21E0A0' : '#FF3D60' }}>
                     {fmtPctS(result.median_return_pct)}
                   </div>
-                  <div className="sub num">{fmtEUR(result.percentiles_eur?.p50)} · metà delle simulazioni arriva sopra, metà sotto</div>
+                  <div className="sub num">{fmtEUR(result.percentiles_eur?.p50)} {tr('montecarlo.f055')}</div>
                   <div className="hr" />
-                  <div className="tk">quanto scendi durante il viaggio (mediana)</div>
+                  <div className="tk">{tr('montecarlo.f056')}</div>
                   <div className="tesi num" style={{ fontWeight: 600, color: '#FF3D60' }}>{fmtPct(result.max_drawdown_median_pct)}</div>
                   <div className="sub">
-                    metà delle simulazioni tocca almeno questa perdita <b>prima</b> di arrivare a scadenza
+                    {tr('montecarlo.f057')} <b>{tr('montecarlo.f058')}</b> {tr('montecarlo.f059')}
                   </div>
                 </div>
               </div>
 
               <div className="p3 cr" style={{ flex: 1, minHeight: 120 }}>
                 <span className="tick tl" /><span className="tick br" />
-                <div className="p3h cr">// QUOTE <span className="side">SU {fmtInt(result.n_sims)} TRAIETTORIE</span></div>
+                <div className="p3h cr">{tr('montecarlo.f060')} <span className="side">{tr('montecarlo.f061')} {fmtInt(result.n_sims)} {tr('montecarlo.f062')}</span></div>
                 <OddsChart r={result} />
               </div>
             </div>
@@ -525,9 +553,9 @@ export default function MonteCarloPage() {
               <MarginalPanel r={result} view={view} outside={outsideWindow} />
               <div className="p3">
                 <span className="tick tl" /><span className="tick br" />
-                <div className="p3h">// NAV A SCADENZA <span className="side">{result.horizon_days}G · {result.horizon_years}Y</span></div>
+                <div className="p3h">{tr('montecarlo.f063')} <span className="side">{result.horizon_days}{tr('montecarlo.f064')} {result.horizon_years}Y</span></div>
                 <table>
-                  <thead><tr><th>Percentile</th><th>NAV simulato</th><th>vs partenza</th></tr></thead>
+                  <thead><tr><th>Percentile</th><th>{tr('montecarlo.f065')}</th><th>{tr('montecarlo.f066')}</th></tr></thead>
                   <tbody>
                     {(['p95', 'p90', 'p75', 'p50', 'p25', 'p10', 'p5'] as const).map(k => {
                       const ratio = result.percentiles_ratio?.[k];
@@ -537,7 +565,7 @@ export default function MonteCarloPage() {
                           <td>{k.toUpperCase()}</td>
                           <td className="num" style={{ color: '#ECF1FA' }}>{fmtEUR(result.percentiles_eur?.[k])}</td>
                           <td className="num" style={{ fontWeight: 600, color: d == null ? '#8D9FC4' : d < 0 ? '#FF3D60' : '#21E0A0' }}>
-                            {d == null ? 'n/a' : fmtPctS(d)}
+                            {d == null ? tr('montecarlo.na') : fmtPctS(d)}
                           </td>
                         </tr>
                       );
@@ -552,52 +580,52 @@ export default function MonteCarloPage() {
           <div className="bottom">
             <div className="p3">
               <span className="tick tl" /><span className="tick br" />
-              <div className="p3h">// RISCHIO COERENTE
-                <span className="side">ORIZZONTE {result.horizon_years}Y · PERDITA IN % E IN EURO</span></div>
+              <div className="p3h">{tr('montecarlo.f067')}
+                <span className="side">{tr('montecarlo.f052')} {result.horizon_years}{tr('montecarlo.f068')}</span></div>
               <div className="rcells">
-                <RCell k="VaR 95%" v={fmtPct(result.var_95_pct)} s="soglia superata nel 5% dei casi" />
-                <RCell k="VaR 99%" v={fmtPct(result.var_99_pct)} s="superata nell’1% dei casi" />
-                <RCell k="CF-VaR 99%" v={fmtPct(result.var_99_cornish_fisher_pct)} s="corretto per asimmetria e code" />
-                <RCell k="ES 95%" v={fmtPct(result.es_95_pct)} s={`media del 5% peggiore${result.es_95_eur != null ? ` · ${fmtEUR(result.es_95_eur)}` : ''}`} />
-                <RCell k="ES 99%" v={fmtPct(result.es_99_pct)} s={`media dell’1% peggiore${result.es_99_eur != null ? ` · ${fmtEUR(result.es_99_eur)}` : ''}`} />
-                <RCell k="Max DD p5" v={fmtPct(result.max_drawdown_p5_pct)} s="discesa peggiore: 1 caso su 20" />
+                <RCell k="VaR 95%" v={fmtPct(result.var_95_pct)} s={tr('montecarlo.f069')} />
+                <RCell k="VaR 99%" v={fmtPct(result.var_99_pct)} s={tr('montecarlo.f070')} />
+                <RCell k="CF-VaR 99%" v={fmtPct(result.var_99_cornish_fisher_pct)} s={tr('montecarlo.f071')} />
+                <RCell k="ES 95%" v={fmtPct(result.es_95_pct)} s={tr('montecarlo.f072', {a: result.es_95_eur != null ? ` · ${fmtEUR(result.es_95_eur)}` : ''})} />
+                <RCell k="ES 99%" v={fmtPct(result.es_99_pct)} s={tr('montecarlo.f073', {a: result.es_99_eur != null ? ` · ${fmtEUR(result.es_99_eur)}` : ''})} />
+                <RCell k="Max DD p5" v={fmtPct(result.max_drawdown_p5_pct)} s={tr('montecarlo.f074')} />
               </div>
             </div>
 
             <div className="p3 cr">
               <span className="tick tl" /><span className="tick br" />
-              <div className="p3h cr">// PROFONDITÀ <span className="side">MAX DRAWDOWN</span></div>
+              <div className="p3h cr">{tr('montecarlo.f075')} <span className="side">MAX DRAWDOWN</span></div>
               <DepthChart r={result} />
             </div>
 
             <div className="p3">
               <span className="tick tl" /><span className="tick br" />
-              <div className="p3h">// NOTE DEL MOTORE</div>
+              <div className="p3h">{tr('montecarlo.f076')}</div>
               <div className="notes">
                 <div className="note">
-                  <b>[1] Metodo.</b> {result.method_description || result.method} · drift{' '}
-                  {result.drift_mode || drift} · stress {result.stress_scenario || stress} ·{' '}
-                  {fmtInt(result.n_sims)} traiettorie · lookback {result.lookback_years}y ·{' '}
-                  calibrazione su {result.lookback_days_calibration} osservazioni.
+                  <b>{tr('montecarlo.f077')}</b> {result.method_description || engineIdLabel('method', result.method)} · drift{' '}
+                  {engineIdLabel('drift', result.drift_mode || drift)} · stress {engineIdLabel('stress', result.stress_scenario || stress)} ·{' '}
+                  {fmtInt(result.n_sims)} {tr('montecarlo.f078')} {result.lookback_years}Y ·{' '}
+                  {tr('montecarlo.f079')} {result.lookback_days_calibration} {tr('montecarlo.f080')}
                 </div>
                 {result.calibration_note && (
-                  <div className="dec"><b>[2] Calibrazione.</b> {result.calibration_note}</div>
+                  <div className="dec"><b>{tr('montecarlo.f081')}</b> {result.calibration_note}</div>
                 )}
                 {result.returns_basis && (
-                  <div className="note"><b>[3] Base dei rendimenti.</b> {result.returns_basis}</div>
+                  <div className="note"><b>{tr('montecarlo.f082')}</b> {result.returns_basis}</div>
                 )}
                 {result.stress_fallback && (
                   <div className="dec ko">
-                    <b>[!] Stress in fallback.</b> richiesto {result.stress_requested}, replay non disponibile
+                    <b>{tr('montecarlo.f083')}</b> {tr('montecarlo.f084')} {engineIdLabel('stress', result.stress_requested)}{tr('montecarlo.f085')}
                     {result.stress_meta?.fallback_reason ? ` — ${result.stress_meta.fallback_reason}` : ''}
                   </div>
                 )}
                 {result.stress_meta?.window_loss_pct != null && (
                   <div className="note">
-                    <b>[4] Finestra di replay.</b> {fmtPct(result.stress_meta.window_loss_pct)} su{' '}
-                    {result.stress_meta.replaced_days} giorni ({fmtEUR(result.stress_meta.window_loss_eur)})
+                    <b>{tr('montecarlo.f086')}</b> {fmtPct(result.stress_meta.window_loss_pct)} {tr('montecarlo.f087')}{' '}
+                    {result.stress_meta.replaced_days} {tr('montecarlo.f088')}{fmtEUR(result.stress_meta.window_loss_eur)})
                     {result.stress_meta.proxied && Object.keys(result.stress_meta.proxied).length > 0 && (
-                      <> · proxy dichiarati: {Object.entries(result.stress_meta.proxied).map(([t, p]) => `${t} (${p})`).join('; ')}</>
+                      <> {tr('montecarlo.f089')} {Object.entries(result.stress_meta.proxied).map(([t, p]) => `${t} (${p})`).join('; ')}</>
                     )}
                   </div>
                 )}
@@ -608,9 +636,9 @@ export default function MonteCarloPage() {
           {result.weights_pre && result.weights_post && (
             <div className="p3">
               <span className="tick tl" /><span className="tick br" />
-              <div className="p3h">// PESI PRIMA E DOPO IL BANCO DI PROVA</div>
+              <div className="p3h">{tr('montecarlo.f090')}</div>
               <table>
-                <thead><tr><th>Ticker</th><th>Peso pre</th><th>Peso post</th><th>Differenza</th></tr></thead>
+                <thead><tr><th>Ticker</th><th>{tr('montecarlo.f091')}</th><th>{tr('montecarlo.f092')}</th><th>{tr('montecarlo.f093')}</th></tr></thead>
                 <tbody>
                   {Array.from(new Set([
                     ...Object.keys(result.weights_pre),
@@ -622,10 +650,10 @@ export default function MonteCarloPage() {
                     return (
                       <tr key={t}>
                         <td>{t}</td>
-                        <td className="num" style={{ color: '#8D9FC4' }}>{(pre * 100).toFixed(2).replace('.', ',')}%</td>
-                        <td className="num" style={{ color: '#ECF1FA' }}>{(post * 100).toFixed(2).replace('.', ',')}%</td>
+                        <td className="num" style={{ color: '#8D9FC4' }}>{fmtNum(pre * 100, 2)}%</td>
+                        <td className="num" style={{ color: '#ECF1FA' }}>{fmtNum(post * 100, 2)}%</td>
                         <td className="num" style={{ fontWeight: 600, color: delta > 0 ? '#21E0A0' : delta < 0 ? '#FF3D60' : '#8D9FC4' }}>
-                          {delta > 0 ? '+' : ''}{(delta * 100).toFixed(2).replace('.', ',')}%
+                          {delta > 0 ? '+' : ''}{fmtNum(delta * 100, 2)}%
                         </td>
                       </tr>
                     );
@@ -638,11 +666,11 @@ export default function MonteCarloPage() {
           {result.skipped_modifications && result.skipped_modifications.length > 0 && (
             <div className="p3 cr">
               <span className="tick tl" /><span className="tick br" />
-              <div className="p3h cr">// MODIFICHE SCARTATE DAL MOTORE</div>
+              <div className="p3h cr">{tr('montecarlo.f094')}</div>
               <div className="notes">
                 {result.skipped_modifications.map((s, i) => (
                   <div key={i} className="note">
-                    <b style={{ fontWeight: 600, color: '#FF3D60' }}>{s.ticker || '(vuoto)'}</b>: {s.reason}
+                    <b style={{ fontWeight: 600, color: '#FF3D60' }}>{s.ticker || tr('montecarlo.f095')}</b>: {s.reason}
                   </div>
                 ))}
               </div>
@@ -699,10 +727,11 @@ function niceTicks(lo: number, hi: number, target = 5): number[] {
   for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) out.push(v);
   return out;
 }
-const eurK = (v: number) => Math.round(v / 1000).toLocaleString('it-IT') + 'k';
+const eurK = (v: number) => fmtInt(Math.round(v / 1000)) + 'k';
 
 /* ─────────────── SCOPE DI TRAIETTORIA ─────────────── */
 function ScopePanel({ r, view }: { r: MonteCarloResult; view: { lo: number; hi: number } | null }) {
+  const tr = useT();
   const [ref, box] = useBox<HTMLDivElement>();
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const [pinIdx, setPinIdx] = useState<number | null>(null);
@@ -717,18 +746,16 @@ function ScopePanel({ r, view }: { r: MonteCarloResult; view: { lo: number; hi: 
     <div className="p3 hero scope">
       <span className="tick tl" /><span className="tick tr" />
       <span className="tick bl" /><span className="tick br" />
-      <div className="p3h am">// SCOPE DI TRAIETTORIA
+      <div className="p3h am">{tr('montecarlo.f096')}
         <span className="side">
-          {fb ? `${fb.days.length} PUNTI · 7 BANDE · ${r.sample_paths?.length ?? 0} TRACCE SU ${r.n_sims.toLocaleString('it-IT')}` : 'BANDE NON DISPONIBILI'}
+          {fb ? tr('montecarlo.f097', {a: fb.days.length, b: r.sample_paths?.length ?? 0, c: fmtInt(r.n_sims)}) : tr('montecarlo.f098')}
           {' · '}{stamp(r.timestamp)}
         </span>
       </div>
 
       {!fb || !fb.days?.length || !view ? (
         <div className="dec ko" style={{ margin: '10px 11px' }}>
-          CONO NON DISPONIBILE — il payload non porta <b>fan_bands</b> (backend da riavviare o
-          versione vecchia del motore). Senza le bande vere qui non si disegna niente: la UI
-          non inventa una distribuzione.
+          {tr('montecarlo.f099')} <b>{tr('montecarlo.fanBandsName')}</b> {tr('montecarlo.f100', { field: 'fan_bands' })}
         </div>
       ) : (
         <div className="scopewrap" ref={ref}>
@@ -740,8 +767,8 @@ function ScopePanel({ r, view }: { r: MonteCarloResult; view: { lo: number; hi: 
             // copre mai le etichette dei percentili a scadenza
             <div className={'readout' + (idx / Math.max(1, fb.days.length - 1) > 0.55 ? ' sx' : '')}>
               <div className="rhead">
-                GIORNO {day} / {fb.days[fb.days.length - 1]}
-                {pinIdx != null && <span className="pin">FISSATO</span>}
+                {tr('montecarlo.f101')} {day} / {fb.days[fb.days.length - 1]}
+                {pinIdx != null && <span className="pin">{tr('montecarlo.f102')}</span>}
               </div>
               {PKEYS.map(k => {
                 const v = fb[k][idx];
@@ -754,7 +781,7 @@ function ScopePanel({ r, view }: { r: MonteCarloResult; view: { lo: number; hi: 
                   </div>
                 );
               })}
-              <div className="rfoot">{pinIdx != null ? 'CLICK PER SBLOCCARE' : 'CLICK PER FISSARE LA LETTURA'}</div>
+              <div className="rfoot">{pinIdx != null ? tr('montecarlo.f103') : tr('montecarlo.f104')}</div>
             </div>
           )}
         </div>
@@ -767,6 +794,7 @@ function ScopeSvg({ r, view, w, h, idx, onHover, onPick }: {
   r: MonteCarloResult; view: { lo: number; hi: number }; w: number; h: number;
   idx: number | null; onHover: (i: number | null) => void; onPick: (i: number | null) => void;
 }) {
+  const tr = useT();
   const fb = r.fan_bands!;
   if (w < 80 || h < 80) return <svg />;
   const L = 66, R = w - 104, T = 46, B = h - 42;
@@ -843,9 +871,9 @@ function ScopeSvg({ r, view, w, h, idx, onHover, onPick }: {
       {/* AXT e non DIM: a 10px 400 il grigio-nota misurava 4,45-4,49 (un pelo
           sotto soglia) — le didascalie d'asse sono etichette, gradino etichetta */}
       <text x={(L + R) / 2} y={B + 30} fontSize={10} fill={AXT} textAnchor="middle"
-            letterSpacing=".22em" fontFamily={MONO}>GIORNI DI BORSA DALLA PARTENZA</text>
+            letterSpacing=".22em" fontFamily={MONO}>{tr('montecarlo.f105')}</text>
       <text transform={`translate(15 ${(T + B) / 2}) rotate(-90)`} fontSize={10} fill={AXT}
-            textAnchor="middle" letterSpacing=".22em" fontFamily={MONO}>NAV SIMULATO · EURO</text>
+            textAnchor="middle" letterSpacing=".22em" fontFamily={MONO}>{tr('montecarlo.f106')}</text>
 
       <g clipPath="url(#f5plot)">
         <path d={band(fb.p5, fb.p95)} fill="rgba(41,211,242,.09)" />
@@ -899,7 +927,7 @@ function ScopeSvg({ r, view, w, h, idx, onHover, onPick }: {
           in NOMINALE (3,96:1 misurato) — non è questione di corpo, è il fondo.
           Larghezza dai caratteri: JetBrains Mono 12px = 7,2px + .12em. */}
       {(() => {
-        const qlab = `QUOTA DI PARTENZA ${fmtEUR2(nav)}`;
+        const qlab = tr('montecarlo.f107', {a: fmtEUR2(nav)});
         return (
           <>
             {/* 20px di piastra per 12px di corpo: l'anello con cui il cancello
@@ -941,18 +969,18 @@ function ScopeSvg({ r, view, w, h, idx, onHover, onPick }: {
       ))}
       <g transform={`translate(${L + 3 * 96} ${T - 22})`}>
         <line x1={0} x2={16} y1={-2} y2={-2} stroke={AM} strokeWidth={1.7} />
-        <text x={21} y={1} fontSize={10} fill={FNT} letterSpacing=".1em" fontFamily={MONO}>mediana</text>
+        <text x={21} y={1} fontSize={10} fill={FNT} letterSpacing=".1em" fontFamily={MONO}>{tr('montecarlo.f049')}</text>
       </g>
       <g transform={`translate(${L + 4 * 96} ${T - 22})`}>
         <line x1={0} x2={16} y1={-2} y2={-2} stroke="#7FC4DC" strokeWidth={1} opacity={0.7} />
         <text x={21} y={1} fontSize={10} fill={FNT} letterSpacing=".1em" fontFamily={MONO}>
-          {fmtInt(paths.length)} tracce su {fmtInt(r.n_sims)} simulate
+          {fmtInt(paths.length)} {tr('montecarlo.f108')} {fmtInt(r.n_sims)} {tr('montecarlo.f109')}
         </text>
       </g>
       {/* T-36 e non T-38: a 10px la riga usciva di 2px dal bordo alto (misurato) */}
       <text x={L} y={T - 36} fontSize={10} fill={AXT} letterSpacing=".14em" fontFamily={MONO}>
-        LE BANDE SONO TUTTE E {fmtInt(r.n_sims)} LE TRAIETTORIE · LE {fmtInt(paths.length)} TRACCE SONO UN CAMPIONE [1]
-        {!pdays && paths.length > 0 ? ' · GIORNI NON MAPPATI: PASSO UNIFORME ASSUNTO' : ''}
+        {tr('montecarlo.f110')} {fmtInt(r.n_sims)} {tr('montecarlo.f111')} {fmtInt(paths.length)} {tr('montecarlo.f112')}
+        {!pdays && paths.length > 0 ? tr('montecarlo.f113') : ''}
       </text>
     </svg>
   );
@@ -963,6 +991,7 @@ function MarginalPanel({ r, view, outside }: {
   r: MonteCarloResult; view: { lo: number; hi: number } | null;
   outside: { out: number; tot: number } | null;
 }) {
+  const tr = useT();
   const [ref, box] = useBox<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const th = r.terminal_hist;
@@ -971,12 +1000,11 @@ function MarginalPanel({ r, view, outside }: {
   return (
     <div className="p3 cy marg">
       <span className="tick tl" /><span className="tick br" />
-      <div className="p3h cy">// PROFILO D’ARRIVO
-        <span className="side">{th ? `${th.counts.length} INTERVALLI` : 'N.D.'}</span></div>
+      <div className="p3h cy">{tr('montecarlo.f114')}
+        <span className="side">{th ? tr('montecarlo.f115', {a: th.counts.length}) : tr('montecarlo.f116')}</span></div>
       {!th || !th.counts?.length || !view ? (
         <div className="dec ko" style={{ margin: '10px 11px' }}>
-          PROFILO NON DISPONIBILE — il payload non porta <b>terminal_hist</b>. Restano i
-          percentili nella tabella qui sotto.
+          {tr('montecarlo.f117')} <b>{tr('montecarlo.terminalHistName')}</b>{tr('montecarlo.f118', { field: 'terminal_hist' })}
         </div>
       ) : (
         <>
@@ -987,15 +1015,15 @@ function MarginalPanel({ r, view, outside }: {
             {hover != null && th.edges_eur[hover + 1] != null ? (
               <span className="num">
                 {fmtEUR(th.edges_eur[hover])} → {fmtEUR(th.edges_eur[hover + 1])} ·{' '}
-                <b style={{ color: TXT }}>{fmtInt(th.counts[hover])} simulazioni</b> ·{' '}
-                {((th.counts[hover] / th.counts.reduce((a, b) => a + b, 0)) * 100).toFixed(2).replace('.', ',')}%
+                <b style={{ color: TXT }}>{fmtInt(th.counts[hover])} {tr('montecarlo.f119')}</b> ·{' '}
+                {fmtNum((th.counts[hover] / th.counts.reduce((a, b) => a + b, 0)) * 100, 2)}%
               </span>
             ) : (
-              <span>PASSA SULLE BARRE PER LEGGERE L’INTERVALLO · PIÙ LUNGA = PIÙ SIMULAZIONI</span>
+              <span>{tr('montecarlo.f120')}</span>
             )}
             {pctOut != null && pctOut > 0 && (
               <span style={{ color: CR }}>
-                CODE FUORI FINESTRA: {fmtInt(outside!.out)} SIM SU {fmtInt(outside!.tot)} ({pctOut.toFixed(2).replace('.', ',')}%)
+                {tr('montecarlo.f121')} {fmtInt(outside!.out)} {tr('montecarlo.f122')} {fmtInt(outside!.tot)} ({fmtNum(pctOut, 2)}%)
               </span>
             )}
           </div>
@@ -1063,14 +1091,15 @@ function MarginalSvg({ r, view, w, h, hover, onHover }: {
 
 /* ─────────────── QUOTE ─────────────── */
 function OddsChart({ r }: { r: MonteCarloResult }) {
+  const tr = useT();
   const [ref, box] = useBox<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const rows: [string, number | undefined, string][] = [
-    ['perdita qualsiasi', r.prob_negative_pct, CR],
-    ['perdita oltre 10%', r.prob_loss_10pct, CR],
-    ['perdita oltre 20%', r.prob_loss_20pct, CR],
-    ['guadagno oltre 10%', r.prob_gain_10pct, EM],
-    ['guadagno oltre 20%', r.prob_gain_20pct, EM],
+    [tr('montecarlo.f123'), r.prob_negative_pct, CR],
+    [tr('montecarlo.f124'), r.prob_loss_10pct, CR],
+    [tr('montecarlo.f125'), r.prob_loss_20pct, CR],
+    [tr('montecarlo.f126'), r.prob_gain_10pct, EM],
+    [tr('montecarlo.f127'), r.prob_gain_20pct, EM],
   ];
   const w = box.w, h = box.h;
   const PADL = 11, PADR = 12;
@@ -1092,7 +1121,7 @@ function OddsChart({ r }: { r: MonteCarloResult }) {
                   <rect x={bx} y={yy - 3} width={(bw * v) / 100} height={6} fill={c} opacity={on ? 0.95 : 0.75} />
                 )}
                 <text x={w - PADR} y={yy + 4} fontSize={12} fill={v == null ? FNT : TXT} textAnchor="end" fontFamily={MONO}>
-                  {v == null || !isFinite(v) ? 'n/a' : v.toFixed(2).replace('.', ',') + '%'}
+                  {v == null || !isFinite(v) ? tr('montecarlo.na') : fmtNum(v, 2) + '%'}
                 </text>
               </g>
             );
@@ -1105,12 +1134,13 @@ function OddsChart({ r }: { r: MonteCarloResult }) {
 
 /* ─────────────── PROFONDITÀ ─────────────── */
 function DepthChart({ r }: { r: MonteCarloResult }) {
+  const tr = useT();
   const [ref, box] = useBox<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const rows: [number | undefined, string, string, string][] = [
-    [r.max_drawdown_p95_pct, 'p95', MUT, '19 simulazioni su 20 scendono più di così'],
-    [r.max_drawdown_median_pct, 'MEDIANA', AM, 'metà delle simulazioni scende almeno fin qui'],
-    [r.max_drawdown_p5_pct, 'p5', CR, '1 simulazione su 20 scende oltre'],
+    [r.max_drawdown_p95_pct, 'p95', MUT, tr('montecarlo.f128')],
+    [r.max_drawdown_median_pct, tr('montecarlo.f129'), AM, tr('montecarlo.f130')],
+    [r.max_drawdown_p5_pct, 'p5', CR, tr('montecarlo.f131')],
   ];
   const w = box.w, h = box.h;
   const worst = Math.max(40, ...rows.map(([v]) => (v == null ? 0 : Math.abs(v))));
@@ -1131,7 +1161,7 @@ function DepthChart({ r }: { r: MonteCarloResult }) {
             const yy = 12 + i * rowh + rowh / 2;
             const on = hover === i;
             if (v == null) {
-              return <text key={lab} x={LX} y={yy + 3} fontSize={12} fill={FNT} fontFamily={MONO}>{lab} n/a</text>;
+              return <text key={lab} x={LX} y={yy + 3} fontSize={12} fill={FNT} fontFamily={MONO}>{lab} {tr('montecarlo.na')}</text>;
             }
             return (
               <g key={lab} onMouseEnter={() => setHover(i)}>
@@ -1149,7 +1179,7 @@ function DepthChart({ r }: { r: MonteCarloResult }) {
           <text x={11} y={h - 10} fontSize={10} fill={hover != null ? MUT : AXT} fontFamily={MONO}>
             {hover != null && rows[hover][0] != null
               ? rows[hover][3]
-              : 'discesa massima toccata PRIMA della scadenza'}
+              : tr('montecarlo.f132')}
           </text>
         </svg>
       )}

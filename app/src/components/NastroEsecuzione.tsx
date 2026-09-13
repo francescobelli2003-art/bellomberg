@@ -1,3 +1,5 @@
+import { useT } from '@/i18n/provider';
+import { linguaCorrente, localeDi } from '@/i18n/lingua';
 import { useBox } from '@/lib/useBox';
 
 /* ════════════════════════════════════════════════════════════
@@ -90,13 +92,13 @@ const CORNICE = 80;
 
 export function fmtKB(b?: number) {
   if (b == null) return null;
-  if (b < 1024) return b.toLocaleString('it-IT') + ' B';
-  return (b / 1024).toLocaleString('it-IT', { maximumFractionDigits: 1 }) + ' KB';
+  if (b < 1024) return b.toLocaleString(localeDi(linguaCorrente()), { useGrouping: true }) + ' B';
+  return (b / 1024).toLocaleString(localeDi(linguaCorrente()), { maximumFractionDigits: 1, useGrouping: true }) + ' KB';
 }
 export function fmtMs(ms?: number) {
   if (ms == null) return null;
   return ms < 1000 ? Math.round(ms) + ' ms'
-    : (ms / 1000).toLocaleString('it-IT', { maximumFractionDigits: 1 }) + ' s';
+    : (ms / 1000).toLocaleString(localeDi(linguaCorrente()), { maximumFractionDigits: 1, useGrouping: true }) + ' s';
 }
 
 export default function NastroEsecuzione({
@@ -113,6 +115,7 @@ export default function NastroEsecuzione({
   onPin: (n: number | null) => void;
   motivoAssenza?: string;
 }) {
+  const tr = useT();
   const [ref, box] = useBox<HTMLDivElement>();
   const w = box.w, h = box.h;
 
@@ -183,10 +186,12 @@ export default function NastroEsecuzione({
       <span className="tick tl" /><span className="tick tr" />
       <span className="tick bl" /><span className="tick br" />
       <div className="p3h c">
-        Nastro d'esecuzione
+        {tr('communications.tapeTitle')}
         {disponibile && calls.length > 0 && (
           <span className="chip c" style={{ marginLeft: 6 }}>
-            {calls.length} STRUMENT{calls.length === 1 ? 'O' : 'I'} · {corsie.length} DISTINT{corsie.length === 1 ? 'O' : 'I'} · {iters.length} ITERAZION{iters.length === 1 ? 'E' : 'I'}
+            {tr(calls.length === 1 ? 'communications.tapeToolOne' : 'communications.tapeToolMany', { a: calls.length })}
+            {' · '}{tr(corsie.length === 1 ? 'communications.tapeDistinctOne' : 'communications.tapeDistinctMany', { a: corsie.length })}
+            {' · '}{tr(iters.length === 1 ? 'communications.tapeIterationOne' : 'communications.tapeIterationMany', { a: iters.length })}
             {calls.some(c => c.bytes != null) && ' · ' + fmtKB(calls.reduce((s, c) => s + (c.bytes ?? 0), 0))}
           </span>
         )}
@@ -194,13 +199,13 @@ export default function NastroEsecuzione({
             d'iterazione non e' stato disegnato, la pagina lo DICE. */}
         {iterDiradate > 0 && (
           <span className="chip a" style={{ marginLeft: 6 }}>
-            {iterDiradate} ITER NON SEGNAT{iterDiradate === 1 ? 'A' : 'E'} — TROPPO VICINE
+            {tr(iterDiradate === 1 ? 'communications.tapeHiddenOne' : 'communications.tapeHiddenMany', { a: iterDiradate })}
           </span>
         )}
         <span className="side">
-          {!disponibile ? 'traccia non disponibile'
-            : streaming ? 'in corso — tempi misurati in pagina'
-            : durata != null ? fmtMs(durata) + ' dal comando alla firma'
+          {!disponibile ? tr('communications.tapeUnavailable')
+            : streaming ? tr('communications.tapeProgress')
+            : durata != null ? tr('communications.tapeTotal', { a: fmtMs(durata) ?? '—' })
             : '—'}
         </span>
       </div>
@@ -209,15 +214,14 @@ export default function NastroEsecuzione({
         {!disponibile ? (
           <div className="tapevuoto">
             <div>
-              <b>TRACCIA NON DISPONIBILE</b> — {motivoAssenza
-                ?? 'il backend salva il testo della risposta, non gli strumenti che l\'hanno prodotta: per le conversazioni gia\' in archivio il nastro non puo\' essere ricostruito.'}
+              <b>{tr('communications.tapeUnavailableTitle')}</b> — {motivoAssenza
+                ?? tr('communications.tapeHistoryMissing')}
             </div>
           </div>
         ) : calls.length === 0 && !streaming ? (
           <div className="tapevuoto">
             <div>
-              <b>NESSUNO STRUMENTO CHIAMATO</b> — questa risposta e' uscita dal solo modello.
-              In casa i numeri arrivano dai tool: leggila con quel metro.
+              <b>{tr('communications.tapeNoTools')}</b> — {tr('communications.tapeModelOnly')}
             </div>
           </div>
         ) : w > 0 && h > 0 ? (
@@ -268,8 +272,8 @@ export default function NastroEsecuzione({
                 const bh = c.bytes != null ? 4 + 7 * (c.bytes / maxB) : 6;
                 const col = c.ok === false ? CR : c.ok == null ? AM : CY;
                 const on = sel === c.n;
-                const durata = c.t1 != null ? fmtMs(c.t1 - c.t0) : 'in corso';
-                const esito = c.ok === false ? 'ERRORE dichiarato' : c.ok == null ? 'in corso' : 'ok';
+                const durata = c.t1 != null ? fmtMs(c.t1 - c.t0) : tr('communications.inProgress');
+                const esito = c.ok === false ? tr('communications.declaredError') : c.ok == null ? tr('communications.inProgress') : 'ok';
                 return (
                   /* ⚠️ RAGGIUNGIBILE DA TASTIERA. La prima stesura aveva solo
                      mouse: la review l'ha ripreso, e su F6 lo STESSO difetto era
@@ -282,9 +286,9 @@ export default function NastroEsecuzione({
                      L'`aria-label` porta il dato per intero, perche' un lettore
                      di schermo non vede la baia. */
                   <g key={c.id} role="button" tabIndex={0}
-                     aria-label={`chiamata ${c.n}: ${c.name}, iterazione ${c.iteration}, ${esito}` +
-                                 (c.bytes != null ? `, ${fmtKB(c.bytes)} tornati` : '') +
-                                 `, durata ${durata}`}
+                     aria-label={tr('communications.callAccessible', {a: c.n, b: c.name, c: c.iteration, d: esito}) +
+                                 (c.bytes != null ? tr('communications.bytesReturned', {a: fmtKB(c.bytes) ?? tr('communications.unavailable')}) : '') +
+                                 tr('communications.callDuration', {a: durata ?? tr('communications.unavailable')})}
                      aria-pressed={pin === c.n}
                      onMouseEnter={() => onHot(c.n)} onMouseLeave={() => onHot(null)}
                      onFocus={() => onHot(c.n)} onBlur={() => onHot(null)}
@@ -317,7 +321,7 @@ export default function NastroEsecuzione({
               {flow.length > 2 && (
                 <text x={GUT - 8} y={yFlow} textAnchor="end" fill="#9A7B44" fontSize={9}
                       fontWeight={600} fontFamily={MONO}>
-                  testo · {flow[flow.length - 1].len.toLocaleString('it-IT')} car
+                  {tr('communications.tapeText', { a: flow[flow.length - 1].len.toLocaleString(localeDi(linguaCorrente()), { useGrouping: true }) })}
                 </text>
               )}
 
@@ -355,20 +359,19 @@ export default function NastroEsecuzione({
               {call ? (
                 <>
                   <b>[{call.n}] {call.name}</b>
-                  {pin === call.n && <span className="pin"> FISSATO</span>}
-                  {call.arg && <div className="kv"><i>argomento</i><u>{call.arg}</u></div>}
-                  <div className="kv"><i>esito</i><u style={{ color: call.ok === false ? CR : call.ok ? '#21E0A0' : AM }}>
-                    {call.ok == null ? 'in corso…' : call.ok ? 'ok' : 'ERRORE dichiarato'}</u></div>
-                  <div className="kv"><i>tornati</i><u>
-                    {fmtKB(call.bytes) ?? 'n.d.'}{call.t1 != null && ' · ' + fmtMs(call.t1 - call.t0)}</u></div>
-                  <div className="kv"><i>iterazione</i><u>{call.iteration}</u></div>
+                  {pin === call.n && <span className="pin"> {tr('communications.pinned')}</span>}
+                  {call.arg && <div className="kv"><i>{tr('communications.argument')}</i><u>{call.arg}</u></div>}
+                  <div className="kv"><i>{tr('communications.outcome')}</i><u style={{ color: call.ok === false ? CR : call.ok ? '#21E0A0' : AM }}>
+                    {call.ok == null ? tr('communications.inProgressEllipsis') : call.ok ? 'ok' : tr('communications.declaredError')}</u></div>
+                  <div className="kv"><i>{tr('communications.returned')}</i><u>
+                    {fmtKB(call.bytes) ?? tr('communications.unavailable')}{call.t1 != null && ' · ' + fmtMs(call.t1 - call.t0)}</u></div>
+                  <div className="kv"><i>{tr('communications.iteration')}</i><u>{call.iteration}</u></div>
                 </>
               ) : (
                 <>
-                  <b>LETTURA</b>
+                  <b>{tr('communications.reading')}</b>
                   <div style={{ color: DIM, lineHeight: 1.55, marginTop: 2 }}>
-                    Punta una tacca per il dato esatto: argomento, esito, byte tornati, durata.
-                    Un clic la fissa.
+                    {tr('communications.tapeReadingHint')}
                   </div>
                 </>
               )}

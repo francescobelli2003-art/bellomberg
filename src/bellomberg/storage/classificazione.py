@@ -37,7 +37,7 @@ Tre cose, in questo file e in nessun altro:
    registra `natura` (il tipo di veicolo dal negozio); i motori (lotto 2) ne aggiungeranno altri
    e leggeranno le VISTE (`veicoli_per_tipo`, `classe_size_di`) al posto delle liste cablate.
 
-SOLO stdlib: nessun import di progetto, cosi' le prove lo importano senza far girare migrazioni
+Stdlib e helper di presentazione bilingue; nessun import di DB o provider, cosi' le prove lo importano senza far girare migrazioni
 DB ne' scrivere cache. La regola del percorso dati e' quella di memory_db.DB_DIR
 (BELLOMBERG_DATA_DIR relativo alla radice o assoluto), replicata qui senza importare memory_db.
 """
@@ -48,6 +48,7 @@ from dataclasses import asdict, dataclass
 from datetime import date
 from typing import Any, Callable, Dict, List, Optional
 from bellomberg.core.paths import DATA_DIR, EXAMPLES_DIR
+from bellomberg.core.presentation import message as _message, render_payload, error_text
 
 PERCORSO_VEICOLI = str(DATA_DIR / "veicoli.json")
 ESEMPIO_VEICOLI = str(EXAMPLES_DIR / "veicoli.example.json")
@@ -143,21 +144,21 @@ class Etichetta:
 
     def __str__(self) -> str:
         # per i campi <dominio>_source dei payload: «fonte — evidenza», convenzione di casa
-        return "%s — %s" % (self.fonte, self.evidenza)
+        return _message('{v0} — {v1}', '{v0} — {v1}', v0=self.fonte, v1=self.evidenza)
 
     def as_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        return render_payload(asdict(self))
 
 
 def _controlla(dominio: str, fonte: str, evidenza: str, verificato_il: Optional[str]) -> None:
     if dominio not in DOMINI:
-        raise ValueError("dominio %r fuori vocabolario: %s" % (dominio, DOMINI))
+        raise ValueError(_message('dominio {v0!r} fuori vocabolario: {v1}', 'Domain {v0!r} outside vocabulary: {v1}', v0=dominio, v1=DOMINI))
     if fonte not in FONTI:
-        raise ValueError("fonte %r fuori vocabolario: %s" % (fonte, FONTI))
+        raise ValueError(_message('fonte {v0!r} fuori vocabolario: {v1}', 'Source {v0!r} outside vocabulary: {v1}', v0=fonte, v1=FONTI))
     if not isinstance(evidenza, str) or not evidenza.strip():
-        raise ValueError("evidenza obbligatoria: un'etichetta senza evidenza e' un'opinione")
+        raise ValueError(_message("evidenza obbligatoria: un'etichetta senza evidenza e' un'opinione", 'Evidence required: a label without evidence is an opinion'))
     if not _data_iso_o_none(verificato_il):
-        raise ValueError("verificato_il %r non e' una data YYYY-MM-DD" % (verificato_il,))
+        raise ValueError(_message("verificato_il {v0!r} non e' una data YYYY-MM-DD", 'verificato_il {v0!r} is not a YYYY-MM-DD date', v0=verificato_il))
 
 
 def _costruisci(dominio, valore, fonte, evidenza, dichiarazione, verificato_il=None) -> Etichetta:
@@ -174,21 +175,20 @@ def etichetta(dominio: str, valore: str, fonte: str, evidenza: str,
     `nessuna`/`ripiego` (usa gli helper: la frase che ne esce e' diversa apposta). La
     confidenza e' DERIVATA dalla fonte: non e' un parametro."""
     if valore is None or (isinstance(valore, str) and not valore.strip()):
-        raise ValueError("valore assente: usa sconosciuto() o guasto(), non un'etichetta vuota")
+        raise ValueError(_message("valore assente: usa sconosciuto() o guasto(), non un'etichetta vuota", 'Missing value: use sconosciuto() or guasto(), not an empty label'))
     if fonte in ("nessuna", "ripiego"):
-        raise ValueError("fonte %r: usa sconosciuto()/guasto()/ripiego(), che dichiarano il perche'" % fonte)
+        raise ValueError(_message("fonte {v0!r}: usa sconosciuto()/guasto()/ripiego(), che dichiarano il perche'", 'Source {v0!r}: use sconosciuto()/guasto()/ripiego(), which declare why', v0=fonte))
     if not isinstance(valore, str):
-        raise ValueError("valore %r non e' una stringa" % (valore,))
+        raise ValueError(_message("valore {v0!r} non e' una stringa", 'Value {v0!r} is not a string', v0=valore))
     _controlla(dominio, fonte, evidenza, verificato_il)
-    frase = "%s = %s [%s, %s]: %s" % (dominio, valore, fonte, _CONFIDENZA_DA_FONTE[fonte], evidenza)
+    frase = _message('{v0} = {v1} [{v2}, {v3}]: {v4}', '{v0} = {v1} [{v2}, {v3}]: {v4}', v0=dominio, v1=valore, v2=fonte, v3=_CONFIDENZA_DA_FONTE[fonte], v4=evidenza)
     return _costruisci(dominio, valore, fonte, evidenza, frase, verificato_il)
 
 
 def sconosciuto(dominio: str, evidenza: str) -> Etichetta:
     """Nessuna fonte dice cosa sia: valore None, fonte `nessuna`. E' un BUCO dichiarato,
     non un ripiego — e la frase lo dice in maiuscolo perche' sopravviva a un taglio."""
-    frase = ("%s SCONOSCIUTO: %s (nessuna fonte lo dice: non e' un ripiego, e' un buco "
-             "dichiarato)" % (dominio, evidenza))
+    frase = (_message("{v0} SCONOSCIUTO: {v1} (nessuna fonte lo dice: non e' un ripiego, e' un buco dichiarato)", '{v0} UNKNOWN: {v1} (no source identifies it: this is a declared gap, not a fallback)', v0=dominio, v1=evidenza))
     return _costruisci(dominio, None, "nessuna", evidenza, frase)
 
 
@@ -196,8 +196,8 @@ def ripiego(dominio: str, valore: str, evidenza: str) -> Etichetta:
     """Il valore che il codice applica OGGI in assenza di una misura (es. il limite prudente
     single-stock): resta, ma etichettato come non-misura, con confidenza `nessuna`."""
     if not isinstance(valore, str) or not valore.strip():
-        raise ValueError("un ripiego ha sempre un valore: quello applicato")
-    frase = "%s = %s per RIPIEGO, non una misura: %s" % (dominio, valore, evidenza)
+        raise ValueError(_message('un ripiego ha sempre un valore: quello applicato', 'A fallback always has a value: the one applied'))
+    frase = _message('{v0} = {v1} per RIPIEGO, non una misura: {v2}', '{v0} = {v1} as FALLBACK, not a measurement: {v2}', v0=dominio, v1=valore, v2=evidenza)
     return _costruisci(dominio, valore, "ripiego", evidenza, frase)
 
 
@@ -205,8 +205,7 @@ def guasto(dominio: str, motivo: str) -> Etichetta:
     """La fonte e' ROTTA (negozio illeggibile, servizio giu'): il dato puo' esistere, e' la
     fonte che non risponde. Diverso da `sconosciuto`: una virgola in piu' nel negozio non
     deve far sembrare ignoto ogni veicolo del PM."""
-    frase = ("%s NON DETERMINABILE, fonte ROTTA: %s (il dato puo' esistere: e' la fonte che "
-             "non risponde)" % (dominio, motivo))
+    frase = (_message("{v0} NON DETERMINABILE, fonte ROTTA: {v1} (il dato puo' esistere: e' la fonte che non risponde)", '{v0} CANNOT BE DETERMINED, BROKEN source: {v1} (the data may exist: the source is not responding)', v0=dominio, v1=motivo))
     return _costruisci(dominio, None, "nessuna", motivo, frase)
 
 
@@ -222,30 +221,51 @@ def _senza_doppie(coppie):
     chiavi = [k for k, _ in coppie]
     doppie = sorted({k for k in chiavi if chiavi.count(k) > 1})
     if doppie:
-        raise _NegozioIlleggibile("chiave doppia nel JSON: %r (json.load terrebbe l'ultima in "
-                                  "silenzio)" % (doppie,))
+        raise _NegozioIlleggibile(_message("chiave doppia nel JSON: {v0!r} (json.load terrebbe l'ultima in silenzio)", 'Duplicate JSON key: {v0!r} (json.load would silently retain the last one)', v0=doppie))
     return dict(coppie)
+
+
+def _field_description(field, original):
+    descriptions = {
+        "tipo": ("uno di {allowed}", "one of {allowed}", TIPI),
+        "provenienza": ("uno di {allowed}", "one of {allowed}", PROVENIENZE),
+        "classe_size": ("uno di {allowed} o null", "one of {allowed} or null", CLASSI_SIZE),
+    }
+    if field in descriptions:
+        italian, english, allowed = descriptions[field]
+        return _message(italian, english, allowed=allowed)
+    english = {
+        "sottostante": "string or null",
+        "kind": "declared DAT-engine kind, consistent with the underlying, or null",
+        "nav_fonte": "string or null (fetcher key in cef_nav.FETCH_NAV)",
+        "nav_valuta": "string or null (NAV currency)",
+        "valuta": "3-letter uppercase quote currency or null; GBX distinct from GBP",
+        "nome": "string or null (company name, for messages)",
+        "settore_tema": "string or null (by_sector label)",
+        "bucket_economico": "string or null",
+        "settore_policy": "string or null (sizing sector cap)",
+        "profilo_valutazione": "string or null (sector_taxonomy key)",
+        "verificato_il": "YYYY-MM-DD date or null",
+        "note": "string",
+    }
+    return _message(original, english[field])
 
 
 def _valida_voce(chiave: str, voce: Any) -> Dict[str, Any]:
     if not isinstance(voce, dict):
-        raise _NegozioIlleggibile("voce %r malformata: serve un oggetto JSON, non %s"
-                                  % (chiave, type(voce).__name__))
+        raise _NegozioIlleggibile(_message('voce {v0!r} malformata: serve un oggetto JSON, non {v1}', 'Malformed entry {v0!r}: expected a JSON object, not {v1}', v0=chiave, v1=type(voce).__name__))
     ignoti = sorted(k for k in voce if k not in CAMPI_VOCE)
     if ignoti:
-        raise _NegozioIlleggibile("voce %r con campo sconosciuto %r: i campi ammessi sono %s"
-                                  % (chiave, ignoti[0], sorted(CAMPI_VOCE)))
+        raise _NegozioIlleggibile(_message('voce {v0!r} con campo sconosciuto {v1!r}: i campi ammessi sono {v2}', 'Entry {v0!r} has unknown field {v1!r}: allowed fields are {v2}', v0=chiave, v1=ignoti[0], v2=sorted(CAMPI_VOCE)))
     pulita: Dict[str, Any] = {}
     for campo, (obbligatorio, valido, descrizione) in CAMPI_VOCE.items():
         if campo not in voce:
             if obbligatorio:
-                raise _NegozioIlleggibile("voce %r senza il campo obbligatorio %r (%s)"
-                                          % (chiave, campo, descrizione))
+                raise _NegozioIlleggibile(_message('voce {v0!r} senza il campo obbligatorio {v1!r} ({v2})', 'Entry {v0!r} missing required field {v1!r} ({v2})', v0=chiave, v1=campo, v2=_field_description(campo, descrizione)))
             pulita[campo] = "" if campo == "note" else None
             continue
         if not valido(voce[campo]):
-            raise _NegozioIlleggibile("voce %r: campo %r = %r non valido (%s)"
-                                      % (chiave, campo, voce[campo], descrizione))
+            raise _NegozioIlleggibile(_message('voce {v0!r}: campo {v1!r} = {v2!r} non valido ({v3})', 'Entry {v0!r}: invalid field {v1!r} = {v2!r} ({v3})', v0=chiave, v1=campo, v2=voce[campo], v3=_field_description(campo, descrizione)))
         pulita[campo] = voce[campo]
     if pulita["note"] is None:
         pulita["note"] = ""
@@ -254,10 +274,7 @@ def _valida_voce(chiave: str, voce: Any) -> Dict[str, Any]:
     kind = pulita["kind"]
     if kind is not None and (pulita["tipo"] != "dat" or
                              pulita["sottostante"] != SOTTOSTANTI_KIND_DAT[kind]):
-        raise _NegozioIlleggibile("voce %r: kind %r incoerente con tipo %r o sottostante %r "
-                                  "(richiede tipo dat e sottostante %s)" % (
-                                      chiave, kind, pulita["tipo"], pulita["sottostante"],
-                                      SOTTOSTANTI_KIND_DAT[kind]))
+        raise _NegozioIlleggibile(_message('voce {v0!r}: kind {v1!r} incoerente con tipo {v2!r} o sottostante {v3!r} (richiede tipo dat e sottostante {v4})', 'Entry {v0!r}: kind {v1!r} inconsistent with type {v2!r} or underlying {v3!r} (requires dat type and underlying {v4})', v0=chiave, v1=kind, v2=pulita["tipo"], v3=pulita["sottostante"], v4=SOTTOSTANTI_KIND_DAT[kind]))
     return pulita
 
 
@@ -270,20 +287,18 @@ def carica_veicoli(path: Optional[str] = None) -> Dict[str, Any]:
     p = path or PERCORSO_VEICOLI
     if not os.path.exists(p):
         return {"veicoli": {}, "origine": "assente",
-                "motivo": ("negozio non trovato: %s (copia %s in data/ e dichiaraci i TUOI "
-                           "veicoli: un simbolo assente vale «sconosciuto», mai «operating»)"
-                           % (p, os.path.basename(ESEMPIO_VEICOLI)))}
+                "motivo": (_message('negozio non trovato: {v0} (copia {v1} in data/ e dichiaraci i TUOI veicoli: un simbolo assente vale «sconosciuto», mai «operating»)', 'Store not found: {v0} (copy {v1} into data/ and declare YOUR vehicles: an absent symbol is unknown, never operating)', v0=p, v1=os.path.basename(ESEMPIO_VEICOLI)))}
     try:
         with open(p, encoding="utf-8") as fh:
             grezzo = json.load(fh, object_pairs_hook=_senza_doppie)
     except _NegozioIlleggibile as e:
-        return {"veicoli": {}, "origine": "illeggibile", "motivo": str(e)}
+        return {"veicoli": {}, "origine": "illeggibile", "motivo": error_text(e)}
     except Exception as e:
         return {"veicoli": {}, "origine": "illeggibile",
-                "motivo": "%s: %s" % (type(e).__name__, e)}
+                "motivo": _message('{v0}: {v1}', '{v0}: {v1}', v0=type(e).__name__, v1=error_text(e))}
     if not isinstance(grezzo, dict):
         return {"veicoli": {}, "origine": "illeggibile",
-                "motivo": "il negozio non e' un oggetto JSON ma %s" % type(grezzo).__name__}
+                "motivo": _message("il negozio non e' un oggetto JSON ma {v0}", 'Store is not a JSON object but {v0}', v0=type(grezzo).__name__)}
     veicoli: Dict[str, Dict[str, Any]] = {}
     try:
         for k, v in grezzo.items():
@@ -294,11 +309,10 @@ def carica_veicoli(path: Optional[str] = None) -> Dict[str, Any]:
                 # ogni lookup fa .upper() sul ticker: una chiave minuscola o con spazi non
                 # verrebbe MAI trovata e il log direbbe «assente», vero per il codice e falso
                 # per chi ha appena scritto la voce (review 04/09 sul negozio delle news)
-                raise _NegozioIlleggibile("chiave %r non canonica o doppia: scrivila MAIUSCOLA, "
-                                          "senza spazi e una volta sola (%r)" % (k, kk))
+                raise _NegozioIlleggibile(_message('chiave {v0!r} non canonica o doppia: scrivila MAIUSCOLA, senza spazi e una volta sola ({v1!r})', 'Noncanonical or duplicate key {v0!r}: write it UPPERCASE, without spaces, once only ({v1!r})', v0=k, v1=kk))
             veicoli[k] = _valida_voce(k, v)
     except _NegozioIlleggibile as e:
-        return {"veicoli": {}, "origine": "illeggibile", "motivo": str(e)}
+        return {"veicoli": {}, "origine": "illeggibile", "motivo": error_text(e)}
     return {"veicoli": veicoli, "origine": p, "motivo": None}
 
 
@@ -335,7 +349,7 @@ def valida_negozio(negozio: Dict[str, Any]) -> Dict[str, Any]:
     except (ValueError, TypeError, _NegozioIlleggibile):
         # Do not expose other instruments from a private registry in a refusal.
         return {"origine": "illeggibile", "veicoli": {},
-                "motivo": "registry envelope or entry invalid; validate the vehicle registry"}
+                "motivo": _message("struttura o voce del registro non valida; valida il registro dei veicoli", "registry envelope or entry invalid; validate the vehicle registry")}
 
 
 def _negozio(negozio: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -354,7 +368,7 @@ def veicoli_per_tipo(tipo: str, negozio: Optional[Dict[str, Any]] = None) -> Dic
     negozio con quel tipo, ordinati, piu' origine e motivo del negozio — cosi' un consumatore
     che riceve una lista vuota sa se e' «nessun veicolo» o «negozio rotto»."""
     if tipo not in TIPI:
-        raise ValueError("tipo %r fuori vocabolario: %s" % (tipo, TIPI))
+        raise ValueError(_message('tipo {v0!r} fuori vocabolario: {v1}', 'Type {v0!r} outside vocabulary: {v1}', v0=tipo, v1=TIPI))
     n = _negozio(negozio)
     return {"tickers": sorted(t for t, v in n["veicoli"].items() if v["tipo"] == tipo),
             "origine": n["origine"], "motivo": n["motivo"]}
@@ -377,7 +391,7 @@ def registra(dominio: str):
     """Decoratore: registra un classificatore per un dominio del vocabolario. Il test del
     contratto lo chiama sull'input ignoto e pretende `sconosciuto`."""
     if dominio not in DOMINI:
-        raise ValueError("dominio %r fuori vocabolario: %s" % (dominio, DOMINI))
+        raise ValueError(_message('dominio {v0!r} fuori vocabolario: {v1}', 'Domain {v0!r} outside vocabulary: {v1}', v0=dominio, v1=DOMINI))
 
     def _dec(fn):
         CLASSIFICATORI[dominio] = fn
@@ -394,17 +408,14 @@ def natura(ticker: str, negozio: Optional[Dict[str, Any]] = None, **_ignorati) -
     n = _negozio(negozio)
     t = (ticker or "").strip().upper()
     if n["origine"] in ("assente", "illeggibile"):
-        return guasto("natura", "negozio dei veicoli %s: %s" % (n["origine"], n["motivo"]))
+        return guasto("natura", _message('negozio dei veicoli {v0}: {v1}', 'Vehicle store {v0}: {v1}', v0=n["origine"], v1=n["motivo"]))
     v = n["veicoli"].get(t)
     if v is None:
-        return sconosciuto("natura", "simbolo %s assente dal negozio dei veicoli (%s)"
-                           % (t or "<vuoto>", os.path.basename(n["origine"])))
+        return sconosciuto("natura", _message('simbolo {v0} assente dal negozio dei veicoli ({v1})', 'Symbol {v0} absent from vehicle store ({v1})', v0=t or "<vuoto>", v1=os.path.basename(n["origine"])))
     if v["tipo"] == "sconosciuto" or v["provenienza"] == "sconosciuto":
-        return sconosciuto("natura", "la voce di %s nel negozio dichiara tipo %r con provenienza %r"
-                           % (t, v["tipo"], v["provenienza"]))
+        return sconosciuto("natura", _message('la voce di {v0} nel negozio dichiara tipo {v1!r} con provenienza {v2!r}', 'Store entry for {v0} declares type {v1!r} with provenance {v2!r}', v0=t, v1=v["tipo"], v2=v["provenienza"]))
     return etichetta("natura", v["tipo"], _FONTE_DA_PROVENIENZA[v["provenienza"]],
-                     "voce %s del negozio dei veicoli (%s, provenienza %s)"
-                     % (t, os.path.basename(n["origine"]), v["provenienza"]),
+                     _message('voce {v0} del negozio dei veicoli ({v1}, provenienza {v2})', 'Entry {v0} in vehicle store ({v1}, provenance {v2})', v0=t, v1=os.path.basename(n["origine"]), v2=v["provenienza"]),
                      verificato_il=v["verificato_il"])
 
 
@@ -418,17 +429,14 @@ def classe_size(ticker: str, negozio: Optional[Dict[str, Any]] = None, **_ignora
     n = _negozio(negozio)
     t = (ticker or "").strip().upper()
     if n["origine"] in ("assente", "illeggibile"):
-        return guasto("classe_size", "negozio dei veicoli %s: %s" % (n["origine"], n["motivo"]))
+        return guasto("classe_size", _message('negozio dei veicoli {v0}: {v1}', 'Vehicle store {v0}: {v1}', v0=n["origine"], v1=n["motivo"]))
     v = n["veicoli"].get(t)
     if v is None:
-        return sconosciuto("classe_size", "simbolo %s assente dal negozio dei veicoli (%s)"
-                           % (t or "<vuoto>", os.path.basename(n["origine"])))
+        return sconosciuto("classe_size", _message('simbolo {v0} assente dal negozio dei veicoli ({v1})', 'Symbol {v0} absent from vehicle store ({v1})', v0=t or "<vuoto>", v1=os.path.basename(n["origine"])))
     if v["classe_size"] is None:
-        return sconosciuto("classe_size", "la voce di %s nel negozio non dichiara la classe di "
-                           "sizing (campo classe_size assente)" % t)
+        return sconosciuto("classe_size", _message('la voce di {v0} nel negozio non dichiara la classe di sizing (campo classe_size assente)', 'Store entry for {v0} does not declare sizing class (classe_size field missing)', v0=t))
     return etichetta("classe_size", v["classe_size"], "registro_pm",
-                     "voce %s del negozio dei veicoli (%s): classe_size dichiarata"
-                     % (t, os.path.basename(n["origine"])), verificato_il=v["verificato_il"])
+                     _message('voce {v0} del negozio dei veicoli ({v1}): classe_size dichiarata', 'Entry {v0} in vehicle store ({v1}): classe_size declared', v0=t, v1=os.path.basename(n["origine"])), verificato_il=v["verificato_il"])
 
 
 _VALUTE_DA_SUFFISSO = {
@@ -450,24 +458,22 @@ def valuta(ticker: str, negozio: Optional[Dict[str, Any]] = None,
     """
     if valuta_posizione is not None:
         if not _valuta_o_none(valuta_posizione):
-            return guasto("valuta", "valuta della posizione non valida: %r" % valuta_posizione)
-        return etichetta("valuta", valuta_posizione, "misura_dato", "valuta esplicita della posizione")
+            return guasto("valuta", _message('valuta della posizione non valida: {v0!r}', 'Invalid position currency: {v0!r}', v0=valuta_posizione))
+        return etichetta("valuta", valuta_posizione, "misura_dato", _message('valuta esplicita della posizione', 'Explicit position currency'))
     n = _negozio(negozio)
     if n["origine"] == "illeggibile":
-        return guasto("valuta", "negozio dei veicoli illeggibile: %s" % n["motivo"])
+        return guasto("valuta", _message('negozio dei veicoli illeggibile: {v0}', 'Unreadable vehicle store: {v0}', v0=n["motivo"]))
     t = (ticker or "").strip().upper()
     v = voce(t, n)
     if v is not None and v.get("valuta") is not None:
         return etichetta("valuta", v["valuta"], "registro_pm",
-                         "valuta di quotazione dichiarata per %s nel negozio dei veicoli" % t,
+                         _message('valuta di quotazione dichiarata per {v0} nel negozio dei veicoli', 'Quote currency declared for {v0} in the vehicle store', v0=t),
                          verificato_il=v.get("verificato_il"))
     suffisso = t.rsplit(".", 1)[1] if "." in t else None
     if suffisso in _VALUTE_DA_SUFFISSO:
         return ripiego("valuta", _VALUTE_DA_SUFFISSO[suffisso],
-                       "valuta esplicita assente; inferita dal suffisso .%s, non verificata; "
-                       "negozio %s" % (suffisso, n["origine"]))
-    return sconosciuto("valuta", "valuta n.d. per %s: ticker ambiguo senza valuta esplicita; "
-                       "negozio %s" % (t or "<vuoto>", n["origine"]))
+                       _message('valuta esplicita assente; inferita dal suffisso .{v0}, non verificata; negozio {v1}', 'Explicit currency absent; inferred from suffix .{v0}, not verified; store {v1}', v0=suffisso, v1=n["origine"]))
+    return sconosciuto("valuta", _message('valuta n.d. per {v0}: ticker ambiguo senza valuta esplicita; negozio {v1}', 'Currency unavailable for {v0}: ambiguous ticker without explicit currency; store {v1}', v0=t or "<vuoto>", v1=n["origine"]))
 
 
 # quoteType Yahoo -> natura misurata. INDEX e CURRENCY non sono strumenti detenibili: natura
@@ -486,13 +492,11 @@ def natura_da_dato(quote_type: str = "", industry: str = "", sector: str = "") -
     if qt in _NATURA_DA_QUOTE_TYPE:
         return etichetta("natura", _NATURA_DA_QUOTE_TYPE[qt], "quote_type", "quoteType=%s" % qt)
     if qt in QUOTE_TYPES_PANIERE:
-        return sconosciuto("natura", "quoteType=%s: non e' uno strumento detenibile in portafoglio" % qt)
+        return sconosciuto("natura", _message("quoteType={v0}: non e' uno strumento detenibile in portafoglio", 'quoteType={v0}: instrument cannot be held in the portfolio', v0=qt))
     if (industry or "").strip() or (sector or "").strip():
         return etichetta("natura", "operating", "euristica_simbolo",
-                         "quoteType assente, ma industry %r / sector %r presenti: dedotta societa' "
-                         "operativa, non misurata" % (industry or "", sector or ""))
-    return sconosciuto("natura", "quoteType assente, industry e sector vuoti: nessuna fonte dice "
-                       "che strumento sia")
+                         _message("quoteType assente, ma industry {v0!r} / sector {v1!r} presenti: dedotta societa' operativa, non misurata", 'quoteType missing, but industry {v0!r} / sector {v1!r} present: operating company inferred, not measured', v0=industry or "", v1=sector or ""))
+    return sconosciuto("natura", _message('quoteType assente, industry e sector vuoti: nessuna fonte dice che strumento sia', 'quoteType missing, industry and sector empty: no source identifies the instrument'))
 
 
 def natura_risolta(ticker: str, quote_type: str = "", industry: str = "", sector: str = "",
@@ -513,8 +517,7 @@ def natura_risolta(ticker: str, quote_type: str = "", industry: str = "", sector
     # negozio ASSENTE (clone senza il file): decide il solo dato, ma l'etichetta lo DICE —
     # un veicolo non dichiarato passa per societa' e il payload deve poterlo dire (review
     # 05/09: prima l'assenza non lasciava traccia)
-    ev = nd.evidenza + (" | negozio dei veicoli ASSENTE: decide il solo dato (un veicolo non "
-                        "dichiarato puo' passare per societa' operativa)")
+    ev = _message("{evidence} | negozio dei veicoli ASSENTE: decide il solo dato (un veicolo non dichiarato puo' passare per societa' operativa)", "{evidence} | Vehicle store MISSING: classification uses data alone (an undeclared vehicle may be classified as an operating company)", evidence=nd.evidenza)
     if nd.valore is None:
         return sconosciuto("natura", ev)
     return etichetta("natura", nd.valore, nd.fonte, ev)

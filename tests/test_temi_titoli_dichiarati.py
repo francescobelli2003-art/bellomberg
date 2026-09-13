@@ -176,6 +176,8 @@ def test_providers_blocked_dichiara_il_negozio_assente(senza_negozio):
 def test_providers_blocked_dichiara_il_negozio_illeggibile(negozio):
     negozio("{ rotto")
     muti = news_aggregator.providers_blocked()
+    # 13/09: la chiave assente e' il difetto, non un KeyError (il banco conta solo le asserzioni)
+    assert news_aggregator.TEMI_TITOLI_MUTI in muti, sorted(muti)
     assert muti[news_aggregator.TEMI_TITOLI_MUTI].startswith("NEGOZIO_ILLEGGIBILE")
 
 
@@ -190,7 +192,10 @@ def test_il_modulo_del_negozio_non_importabile_e_DICHIARATO_non_sollevato(monkey
     trattamento che la funzione riserva gia' a `tiingo_news` due righe sopra."""
     import sys
     monkeypatch.setitem(sys.modules, 'bellomberg.storage.negozi_privati', None)
-    muti = news_aggregator.providers_blocked()
+    try:
+        muti = news_aggregator.providers_blocked()
+    except Exception as exc:  # 13/09: sollevare e' il difetto, e si dichiara come tale
+        pytest.fail("providers_blocked ha sollevato invece di dichiarare: %s" % type(exc).__name__)
     assert news_aggregator.TEMI_TITOLI_MUTI in muti
     assert muti[news_aggregator.TEMI_TITOLI_MUTI].startswith("MODULO_ASSENTE")
 
@@ -200,8 +205,11 @@ def test_il_giro_col_modulo_non_importabile_non_esplode(monkeypatch, senza_rete)
     non morire."""
     import sys
     monkeypatch.setitem(sys.modules, 'bellomberg.storage.negozi_privati', None)
-    items = news_aggregator.fetch_macro_news(categories=["rates"], min_importance=5, days=1,
-                                             max_per_topic=1, include_reddit=False)
+    try:
+        items = news_aggregator.fetch_macro_news(categories=["rates"], min_importance=5, days=1,
+                                                 max_per_topic=1, include_reddit=False)
+    except Exception as exc:  # 13/09: esplodere e' il difetto, e si dichiara come tale
+        pytest.fail("il giro e' esploso invece di rendere le notizie senza titoli: %s" % type(exc).__name__)
     assert items, "senza notizie la prova non misura niente"
     assert all(it.get("tickers_affected") == [] for it in items)
 

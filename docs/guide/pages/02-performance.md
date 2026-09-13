@@ -24,6 +24,18 @@ the providers needed by each calculation.
 6. Open Book & Risk for concentration, drawdowns and distribution statistics.
 
 ## Read the result
+The coverage panel reports the first trade, first NAV snapshot, start of the
+official series, trades before the first snapshot and calendar days without a
+snapshot. Adding a historical execution does not create past NAV observations
+or reconstruct an unknown cash history. Read the FX basis of IRR separately.
+
+When opening positions have been declared, coverage begins with eligible
+snapshots after registration of all opening balances. Earlier or unverifiable
+snapshots are excluded and counted in the coverage note. The date a balance was
+known is not an acquisition date. Historical purchase returns are unavailable;
+IRR also requires two subsequent snapshots. A newly registered opening balance
+does not itself create either snapshot.
+
 A carried or reconstructed series has a different evidential status from
 observed daily valuations. The page's source and coverage labels matter as much
 as the percentage. Periods with no valid starting valuation or insufficient

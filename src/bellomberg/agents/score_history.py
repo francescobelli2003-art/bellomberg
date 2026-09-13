@@ -5,6 +5,8 @@ not the future performance of the run whose memo identifies the snapshot.
 """
 from __future__ import annotations
 
+from bellomberg.core.language import capture_language
+from bellomberg.core.presentation import message as _ui_text
 from contextlib import closing
 from datetime import datetime, timezone
 import hashlib
@@ -50,6 +52,18 @@ AGENTS = (
 METHOD_ID = "scorekeeper-directional-v1"
 ATTRIBUTION = ("Attribuzione euristica: una call è assegnata ai desk che citano il titolo "
                "nei report dello stesso memo. Può contare per più desk; non è una firma verificata.")
+_AGENTS_EN = {
+    "capo": ("Head / Committee", "Synthesis and collective decisions"),
+    "macro": ("Macro", "Economic regime and liquidity"),
+    "fundamentals": ("Fundamentals", "Valuations and company theses"),
+    "quant": ("Quant", "Risk, factors and sizing"),
+    "options": ("Options", "Volatility and options flows"),
+    "crypto": ("Crypto", "Digital markets and derivatives"),
+    "eventdesk": ("Event Desk", "Catalysts, news and geopolitics"),
+    "red_team": ("Red Team", "Critical committee review"),
+    "_reflection": ("Reflection", "Lessons for the next run"),
+    "_action_table": ("Action extractor", "Decision extraction"),
+}
 
 
 class HistoryUnavailable(RuntimeError):
@@ -60,7 +74,7 @@ def _connect(path, mode):
     # mode=ro/rw never creates a missing database or follows an unintended cwd.
     resolved = Path(path).resolve()
     if not resolved.is_file():
-        raise HistoryUnavailable("Database dello storico assente; nessun database creato")
+        raise HistoryUnavailable(_ui_text('Database dello storico assente; nessun database creato', 'History database missing; no database created'))
     conn = sqlite3.connect(resolved.as_uri() + "?mode=" + mode, uri=True, timeout=5)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout=5000")
@@ -92,18 +106,19 @@ def save_run_snapshot(db_path, *, run_id, memo_id, started_at, completed_at,
     and run IDs are explicit. Missing scoring is persisted as a declared hole.
     """
     if not isinstance(run_id, str) or not run_id.strip() or len(run_id) > 200:
-        raise ValueError("run_id non valido")
+        raise ValueError(_ui_text('run_id non valido', 'Invalid run_id'))
     if type(memo_id) is not int or memo_id <= 0:
-        raise ValueError("memo_id positivo richiesto")
+        raise ValueError(_ui_text('memo_id positivo richiesto', 'Positive memo_id required'))
     for stamp in (started_at, completed_at):
         datetime.fromisoformat(stamp)
     payload = _json_safe({
         "version": 1, "method_id": METHOD_ID, "maturation_days": MIN_AGE_DAYS,
+        "output_language": capture_language(),
         "scorecard": scorecard if isinstance(scorecard, dict) else None,
-        "score_error": score_error or (None if isinstance(scorecard, dict) else "Scorekeeper non disponibile nella run"),
+        "score_error": score_error or (None if isinstance(scorecard, dict) else _ui_text('Scorekeeper non disponibile nella run', 'Scorekeeper unavailable in the run')),
         "reflection": {"text": lesson or None, "status": reflection_status,
                        "kind": "suggestion", "implementation_verified": False,
-                       "source": "reflection della run", "performance_proven": False},
+                       "source": _ui_text('reflection della run', 'run reflection'), "performance_proven": False},
         "operational": operational or {},
     })
     raw = _encoded(payload)
@@ -116,7 +131,7 @@ def save_run_snapshot(db_path, *, run_id, memo_id, started_at, completed_at,
                  hashlib.sha256(raw.encode("utf-8")).hexdigest()))
         except sqlite3.OperationalError as exc:
             if "no such table" in str(exc):
-                raise HistoryUnavailable("schema progressi assente: applicare la migrazione 9") from exc
+                raise HistoryUnavailable(_ui_text('schema progressi assente: applicare la migrazione 9', 'Progress schema missing: apply migration 9')) from exc
             raise
         return {"saved": result.rowcount == 1, "run_id": run_id,
                 "reason": "saved" if result.rowcount else "already_recorded_immutable"}
@@ -124,27 +139,41 @@ def save_run_snapshot(db_path, *, run_id, memo_id, started_at, completed_at,
 
 def read_history(db_path, limit=100):
     if type(limit) is not int or not 1 <= limit <= 250:
-        raise ValueError("limit deve essere tra 1 e 250")
+        raise ValueError(_ui_text('limit deve essere tra 1 e 250', 'limit must be between 1 and 250'))
     with closing(_connect(db_path, "ro")) as conn:
         try:
             rows = conn.execute("SELECT * FROM agent_score_history ORDER BY completed_at DESC, rowid DESC LIMIT ?",
                                 (limit,)).fetchall()
         except sqlite3.OperationalError as exc:
             if "no such table" in str(exc):
-                raise HistoryUnavailable("schema progressi assente: applicare la migrazione 9") from exc
+                raise HistoryUnavailable(_ui_text('schema progressi assente: applicare la migrazione 9', 'Progress schema missing: apply migration 9')) from exc
             raise
+        # Review annotations are mutable memo metadata, separate from immutable
+        # score evidence. Missing legacy schema is declared, never inferred.
+        memo_notes = {}
+        memo_columns = {r['name'] for r in conn.execute('PRAGMA table_info(memos)')}
+        if {'id', 'notes'} <= memo_columns and rows:
+            ids = [row['memo_id'] for row in rows]
+            memo_notes = {r['id']: r['notes'] for r in conn.execute(
+                'SELECT id, notes FROM memos WHERE id IN (' + ','.join('?' for _ in ids) + ')', ids)}
     out = []
     for row in reversed(rows):
         raw = row["payload_json"]
         if hashlib.sha256(raw.encode("utf-8")).hexdigest() != row["payload_sha256"]:
-            raise HistoryUnavailable("Integrità di uno snapshot non verificata; storico non utilizzabile")
+            raise HistoryUnavailable(_ui_text('Integrità di uno snapshot non verificata; storico non utilizzabile', 'Snapshot integrity could not be verified; history is unusable'))
         try:
             item = json.loads(raw)
             if not isinstance(item, dict) or item.get("version") != 1:
-                raise ValueError("versione non supportata")
+                raise ValueError(_ui_text('versione non supportata', 'Unsupported version'))
         except (ValueError, TypeError) as exc:
-            raise HistoryUnavailable("Snapshot storico illeggibile") from exc
+            raise HistoryUnavailable(_ui_text('Snapshot storico illeggibile', 'Unreadable history snapshot')) from exc
         item.update({k: row[k] for k in ("run_id", "memo_id", "started_at", "completed_at", "captured_at")})
+        from bellomberg.storage.memory_db import MARCATORE_DUPLICATO
+        note = memo_notes.get(row['memo_id'])
+        duplicate = isinstance(note, str) and note.lstrip().startswith(MARCATORE_DUPLICATO)
+        item['review_status'] = ('unavailable' if row['memo_id'] not in memo_notes
+                                 else 'duplicate' if duplicate else 'unmarked')
+        item['review_note'] = note if duplicate else None
         out.append(item)
     return out
 
@@ -153,7 +182,7 @@ def record_completed_run(db, blackboard, *, scorecard, score_error=None, lesson=
                          reflection_status="unavailable"):
     """Production completion adapter. It consumes evidence, never scores or calls models."""
     if db is None or blackboard.memo_id is None:
-        raise HistoryUnavailable("DB/memo assente: storico progressi non registrabile")
+        raise HistoryUnavailable(_ui_text('DB/memo assente: storico progressi non registrabile', 'DB/memo missing: progress history cannot be recorded'))
     with blackboard._lock:
         usage, total = blackboard._usage_aggregates()
         models = {}
@@ -250,7 +279,7 @@ def _point(row, agent):
             "ci95": wilson_ci95(n, hits) if rate is not None else None,
             "quality": quality or ["ok"], "comparison_key": compare_key,
             "window_days": sc.get("window_days"), "maturation_days": row.get("maturation_days"),
-            "source": "scorekeeper / agent_score_history" if row.get("run_id") else "scorekeeper snapshot corrente",
+            "source": "scorekeeper / agent_score_history" if row.get("run_id") else _ui_text('scorekeeper snapshot corrente', 'current scorekeeper snapshot'),
             "n_fetch_fail": sc.get("n_fetch_fail"), "n_unmeasurable": sc.get("n_unmeasurable"),
             "n_directional_candidates": sc.get("n_directional_candidates"),
             "operational": {"status": status, "usage": usage,
@@ -258,26 +287,27 @@ def _point(row, agent):
 
 
 def _delta(previous, current):
-    result = {"available": False, "hit_rate_pp": None, "reason": "Servono due misure confrontabili"}
+    result = {"available": False, "hit_rate_pp": None, "reason": _ui_text('Servono due misure confrontabili', 'Two comparable measurements are required')}
     if previous and current:
         if current["comparison_key"] and current["comparison_key"] == previous["comparison_key"]:
             result.update(available=True, hit_rate_pp=round(current["hit_rate_pct"] - previous["hit_rate_pct"], 2),
-                          reason="Stesso metodo, decisioni e orizzonti; variazione della misura, non prova di apprendimento")
+                          reason=_ui_text('Stesso metodo, decisioni e orizzonti; variazione della misura, non prova di apprendimento', 'Same method, decisions and horizons; a change in measurement, not evidence of learning'))
         else:
-            result["reason"] = "Campione, orizzonte, metodo o qualità diversi: delta non confrontabile"
+            result["reason"] = _ui_text('Campione, orizzonte, metodo o qualità diversi: delta non confrontabile', 'Different sample, horizon, method or quality: delta is not comparable')
     return result
 
 
 def progress_payload(rows, current_scorecard=None):
-    agents = list(AGENTS)
+    agents = [(key, _ui_text(label, _AGENTS_EN[key][0]), _ui_text(role, _AGENTS_EN[key][1]))
+              for key, label, role in AGENTS]
     known = {a[0] for a in agents}
     for row in rows:
         for name in ((row.get("scorecard") or {}).get("by_specialist") or {}):
             if name not in known:
-                agents.append((name, name.title() + " (storico)", "Desk presente nello storico"))
+                agents.append((name, name.title() + _ui_text(' (storico)', ' (historical)'), _ui_text('Desk presente nello storico', 'Desk present in history')))
                 known.add(name)
     current_row = None
-    if not rows and current_scorecard and current_scorecard.get("available"):
+    if current_scorecard and current_scorecard.get("available"):
         current_row = {"scorecard": current_scorecard, "method_id": METHOD_ID,
                        "maturation_days": current_scorecard.get("maturation_days"), "operational": {}}
     items = []
@@ -290,20 +320,27 @@ def progress_payload(rows, current_scorecard=None):
                       "attribution": "collective" if name == "capo" else (
                           "unsupported" if name in ("red_team", "_reflection", "_action_table") else "heuristic"),
                       "latest": latest, "series": series,
+                      "current": _point(current_row, name) if current_row else None,
                       "delta": _delta(series[-2] if len(series) > 1 else None, latest)})
     runs = [{k: row.get(k) for k in ("run_id", "memo_id", "started_at", "completed_at", "captured_at",
-                                     "reflection", "score_error")} for row in rows]
+                                     "reflection", "score_error", "output_language", "review_status", "review_note")} for row in rows]
+    for run, row in zip(runs, rows):
+        sc = row.get('scorecard')
+        run['scorecard'] = _json_safe({key: sc.get(key) for key in (
+            'computed_at', 'overall', 'by_action', 'by_confidence', 'by_confidence_scartate',
+            'details', 'worst_calls', 'best_calls', 'method_note', 'window_days',
+            'degraded', 'n_fetch_fail', 'n_unmeasurable', 'n_directional_candidates')}) if isinstance(sc, dict) else None
     return {"source": "SQLite agent_score_history + scorekeeper", "paid_analysis": False,
             "history": {"state": "ok" if rows else "empty", "count": len(rows),
                         "available": bool(rows), "first_captured_at": rows[0]["captured_at"] if rows else None,
-                        "note": "Storico registrato dal primo completamento dopo l'attivazione; nessuna run retrodatata"},
-            "trend": {"available": len(rows) >= 2, "reason": None if len(rows) >= 2 else "Servono almeno due snapshot di run"},
+                        "note": _ui_text("Storico registrato dal primo completamento dopo l'attivazione; nessuna run retrodatata", 'History recorded from the first completion after activation; no backdated runs')},
+            "trend": {"available": len(rows) >= 2, "reason": None if len(rows) >= 2 else _ui_text('Servono almeno due snapshot di run', 'At least two run snapshots are required')},
             "agents": items, "runs": runs,
             "current_scorecard": ({key: current_scorecard.get(key) for key in
                                    ("available", "stato", "error", "computed_at")}
                                   if current_scorecard else None),
-            "method": {"score": "Hit rate delle call direzionali misurate dallo scorekeeper; non P&L del conto",
-                       "attribution": ATTRIBUTION, "horizon": "Esito a quattro settimane, altrimenti una; maturazione minima richiesta",
-                       "comparison": "Delta solo per lo stesso metodo, le stesse decisioni e gli stessi orizzonti, senza degrado dati",
-                       "learning": "Le reflection sono suggerimenti. Attuazione e miglioramento causale non sono verificati automaticamente",
-                       "timing": "La misura salvata a fine run riguarda call passate: le decisioni della nuova run devono ancora maturare"}}
+            "method": {"score": _ui_text('Hit rate delle call direzionali misurate dallo scorekeeper; non P&L del conto', 'Hit rate of directional calls measured by the scorekeeper; not account P&L'),
+                       "attribution": _ui_text(ATTRIBUTION, "Heuristic attribution: a call is assigned to desks citing the security in reports from the same memo. It may count for several desks; this is not verified authorship."), "horizon": _ui_text('Esito a quattro settimane, altrimenti una; maturazione minima richiesta', 'Outcome at four weeks, otherwise one; minimum maturation required'),
+                       "comparison": _ui_text('Delta solo per lo stesso metodo, le stesse decisioni e gli stessi orizzonti, senza degrado dati', 'Delta only for the same method, decisions and horizons, without degraded data'),
+                       "learning": _ui_text('Le reflection sono suggerimenti. Attuazione e miglioramento causale non sono verificati automaticamente', 'Reflections are suggestions. Implementation and causal improvement are not verified automatically'),
+                       "timing": _ui_text('La misura salvata a fine run riguarda call passate: le decisioni della nuova run devono ancora maturare', 'The measurement saved at run completion concerns past calls: decisions from the new run have yet to mature')}}

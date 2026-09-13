@@ -158,6 +158,7 @@ def test_dcf_bake_invokes_the_migrated_tool(tmp_path, monkeypatch):
 
     # Excel COM is simulated: this checks the migrated tool path even on hosts
     # where the Windows-only process flag is unavailable.
+    monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", 0, raising=False)
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: calls.append(argv) or Completed())
     monkeypatch.setattr(dcf_engine, "_count_uncached_formulas", lambda path: 0)

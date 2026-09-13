@@ -22,6 +22,12 @@ legacy desk is no longer offered for a new conversation.
 5. Read the streamed answer, source references and missing-data notices. Ask a
    follow-up to inspect assumptions or challenge the conclusion.
 
+Each send captures its output language before the request starts. Changing
+interface language during the reply does not change that answer mid-stream.
+Saved messages show their original language when recorded, or an unknown-language
+badge for legacy content. They are not translated or sent again when the
+interface language changes. Your unsent question remains your original text.
+
 ## Longer replies
 Chat allows longer answers through the configured per-call output budget.
 The budget is measured in model tokens, not characters, and some providers count

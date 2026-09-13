@@ -5,14 +5,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 const ts = require('typescript');
 const root = path.resolve(__dirname, '../..');
-function load(name) {
-  const code = fs.readFileSync(path.join(root, 'src/lib', name + '.ts'), 'utf8');
-  const scope = { exports: {} };
-  vm.runInNewContext(ts.transpileModule(code, { compilerOptions: {
-    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022,
-  }}).outputText, scope);
-  return scope.exports;
-}
+const carica = require('../i18n/_carica.cjs').creaCaricatore();
+function load(name) { return carica('lib/' + name + '.ts'); }
 test('every destination has one consecutive key and settings comes last', () => {
   const { NAVIGATION, pageKey } = load('navigation');
   assert.equal(NAVIGATION.length, 19);

@@ -31,6 +31,8 @@ import threading
 import time
 from datetime import datetime
 from typing import Dict, Any, List
+from bellomberg.core.language import scoped_language
+from bellomberg.core.presentation import error_text, join_messages, message, render_payload
 
 try:
     import numpy as np
@@ -62,10 +64,40 @@ def _motivo_corto(msg, cap=_CAP_MOTIVO):
     dei segnali e non era in nessuna leva di dimagrimento — un `{e}` da qualche
     KB (repr di un DataFrame, corpo HTML di `requests`) avrebbe spinto fuori le
     misure per salvare una stringa d'errore."""
-    msg = str(msg)
-    if len(msg) <= cap:
-        return msg
-    return "%s...[%d char non riportati]" % (msg[:cap], len(msg) - cap)
+    italian = str(render_payload(msg, language="it"))
+    english = str(render_payload(msg, language="en"))
+    def shorten(value, template):
+        return value if len(value) <= cap else template % (value[:cap], len(value) - cap)
+    return message(shorten(italian, "%s...[%d char non riportati]"),
+                   shorten(english, "%s...[%d characters omitted]"))
+
+
+class _DetectorOutcome(str):
+    """Canonical status stays stable for coverage; display follows language."""
+    def __new__(cls, code, reason=None):
+        prefixes = {"queried": ("interrogato", "queried"), "muted": ("MUTO", "MUTED"),
+                    "not_applicable": ("NON APPLICABILE", "NOT APPLICABLE")}
+        it, en = prefixes[code]
+        display = message(it + ": {reason}", en + ": {reason}", reason=reason) if reason is not None else message(it, en)
+        result = str.__new__(cls, str(render_payload(display, language="it")))
+        result.display = display
+        return result
+
+
+def _failure(error):
+    return _DetectorOutcome("muted", _motivo_corto(message("{kind}: {reason}", "{kind}: {reason}",
+                            kind=type(error).__name__, reason=error_text(error))))
+
+
+def _detector_failures(failures):
+    labels = {"vol risk premium": ("vol risk premium", "vol risk premium"),
+              "dealer gamma": ("dealer gamma", "dealer gamma"),
+              "z-score di prezzo": ("z-score di prezzo", "price z-score"),
+              "cluster del Congresso": ("cluster del Congresso", "Congress cluster"),
+              "scansione": ("scansione", "scan")}
+    return join_messages("; ", [message("{name} {reason}", "{name} {reason}",
+        name=message(*labels[key]) if key in labels else key,
+        reason=getattr(value, "display", value)) for key, value in failures.items()])
 
 
 def _sig(ticker, category, name, value, context, direction, strength, reading, source):
@@ -78,6 +110,7 @@ def _sig(ticker, category, name, value, context, direction, strength, reading, s
 # SEGNALI INDIVIDUALI (ognuno -> lista di dict, [] se non applicabile)
 # ============================================================
 
+@scoped_language
 def sig_vol_risk_premium(ticker: str, esiti=None) -> List[Dict[str, Any]]:
     """IV vs realized vol + percentile 1y. Vol cara = vendi premio; a sconto = compra hedge.
 
@@ -95,9 +128,9 @@ def sig_vol_risk_premium(ticker: str, esiti=None) -> List[Dict[str, Any]]:
         from bellomberg.portfolio.vol_surface import build_vol_surface
         vs = build_vol_surface(ticker, max_expiries=6)
         if vs.get("error"):
-            _dico("MUTO: %s" % _motivo_corto(vs["error"]))
+            _dico(_DetectorOutcome("muted", _motivo_corto(vs["error"])))
             return []
-        _dico("interrogato")
+        _dico(_DetectorOutcome("queried"))
         out = []
         ivrv = vs.get("iv_rv_spread_front")
         rvp = vs.get("rv_percentile_1y")
@@ -106,38 +139,40 @@ def sig_vol_risk_premium(ticker: str, esiti=None) -> List[Dict[str, Any]]:
         if ivrv is not None:
             sp = ivrv * 100
             if sp > 3:
-                out.append(_sig(ticker, "volatility", "Vol Risk Premium", f"{sp:+.1f}pt",
-                    "IV front > realized 30g", "bearish", min(100, 40 + sp * 4),
-                    f"Le opzioni di {ticker} sono CARE: IV {sp:.1f} punti sopra la realizzata. "
-                    f"Contesto da vendita di premio coperta (covered call), non da acquisto di protezione.",
+                out.append(_sig(ticker, "volatility", message("Premio volatilità", "Vol Risk Premium"), f"{sp:+.1f}pt",
+                    message("IV front > realized 30g", "front IV > 30d realized"), "bearish", min(100, 40 + sp * 4),
+                    message("Le opzioni di {ticker} sono CARE: IV {spread:.1f} punti sopra la realizzata. Contesto da vendita di premio coperta (covered call), non da acquisto di protezione.",
+                            "Options on {ticker} are EXPENSIVE: IV is {spread:.1f} points above realized volatility. Context for covered premium selling (covered call), not buying protection.", ticker=ticker, spread=sp),
                     "vol_surface IV-RV"))
             elif sp < -3:
-                out.append(_sig(ticker, "volatility", "Vol Risk Premium", f"{sp:+.1f}pt",
-                    "IV front < realized 30g", "caution", min(100, 40 + abs(sp) * 4),
-                    f"Le opzioni di {ticker} sono A SCONTO: IV {abs(sp):.1f} punti sotto la realizzata. "
-                    f"L'hedge in put costa poco; vendere premio qui e' mal pagato.",
+                out.append(_sig(ticker, "volatility", message("Premio volatilità", "Vol Risk Premium"), f"{sp:+.1f}pt",
+                    message("IV front < realized 30g", "front IV < 30d realized"), "caution", min(100, 40 + abs(sp) * 4),
+                    message("Le opzioni di {ticker} sono A SCONTO: IV {spread:.1f} punti sotto la realizzata. L'hedge in put costa poco; vendere premio qui e' mal pagato.",
+                            "Options on {ticker} are DISCOUNTED: IV is {spread:.1f} points below realized volatility. Put hedges are inexpensive; premium selling is poorly rewarded here.", ticker=ticker, spread=abs(sp)),
                     "vol_surface IV-RV"))
         if rvp is not None and (rvp >= 80 or rvp <= 20):
             d = "caution" if rvp >= 80 else "neutral"
-            out.append(_sig(ticker, "volatility", "Realized Vol Regime", f"{rvp:.0f}° pct",
-                "percentile 1 anno", d, abs(rvp - 50) * 2,
-                f"La volatilita' realizzata di {ticker} e' al {rvp:.0f}° percentile dell'ultimo anno: "
-                f"{'regime compresso, possibile espansione' if rvp <= 20 else 'regime elevato, tende a rientrare (mean reversion)'}.",
+            regime = message("regime compresso, possibile espansione", "compressed regime, possible expansion") if rvp <= 20 else message("regime elevato, tende a rientrare (mean reversion)", "elevated regime, tends to revert (mean reversion)")
+            out.append(_sig(ticker, "volatility", message("Regime volatilità realizzata", "Realized Vol Regime"), message("{pct:.0f}° pct", "{pct:.0f}th pct", pct=rvp),
+                message("percentile 1 anno", "1-year percentile"), d, abs(rvp - 50) * 2,
+                message("La volatilita' realizzata di {ticker} e' al {pct:.0f}° percentile dell'ultimo anno: {regime}.",
+                        "Realized volatility on {ticker} is at percentile {pct:.0f} over the last year: {regime}.", ticker=ticker, pct=rvp, regime=regime),
                 "vol_surface RV percentile"))
         # Expected Move: CONTESTO informativo, non segnale azionabile -> forza contenuta
         # (sotto i segnali veri come vol risk premium / z-score). Solo se molto ampio.
         if em is not None and em > 12:
-            out.append(_sig(ticker, "volatility", "Expected Move", f"±{em:.1f}%",
-                f"entro {emd}g (1σ)", "caution", int(min(60, 22 + em)),
-                f"Il mercato opzioni prezza per {ticker} un movimento ampio: ±{em:.1f}% entro {emd} giorni. "
-                f"Contesto da tenere a mente nel sizing, evento atteso.",
+            out.append(_sig(ticker, "volatility", message("Movimento atteso", "Expected Move"), f"±{em:.1f}%",
+                message("entro {days}g (1σ)", "within {days}d (1σ)", days=emd), "caution", int(min(60, 22 + em)),
+                message("Il mercato opzioni prezza per {ticker} un movimento ampio: ±{move:.1f}% entro {days} giorni. Contesto da tenere a mente nel sizing, evento atteso.",
+                        "Options price a large move for {ticker}: ±{move:.1f}% within {days} days. Context for sizing around an expected event.", ticker=ticker, move=em, days=emd),
                 "vol_surface expected move"))
         return out
     except Exception as e:
-        _dico("MUTO: %s" % _motivo_corto("%s: %s" % (type(e).__name__, e)))
+        _dico(_failure(e))
         return []
 
 
+@scoped_language
 def sig_dealer_gamma(ticker: str, esiti=None) -> List[Dict[str, Any]]:
     """GEX dealer + gamma flip. Sotto il flip = momentum/amplificazione."""
     def _dico(v):
@@ -147,45 +182,46 @@ def sig_dealer_gamma(ticker: str, esiti=None) -> List[Dict[str, Any]]:
         from bellomberg.portfolio.positioning_tools import compute_gex
         g = compute_gex(ticker)
         if g.get("error"):
-            _dico("MUTO: %s" % _motivo_corto(g["error"]))
+            _dico(_DetectorOutcome("muted", _motivo_corto(g["error"])))
             return []
-        _dico("interrogato")
+        _dico(_DetectorOutcome("queried"))
         flip = g.get("gamma_flip_strike")
         spot = g.get("spot_est")
         net = g.get("net_gex_usd_per_1pct")
         if flip is None or spot is None:
             return []
         below = spot < flip
-        return [_sig(ticker, "positioning", "Dealer Gamma (GEX)",
+        return [_sig(ticker, "positioning", message("Gamma dealer (GEX)", "Dealer Gamma (GEX)"),
             f"flip {flip}, spot {spot}",
             f"net GEX {net/1e9:+.2f}B$/1%" if net else "",
             "caution" if below else "neutral", 70 if below else 35,
-            (f"{ticker} tratta SOTTO il gamma flip ({flip}): i dealer amplificano i movimenti, "
-             f"regime momentum/instabile, attenzione alle accelerazioni." if below else
-             f"{ticker} sopra il gamma flip ({flip}): dealer comprano i dip e vendono i rally, "
-             f"mercato compresso/mean-reverting."),
+            (message("{ticker} tratta SOTTO il gamma flip ({flip}): i dealer amplificano i movimenti, regime momentum/instabile, attenzione alle accelerazioni.",
+                     "{ticker} trades BELOW the gamma flip ({flip}): dealers amplify moves, an unstable momentum regime; watch for acceleration.", ticker=ticker, flip=flip) if below else
+             message("{ticker} sopra il gamma flip ({flip}): dealer comprano i dip e vendono i rally, mercato compresso/mean-reverting.",
+                     "{ticker} is above the gamma flip ({flip}): dealers buy dips and sell rallies, a compressed, mean-reverting market.", ticker=ticker, flip=flip)),
             "positioning_tools GEX")]
     except Exception as e:
-        _dico("MUTO: %s" % _motivo_corto("%s: %s" % (type(e).__name__, e)))
+        _dico(_failure(e))
         return []
 
 
+@scoped_language
 def sig_price_zscore(ticker: str, esiti=None) -> List[Dict[str, Any]]:
     """Z-score del prezzo vs media mobile 20/60g: mean-reversion / momentum estremo."""
     def _dico(v):
         if esiti is not None:
             esiti["z-score di prezzo"] = v
     if not NP_OK:
-        _dico("MUTO: numpy non importabile")
+        _dico(_DetectorOutcome("muted", message("numpy non importabile", "numpy cannot be imported")))
         return []
     try:
         import yfinance as yf
         from bellomberg.cli.price_updater import data_ticker as _dt
         h = yf.Ticker(_dt(ticker)).history(period="6mo")["Close"].dropna()
         if len(h) < 60:
-            _dico("MUTO: storico insufficiente (%d giorni su 60 richiesti)" % len(h))
+            _dico(_DetectorOutcome("muted", message("storico insufficiente ({days} giorni su 60 richiesti)", "insufficient history ({days} days out of 60 required)", days=len(h))))
             return []
-        _dico("interrogato")
+        _dico(_DetectorOutcome("queried"))
         px = float(h.iloc[-1])
         ma20, sd20 = float(h.tail(20).mean()), float(h.tail(20).std())
         z = (px - ma20) / sd20 if sd20 > 0 else 0.0
@@ -193,16 +229,18 @@ def sig_price_zscore(ticker: str, esiti=None) -> List[Dict[str, Any]]:
         if abs(z) < 1.5:
             return []
         direction = "bearish" if z > 0 else "bullish"  # estensione -> mean reversion
-        return [_sig(ticker, "momentum", "Price Z-Score (20g)", f"{z:+.1f}σ",
-            f"{ret20:+.1f}% in 20g", direction, min(100, abs(z) * 30),
-            f"{ticker} e' {abs(z):.1f} deviazioni standard {'sopra' if z>0 else 'sotto'} la media a 20 giorni "
-            f"({ret20:+.1f}% nel periodo): statisticamente esteso, rischio di rientro verso la media.",
+        side = message("sopra", "above") if z > 0 else message("sotto", "below")
+        return [_sig(ticker, "momentum", message("Z-score prezzo (20g)", "Price Z-Score (20d)"), f"{z:+.1f}σ",
+            message("{ret:+.1f}% in 20g", "{ret:+.1f}% in 20d", ret=ret20), direction, min(100, abs(z) * 30),
+            message("{ticker} e' {z:.1f} deviazioni standard {side} la media a 20 giorni ({ret:+.1f}% nel periodo): statisticamente esteso, rischio di rientro verso la media.",
+                    "{ticker} is {z:.1f} standard deviations {side} the 20-day average ({ret:+.1f}% over the period): statistically extended, with a risk of reverting to the mean.", ticker=ticker, z=abs(z), side=side, ret=ret20),
             "yfinance z-score")]
     except Exception as e:
-        _dico("MUTO: %s" % _motivo_corto("%s: %s" % (type(e).__name__, e)))
+        _dico(_failure(e))
         return []
 
 
+@scoped_language
 def sig_insider_congress(ticker: str, esiti=None) -> List[Dict[str, Any]]:
     """Cluster di acquisti del Congresso USA (Quiver) sul ticker."""
     def _dico(v):
@@ -211,13 +249,13 @@ def sig_insider_congress(ticker: str, esiti=None) -> List[Dict[str, Any]]:
     try:
         from bellomberg.market_data.quiver_data import quiver_available, get_congress_trades
         if not quiver_available():
-            _dico("MUTO: Quiver non disponibile (chiave assente o non attiva)")
+            _dico(_DetectorOutcome("muted", message("Quiver non disponibile (chiave assente o non attiva)", "Quiver unavailable (key missing or inactive)")))
             return []
         r = get_congress_trades(ticker, limit=25)
         if r.get("error"):
-            _dico("MUTO: %s" % _motivo_corto(r["error"]))
+            _dico(_DetectorOutcome("muted", _motivo_corto(r["error"])))
             return []
-        _dico("interrogato")
+        _dico(_DetectorOutcome("queried"))
         if not r.get("trades"):
             return []
         trades = r["trades"]
@@ -226,23 +264,24 @@ def sig_insider_congress(ticker: str, esiti=None) -> List[Dict[str, Any]]:
         sells = [t for t in trades if "sale" in str(t.get("Transaction", "")).lower()]
         if len(buys) >= 2 and len(buys) > len(sells):
             names = ", ".join(sorted({str(t.get("Representative", "?")) for t in buys})[:4])
-            return [_sig(ticker, "insider", "Congress Cluster Buy", f"{len(buys)} acquisti",
-                f"vs {len(sells)} vendite", "bullish", min(100, 40 + len(buys) * 12),
-                f"Cluster di acquisti da parte di {len(buys)} membri del Congresso USA su {ticker} "
-                f"({names}): segnale di smart-money dichiarato, storicamente predittivo.",
+            return [_sig(ticker, "insider", message("Acquisti concentrati del Congresso", "Congress Cluster Buy"), message("{n} acquisti", "{n} purchases", n=len(buys)),
+                message("vs {n} vendite", "vs {n} sales", n=len(sells)), "bullish", min(100, 40 + len(buys) * 12),
+                message("Cluster di acquisti da parte di {n} membri del Congresso USA su {ticker} ({names}): segnale di smart-money dichiarato, storicamente predittivo.",
+                        "Cluster of purchases by {n} US Congress members in {ticker} ({names}): a disclosed smart-money signal, historically predictive.", n=len(buys), ticker=ticker, names=names),
                 "quiver congress trading")]
         if len(sells) >= 3 and len(sells) > len(buys) * 2:
-            return [_sig(ticker, "insider", "Congress Cluster Sell", f"{len(sells)} vendite",
-                f"vs {len(buys)} acquisti", "bearish", min(100, 30 + len(sells) * 8),
-                f"Cluster di vendite da parte di {len(sells)} membri del Congresso su {ticker}: "
-                f"possibile de-risking degli insider politici.",
+            return [_sig(ticker, "insider", message("Vendite concentrate del Congresso", "Congress Cluster Sell"), message("{n} vendite", "{n} sales", n=len(sells)),
+                message("vs {n} acquisti", "vs {n} purchases", n=len(buys)), "bearish", min(100, 30 + len(sells) * 8),
+                message("Cluster di vendite da parte di {n} membri del Congresso su {ticker}: possibile de-risking degli insider politici.",
+                        "Cluster of sales by {n} Congress members in {ticker}: possible de-risking by political insiders.", n=len(sells), ticker=ticker),
                 "quiver congress trading")]
         return []
     except Exception as e:
-        _dico("MUTO: %s" % _motivo_corto("%s: %s" % (type(e).__name__, e)))
+        _dico(_failure(e))
         return []
 
 
+@scoped_language
 def sig_factor_flags(per_holding: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Esposizioni fattoriali estreme dal risultato Fama-French (gia' calcolato).
 
@@ -260,17 +299,18 @@ def sig_factor_flags(per_holding: Dict[str, Any]) -> List[Dict[str, Any]]:
             beta = h.get("beta_market")
             alpha_t = h.get("alpha_tstat")
             if beta is not None and beta > 1.4:
-                out.append(_sig(tk, "factor", "High Market Beta", f"β {beta:.2f}",
-                    "Fama-French regionale", "caution", min(100, (beta - 1) * 60),
-                    f"{tk} ha beta di mercato {beta:.2f}: amplifica i movimenti dell'indice, "
-                    f"esposizione direzionale elevata da considerare nel sizing.",
+                out.append(_sig(tk, "factor", message("Beta di mercato elevato", "High Market Beta"), f"β {beta:.2f}",
+                    message("Fama-French regionale", "regional Fama-French"), "caution", min(100, (beta - 1) * 60),
+                    message("{ticker} ha beta di mercato {beta:.2f}: amplifica i movimenti dell'indice, esposizione direzionale elevata da considerare nel sizing.",
+                            "{ticker} has market beta {beta:.2f}: it amplifies index moves, a high directional exposure to consider in sizing.", ticker=tk, beta=beta),
                     "portfolio_factors"))
             if alpha_t is not None and abs(alpha_t) >= 2.0:
                 d = "bullish" if alpha_t > 0 else "bearish"
-                out.append(_sig(tk, "factor", "Significant Alpha", f"t {alpha_t:+.1f}",
-                    "alpha statisticamente significativo", d, min(100, abs(alpha_t) * 30),
-                    f"{tk} mostra alpha {'positivo' if alpha_t>0 else 'negativo'} statisticamente "
-                    f"significativo (t={alpha_t:+.1f}): rendimento non spiegato dai fattori, raro e degno di nota.",
+                sign = message("positivo", "positive") if alpha_t > 0 else message("negativo", "negative")
+                out.append(_sig(tk, "factor", message("Alpha significativo", "Significant Alpha"), f"t {alpha_t:+.1f}",
+                    message("alpha statisticamente significativo", "statistically significant alpha"), d, min(100, abs(alpha_t) * 30),
+                    message("{ticker} mostra alpha {sign} statisticamente significativo (t={stat:+.1f}): rendimento non spiegato dai fattori, raro e degno di nota.",
+                            "{ticker} shows statistically significant {sign} alpha (t={stat:+.1f}): returns unexplained by factors, rare and noteworthy.", ticker=tk, sign=sign, stat=alpha_t),
                     "portfolio_factors"))
     except Exception:
         pass
@@ -281,6 +321,7 @@ def sig_factor_flags(per_holding: Dict[str, Any]) -> List[Dict[str, Any]]:
 # AGGREGATORI
 # ============================================================
 
+@scoped_language
 def scan_ticker(ticker: str, include_congress: bool = True, esiti=None) -> List[Dict[str, Any]]:
     """Tutti i segnali per un singolo ticker, ordinati per forza.
 
@@ -296,10 +337,9 @@ def scan_ticker(ticker: str, include_congress: bool = True, esiti=None) -> List[
     if include_congress and "." not in ticker:
         sigs += sig_insider_congress(ticker, esiti=esiti)
     elif esiti is not None:
-        esiti["cluster del Congresso"] = (
-            "NON APPLICABILE: i trade del Congresso USA non coprono un ticker "
-            "col punto nel simbolo" if "." in ticker
-            else "NON APPLICABILE: escluso dal chiamante")
+        esiti["cluster del Congresso"] = _DetectorOutcome("not_applicable",
+            message("i trade del Congresso USA non coprono un ticker col punto nel simbolo", "US Congress trades do not cover a ticker containing a dot") if "." in ticker
+            else message("escluso dal chiamante", "excluded by the caller"))
     sigs.sort(key=lambda s: -s["strength"])
     return sigs
 
@@ -354,12 +394,12 @@ def _ttl_della_scansione(grezzo: Dict[str, Any]):
         return SCAN_CACHE_TTL_SEC, None
     pezzi = []
     if muti:
-        pezzi.append("%d nomi con rilevatori muti o senza misura" % muti)
+        pezzi.append(message("{n} nomi con rilevatori muti o senza misura", "{n} names with muted detectors or no measurement", n=muti))
     if ko:
-        pezzi.append("fattoriali KO")
-    return SCAN_CACHE_TTL_DEGRADATA_SEC, (
-        "scansione DEGRADATA (%s): TTL corto, si riprova allo scadere"
-        % "; ".join(pezzi))
+        pezzi.append(message("fattoriali KO", "factor signals KO"))
+    return SCAN_CACHE_TTL_DEGRADATA_SEC, message(
+        "scansione DEGRADATA ({reasons}): TTL corto, si riprova allo scadere",
+        "DEGRADED scan ({reasons}): short TTL, retry after expiry", reasons=join_messages("; ", pezzi))
 
 
 def clear_scan_cache():
@@ -368,6 +408,7 @@ def clear_scan_cache():
         _SCAN_CACHE.clear()
 
 
+@scoped_language
 def scan_portfolio(max_tickers=None, min_strength: int = 45,
                    force: bool = False) -> Dict[str, Any]:
     """Edge Scanner: scansiona portfolio + factor flags, ritorna segnali RANKED.
@@ -391,15 +432,15 @@ def scan_portfolio(max_tickers=None, min_strength: int = 45,
         snap = db.get_portfolio_summary()
         positions = snap.get("positions", [])
     except Exception as e:
-        return {"error": f"portfolio fetch: {e}", "_timestamp": datetime.now().isoformat()}
+        return {"error": message("lettura portafoglio: {reason}", "portfolio fetch: {reason}", reason=error_text(e)), "_timestamp": datetime.now().isoformat()}
 
     tutti = [p["ticker"] for p in positions]
     if not tutti:
         # CLAUDE.md, LEZIONI: «il backend ricrea un DB vuoto se non trova quello
         # vero: un DB "0 posizioni" = path sbagliato, non dati persi». Uno zero
         # da qui NON e' una misura, ed e' l'unico modo di non farlo sembrare tale.
-        return {"error": "nessuna posizione nel libro: il portafoglio e' vuoto o "
-                         "illeggibile, non e' uno zero misurato",
+        return {"error": message("nessuna posizione nel libro: il portafoglio e' vuoto o illeggibile, non e' uno zero misurato",
+                                 "no positions in the book: the portfolio is empty or unreadable, not a measured zero"),
                 "_timestamp": datetime.now().isoformat()}
 
     if max_tickers is None:
@@ -448,10 +489,9 @@ def scan_portfolio(max_tickers=None, min_strength: int = 45,
         grezzo = _scansione_grezza(tickers, tutti)
         cache_info = {"attiva": False,
                       "servita_da_cache": False,
-                      "motivo": "max_tickers esplicito: scansione diretta, "
-                                "fuori cache"}
+                      "motivo": message("max_tickers esplicito: scansione diretta, fuori cache", "explicit max_tickers: direct scan, cache bypassed")}
 
-    return _componi_payload(grezzo, tutti, min_strength, cache_info)
+    return render_payload(_componi_payload(grezzo, tutti, min_strength, cache_info))
 
 
 def _scansione_grezza(tickers: List[str], tutti: List[str]) -> Dict[str, Any]:
@@ -481,15 +521,13 @@ def _scansione_grezza(tickers: List[str], tutti: List[str]) -> Dict[str, Any]:
                 # prezzo: niente catene OPRA, niente trade del Congresso.
                 all_sigs += sig_price_zscore(tk, esiti=esiti)
         except Exception as e:
-            esiti.setdefault("scansione", "MUTO: %s"
-                             % _motivo_corto("%s: %s" % (type(e).__name__, e)))
+            esiti.setdefault("scansione", _failure(e))
         risposti = [k for k, v in esiti.items() if v == "interrogato"]
         muti = {k: v for k, v in esiti.items() if str(v).startswith("MUTO")}
         if not risposti:
-            nessuna_misura[tk] = "; ".join("%s %s" % (k, v) for k, v in muti.items()) \
-                or "nessun rilevatore ha risposto"
+            nessuna_misura[tk] = _detector_failures(muti) or message("nessun rilevatore ha risposto", "no detector responded")
         elif muti:
-            degradata[tk] = "; ".join("%s %s" % (k, v) for k, v in muti.items())
+            degradata[tk] = _detector_failures(muti)
         elif tk in US_OPTIONS or "." not in tk:
             piena.append(tk)
         else:
@@ -515,7 +553,7 @@ def _scansione_grezza(tickers: List[str], tutti: List[str]) -> Dict[str, Any]:
             fattoriali_su = len(per_holding)
             all_sigs += sig_factor_flags(per_holding)
     except Exception as e:
-        fattoriali_ko = _motivo_corto("%s: %s" % (type(e).__name__, e))
+        fattoriali_ko = _motivo_corto(message("{kind}: {reason}", "{kind}: {reason}", kind=type(e).__name__, reason=error_text(e)))
 
     return {
         "generated": datetime.now().isoformat(),
@@ -555,35 +593,34 @@ def _componi_payload(grezzo: Dict[str, Any], tutti: List[str],
 
     n_scan = len(piena) + len(degradata) + len(solo_prezzo) + len(nessuna_misura)
     n_tot = len(tutti)
-    pezzi = ["Scansionate %d posizioni su %d." % (n_scan, n_tot)]
+    pezzi = [message("Scansionate {n} posizioni su {total}.", "Scanned {n} positions out of {total}.", n=n_scan, total=n_tot)]
     if piena:
-        pezzi.append("Copertura PIENA (ogni rilevatore applicabile ha risposto) su "
-                     "%d nomi: %s." % (len(piena), ", ".join(piena)))
+        pezzi.append(message("Copertura PIENA (ogni rilevatore applicabile ha risposto) su {n} nomi: {names}.",
+                             "FULL coverage (every applicable detector responded) for {n} names: {names}.", n=len(piena), names=", ".join(piena)))
     if solo_prezzo:
-        pezzi.append(
-            "Su %d nomi l'unico rilevatore PER-TICKER applicabile e' lo z-score di "
-            "prezzo (%s): hanno un punto nel simbolo, cioe' non sono quotati negli "
+        pezzi.append(message(
+            "Su {n} nomi l'unico rilevatore PER-TICKER applicabile e' lo z-score di "
+            "prezzo ({names}): hanno un punto nel simbolo, cioe' non sono quotati negli "
             "USA, e li' le catene OPRA e i trade del Congresso non esistono — la loro "
             "assenza di segnali di volatilita' NON e' una misura, e' una copertura che "
-            "manca. Le esposizioni fattoriali li coprono comunque, dall'altra strada."
-            % (len(solo_prezzo), ", ".join(solo_prezzo)))
+            "manca. Le esposizioni fattoriali li coprono comunque, dall'altra strada.",
+            "For {n} names the only applicable PER-TICKER detector is the price z-score ({names}): their symbols contain a dot, indicating a non-US listing without OPRA chains or Congress trades. Their lack of volatility signals is NOT a measurement: coverage is missing. Factor exposures still cover them through a separate path.",
+            n=len(solo_prezzo), names=", ".join(solo_prezzo)))
     if degradata:
-        pezzi.append("COPERTURA DEGRADATA su %d nomi (un rilevatore non ha risposto): "
-                     "%s." % (len(degradata),
-                              "; ".join("%s [%s]" % (k, v) for k, v in degradata.items())))
+        pezzi.append(message("COPERTURA DEGRADATA su {n} nomi (un rilevatore non ha risposto): {reasons}.",
+                             "DEGRADED COVERAGE for {n} names (a detector did not respond): {reasons}.", n=len(degradata),
+                             reasons=join_messages("; ", [message("{ticker} [{reason}]", "{ticker} [{reason}]", ticker=k, reason=v) for k, v in degradata.items()])))
     if nessuna_misura:
-        pezzi.append("NESSUNA misura su %d nomi: %s."
-                     % (len(nessuna_misura),
-                        "; ".join("%s [%s]" % (k, v) for k, v in nessuna_misura.items())))
+        pezzi.append(message("NESSUNA misura su {n} nomi: {reasons}.", "NO measurement for {n} names: {reasons}.", n=len(nessuna_misura),
+                             reasons=join_messages("; ", [message("{ticker} [{reason}]", "{ticker} [{reason}]", ticker=k, reason=v) for k, v in nessuna_misura.items()])))
     if non_scansionate:
-        pezzi.append("NON scansionate (%d): %s."
-                     % (len(non_scansionate), ", ".join(non_scansionate)))
+        pezzi.append(message("NON scansionate ({n}): {names}.", "NOT scanned ({n}): {names}.", n=len(non_scansionate), names=", ".join(non_scansionate)))
     if fattoriali_su is not None:
-        pezzi.append("Segnali fattoriali: strada separata dai rilevatori per-ticker, "
-                     "%d nomi." % fattoriali_su)
+        pezzi.append(message("Segnali fattoriali: strada separata dai rilevatori per-ticker, {n} nomi.",
+                             "Factor signals: separate path from per-ticker detectors, {n} names.", n=fattoriali_su))
     elif fattoriali_ko:
-        pezzi.append("Segnali fattoriali NON calcolati (%s): quel pezzo di copertura "
-                     "manca." % fattoriali_ko)
+        pezzi.append(message("Segnali fattoriali NON calcolati ({reason}): quel pezzo di copertura manca.",
+                             "Factor signals NOT calculated ({reason}): this coverage is missing.", reason=fattoriali_ko))
     if cache_info.get("servita_da_cache"):
         # La frase arriva sia a F13 (copertura.nota) sia al prompt del Capo
         # (COPERTURA DELLA SCANSIONE). Dice il FATTO, vero in ogni stato in cui
@@ -594,10 +631,9 @@ def _componi_payload(grezzo: Dict[str, Any], tutti: List[str],
         # frase direbbe «0 secondi fa» proprio nello stato anomalo. Meglio un
         # KeyError rumoroso. «Conclusa», non «eseguita»: l'eta' conta dalla
         # FINE della scansione (i dati sotto possono avere fino a ~6' in piu').
-        pezzi.append("Risposta servita dalla cache in-process: scansione "
-                     "conclusa %d secondi fa (TTL %d s), i rilevatori non "
-                     "sono stati re-interrogati per questa risposta."
-                     % (cache_info["eta_s"], cache_info["ttl_s"]))
+        pezzi.append(message("Risposta servita dalla cache in-process: scansione conclusa {age} secondi fa (TTL {ttl} s), i rilevatori non sono stati re-interrogati per questa risposta.",
+                             "Response served from the in-process cache: scan completed {age} seconds ago (TTL {ttl} s); detectors were not queried again for this response.",
+                             age=cache_info["eta_s"], ttl=cache_info["ttl_s"]))
 
     return {
         "generated": grezzo["generated"],
@@ -618,24 +654,25 @@ def _componi_payload(grezzo: Dict[str, Any], tutti: List[str],
             # che i tool ce l'hanno. NON va iniettato nel prompt del Capo, che in
             # una run non ha tool (lezione del 21/08 sul red team e
             # `ask_specialist`, ripetuta il 22/08 e fermata dalla review).
-            "recupero": (
+            "recupero": (message(
                 "get_position_doctor(ticker) rifa' i rilevatori su un singolo nome. "
                 "⚠️ Con lo STESSO limite: su un ticker col punto il cluster del "
                 "Congresso resta escluso e le catene OPRA non esistono, quindi su "
                 "quei nomi torna lo stesso z-score che vedi qui — non una misura in "
-                "piu'." if non_scansionate or degradata or nessuna_misura else ""),
-            "nota": " ".join(pezzi),
+                "piu'.", "get_position_doctor(ticker) reruns the detectors for one name. ⚠️ The SAME limit applies: for symbols containing a dot, Congress clusters remain excluded and OPRA chains do not exist, so those names return the same price z-score shown here, not an additional measurement.") if non_scansionate or degradata or nessuna_misura else ""),
+            "nota": join_messages(" ", pezzi),
         },
         # PRIMA di `signals`: il taglio cieco del tool_result cade in coda, e
         # una dichiarazione che non sopravvive al taglio non dichiara niente.
         "cache": cache_info,
         "signals": strong,
         "_source": "signal_engine.scan_portfolio",
-        "_note": "Segnali oggettivi RANKED per forza. L'agente li interpreta e traduce in azione, "
-                 "non li inventa. Validazione formale: backtest #148.",
+        "_note": message("Segnali oggettivi RANKED per forza. L'agente li interpreta e traduce in azione, non li inventa. Validazione formale: backtest #148.",
+                         "Objective signals RANKED by strength. The agent interprets them and translates them into actions rather than inventing them. Formal validation: backtest #148."),
     }
 
 
+@scoped_language
 def position_doctor(ticker: str) -> Dict[str, Any]:
     """Position Doctor: diagnosi completa di UNA posizione con verdetto numerico."""
     sigs = scan_ticker(ticker)
@@ -649,9 +686,9 @@ def position_doctor(ticker: str) -> Dict[str, Any]:
             score -= w
         elif s["direction"] == "caution":
             score -= w * 0.5
-    verdict = ("ADD/HOLD — segnali costruttivi" if score > 0.6 else
-               "TRIM/HEDGE — segnali di cautela prevalenti" if score < -0.6 else
-               "HOLD — segnali misti, nessun edge netto")
+    verdict = (message("ADD/HOLD — segnali costruttivi", "ADD/HOLD — constructive signals") if score > 0.6 else
+               message("TRIM/HEDGE — segnali di cautela prevalenti", "TRIM/HEDGE — caution signals dominate") if score < -0.6 else
+               message("HOLD — segnali misti, nessun edge netto", "HOLD — mixed signals, no clear edge"))
     return {
         "ticker": ticker.upper(),
         "net_score": round(score, 2),
@@ -659,7 +696,8 @@ def position_doctor(ticker: str) -> Dict[str, Any]:
         # dottrina bilaterale PM 16/07: il verdetto rule-based su segnali correnti e' un
         # INPUT per l'analista, non un ordine — su un titolo in drawdown va pesato coi
         # forward (fair value, livelli, tesi PM) prima di tradurlo in azione.
-        "verdict_nota": "verdetto rule-based dai segnali correnti: input da argomentare, non ordine",
+        "verdict_nota": message("verdetto rule-based dai segnali correnti: input da argomentare, non ordine",
+                                "rule-based verdict from current signals: input requiring a rationale, not an order"),
         "n_signals": len(sigs),
         "signals": sigs,
         "_source": "signal_engine.position_doctor",

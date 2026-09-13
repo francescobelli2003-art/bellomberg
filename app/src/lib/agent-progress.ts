@@ -1,4 +1,7 @@
-import { API_BASE, clearSessionAndReload, getSessionToken } from './api';
+import { t as tr } from '../i18n/t.js';
+import { linguaCorrente, localeDi } from '../i18n/lingua.js';
+import { leggiDetail } from './quota';
+import { API_BASE, clearSessionAndReload, requestHeaders } from './api';
 
 export interface ProgressDelta { available: boolean; hit_rate_pp: number | null; reason: string }
 export interface ProgressPoint {
@@ -14,12 +17,22 @@ export interface ProgressPoint {
 export interface ProgressAgent {
   id: string; label: string; role: string; attribution: 'collective' | 'heuristic' | 'unsupported';
   latest: ProgressPoint | null; series: ProgressPoint[]; delta: ProgressDelta;
+  current?: ProgressPoint | null;
 }
 export interface ProgressRun {
   run_id: string; memo_id: number; started_at: string; completed_at: string; captured_at: string;
   score_error: string | null;
+  output_language?: 'it' | 'en' | null;
+  review_status?: 'duplicate' | 'unmarked' | 'unavailable'; review_note?: string | null;
+  scorecard?: { degraded?: boolean; by_action?: Record<string, ProgressAggregate>; by_confidence?: Record<string, ProgressAggregate>;
+    by_confidence_scartate?: { n?: number; etichette?: Record<string, number>; motivo?: string };
+    details?: ProgressCall[]; worst_calls?: ProgressCall[]; best_calls?: ProgressCall[] } | null;
   reflection: { text: string | null; status: string; kind: string; implementation_verified: boolean; performance_proven: boolean };
 }
+export interface ProgressAggregate { n?: number; hits?: number; hit_rate_pct?: number; avg_edge_pct?: number; small_sample?: boolean }
+export interface ProgressCall { id?: number; ticker?: string; action?: string; date?: string; confidence?: string;
+  confidence_bucket?: string; direction?: string; edge_pct?: number | null; hit?: boolean | null;
+  horizon_used?: string; ret_1w_pct?: number | null; ret_4w_pct?: number | null; specialists?: string[]; status?: string }
 export interface AgentProgress {
   source: string; paid_analysis: false;
   history: { state: string; count: number; available: boolean; first_captured_at: string | null; note: string };
@@ -30,27 +43,27 @@ export interface AgentProgress {
 }
 
 export async function getAgentProgress(signal?: AbortSignal): Promise<AgentProgress> {
-  const token = getSessionToken();
+  const headers = requestHeaders();
   const response = await fetch(`${API_BASE}/agents/progress?limit=100`, {
-    signal, headers: token ? { 'X-BB-Token': token } : {},
+    signal, headers,
   });
   if (response.status === 401 || response.status === 403) clearSessionAndReload();
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    throw new Error(typeof body?.detail === 'string' ? body.detail : `Lettura progressi non disponibile (${response.status})`);
+    throw new Error(leggiDetail(body?.detail) || `HTTP ${response.status}`);
   }
   return response.json();
 }
 
 export const progressNumber = (value: number | null | undefined, digits = 1) =>
-  value == null || !Number.isFinite(value) ? 'n.d.' : new Intl.NumberFormat('it-IT', {
+  value == null || !Number.isFinite(value) ? tr('progress.na') : new Intl.NumberFormat(localeDi(linguaCorrente()), {
     minimumFractionDigits: digits, maximumFractionDigits: digits,
   }).format(value);
 export const progressPercent = (value: number | null | undefined) =>
-  value == null || !Number.isFinite(value) ? 'n.d.' : `${progressNumber(value)}%`;
-export const QUALITY_LABELS: Record<string, string> = {
-  ok: 'Misura disponibile', missing: 'Misura assente', empty: 'Campione vuoto',
-  invalid: 'Dati incoerenti', degraded: 'Misura fallita', partial: 'Copertura parziale',
-  small_sample: 'Campione piccolo', stale: 'Dato non fresco alla rilevazione', time_unknown: 'Data non verificabile',
-  quality_unknown: 'Copertura non verificabile', cohort_unverified: 'Coorte non verificabile',
-};
+  value == null || !Number.isFinite(value) ? tr('progress.na') : `${progressNumber(value)}%`;
+export const qualityLabels = (): Record<string, string> => ({
+  ok: tr('progress.quality_ok'), missing: tr('progress.quality_missing'), empty: tr('progress.quality_empty'),
+  invalid: tr('progress.quality_invalid'), degraded: tr('progress.quality_degraded'), partial: tr('progress.quality_partial'),
+  small_sample: tr('progress.quality_small_sample'), stale: tr('progress.quality_stale'), time_unknown: tr('progress.quality_time_unknown'),
+  quality_unknown: tr('progress.quality_unknown'), cohort_unverified: tr('progress.quality_cohort_unverified'),
+});

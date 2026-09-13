@@ -3,6 +3,7 @@
 Nessuna inizializzazione al read, nessun indice semantico o ingresso nei prompt.
 JOURNAL_MIGRATION va registrata nel percorso versionato di MemoryDB.
 """
+from bellomberg.core.presentation import message as _ui_text
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import re
@@ -57,15 +58,15 @@ class JournalMissing(LookupError):
 class JournalConflict(Exception):
     def __init__(self, current_version):
         self.current_version = current_version
-        super().__init__("La nota è cambiata. La bozza non è stata salvata: confronta la versione corrente.")
+        super().__init__(_ui_text('La nota è cambiata. La bozza non è stata salvata: confronta la versione corrente.', 'The note has changed. Your draft was not saved: compare the current version.'))
 
 
 class JournalUnavailable(Exception):
     def __init__(self, code="journal_unavailable"):
         self.code = code
-        message = ("Diario non inizializzato: manca la migrazione del database."
+        message = (_ui_text('Diario non inizializzato: manca la migrazione del database.', 'Journal not initialized: the database migration is missing.')
                    if code == "journal_schema_missing" else
-                   "Diario non disponibile: lettura o scrittura del database non riuscita.")
+                   _ui_text('Diario non disponibile: lettura o scrittura del database non riuscita.', 'Journal unavailable: database read or write failed.'))
         super().__init__(message)
 
 
@@ -75,9 +76,9 @@ def _now():
 
 def _text(value, name, maximum, required=True):
     if not isinstance(value, str) or "\x00" in value:
-        raise JournalInvalid(f"{name}: testo non valido")
+        raise JournalInvalid(_ui_text('{name}: testo non valido', '{name}: invalid text', name=name))
     if len(value) > maximum or (required and not value.strip()):
-        raise JournalInvalid(f"{name}: inserisci da 1 a {maximum} caratteri")
+        raise JournalInvalid(_ui_text('{name}: inserisci da 1 a {maximum} caratteri', '{name}: enter 1 to {maximum} characters', name=name, maximum=maximum))
     return value
 
 
@@ -85,27 +86,27 @@ def _ticker(value):
     if value is None or value == "":
         return None
     if not isinstance(value, str):
-        raise JournalInvalid("Ticker non valido")
+        raise JournalInvalid(_ui_text('Ticker non valido', 'Invalid ticker'))
     value = value.strip().upper()
     if not _TICKER.fullmatch(value):
-        raise JournalInvalid("Ticker non valido: massimo 32 caratteri, senza spazi")
+        raise JournalInvalid(_ui_text('Ticker non valido: massimo 32 caratteri, senza spazi', 'Invalid ticker: up to 32 characters, without spaces'))
     return value
 
 
 def _content(kind, ticker, title, body):
     if kind not in ("thesis", "macro"):
-        raise JournalInvalid("Tipo nota non valido")
-    return kind, _ticker(ticker), _text(title, "Titolo", TITLE_LIMIT).strip(), _text(body, "Nota", BODY_LIMIT)
+        raise JournalInvalid(_ui_text('Tipo nota non valido', 'Invalid note type'))
+    return kind, _ticker(ticker), _text(title, _ui_text('Titolo', 'Title'), TITLE_LIMIT).strip(), _text(body, _ui_text('Nota', 'Note'), BODY_LIMIT)
 
 
 def _positive(value, name):
     if type(value) is not int or value < 1:
-        raise JournalInvalid(f"{name}: intero positivo richiesto")
+        raise JournalInvalid(_ui_text('{name}: intero positivo richiesto', '{name}: positive integer required', name=name))
 
 
 def _page(limit, offset):
     if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or offset < 0:
-        raise JournalInvalid("Paginazione non valida")
+        raise JournalInvalid(_ui_text('Paginazione non valida', 'Invalid pagination'))
 
 
 class JournalStore:
@@ -126,10 +127,10 @@ class JournalStore:
 
     @staticmethod
     def _get(conn, entry_id):
-        _positive(entry_id, "ID nota")
+        _positive(entry_id, _ui_text('ID nota', 'Note ID'))
         row = conn.execute(f"SELECT {_FIELDS} FROM journal_entries WHERE id=?", (entry_id,)).fetchone()
         if row is None:
-            raise JournalMissing("Nota non trovata")
+            raise JournalMissing(_ui_text('Nota non trovata', 'Note not found'))
         return dict(row)
 
     @staticmethod
@@ -157,7 +158,7 @@ class JournalStore:
             return entry
 
     def update(self, entry_id, *, expected_version, kind, ticker, title, body):
-        _positive(expected_version, "Versione attesa")
+        _positive(expected_version, _ui_text('Versione attesa', 'Expected version'))
         kind, ticker, title, body = _content(kind, ticker, title, body)
         with self._connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -165,7 +166,7 @@ class JournalStore:
             if current["version"] != expected_version:
                 raise JournalConflict(current["version"])
             if current["archived_at"]:
-                raise JournalInvalid("Ripristina la nota dall'archivio prima di modificarla")
+                raise JournalInvalid(_ui_text("Ripristina la nota dall'archivio prima di modificarla", 'Restore the archived note before editing it'))
             conn.execute("""UPDATE journal_entries SET kind=?,ticker=?,title=?,body=?,
                 updated_at=?,version=version+1 WHERE id=? AND version=?""",
                 (kind, ticker, title, body, _now(), entry_id, expected_version))
@@ -174,9 +175,9 @@ class JournalStore:
             return entry
 
     def set_archived(self, entry_id, *, expected_version, archived):
-        _positive(expected_version, "Versione attesa")
+        _positive(expected_version, _ui_text('Versione attesa', 'Expected version'))
         if type(archived) is not bool:
-            raise JournalInvalid("Stato archivio non valido")
+            raise JournalInvalid(_ui_text('Stato archivio non valido', 'Invalid archive state'))
         with self._connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
             current = self._get(conn, entry_id)
@@ -194,8 +195,8 @@ class JournalStore:
     def list_entries(self, *, status="active", kind=None, ticker=None, query="", limit=50, offset=0):
         _page(limit, offset)
         if status not in ("active", "archived", "all") or kind not in (None, "thesis", "macro"):
-            raise JournalInvalid("Filtro non valido")
-        _text(query, "Ricerca", 200, required=False)
+            raise JournalInvalid(_ui_text('Filtro non valido', 'Invalid filter'))
+        _text(query, _ui_text('Ricerca', 'Search'), 200, required=False)
         where, params = [], []
         if status != "all":
             where.append("archived_at IS " + ("NULL" if status == "active" else "NOT NULL"))

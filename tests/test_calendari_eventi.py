@@ -16,6 +16,8 @@ Fatti cablati qui sotto, presi dalla fonte viva il 01/08/2026:
   2026 il 10/09, 29/10, 17/12 (riunioni di due giorni, decisione il secondo).
 """
 from datetime import date
+import pytest
+from bellomberg.core.language import language_context
 
 import bellomberg.core.current_facts as cf
 from bellomberg.api import bellomberg_api
@@ -85,17 +87,21 @@ def test_finestra_evento_usa_la_data_della_decisione(monkeypatch):
     assert "FOMC 16/09" in finestre[0], finestre[0]
 
 
-def test_api_fomc_deriva_dal_calendario_unico():
+@pytest.mark.parametrize('language', ['it', 'en'])
+def test_api_fomc_deriva_dal_calendario_unico(language):
     """Il calendario dell'API non deve avere date FOMC proprie: solo le date
     di DECISIONE del calendario unico. Le due divergenti erano 04/11 e 16/12."""
-    eventi = bellomberg_api._hardcoded_economic_calendar(date(2026, 10, 1), 91)
+    with language_context(language):
+        eventi = bellomberg_api._hardcoded_economic_calendar(date(2026, 10, 1), 91)
     fomc = sorted(e["date"] for e in eventi if "FOMC" in e["title"])
     assert fomc == ["2026-10-28", "2026-12-09"], fomc
 
 
-def test_api_ecb_deriva_dal_calendario_unico():
+@pytest.mark.parametrize('language,label', [('it', 'BCE'), ('en', 'ECB')])
+def test_api_ecb_deriva_dal_calendario_unico(language, label):
     """Stessa classe, calendario BCE: le decisioni restanti 2026 sono
     10/09, 29/10, 17/12 (ecb.europa.eu)."""
-    eventi = bellomberg_api._hardcoded_economic_calendar(date(2026, 9, 1), 121)
-    ecb = sorted(e["date"] for e in eventi if "ECB" in e["title"])
+    with language_context(language):
+        eventi = bellomberg_api._hardcoded_economic_calendar(date(2026, 9, 1), 121)
+    ecb = sorted(e["date"] for e in eventi if label in e["title"])
     assert ecb == ["2026-09-10", "2026-10-29", "2026-12-17"], ecb

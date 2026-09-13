@@ -53,6 +53,9 @@ def test_real_engine_keeps_other_unknown_skips_blocking(tmp_path, binary):
     (tree / 'unexpected.png').write_bytes(b'unscanned synthetic image')
     outcome = vp.controllo_gitleaks(str(tree), exe=binary)
     assert not outcome.ok and 'NON scansionati' in outcome.errore
+    # 13/09: both reasons stay in the verdict: the unscanned file is named and the
+    # failed raster provenance check is not replaced by the coverage report.
+    assert 'unexpected.png' in outcome.errore and 'verifica raster' in outcome.errore
 
 
 @pytest.mark.parametrize('fault', ['missing_count', 'partial_count', 'missing_report', 'exit_failure', 'hit_without_findings'])

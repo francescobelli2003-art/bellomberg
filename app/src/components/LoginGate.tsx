@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bellomberg, TOKEN_STORAGE_KEY, API_BASE } from '@/lib/api';
+import { Bellomberg, saveSessionToken, API_BASE } from '@/lib/api';
+import { useLingua } from '@/i18n/provider';
+import { leggiLinguaSalvata } from '@/i18n/lingua';
+import { traduci, type Chiave } from '@/i18n/t';
+import { fmtDataBreve } from '@/lib/format';
 import './access-screen.css';
+import { version as appVersion } from '../../package.json';
 
 const STORAGE_KEY = 'bellomberg_unlocked_v1';
 const LAUNCH_KEY = 'bellomberg_last_launch_id';
@@ -19,8 +24,8 @@ const CLOCKS: ReadonlyArray<readonly [string, string]> = [
   ['NY', 'America/New_York'], ['LON', 'Europe/London'], ['MIL', 'Europe/Rome'], ['TYO', 'Asia/Tokyo'],
 ];
 const MODULES = [
-  'MEMORIA SQLITE', 'DESK & AGENTI · CAPO', 'FEED NEWS / FRED', 'QUANT GARCH / MC', 'VALUTAZIONI DCF',
-];
+  'login.module_memory', 'login.module_desks', 'login.module_news', 'login.module_quant', 'login.module_valuation',
+] as const;
 
 function useNow(intervalMs = 1000) {
   const [now, setNow] = useState(new Date());
@@ -461,6 +466,13 @@ function AccessSky({ engineRef, onBoot }: {
    cambia SOLO il vestito: schermata stellare + sequenza meteorite.
    ============================================================ */
 export default function LoginGate({ children }: { children: React.ReactNode }) {
+  const language = useLingua();
+  const [hasLanguage] = useState(() => leggiLinguaSalvata() !== null);
+  const text = (key: Chiave) => {
+    if (hasLanguage) return traduci(language, key);
+    const it = traduci('it', key), en = traduci('en', key);
+    return it === en ? it : `${it} / ${en}`;
+  };
   const [phase, setPhase] = useState<Phase>('check');
   const [pin, setPin] = useState('');
   const [verifying, setVerifying] = useState(false);
@@ -468,6 +480,8 @@ export default function LoginGate({ children }: { children: React.ReactNode }) {
   const [boot, setBoot] = useState(false);
   const [notice, setNotice] = useState<{ text: string; tone: 'err' | 'hint' } | null>(null);
   const [defaultPin, setDefaultPin] = useState(false);
+  const [statusError, setStatusError] = useState(false);
+  const [storageUnavailable, setStorageUnavailable] = useState(false);
   const [shakeKey, setShakeKey] = useState(0);
   const engineRef = useRef<AccessSkyApi | null>(null);
   const verifyingRef = useRef(false);
@@ -477,6 +491,7 @@ export default function LoginGate({ children }: { children: React.ReactNode }) {
   // On mount: sessione ancora valida? (entro TTL E stesso launch di Electron)
   useEffect(() => {
     const currentLaunchId = (window as any).bellomberg?.launchId || '';
+    try {
     const lastLaunchId = localStorage.getItem(LAUNCH_KEY) || '';
     // Se il launch ID e' cambiato (= rilancio di Electron) invalida la sessione
     if (currentLaunchId && currentLaunchId !== lastLaunchId) {
@@ -494,10 +509,11 @@ export default function LoginGate({ children }: { children: React.ReactNode }) {
         localStorage.removeItem(STORAGE_KEY);
       }
     }
+    } catch { setStorageUnavailable(true); }
     // Probe stato backend (avvisa se PIN default)
     Bellomberg.authStatus()
       .then(s => setDefaultPin(s.default_pin))
-      .catch(() => {});
+      .catch(() => setStatusError(true));
     setPhase('login');
   }, []);
 
@@ -506,20 +522,24 @@ export default function LoginGate({ children }: { children: React.ReactNode }) {
     verifyingRef.current = true; setVerifying(true); setNotice(null);
     try {
       const r = await Bellomberg.authLogin(pinValue);
-      // Hardening #32: salva il token di sessione (campo nuovo, retrocompatibile)
-      try { if (r?.token) localStorage.setItem(TOKEN_STORAGE_KEY, r.token); } catch {}
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ts: Date.now() }));
-      const currentLaunchId = (window as any).bellomberg?.launchId || '';
-      if (currentLaunchId) localStorage.setItem(LAUNCH_KEY, currentLaunchId);
+      const tokenSaved = saveSessionToken(r?.token);
+      if (!tokenSaved) setStorageUnavailable(true);
+      try {
+        if (tokenSaved) {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ ts: Date.now() }));
+          const currentLaunchId = (window as any).bellomberg?.launchId || '';
+          if (currentLaunchId) localStorage.setItem(LAUNCH_KEY, currentLaunchId);
+        } else localStorage.removeItem(STORAGE_KEY);
+      } catch { setStorageUnavailable(true); }
       grantedRef.current = true; setGranted(true);
       // PIN accettato -> dopo 700ms parte il bolide; il boot arriva dal canvas
       setTimeout(() => engineRef.current?.startImpact(), 700);
     } catch (err: any) {
       const msg = err?.response?.status === 401
-        ? 'PIN ERRATO · ACCESSO NEGATO'
+        ? text('login.denied')
         : err?.response?.status === 429
-          ? (err?.response?.data?.detail || 'TROPPI TENTATIVI PIN · RIPROVA TRA QUALCHE MINUTO')
-          : (err?.message || 'ERRORE CONNESSIONE BACKEND');
+          ? (err?.response?.data?.detail || text('login.attempts'))
+          : (err?.message || text('login.connection'));
       setNotice({ text: String(msg).toUpperCase(), tone: 'err' });
       setShakeKey(k => k + 1);
       setPin('');
@@ -562,19 +582,19 @@ export default function LoginGate({ children }: { children: React.ReactNode }) {
   const onAuthClick = () => {
     if (grantedRef.current || verifyingRef.current) return;
     if (pin.length === PIN_LENGTH) verify(pin);
-    else setNotice({ text: 'DIGITA LE 4 CIFRE DEL PIN', tone: 'hint' });
+    else setNotice({ text: text('login.enter_four'), tone: 'hint' });
   };
 
   if (phase === 'check') return <div className="stl-stage" />;
-  if (phase === 'ready') return <>{children}</>;
+  if (phase === 'ready') return <>{storageUnavailable && <div role="status" className="text-xs px-3 py-2 border-b border-amber-500/40 text-amber-300">{traduci(language, 'login.storage_unavailable')}</div>}{children}</>;
 
-  const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
+  const dateStr = fmtDataBreve(now, language);
   const altVal = 408 + Math.round(6 * Math.sin(now.getTime() / 9000));
   const hintText = notice ? notice.text
-    : granted ? 'PIN ACCETTATO · CANALE APERTO'
-    : verifying ? 'VERIFICA PIN IN CORSO'
+    : granted ? text('login.accepted')
+    : verifying ? text('login.checking')
     : pin.length > 0 ? '•'.repeat(pin.length)
-    : 'DIGITA IL PIN';
+    : text('login.enter');
 
   return (
     <div className="stl-stage">
@@ -595,10 +615,10 @@ export default function LoginGate({ children }: { children: React.ReactNode }) {
       <div className={'center' + (boot ? ' stl-hidden' : '')}>
         <div className="emblem"><div className="r1" /><div className="r2" /><div className="r3" /><div className="core"><div /></div></div>
         <div className="title">BELLOMBERG</div>
-        <div className="sub1">PRIVATE INTELLIGENCE TERMINAL</div>
-        <div className="sub2">V0.9 OBSIDIAN</div>
+        <div className="sub1">{text('login.subtitle')}</div>
+        <div className="sub2">V{appVersion} OBSIDIAN</div>
         <div className="auth">
-          <div className="authlabel"><span className="lock" />PIN AUTHENTICATION</div>
+          <div className="authlabel"><span className="lock" />{text('login.authentication')}</div>
           <div key={shakeKey} className={'dots' + (notice?.tone === 'err' ? ' shake' : '')}>
             {Array.from({ length: PIN_LENGTH }, (_, i) => (
               <div key={i} className={'dot' + (i < (granted ? PIN_LENGTH : pin.length) ? ' on' : '')} />
@@ -608,24 +628,26 @@ export default function LoginGate({ children }: { children: React.ReactNode }) {
           <div className={'pinhint' + (notice?.tone === 'err' ? ' err' : '')}>
             <span>{hintText}</span><span className="cr">▌</span>
           </div>
-          <div className={'authbtn' + (verifying || granted ? ' busy' : '')} onClick={onAuthClick}>
-            {granted ? '◈ ACCESS GRANTED' : verifying ? '◌ AUTHENTICATING…' : '◌ AUTHORIZE ACCESS'}
-          </div>
-          <div className="operator">OPERATORE · ACCESSO RISERVATO</div>
+          <button type="button" className={'authbtn' + (verifying || granted ? ' busy' : '')} onClick={onAuthClick} disabled={verifying || granted}>
+            {granted ? text('login.granted') : verifying ? text('login.authenticating') : text('login.authorize')}
+          </button>
+          <div className="operator">{text('login.operator')}</div>
           {defaultPin && (
-            <div className="warnpin">⚠ DEFAULT PIN ATTIVO · SETTA BELLOMBERG_PIN NEL FILE .ENV (DEFAULT: 1234)</div>
+            <div className="warnpin">⚠ {text('login.default_pin')}</div>
           )}
+          {statusError && <div className="warnpin" role="status">{text('login.status_unknown')}</div>}
+          {storageUnavailable && <div className="warnpin" role="status">{text('login.storage_unavailable')}</div>}
         </div>
       </div>
 
       <div className={'bootlist' + (boot ? ' stl-hidden' : '')}>
         {MODULES.map((m, i) => (
           <div key={m} className="row" style={{ animationDelay: (0.3 + i * 0.25) + 's' }}>
-            <span>{m}</span><span className="led" />
+            <span>{text(m)}</span><span className="led" />
           </div>
         ))}
         <div className={'row' + (granted ? '' : ' wait')} style={{ animationDelay: '1.55s' }}>
-          <span>{granted ? 'AUTORIZZAZIONE CONCESSA' : 'IN ATTESA DI AUTORIZZAZIONE'}</span><span className="led" />
+          <span>{granted ? text('login.authorization_granted') : text('login.authorization_waiting')}</span><span className="led" />
         </div>
       </div>
 
@@ -643,19 +665,19 @@ export default function LoginGate({ children }: { children: React.ReactNode }) {
       </div>
 
       <div className="bottombar">
-        <div className="live"><span className="led" /> BACKEND LOCALE · {API_BASE}</div>
-        <div>ORBITA STABILE · SESSION TTL 12H</div>
+        <div className="live"><span className="led" /> {text('login.local_backend')} · {API_BASE}</div>
+        <div>{text('login.session')}</div>
       </div>
 
       <div className={'bootseq' + (boot ? ' show' : '')}>
         {boot && (
           <div className="box">
-            <div className="hd">BELLOMBERG SECURE BOOT</div>
-            <div className="ln" style={{ animation: 'stlBootline .4s .3s ease both' }}><span>HANDSHAKE CANALE SICURO</span><span className="ok">OK</span></div>
-            <div className="ln" style={{ animation: 'stlBootline .4s .8s ease both' }}><span>PIN OPERATORE</span><span className="ok">VERIFICATO</span></div>
-            <div className="ln" style={{ animation: 'stlBootline .4s 1.3s ease both' }}><span>IMPATTO 2026-OB · 4.2 KT</span><span className="ok">CONFERMATO</span></div>
-            <div className="ln" style={{ animation: 'stlBootline .4s 1.8s ease both' }}><span>SESSIONE BACKEND</span><span className="am">AUTORIZZATA</span></div>
-            <div className="ln" style={{ animation: 'stlBootline .4s 2.3s ease both' }}><span>AVVIO TERMINALE</span><span className="cr">▌</span></div>
+            <div className="hd">BELLOMBERG {text('login.secure_boot')}</div>
+            <div className="ln" style={{ animation: 'stlBootline .4s .3s ease both' }}><span>{text('login.handshake')}</span><span className="ok">OK</span></div>
+            <div className="ln" style={{ animation: 'stlBootline .4s .8s ease both' }}><span>{text('login.operator_pin')}</span><span className="ok">{text('login.verified')}</span></div>
+            <div className="ln" style={{ animation: 'stlBootline .4s 1.3s ease both' }}><span>{text('login.impact')}</span><span className="ok">{text('login.confirmed')}</span></div>
+            <div className="ln" style={{ animation: 'stlBootline .4s 1.8s ease both' }}><span>{text('login.backend_session')}</span><span className="am">{text('login.authorized')}</span></div>
+            <div className="ln" style={{ animation: 'stlBootline .4s 2.3s ease both' }}><span>{text('login.start')}</span><span className="cr">▌</span></div>
             <div className="bar"><div /></div>
           </div>
         )}

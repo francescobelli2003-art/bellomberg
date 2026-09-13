@@ -1,3 +1,4 @@
+import { t as tr } from '@/i18n/t';
 interface PortfolioValuesInput {
   totale_valore_mercato_eur?: number | null;
   cash_disponibile_eur?: number | null;
@@ -15,7 +16,7 @@ export function portfolioValues(snapshot: PortfolioValuesInput | null) {
     ? snapshot.cash_disponibile_eur : null;
   const nav = cash !== null && finite(snapshot?.nav_total_eur) ? snapshot.nav_total_eur : null;
   const note = cash === null
-    ? snapshot?.cash_source_note || 'Cassa non disponibile: la fonte non e’ dichiarata dal backend.'
-    : nav === null ? 'Patrimonio non disponibile nel payload del backend.' : null;
+    ? snapshot?.cash_source_note || tr('dashboard.cash_unavailable')
+    : nav === null ? tr('dashboard.assets_unavailable') : null;
   return { invested, cash, nav, note };
 }

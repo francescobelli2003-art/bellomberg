@@ -1,3 +1,5 @@
+import { t as tr } from '../i18n/t.js';
+import { linguaCorrente, localeDi } from '../i18n/lingua.js';
 // ============================================================
 // F14 MOVIMENTI — le derivazioni, e SOLO quelle (Opus 5, 27/07)
 //
@@ -32,12 +34,10 @@ export interface Trade {
   note?: string | null;
   pm_rationale?: string | null;
   linked_decision_id?: number | null;
-  // ── DIETRO IL CANCELLO ──────────────────────────────────────
-  // `trade_history` ha 13 colonne, GET /trades ne consegna 9. Queste
-  // quattro sono le tagliate: opzionali apposta, cosi' la pagina si
-  // accende da sola il giorno in cui il ponte le aggiunge, senza che
-  // nessuno tocchi un componente. Voce aperta in COORDINAMENTO_CHAT
-  // il 27/07.
+  link_origin?: 'explicit' | 'none' | 'unknown' | null;
+  ora_convenzionale?: number | boolean | null;
+  // Campi ora consegnati dal registro; restano opzionali per dichiarare
+  // payload legacy o incompleti senza inventare ID, tempi o realizzati.
   id?: number | null;
   created_at?: string | null;
   realized_eur?: number | null;
@@ -70,7 +70,9 @@ export const segnoPL = (v: number): 'su' | 'giu' | 'pari' =>
 const GIORNO_ISO = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])/;
 export const ggmmaa = (iso?: string | null) =>
   (iso && GIORNO_ISO.test(iso)
-    ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(2, 4)}` : '—');
+    ? linguaCorrente() === 'en'
+      ? `${iso.slice(5, 7)}/${iso.slice(8, 10)}/${iso.slice(2, 4)}`
+      : `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(2, 4)}` : '—');
 
 /**
  * L'ora, che oggi la pagina BUTTA con `.slice(0,10)` pur avendola su
@@ -93,19 +95,31 @@ export const ORA_SEGNAPOSTO = '12:00:00';
  * `import_user_trades.py:121` fa `dt.replace(hour=12, minute=0, second=0)`
  * quando l'estratto porta solo la data (review 27/07, MEDIA).
  *
- * Dal payload NON si puo' distinguere quel segnaposto da un'operazione fatta
- * davvero a mezzogiorno: solo il backend lo sa. Quindi qui non si indovina
- * riga per riga — si CONTA e si dichiara in aggregato, e la distinzione vera
- * e' chiesta al ponte.
+ * Dal 12/09 il payload distingue la convenzione con ora_convenzionale.
+ * Il conteggio usa solo il flag esplicito; una riga legacy NULL resta ignota.
  */
 export function contaOreSegnaposto(trades: Trade[]): number {
-  return trades.filter(t => oraDi(t.data) === ORA_SEGNAPOSTO).length;
+  return trades.filter(t => t.ora_convenzionale === 1 || t.ora_convenzionale === true).length;
 }
 
-const MESI_IT = ['GENNAIO', 'FEBBRAIO', 'MARZO', 'APRILE', 'MAGGIO', 'GIUGNO',
-  'LUGLIO', 'AGOSTO', 'SETTEMBRE', 'OTTOBRE', 'NOVEMBRE', 'DICEMBRE'];
-const MESI_BREVI = ['GEN', 'FEB', 'MAR', 'APR', 'MAG', 'GIU',
-  'LUG', 'AGO', 'SET', 'OTT', 'NOV', 'DIC'];
+/** Un mezzogiorno misurato resta tale; per le righe legacy non si deduce la provenienza. */
+export function oraTrade(t: Trade): string {
+  const ora = oraDi(t.data);
+  if (!ora) return tr('movements.timeUnknown');
+  if (t.ora_convenzionale === 1 || t.ora_convenzionale === true) return tr('movements.conventionalTime', {a: ora});
+  if (t.ora_convenzionale == null) return tr('movements.timeOriginUnknown', {a: ora});
+  return ora;
+}
+
+export function legameMovimento(t: Trade): string {
+  if (t.link_origin === 'none') return tr('movements.manual');
+  if (t.link_origin === 'explicit' && t.linked_decision_id != null) return tr('movements.explicitDecision', {a: t.linked_decision_id});
+  if (t.linked_decision_id != null) return tr('movements.unknownDecisionOrigin', {a: t.linked_decision_id});
+  return tr('movements.linkUnknown');
+}
+
+const nomeMese = (month: number, breve = false) => new Intl.DateTimeFormat(localeDi(linguaCorrente()),
+  { month: breve ? 'short' : 'long' }).format(new Date(2000, month, 1)).toLocaleUpperCase(localeDi(linguaCorrente()));
 
 // ── testo ───────────────────────────────────────────────────────
 /**
@@ -187,7 +201,7 @@ export const chiaveMese = (quando: string): string => {
  *  con `data: 'non-una-data'` la chiave diventava `'non-una'`, che e' truthy, e
  *  l'etichetta usciva letteralmente **«undefined non-»** — cioe' `undefined` a
  *  schermo, in una pagina che dichiara ogni buco. Riprodotto in node. */
-export const MESE_IGNOTO = 'DATA NON LEGGIBILE';
+export const MESE_IGNOTO = 'DATA NON LEGGIBILE'; // Identificatore storico di compatibilità.
 
 export type VersoCassa = 'dentro' | 'fuori' | 'ignoto';
 /** Il verso di un movimento. `ignoto` NON e' un caso di scuola travestito da
@@ -342,8 +356,8 @@ export function raggruppaPerMese(righe: RigaRegistro[]): Mese[] {
     .map(([chiave, g]) => ({
       chiave,
       etichetta: chiave === ''
-        ? MESE_IGNOTO
-        : `${MESI_IT[Number(chiave.slice(5, 7)) - 1]} ${chiave.slice(0, 4)}`,
+        ? tr('movements.unknownDate')
+        : `${nomeMese(Number(chiave.slice(5, 7)) - 1)} ${chiave.slice(0, 4)}`,
       n: g.n,
       nTicker: g.tk.size,
       perAzione: g.az,
@@ -402,7 +416,7 @@ export function mesiDellArco(arco: Arco): { nome: string; f: number }[] {
   let giri = 0;
   while (d <= fine && giri++ < 240) {                 // paracadute: mai un while infinito in un render
     const iso = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
-    out.push({ nome: MESI_BREVI[d.getMonth()], f: frazione(iso, arco) });
+    out.push({ nome: nomeMese(d.getMonth(), true), f: frazione(iso, arco) });
     d.setMonth(d.getMonth() + 1);
   }
   return out;

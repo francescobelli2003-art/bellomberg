@@ -14,18 +14,33 @@ significato: `amount_eur` resta il chiesto.
 La prova passa per `run_monte_carlo_v3` VERA col motore VERO (offline: DB e
 `_download_returns` stubbati, nessuna rete; `add` non e' sotto prova perche'
 interroga yfinance). Sola lettura: il DB e' finto.
+
+LINGUA (13/09, Claude Opus 5): dal lotto i18n C5 del 12/09 `note` e `reason` sono frasi
+bilingui di `core.presentation.message`, rese nella lingua catturata alla chiamata. Senza
+contesto quella lingua la decide `data/preferences.json` di chi lancia la suite (file assente
+= «it»): tre asserzioni in inglese (cinque casi) erano rosse per questo, non per il motore.
+Ogni chiamata qui fissa la lingua col `language_context`, e le frasi attese stanno in questo
+file: non si importano dal modulo sotto prova.
 """
 import numpy as np
 import pandas as pd
 import pytest
 
 import bellomberg.portfolio.portfolio_montecarlo as pm
+from bellomberg.core.language import language_context
 
 # tre posizioni: il motore rifiuta un portafoglio con UN solo titolo («only 1
 # ticker(s) with returns»), e qui AAA viene chiusa per intero in meta' dei casi
 POSIZIONI = ({"ticker": "AAA", "valore_mercato": 10000.0},
              {"ticker": "BBB", "valore_mercato": 30000.0},
              {"ticker": "CCC", "valore_mercato": 20000.0})
+
+# le frasi che il PM legge, congelate qui nelle due lingue (l'oracolo non viene dal modulo)
+NOTA_CHIUSURA_SENZA_IMPORTO = {"it": "posizione chiusa per intero (nessun importo specificato)",
+                               "en": "full position closed (no amount specified)"}
+MOTIVO_IMPORTO_NON_POSITIVO = {
+    "it": "REMOVE richiede amount_eur/amount_pct positivo (ometti entrambi = chiusura totale)",
+    "en": "REMOVE requires positive amount_eur/amount_pct (omit both = full close)"}
 
 
 class _DB:
@@ -45,10 +60,11 @@ def v3(monkeypatch):
     monkeypatch.setattr(pm, "_download_returns", lambda *a, **k: rdf)
     pm.invalidate_cache()
 
-    def corri(mods, **kw):
+    def corri(mods, lingua="it", **kw):
         kw.setdefault("sample_paths_n", 1)
-        return pm.run_monte_carlo_v3(horizon_days=20, n_sims=300, method="block_bootstrap",
-                                     modifications=mods, **kw)
+        with language_context(lingua):
+            return pm.run_monte_carlo_v3(horizon_days=20, n_sims=300, method="block_bootstrap",
+                                         modifications=mods, **kw)
     yield corri
     pm.invalidate_cache()
 
@@ -58,7 +74,13 @@ def _applicata(out, ticker="AAA"):
     voci = [m for m in out["modifications_applied"] if m["ticker"] == ticker]
     assert len(voci) == 1, out["modifications_applied"]
     assert out["skipped_modifications"] == []
-    return voci[0]
+    # 13/09: le chiavi del contratto si pretendono con un'ASSERZIONE, non con un KeyError: il
+    # banco di mutazioni conta solo le cadute di assert, e una chiave tolta e' il difetto vero
+    voce = voci[0]
+    if voce["action"] in ("remove", "trim"):
+        assert {"amount_eur_effettivo", "truncated"} <= set(voce), sorted(voce)
+        assert not voce["truncated"] or voce.get("note"), "troncata senza nota: %r" % voce
+    return voce
 
 
 # ---------------------------------------------------------------- remove, EUR
@@ -92,13 +114,14 @@ def test_vendita_esatta_e_una_chiusura_non_una_troncatura(v3):
     assert "AAA" not in out["weights_post"]
 
 
-def test_chiusura_senza_importo_resta_dichiarata_come_prima(v3):
-    out = v3([{"action": "remove", "ticker": "AAA"}])
+@pytest.mark.parametrize("lingua", ["it", "en"])
+def test_chiusura_senza_importo_resta_dichiarata_come_prima(v3, lingua):
+    out = v3([{"action": "remove", "ticker": "AAA"}], lingua=lingua)
     m = _applicata(out)
     assert m["amount_eur"] == 10000.0
     assert m["amount_eur_effettivo"] == 10000.0
     assert m["truncated"] is False
-    assert m["note"] == "full position closed (no amount specified)"
+    assert m["note"] == NOTA_CHIUSURA_SENZA_IMPORTO[lingua]
 
 
 # ------------------------------------------------------------ remove, percento
@@ -134,18 +157,19 @@ def test_la_nota_non_arrotonda_la_percentuale_a_intero(v3):
 
 # ----------------------------------------------- remove, i casi della review
 
+@pytest.mark.parametrize("lingua", ["it", "en"])
 @pytest.mark.parametrize("mod", [
     {"action": "remove", "ticker": "AAA", "amount_eur": 0},
     {"action": "remove", "ticker": "AAA", "amount_eur": -5000},
     {"action": "remove", "ticker": "AAA", "amount_pct": -30},
 ])
-def test_importo_non_positivo_viene_saltato_con_motivo_non_chiuso_zitto(v3, mod):
+def test_importo_non_positivo_viene_saltato_con_motivo_non_chiuso_zitto(v3, mod, lingua):
     """Prima finiva nel ramo «full position closed (no amount specified)»: la posizione
     spariva e la nota diceva che nessun importo era stato dato."""
-    out = v3([mod])
+    out = v3([mod], lingua=lingua)
     assert out["modifications_applied"] == []
     assert len(out["skipped_modifications"]) == 1
-    assert "positive" in out["skipped_modifications"][0]["reason"]
+    assert out["skipped_modifications"][0]["reason"] == MOTIVO_IMPORTO_NON_POSITIVO[lingua]
     assert out["weights_post"]["AAA"] == round(10000.0 / 60000.0, 6)
 
 
@@ -171,7 +195,7 @@ def test_eur_e_percento_insieme_vince_l_eur_e_la_percentuale_non_sparisce(v3):
     out = v3([{"action": "remove", "ticker": "AAA", "amount_eur": 4000, "amount_pct": 50}])
     m = _applicata(out)
     assert m["amount_eur_effettivo"] == 4000.0
-    assert m["amount_pct_ignorata"] == 50.0
+    assert m.get("amount_pct_ignorata") == 50.0
     assert "amount_pct" not in m
 
 
@@ -201,17 +225,18 @@ def test_trim_entro_100_non_e_troncato(v3):
 
 # ---------------------------------------------------------------------- cache
 
-def test_la_cache_non_presta_la_dichiarazione_di_un_altro_chiamante(v3):
+@pytest.mark.parametrize("lingua", ["it", "en"])
+def test_la_cache_non_presta_la_dichiarazione_di_un_altro_chiamante(v3, lingua):
     """«vendi 25k di AAA» e «chiudi AAA» lasciano lo STESSO portafoglio post, quindi
     la stessa chiave di cache: la simulazione e' la stessa (giusto), la dichiarazione
     deve essere di chi chiama."""
-    primo = v3([{"action": "remove", "ticker": "AAA", "amount_eur": 25000}])
-    secondo = v3([{"action": "remove", "ticker": "AAA"}])
+    primo = v3([{"action": "remove", "ticker": "AAA", "amount_eur": 25000}], lingua=lingua)
+    secondo = v3([{"action": "remove", "ticker": "AAA"}], lingua=lingua)
     assert _applicata(primo)["truncated"] is True
     m2 = _applicata(secondo)
     assert m2["truncated"] is False
     assert m2["amount_eur"] == 10000.0
-    assert m2["note"] == "full position closed (no amount specified)"
+    assert m2["note"] == NOTA_CHIUSURA_SENZA_IMPORTO[lingua]
     # la cache ha servito davvero (senza seed due simulazioni distinte non coincidono)
     assert primo["es_99_pct"] == secondo["es_99_pct"]
 
@@ -224,7 +249,7 @@ def test_la_dichiarazione_del_chiamante_non_sporca_la_voce_in_cache(v3):
     entry = [e for k, e in pm._CACHE.items() if k.startswith("mc:v3:")]
     assert len(entry) == 1, list(pm._CACHE.keys())
     in_cache = entry[0]["data"]["modifications_applied"][0]
-    assert in_cache["truncated"] is True and in_cache["amount_eur"] == 25000.0
+    assert in_cache.get("truncated") is True and in_cache["amount_eur"] == 25000.0
 
 
 # ------------------------------------------------------------------ cablaggio

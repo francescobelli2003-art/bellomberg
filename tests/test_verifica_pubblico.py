@@ -1775,6 +1775,26 @@ def test_esegui_tutti_esegue_davvero_il_decimo_controllo(tmp_path, monkeypatch, 
     assert "OSSERVAZIONE" in testo and rc == 2
 
 
+def test_il_payload_legacy_non_lascia_il_env_del_pm_nell_ambiente(tmp_path, monkeypatch):
+    """13/09 (Claude Opus 5): senza --corpus-root il payload si rende IMPORTANDO i moduli nel
+    processo, e `config.py` fa load_dotenv del privato. Misurato: dopo questo controllo il
+    processo aveva 45 variabili del `.env` in piu', e la suite dell'export le ereditava."""
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    (tree / "m.py").write_text("ok\n", encoding="utf-8")
+    db = _db_nomi(tmp_path)
+    monkeypatch.setattr(vp, "_importa_memory_db", lambda: types.SimpleNamespace(SQLITE_PATH=db))
+    monkeypatch.delenv("CHIAVE_FINTA_DAL_DOTENV", raising=False)
+
+    def payload_che_carica_il_dotenv():
+        os.environ["CHIAVE_FINTA_DAL_DOTENV"] = "x"
+        return {"desk/finto": "nessun ticker qui"}, []
+
+    monkeypatch.setattr(vp, "payload_statico", payload_che_carica_il_dotenv)
+    vp.esegui_tutti(str(tree), solo=["payload"])
+    assert "CHIAVE_FINTA_DAL_DOTENV" not in os.environ
+
+
 def test_il_decimo_controllo_e_registrato_e_nasce_in_osservazione():
     """Pin del cablaggio: se domani sparisce da CONTROLLI, `esegui_tutti` non lo esegue
     piu'. Nasce in OSSERVAZIONE come il nono: un controllo che parte con 160 riscontri

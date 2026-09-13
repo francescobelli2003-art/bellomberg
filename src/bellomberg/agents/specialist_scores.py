@@ -9,6 +9,8 @@ ed e' guarded: se i dati mancano ritorna None e lo specialista lavora come prima
 Convenzione 'risk score': PIU' ALTO = PIU' RISCHIO.
 """
 from __future__ import annotations
+from bellomberg.core.language import scoped_language
+from bellomberg.reporting.i18n import label as _t
 
 import bellomberg.storage.classificazione as cl
 from bellomberg.core.paths import REPORT_DIR
@@ -41,6 +43,7 @@ def _band(value, thresholds, points, reverse=False):
         return points[-1]
 
 
+@scoped_language
 def quant_score(portfolio_data=None, risk_data=None):
     """Rubric di rischio del portafoglio. Ritorna dict o None se dati insufficienti."""
     if risk_data is None:
@@ -87,21 +90,21 @@ def quant_score(portfolio_data=None, risk_data=None):
             lines.append((label, fmt, p_)); pts.append(p_)
 
     # ogni metrica: soglie -> punti (0=ok .. 3=rischio alto)
-    add("Volatilita' annualizzata", vol, ("{:.1f}%".format(vol) if vol is not None else "n/d"),
+    add(_t("Volatilita' annualizzata"), vol, ("{:.1f}%".format(vol) if vol is not None else "n/d"),
         _band(vol, [12, 20, 30], [0, 1, 2, 3]))
     # 16/07: etichetta "trailing 1a" esplicita — senza, la banda si leggeva come giudizio
     # sul titolo invece che come fotografia storica (dottrina bilaterale PM 16/07)
-    add("Sharpe ratio (trailing 1a)", sharpe, ("{:.2f}".format(sharpe) if sharpe is not None else "n/d"),
+    add(_t("Sharpe ratio (trailing 1a)"), sharpe, ("{:.2f}".format(sharpe) if sharpe is not None else "n/d"),
         _band(sharpe, [1.5, 1.0, 0.5], [0, 1, 2, 3], reverse=True))
-    add("Beta vs S&P 500", beta, ("{:.2f}".format(beta) if beta is not None else "n/d"),
+    add(_t("Beta vs S&P 500"), beta, ("{:.2f}".format(beta) if beta is not None else "n/d"),
         _band(beta, [0.8, 1.1, 1.4], [0, 1, 2, 3]))
-    add("VaR 95% 1g", var95, ("{:.2f}%".format(var95) if var95 is not None else "n/d"),
+    add(_t("VaR 95% 1g"), var95, ("{:.2f}%".format(var95) if var95 is not None else "n/d"),
         _band(abs(var95) if var95 is not None else None, [2.0, 3.5, 5.0], [0, 1, 2, 3]))
-    add("Max Drawdown 1a", maxdd, ("{:.1f}%".format(maxdd) if maxdd is not None else "n/d"),
+    add(_t("Max Drawdown 1a"), maxdd, ("{:.1f}%".format(maxdd) if maxdd is not None else "n/d"),
         _band(abs(maxdd) if maxdd is not None else None, [8, 15, 25], [0, 1, 2, 3]))
-    add("Top position", top_pct, ("{:.1f}%".format(top_pct) if top_pct is not None else "n/d"),
+    add(_t("Top position"), top_pct, ("{:.1f}%".format(top_pct) if top_pct is not None else "n/d"),
         _band(top_pct, [15, 25, 35], [0, 1, 2, 3]))
-    add("Concentrazione (HHI)", hhi, ("{:.0f}".format(hhi) if hhi is not None else "n/d"),
+    add(_t("Concentrazione (HHI)"), hhi, ("{:.0f}".format(hhi) if hhi is not None else "n/d"),
         _band(hhi, [1200, 2000, 3000], [0, 1, 2, 3]))
 
     if not pts:
@@ -110,13 +113,13 @@ def quant_score(portfolio_data=None, risk_data=None):
     max_score = len(pts) * 3
     frac = score / max_score if max_score else 0
     if frac < 0.25:
-        verdict = "RISCHIO BASSO"
+        verdict = _t("RISCHIO BASSO")
     elif frac < 0.5:
-        verdict = "RISCHIO MEDIO"
+        verdict = _t("RISCHIO MEDIO")
     elif frac < 0.72:
-        verdict = "RISCHIO ELEVATO"
+        verdict = _t("RISCHIO ELEVATO")
     else:
-        verdict = "RISCHIO CRITICO"
+        verdict = _t("RISCHIO CRITICO")
 
     return {
         "domain": "quant",
@@ -130,6 +133,7 @@ def quant_score(portfolio_data=None, risk_data=None):
     }
 
 
+@scoped_language
 def macro_score(macro_data=None):
     """Rubric REGIME di mercato. PIU' ALTO = piu' restrittivo/risk-off/late-cycle.
     Ritorna dict o None se dati insufficienti."""
@@ -170,7 +174,7 @@ def macro_score(macro_data=None):
     # Yield curve 10y-2y: invertita = late-cycle/recessione
     if curve_bps is not None:
         p = 3 if curve_bps < 0 else 2 if curve_bps < 25 else 1 if curve_bps < 60 else 0
-        add("Curva 10y-2y", "{:.0f} bps".format(curve_bps), p)
+        add(_t("Curva 10y-2y"), "{:.0f} bps".format(curve_bps), p)
     # Real Fed funds: piu' alto = piu' restrittivo
     if real_ff is not None:
         p = 0 if real_ff < 0.5 else 1 if real_ff < 1.5 else 2 if real_ff < 2.5 else 3
@@ -186,7 +190,7 @@ def macro_score(macro_data=None):
     # Disoccupazione in salita = deterioramento
     if unemp_chg is not None:
         p = 0 if unemp_chg <= 0 else 1 if unemp_chg < 0.2 else 2
-        add("Disoccup. (var)", "{:+.2f}".format(unemp_chg), p)
+        add(_t("Disoccup. (var)"), "{:+.2f}".format(unemp_chg), p)
 
     if not pts:
         return None
@@ -194,13 +198,13 @@ def macro_score(macro_data=None):
     max_score = len(pts) * 3
     frac = score / max_score if max_score else 0
     if frac < 0.25:
-        verdict = "REGIME ESPANSIVO (risk-on)"
+        verdict = _t("REGIME ESPANSIVO (risk-on)")
     elif frac < 0.5:
-        verdict = "REGIME NEUTRALE"
+        verdict = _t("REGIME NEUTRALE")
     elif frac < 0.72:
-        verdict = "REGIME RESTRITTIVO (late-cycle)"
+        verdict = _t("REGIME RESTRITTIVO (late-cycle)")
     else:
-        verdict = "REGIME RISK-OFF / RECESSIVO"
+        verdict = _t("REGIME RISK-OFF / RECESSIVO")
 
     return {"domain": "macro", "score": score, "max_score": max_score, "verdict": verdict,
             "lines": lines,
@@ -216,6 +220,7 @@ def _verdict_bands(score, max_score, labels):
     return labels[3]
 
 
+@scoped_language
 def fundamentals_score(portfolio_data=None, valuations=None, max_names=4):
     """Valutazione del book dal DCF (margine di sicurezza). PIU' ALTO = piu' CARO/sopravvalutato."""
     positions = (portfolio_data or {}).get("positions") or []
@@ -371,39 +376,40 @@ def fundamentals_score(portfolio_data=None, valuations=None, max_names=4):
     # punteggio: piu' caro = piu' rischio
     p_mos = 0 if avg_mos >= 20 else 1 if avg_mos >= 5 else 2 if avg_mos >= -5 else 3
     p_rich = 0 if n_rich == 0 else 1 if n_rich == 1 else 2 if n_rich == 2 else 3
-    lines = [("Margine di sicurezza medio", "{:+.1f}%".format(avg_mos), p_mos),
-             ("Nomi sopravvalutati (>15%)", "{}/{}".format(n_rich, len(mos_list)), p_rich)]
+    lines = [(_t("Margine di sicurezza medio"), "{:+.1f}%".format(avg_mos), p_mos),
+             (_t("Nomi sopravvalutati (>15%)"), "{}/{}".format(n_rich, len(mos_list)), p_rich)]
     for tk, u in detail:
         lines.append(("  " + tk, "{:+.1f}%".format(u), 0 if u >= 0 else 2))
         if tk in valuation_dates:
-            lines.append(("  Cutoff flussi/prezzo " + tk, valuation_dates[tk] + " (non upside corrente)", 0))
+            lines.append(("  Cutoff flussi/prezzo " + tk, valuation_dates[tk] + _t(" (non upside corrente)"), 0))
     pts = [p_mos, p_rich]
     score = sum(pts); max_score = len(pts) * 3
-    verdict = _verdict_bands(score, max_score, ["BOOK A SCONTO", "VALUTAZIONE EQUA", "BOOK CARO", "BOOK MOLTO CARO"])
+    verdict = _verdict_bands(score, max_score, [_t("BOOK A SCONTO"), _t("VALUTAZIONE EQUA"), _t("BOOK CARO"), _t("BOOK MOLTO CARO")])
     # COPERTURA DICHIARATA: il verdetto vale sui nomi effettivamente valutabili, non sul
     # book intero (ETF, veicoli e nomi senza DCF restano fuori). Dirlo evita che un
     # giudizio su 1 nome su 4 si legga come giudizio su tutto il portafoglio.
-    verdict = "{} ({}/{} nomi valutati)".format(verdict, len(mos_list), len(names))
+    verdict = _t("{} ({}/{} nomi valutati)").format(verdict, len(mos_list), len(names))
     if flagged_skipped:
         # audit/12 V0.5: i modelli bocciati dalla sanity sono FUORI dal giudizio, dichiarati
-        verdict += " [FLAGGED esclusi: {}]".format(", ".join(flagged_skipped))
-        lines.append(("Modelli FLAGGED esclusi", ", ".join(flagged_skipped), 0))
+        verdict += _t(" [FLAGGED esclusi: {}]").format(", ".join(flagged_skipped))
+        lines.append((_t("Modelli FLAGGED esclusi"), ", ".join(flagged_skipped), 0))
     if no_model:
         # 21/07: buco DICHIARATO, non rigenerato alla cieca (il modello lo fa
         # l'analista con la sua variant view, non lo scorer)
-        verdict += " [senza modello recente: {}]".format(", ".join(no_model))
-        lines.append(("Senza modello recente (tocca all'analista)", ", ".join(no_model), 0))
+        verdict += _t(" [senza modello recente: {}]").format(", ".join(no_model))
+        lines.append((_t("Senza modello recente (tocca all'analista)"), ", ".join(no_model), 0))
     if invalid_valuation:
-        verdict += " [FV/prezzo assenti o non validi: {}]".format(", ".join(invalid_valuation))
-        lines.append(("FV/prezzo assenti o non validi", ", ".join(invalid_valuation), 0))
+        verdict += _t(" [FV/prezzo assenti o non validi: {}]").format(", ".join(invalid_valuation))
+        lines.append((_t("FV/prezzo assenti o non validi"), ", ".join(invalid_valuation), 0))
     if _negozio_buco:
-        verdict += " [veicoli/DAT non esclusi: negozio non disponibile]"
-        lines.append(("Negozio veicoli non disponibile", _negozio_buco, 0))
+        verdict += _t(" [veicoli/DAT non esclusi: negozio non disponibile]")
+        lines.append((_t("Negozio veicoli non disponibile"), _negozio_buco, 0))
     return {"domain": "fundamentals", "score": score, "max_score": max_score, "verdict": verdict,
             "lines": lines, "metrics": {"avg_mos_pct": round(avg_mos, 1), "n_valued": len(mos_list),
                                         "n_cheap": n_cheap, "n_rich": n_rich}}
 
 
+@scoped_language
 def options_score(proxy_ticker=None, portfolio_data=None, options_data=None):
     """Regime di volatilita'/protezione da opzioni. PIU' ALTO = piu' paura/protezione cara."""
     if options_data is None:
@@ -437,11 +443,12 @@ def options_score(proxy_ticker=None, portfolio_data=None, options_data=None):
     if not pts:
         return None
     score = sum(pts); max_score = len(pts) * 3
-    verdict = _verdict_bands(score, max_score, ["VOL COMPLACENTE", "VOL NORMALE", "VOL TESA", "VOL PANICO"])
+    verdict = _verdict_bands(score, max_score, [_t("VOL COMPLACENTE"), _t("VOL NORMALE"), _t("VOL TESA"), _t("VOL PANICO")])
     return {"domain": "options ({})".format(proxy_ticker or "?"), "score": score, "max_score": max_score,
             "verdict": verdict, "lines": lines, "metrics": {"atm_iv": atm, "skew": skew, "put_call_oi": pcr}}
 
 
+@scoped_language
 def crypto_score(intel=None, has_crypto=True):
     """Froth crypto da funding/premio perp (Hyperliquid). PIU' ALTO = piu' euforico/affollato."""
     if intel is None:
@@ -466,15 +473,15 @@ def crypto_score(intel=None, has_crypto=True):
     lines = []; pts = []
     if fund_ann is not None:
         p = 0 if fund_ann < 5 else 1 if fund_ann < 15 else 2 if fund_ann < 30 else 3
-        lines.append(("Funding annualizzato max", "{:.1f}%".format(fund_ann), p)); pts.append(p)
+        lines.append((_t("Funding annualizzato max"), "{:.1f}%".format(fund_ann), p)); pts.append(p)
     if premium_bps is not None:
         ap = abs(premium_bps)
         p = 0 if ap < 5 else 1 if ap < 15 else 2 if ap < 40 else 3
-        lines.append(("Premio perp max", "{:+.0f} bps".format(premium_bps), p)); pts.append(p)
+        lines.append((_t("Premio perp max"), "{:+.0f} bps".format(premium_bps), p)); pts.append(p)
     if not pts:
         return None
     score = sum(pts); max_score = len(pts) * 3
-    verdict = _verdict_bands(score, max_score, ["CRYPTO CALMO", "CRYPTO NORMALE", "CRYPTO SURRISCALDATO", "CRYPTO EUFORICO"])
+    verdict = _verdict_bands(score, max_score, [_t("CRYPTO CALMO"), _t("CRYPTO NORMALE"), _t("CRYPTO SURRISCALDATO"), _t("CRYPTO EUFORICO")])
     return {"domain": "crypto", "score": score, "max_score": max_score, "verdict": verdict,
             "lines": lines, "metrics": {"funding_ann_pct": fund_ann, "premium_bps": premium_bps}}
 
@@ -498,6 +505,7 @@ _NEWS_RISK_KW = ["lawsuit", "downgrade", "investigation", "fraud", "bankrupt",
                  "profit miss", "trading halt", "product recall", "declassa"]
 
 
+@scoped_language
 def news_score(portfolio_data=None, news_items=None, max_names=6):
     """Turbolenza dal flusso notizie sui nomi del book. PIU' ALTO = piu' eventi negativi/alto impatto."""
     items = news_items
@@ -508,6 +516,7 @@ def news_score(portfolio_data=None, news_items=None, max_names=6):
     # teorico: e' lo stato della run settimanale. Un book cieco che stampa "FLUSSO CALMO"
     # e' il fallback silenzioso peggiore, perche' e' il Capo a narrarlo al PM.
     _mute = set()
+    _fonti_candidate = set()   # fonti INTERROGATE (unione sui nomi): il denominatore vero
     _coperture = []
     if items is None:
         names = []
@@ -535,6 +544,8 @@ def news_score(portfolio_data=None, news_items=None, max_names=6):
                     # set.update() su una STRINGA itera i caratteri: "gnews" diventerebbe
                     # {'g','n','e','w','s'} e il memo stamperebbe "mute e, g, n, s, w".
                     _mute.update([_fm] if isinstance(_fm, str) else _fm)
+                    _fonti_candidate.update(
+                        f for f, s in (r.get("fonti") or {}).items() if s != "non_interrogata")
         except Exception:
             return None
     if not items:
@@ -573,7 +584,7 @@ def news_score(portfolio_data=None, news_items=None, max_names=6):
                  if isinstance(it, dict) and any(p.search(_blob(it)) for p in _pats))
     lines = []; pts = []
     p = 0 if total < 8 else 1 if total < 20 else 2 if total < 40 else 3
-    lines.append(("Volume notizie (book)", str(total), p)); pts.append(p)
+    lines.append((_t("Volume notizie (book)"), str(total), p)); pts.append(p)
     # Opus 4.8 15/07 — riga DICHIARATA n.d. (regola PM 14/07: dichiarare, non stimare).
     # Il contatore keyword non e' calibrato (difetti misurati in _NEWS_RISK_KW) e il
     # flusso su cui girerebbe non e' onesto: quando il limiter esaurisce la quota
@@ -581,10 +592,10 @@ def news_score(portfolio_data=None, news_items=None, max_names=6):
     # 0 punti i numeri del memo restano quelli di sempre, ma smettono di dichiarare
     # "nessun evento negativo" quando il dato non c'e'. Prima il limiter, poi la
     # taratura: MASTER_TODO "News igiene" (skip dichiarato) e "contatore eventi news".
-    lines.append(("Eventi ad alto impatto neg.", "n.d. (contatore non calibrato)", 0))
+    lines.append((_t("Eventi ad alto impatto neg."), _t("n.d. (contatore non calibrato)"), 0))
     pts.append(0)
     score = sum(pts); max_score = len(pts) * 3
-    verdict = _verdict_bands(score, max_score, ["FLUSSO CALMO", "FLUSSO NORMALE", "FLUSSO INTENSO", "ALLERTA NOTIZIE"])
+    verdict = _verdict_bands(score, max_score, [_t("FLUSSO CALMO"), _t("FLUSSO NORMALE"), _t("FLUSSO INTENSO"), _t("ALLERTA NOTIZIE")])
     # COPERTURA DICHIARATA (Opus 4.8 16/07) — stesso rimedio di fundamentals_score:259-262:
     # il verdetto vale su cio' che abbiamo potuto guardare. Senza, "FLUSSO CALMO" su un book
     # con 3 fonti su 4 spente si legge come "mercato tranquillo" invece che "non lo so".
@@ -596,53 +607,180 @@ def news_score(portfolio_data=None, news_items=None, max_names=6):
     # passati dall'esterno la copertura e' IGNOTA, non piena.
     _cop = ("PARZIALE" if (_mute or any(c != "PIENA" for c in _coperture))
             else ("PIENA" if _coperture else "IGNOTA"))
+    _n_fc = len(_fonti_candidate)
     if _cop == "PARZIALE":
+        # Audit run 10/09 (Fable 5.1): "fonti mute su 6/6 nomi" e' stato letto da Event Desk
+        # e Capo come "sei fonti su sei mute" (memo #53 e #54): le fonti mute erano DUE su
+        # quattro, i 6/6 erano i NOMI. Prima le fonti, col loro rapporto; poi i nomi.
         # "scoperti" direbbe "ciechi del tutto": qui i nomi hanno fonti RIDOTTE, non zero.
-        _det = "fonti mute su %d/%d nomi" % (_n_scoperti, _n_nomi)
-        if _mute:
-            _det += " (" + ", ".join(sorted(_mute)) + ")"
-        lines.append(("Copertura fonti", "PARZIALE - " + _det, 0))
-        verdict = "%s (copertura PARZIALE: %s - il volume NON misura il flusso reale)" % (
+        _det = _t("mute: ") + (", ".join(sorted(_mute)) if _mute else "n.d.")
+        if _n_fc:
+            _det += _t(" (%d/%d fonti)") % (len(_mute), _n_fc)
+        _det += _t(" su %d/%d nomi") % (_n_scoperti, _n_nomi)
+        lines.append((_t("Copertura fonti"), _t("PARZIALE - ") + _det, 0))
+        verdict = _t("%s (copertura PARZIALE: %s - il volume NON misura il flusso reale)") % (
             verdict, _det)
     return {"domain": "news", "score": score, "max_score": max_score, "verdict": verdict,
             "lines": lines, "metrics": {"n_news": total, "n_high_impact": n_risk,
                                         "copertura": _cop, "fonti_mute": sorted(_mute),
+                                        "n_fonti_mute": len(_mute), "n_fonti_candidate": _n_fc,
                                         "n_nomi": _n_nomi, "n_nomi_scoperti": _n_scoperti}}
 
 
-# topic di rischio geopolitico monitorati su Polymarket
-_POLI_TOPICS = {"recessione USA": "us recession 2026", "conflitto/guerra": "war conflict 2026",
-                "Iran-Israele": "iran israel strike", "Cina-Taiwan/dazi": "china taiwan tariff"}
+# topic di rischio geopolitico monitorati su Polymarket.
+# Query rimisurate dal vivo l'11/09 col filtro qui sotto: "war conflict 2026", "iran israel
+# strike" e "china taiwan tariff" non restituivano NESSUN mercato aperto pertinente fra i
+# primi 8 risultati (solo mercati risolti e partite); queste trovano mercati veri e aperti
+# ("Will the US officially declare war on Iran by December 31, 2026?", "Will China invade
+# Taiwan by end of 2026?").
+_POLI_TOPICS = {"recessione USA": "us recession 2026", "conflitto/guerra": "war 2026",
+                "Iran-Israele": "iran war 2026", "Cina-Taiwan/dazi": "china taiwan 2026"}
+
+# Audit run 10/09 (Fable 5.1, memo #54): il tool espande la query coi sinonimi e aggiunge i
+# mercati piu' scambiati del giorno; qui si prendeva il massimo "Yes" fra TUTTI i risultati.
+# Misurato dal vivo l'11/09: "recessione USA" -> 0,995 da una partita di calcio (Sevilla-
+# Valencia), gli altri tre temi -> 1,0 da mercati gia' RISOLTI nel 2025/inizio 2026 (parole
+# di un podcast, "Israel strikes Iran by February 28", dazi di aprile 2025), mentre il
+# mercato vero "US recession by end of 2026?" stava a 0,07. Il cruscotto del memo #54 e'
+# uscito "EVENTI CRITICI 78/100" su quattro 100% costruiti su nulla.
+# Un mercato conta per un tema solo se: la sua DOMANDA parla del tema (ogni alternativa =
+# tutti i termini presenti, a confine di parola), la data di chiusura e' futura, il prezzo
+# non e' gia' 0/1 (risolto). I mercati di "menzione" (Will X say ...) sono scommesse sulle
+# parole di un discorso, non rischio di coda. Fra i validi vince il PIU' SCAMBIATO, non il
+# piu' alto: il numero del cruscotto e' quello che il mercato prezza davvero.
+_POLI_TERMINI = {
+    "recessione USA": (("recession",),),
+    # niente "ceasefire": la probabilita' di una TREGUA misura la pace, non la coda
+    "conflitto/guerra": (("war",), ("conflict",), ("invasion",), ("invade",), ("attack",)),
+    # niente coppia nuda (iran, israel): "Will Israel reopen its embassy in Iran" non e' rischio
+    "Iran-Israele": (("iran", "war"), ("iran", "strike"), ("iran", "attack"),
+                     ("israel", "strike"), ("israel", "attack")),
+    "Cina-Taiwan/dazi": (("china", "taiwan"), ("china", "tariff"), ("taiwan", "invade"),
+                         ("taiwan", "invasion")),
+}
+_POLI_MENZIONE = ("say", "said", "mention", "mentions")
 
 
+def _poli_termini_ok(question, alternative):
+    """True se la domanda parla del tema. Un tema SENZA termini dichiarati non filtra
+    (accetta ogni domanda che non sia di menzione): il vincolo lo mette chi scrive il tema."""
+    import re as _re
+    q = str(question or "").lower()
+    if any(_re.search(r"\b" + w + r"\b", q) for w in _POLI_MENZIONE):
+        return False
+    if not alternative:
+        return True
+    # "s?" = plurale/terza persona: "strikes", "attacks", "invades", "conflicts"
+    return any(all(_re.search(r"\b" + _re.escape(t) + r"s?\b", q) for t in alt) for alt in alternative)
+
+
+def _poli_data_futura(end_date, adesso):
+    from datetime import datetime as _dt, timezone as _tz
+    s = str(end_date or "").strip()
+    if not s:
+        return False
+    try:
+        d = _dt.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=_tz.utc)
+    return d > adesso
+
+
+def _poli_scegli_mercato(risultati, alternative, adesso, esclusi=()):
+    """(prob_yes, {question, end_date, volume_24h}, n_scartati) fra i mercati VALIDI del tema:
+    vince il piu' scambiato (volume 24h), a parita' il Yes piu' alto. Nessun mercato valido
+    -> (None, None, n_scartati): il tema esce n.d., non con un numero preso a caso.
+    `esclusi` = domande gia' usate da un altro tema: un mercato conta per UN tema solo."""
+    import json as _json
+    scelto = None
+    n_scartati = 0
+    esclusi = {str(x).strip().lower() for x in (esclusi or ())}
+    for ev in risultati or []:
+        if not isinstance(ev, dict):
+            continue
+        mkts = ev.get("markets") if ev.get("markets") else [ev]
+        for m in (mkts or []):
+            if not isinstance(m, dict):
+                continue
+            outs = m.get("outcomes")
+            prs = m.get("prices") or m.get("outcomePrices")
+            try:
+                if isinstance(outs, str):
+                    outs = _json.loads(outs)
+                if isinstance(prs, str):
+                    prs = _json.loads(prs)
+            except (ValueError, TypeError):
+                n_scartati += 1
+                continue
+            if not outs or not prs:
+                continue
+            yes = None
+            for o, pr in zip(outs, prs):
+                if str(o).lower() in ("yes", "si", "sì"):
+                    try:
+                        yes = _finite_number(float(pr))
+                    except (TypeError, ValueError):
+                        yes = None
+            if yes is None:
+                n_scartati += 1
+                continue
+            question = m.get("question") or ev.get("title")
+            end_date = m.get("end_date") or ev.get("end_date")
+            if (not (0.0 < yes < 1.0) or not _poli_data_futura(end_date, adesso)
+                    or not _poli_termini_ok(question, alternative)
+                    or str(question or "").strip().lower() in esclusi):
+                n_scartati += 1
+                continue
+            vol = _finite_number(m.get("volume_24h"))
+            if vol is None:
+                vol = _finite_number(ev.get("volume_24h"))
+            chiave = (vol if vol is not None else -1.0, yes)
+            if scelto is None or chiave > scelto[0]:
+                scelto = (chiave, yes, {"question": str(question)[:160], "end_date": end_date,
+                                        "volume_24h": vol})
+    if scelto is None:
+        return None, None, n_scartati
+    return scelto[1], scelto[2], n_scartati
+
+
+@scoped_language
 def politics_score(events_by_topic=None):
-    """Rischio geopolitico dai prezzi dei prediction market. PIU' ALTO = piu' probabilita' di coda."""
+    """Rischio geopolitico dai prezzi dei prediction market. PIU' ALTO = piu' probabilita' di coda.
+    metrics.mercati dice QUALE domanda ha dato il numero; metrics.non_calcolabili i temi senza
+    un mercato aperto pertinente (dichiarati anche in lines, a zero punti e fuori dal massimo)."""
     probs = events_by_topic
+    mercati = {}
+    non_calc = {}
+    scartati = {}
     if probs is None:
         probs = {}
         try:
-            from bellomberg.agents import agent_tools; import json as _json
+            from bellomberg.agents import agent_tools
+            from datetime import datetime as _dt, timezone as _tz
+            adesso = _dt.now(_tz.utc)
+            usati = set()
             for label, q in _POLI_TOPICS.items():
-                best = None
                 try:
                     r = agent_tools.tool_get_polymarket_events(q, max_results=8)
-                    for ev in (r.get("results") or r.get("events") or r.get("markets") or []):
-                        mkts = ev.get("markets") if isinstance(ev, dict) and ev.get("markets") else [ev]
-                        for m in (mkts or []):
-                            outs = m.get("outcomes"); prs = m.get("prices") or m.get("outcomePrices")
-                            if isinstance(outs, str):
-                                outs = _json.loads(outs)
-                            if isinstance(prs, str):
-                                prs = _json.loads(prs)
-                            if outs and prs:
-                                for o, pr in zip(outs, prs):
-                                    if str(o).lower() in ("yes", "si", "sì"):
-                                        val = float(pr)
-                                        best = val if best is None else max(best, val)
-                except Exception:
-                    pass
-                if best is not None:
-                    probs[label] = best
+                    r = r if isinstance(r, dict) else {}
+                    risultati = r.get("results") or r.get("events") or r.get("markets") or []
+                    prob, info, n_sc = _poli_scegli_mercato(risultati, _POLI_TERMINI.get(label, ()),
+                                                            adesso, esclusi=usati)
+                except Exception as e:
+                    non_calc[label] = "tool non disponibile (%s)" % type(e).__name__
+                    continue
+                scartati[label] = n_sc
+                if prob is None:
+                    if risultati or n_sc:
+                        non_calc[label] = "nessun mercato aperto pertinente (%d scartati)" % n_sc
+                    else:
+                        non_calc[label] = str(r.get("error") or "nessun risultato dal tool")[:120]
+                    continue
+                probs[label] = prob
+                mercati[label] = info
+                usati.add(str(info.get("question") or "").strip().lower())
         except Exception:
             return None
     probs = {k: v for k, raw in (probs or {}).items()
@@ -656,13 +794,19 @@ def politics_score(events_by_topic=None):
         lines.append((label, "{:.0f}%".format(pct), p)); pts.append(p)
     if not pts:
         return None
+    # temi senza mercato: riga DICHIARATA a zero punti, fuori dal massimo (regola 14/07)
+    for label, motivo in non_calc.items():
+        lines.append((label + " (n.d.)", motivo[:60], 0))
     score = sum(pts); max_score = len(pts) * 3
-    verdict = _verdict_bands(score, max_score, ["RISCHIO GEOPOL. BASSO", "RISCHIO MODERATO",
-                                                "RISCHIO ELEVATO", "RISCHIO ACUTO"])
+    verdict = _verdict_bands(score, max_score, [_t("RISCHIO GEOPOL. BASSO"), _t("RISCHIO MODERATO"),
+                                                _t("RISCHIO ELEVATO"), _t("RISCHIO ACUTO")])
     return {"domain": "politics", "score": score, "max_score": max_score, "verdict": verdict,
-            "lines": lines, "metrics": {"topics": {k: round(v, 3) for k, v in probs.items()}}}
+            "lines": lines, "metrics": {"topics": {k: round(v, 3) for k, v in probs.items()},
+                                        "mercati": mercati, "non_calcolabili": non_calc,
+                                        "scartati": scartati}}
 
 
+@scoped_language
 def eventdesk_score(portfolio_data=None):
     """Score EVENT DESK (fusione News+Politics 15/07): turbolenza dal flusso
     notizie + rischio di coda dai prediction market in UNA ancora.
@@ -682,16 +826,16 @@ def eventdesk_score(portfolio_data=None):
         lines += [("NEWS | " + l, v, pt) for (l, v, pt) in n["lines"]]
         score += n["score"]; max_score += n["max_score"]
     else:
-        lines.append(("NEWS | score non calcolabile (dichiarato)", "n.d.", 0))
+        lines.append((_t("NEWS | score non calcolabile (dichiarato)"), "n.d.", 0))
     if p:
         lines += [("GEO | " + l, v, pt) for (l, v, pt) in p["lines"]]
         score += p["score"]; max_score += p["max_score"]
     else:
-        lines.append(("GEO | score non calcolabile (dichiarato)", "n.d.", 0))
+        lines.append((_t("GEO | score non calcolabile (dichiarato)"), "n.d.", 0))
     if max_score <= 0:
         return None
-    verdict = _verdict_bands(score, max_score, ["EVENTI CALMI", "EVENTI IN FERMENTO",
-                                                "EVENTI CALDI", "EVENTI CRITICI"])
+    verdict = _verdict_bands(score, max_score, [_t("EVENTI CALMI"), _t("EVENTI IN FERMENTO"),
+                                                _t("EVENTI CALDI"), _t("EVENTI CRITICI")])
     # Opus 4.8 16/07: la copertura news arriva al PM SOLO da qui. news_score la dichiara nel
     # suo verdict, ma quel verdict non lo legge nessuno: qui sotto si ricalcola il proprio, e
     # collect_scoreboard -> PDF/Capo prende solo verdict/score/max_score di 'eventdesk'.
@@ -701,35 +845,41 @@ def eventdesk_score(portfolio_data=None):
     # Forma CORTA di proposito: la colonna Verdetto del PDF e' 7.4cm (~203pt utili), il font
     # e' Helvetica-Bold 8.5 e le celle stringa NON vanno a capo -> un testo lungo sborda
     # sulla colonna accanto. Misurato col font vero, caso peggiore "EVENTI IN FERMENTO":
-    # " (news: fonti mute su 6/6 nomi)" = 216pt SBORDA; questa forma = 181pt, 22pt di
-    # margine. Il dettaglio (quali fonti) resta in lines e in metrics.
+    # " (news: fonti mute su 6/6 nomi)" = 216pt SBORDA; " (news: 2/4 fonti mute)" = 181pt
+    # (misurato 11/09), 22pt di margine. Il dettaglio (quali fonti) resta in lines e metrics.
+    # Audit run 10/09 (Fable 5.1): la forma precedente " (news: fonti mute 6/6)" contava i
+    # NOMI e il PM l'ha letta come "sei fonti mute su sei". Ora si contano le FONTI.
     _mn = (n or {}).get("metrics") or {}
     if _mn.get("copertura") == "PARZIALE":
-        verdict += " (news: fonti mute %s/%s)" % (_mn.get("n_nomi_scoperti", "?"),
-                                                  _mn.get("n_nomi", "?"))
+        _nf, _nc = _mn.get("n_fonti_mute"), _mn.get("n_fonti_candidate")
+        if _nf and _nc:
+            verdict += _t(" (news: %d/%d fonti mute)") % (_nf, _nc)
+        else:
+            verdict += _t(" (news: fonti mute, dettaglio in righe)")
     elif _mn.get("copertura") == "IGNOTA":
-        verdict += " (news: copertura ignota)"
+        verdict += _t(" (news: copertura ignota)")
     return {"domain": "eventdesk", "score": score, "max_score": max_score, "verdict": verdict,
             "lines": lines,
             "metrics": {"news": (n or {}).get("metrics"), "politics": (p or {}).get("metrics")}}
 
 
+@scoped_language
 def format_score_block(score: dict) -> str:
     """Blocco testo compatto da iniettare nel contesto dello specialista."""
     if not score:
         return ""
     L = []
-    L.append("=== SCORE DETERMINISTICO ({}) — calcolato in codice, parti da QUESTO ===".format(score["domain"].upper()))
-    L.append("Verdetto: {} ({}/{} punti rischio; piu' alto = piu' rischio).".format(
+    L.append(_t("=== SCORE DETERMINISTICO ({}) — calcolato in codice, parti da QUESTO ===").format(score["domain"].upper()))
+    L.append(_t("Verdetto: {} ({}/{} punti rischio; piu' alto = piu' rischio).").format(
         score["verdict"], score["score"], score["max_score"]))
     for label, val, pt in score["lines"]:
-        flag = ["ok", "attenzione", "alto", "critico"][min(pt, 3)]
-        L.append("  - {:<26} {:>8}  -> {} punti ({})".format(label, val, pt, flag))
-    L.append("Usa questi numeri come base fattuale: spiega COSA implicano e DOVE intervenire. "
+        flag = ["ok", _t("attenzione"), _t("alto"), _t("critico")][min(pt, 3)]
+        L.append(_t("  - {:<26} {:>8}  -> {} punti ({})").format(label, val, pt, flag))
+    L.append(_t("Usa questi numeri come base fattuale: spiega COSA implicano e DOVE intervenire. "
              "Le metriche di performance (Sharpe, maxDD) sono TRAILING: fotografano il passato, "
              "non lo predicono — su titoli molto scesi dichiarane il limite (dottrina bilaterale "
              "PM 16/07) invece di trattarle come verdetto. "
-             "Se chiami i tool e trovi numeri diversi, dichiara la discrepanza.")
+             "Se chiami i tool e trovi numeri diversi, dichiara la discrepanza."))
     return "\n".join(L)
 
 
@@ -760,6 +910,7 @@ _SCORE_ORDER = ["macro", "quant", "fundamentals", "options", "crypto", "eventdes
 _SCORE_LIVE = ["macro", "quant", "fundamentals", "options", "crypto", "eventdesk"]
 
 
+@scoped_language
 def collect_scoreboard(cache):
     """Da blackboard.data['_score_cache'] -> lista ordinata di righe (label, verdict, score, max).
 
@@ -775,35 +926,36 @@ def collect_scoreboard(cache):
         if not (sc and isinstance(sc, dict) and sc.get("verdict")) and k in _SCORE_LIVE:
             # copre sia la chiave assente sia la chiave presente con valore None
             # (base.py cachea anche i None, regenerate_memo no)
-            rows.append({"key": k, "label": _SCORE_LABELS.get(k, k),
-                         "verdict": "n.d. - score non calcolabile (dichiarato)",
+            rows.append({"key": k, "label": _t(_SCORE_LABELS[k]),
+                         "verdict": _t("n.d. - score non calcolabile (dichiarato)"),
                          "score": None, "max_score": None})
             continue
         if sc and isinstance(sc, dict) and sc.get("verdict"):
-            rows.append({"key": k, "label": _SCORE_LABELS.get(k, k), "verdict": sc.get("verdict"),
+            rows.append({"key": k, "label": _t(_SCORE_LABELS[k]), "verdict": sc.get("verdict"),
                          "score": sc.get("score"), "max_score": sc.get("max_score")})
     return rows
 
 
+@scoped_language
 def format_scoreboard(cache):
     """Blocco testo per il contesto del Capo."""
     rows = collect_scoreboard(cache)
     if not rows:
         return ""
-    L = ["=== CRUSCOTTO SCORING DETERMINISTICO (calcolato in codice dagli specialisti) ===",
-         "Indice 0-100 = score/massimo (piu' alto = piu' rischio). CONFRONTA i domini SOLO "
+    L = [_t("=== CRUSCOTTO SCORING DETERMINISTICO (calcolato in codice dagli specialisti) ==="),
+         _t("Indice 0-100 = score/massimo (piu' alto = piu' rischio). CONFRONTA i domini SOLO "
          "sull'indice: il massimo grezzo cambia col numero di metriche disponibili per "
          "specialista (9/18 e 8/21 valgono 50 e 38, non 'quasi uguale'). "
-         "Bande: <25 basso, 25-50 medio, 50-72 elevato, >=72 critico."]
+         "Bande: <25 basso, 25-50 medio, 50-72 elevato, >=72 critico.")]
     for r in rows:
         mx = r.get("max_score") or 0
         idx = "{:.0f}/100".format(100.0 * r["score"] / mx) if mx else "n.d."
         # senza guardia le righe dichiarate n.d. stamperebbero "(grezzo None/None)":
         # il Capo leggerebbe un artefatto invece di un buco
-        grezzo = "  (grezzo {}/{})".format(r["score"], r["max_score"]) if mx else ""
+        grezzo = _t("  (grezzo {}/{})").format(r["score"], r["max_score"]) if mx else ""
         L.append("  {:<16} {:<34} {:>7}{}".format(
             r["label"], r["verdict"] or "", idx, grezzo))
-    L.append("DEVI sintetizzare questo cruscotto in una sezione dedicata del memo ('Cruscotto di rischio'): "
+    L.append(_t("DEVI sintetizzare questo cruscotto in una sezione dedicata del memo ('Cruscotto di rischio'): "
              "cosa dicono gli score nel loro insieme (regime macro, rischio del book, valutazione, volatilita', "
-             "geopolitica) e come orientano concretamente le decisioni della settimana.")
+             "geopolitica) e come orientano concretamente le decisioni della settimana."))
     return "\n".join(L)

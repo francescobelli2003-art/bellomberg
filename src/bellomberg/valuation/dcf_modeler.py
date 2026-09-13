@@ -13,6 +13,9 @@ Uso:
     from dcf_modeler import build_dcf_excel
     path = build_dcf_excel("NEM", assumptions={"wacc": 0.09, "g_perpetual": 0.025})
 """
+from bellomberg.core.language import scoped_language, text as _lt
+from bellomberg.reporting.i18n_excel import label as _xt
+from bellomberg.reporting.i18n import date_label
 import os
 from datetime import datetime
 
@@ -169,71 +172,71 @@ def _build_cover_sheet(wb, data, assumptions, dcf_result):
     ws = wb.create_sheet("Cover", 0)
     _set_col_widths(ws, {"A": 28, "B": 22, "C": 22, "D": 22})
 
-    ws.cell(row=1, column=1, value="EQUITY RESEARCH | DCF VALUATION").font = TITLE_FONT
+    ws.cell(row=1, column=1, value=_xt("EQUITY RESEARCH | DCF VALUATION")).font = TITLE_FONT
     ws.cell(row=2, column=1, value=data.get("name", data["ticker"])
             + " (" + data["ticker"] + ")").font = Font(name="Calibri", size=14, bold=True, color="1A3A6E")
     ws.cell(row=3, column=1, value=data.get("sector", "") + " / " + data.get("industry", "")).font = SUBTITLE_FONT
-    ws.cell(row=4, column=1, value="Generated " + datetime.now().strftime("%d %b %Y, %H:%M")).font = SUBTITLE_FONT
+    ws.cell(row=4, column=1, value=_xt("Generated ") + date_label() + datetime.now().strftime(", %H:%M")).font = SUBTITLE_FONT
 
     # Box recommendation
-    ws.cell(row=6, column=1, value="VALUATION SUMMARY").font = SECTION_FONT
+    ws.cell(row=6, column=1, value=_xt("VALUATION SUMMARY")).font = SECTION_FONT
     ws.cell(row=6, column=1).fill = HEADER_FILL
 
     rows = [
-        ("Current Price", data.get("current_price"), "${:.2f}".format(data.get("current_price") or 0)),
-        ("DCF Fair Value", dcf_result.get("fair_value_per_share"),
+        (_xt("Current Price"), data.get("current_price"), "${:.2f}".format(data.get("current_price") or 0)),
+        (_xt("DCF Fair Value"), dcf_result.get("fair_value_per_share"),
          "${:.2f}".format(dcf_result.get("fair_value_per_share") or 0)),
-        ("Upside / Downside", dcf_result.get("upside_pct"),
+        (_xt("Upside / Downside"), dcf_result.get("upside_pct"),
          "{:+.1f}%".format(dcf_result.get("upside_pct") or 0)),
-        ("Analyst Mean Target", data.get("target_mean"),
+        (_xt("Analyst Mean Target"), data.get("target_mean"),
          "${:.2f}".format(data.get("target_mean") or 0) if data.get("target_mean") else "N/A"),
-        ("Recommendation (Street)", None, str(data.get("recommendation", "N/A")).upper()),
-        ("# Analysts Covering", data.get("n_analysts"), str(data.get("n_analysts") or "N/A")),
+        (_xt("Recommendation (Street)"), None, str(data.get("recommendation", "N/A")).upper()),
+        (_xt("# Analysts Covering"), data.get("n_analysts"), str(data.get("n_analysts") or "N/A")),
     ]
     for i, (lbl, _val, disp) in enumerate(rows, start=7):
         ws.cell(row=i, column=1, value=lbl).font = BOLD_FONT
         c = ws.cell(row=i, column=2, value=disp)
         c.alignment = Alignment(horizontal="right")
-        if "Upside" in lbl and dcf_result.get("upside_pct") is not None:
+        if _xt("Upside") in lbl and dcf_result.get("upside_pct") is not None:
             color = "00C853" if dcf_result["upside_pct"] > 0 else "D32F2F"
             c.font = Font(name="Calibri", size=11, bold=True, color=color)
 
     # Assumptions sintesi
-    ws.cell(row=15, column=1, value="KEY ASSUMPTIONS").font = SECTION_FONT
+    ws.cell(row=15, column=1, value=_xt("KEY ASSUMPTIONS")).font = SECTION_FONT
     ws.cell(row=15, column=1).fill = HEADER_FILL
     a_rows = [
         ("WACC", "{:.2%}".format(assumptions["wacc"])),
-        ("Perpetual Growth Rate", "{:.2%}".format(assumptions["g_perpetual"])),
-        ("Projection Horizon", "{} years".format(assumptions["horizon_years"])),
+        (_xt("Perpetual Growth Rate"), "{:.2%}".format(assumptions["g_perpetual"])),
+        (_xt("Projection Horizon"), _xt("{} years").format(assumptions["horizon_years"])),
         ("Beta", "{:.2f}".format(data.get("beta") or 1.0)),
-        ("Risk-Free Rate (10Y T)", "{:.2%}".format(assumptions["risk_free"])),
-        ("Equity Risk Premium", "{:.2%}".format(assumptions["erp"])),
+        (_xt("Risk-Free Rate (10Y T)"), "{:.2%}".format(assumptions["risk_free"])),
+        (_xt("Equity Risk Premium"), "{:.2%}".format(assumptions["erp"])),
     ]
     for i, (lbl, val) in enumerate(a_rows, start=16):
         ws.cell(row=i, column=1, value=lbl).font = BOLD_FONT
         ws.cell(row=i, column=2, value=val).alignment = Alignment(horizontal="right")
 
     # Quick fundamentals
-    ws.cell(row=24, column=1, value="SNAPSHOT FUNDAMENTALS (TTM)").font = SECTION_FONT
+    ws.cell(row=24, column=1, value=_xt("SNAPSHOT FUNDAMENTALS (TTM)")).font = SECTION_FONT
     ws.cell(row=24, column=1).fill = HEADER_FILL
     f_rows = [
-        ("Revenue TTM", "${:,.0f}M".format((data.get("revenue_ttm") or 0)/1e6)),
+        (_xt("Revenue TTM"), "${:,.0f}M".format((data.get("revenue_ttm") or 0)/1e6)),
         ("Trailing PE", "{:.1f}x".format(data.get("trailing_pe")) if data.get("trailing_pe") else "N/A"),
         ("Forward PE", "{:.1f}x".format(data.get("forward_pe")) if data.get("forward_pe") else "N/A"),
-        ("EBITDA Margin", "{:.1%}".format(data.get("ebitda_margin") or 0)),
-        ("Operating Margin", "{:.1%}".format(data.get("op_margin") or 0)),
-        ("Net Margin", "{:.1%}".format(data.get("net_margin") or 0)),
+        (_xt("EBITDA Margin"), "{:.1%}".format(data.get("ebitda_margin") or 0)),
+        (_xt("Operating Margin"), "{:.1%}".format(data.get("op_margin") or 0)),
+        (_xt("Net Margin"), "{:.1%}".format(data.get("net_margin") or 0)),
         ("ROE", "{:.1%}".format(data.get("roe") or 0)),
-        ("Debt / Equity", "{:.2f}".format((data.get("debt_to_equity") or 0)/100)),
+        (_xt("Debt / Equity"), "{:.2f}".format((data.get("debt_to_equity") or 0)/100)),
         ("FCF (TTM)", "${:,.0f}M".format((data.get("free_cashflow") or 0)/1e6)),
-        ("Market Cap", "${:,.0f}M".format((data.get("market_cap") or 0)/1e6)),
-        ("Enterprise Value", "${:,.0f}M".format((data.get("enterprise_value") or 0)/1e6)),
+        (_xt("Market Cap"), "${:,.0f}M".format((data.get("market_cap") or 0)/1e6)),
+        (_xt("Enterprise Value"), "${:,.0f}M".format((data.get("enterprise_value") or 0)/1e6)),
     ]
     for i, (lbl, val) in enumerate(f_rows, start=25):
         ws.cell(row=i, column=1, value=lbl).font = NORMAL_FONT
         ws.cell(row=i, column=2, value=val).alignment = Alignment(horizontal="right")
 
-    ws.cell(row=37, column=1, value="DISCLAIMER: Model generated automatically. Assumptions in yellow cells are editable. WACC and perpetual growth on Sensitivity tab drive DCF valuation.").font = Font(size=8, italic=True, color="888888")
+    ws.cell(row=37, column=1, value=_xt("DISCLAIMER: Model generated automatically. Assumptions in yellow cells are editable. WACC and perpetual growth on Sensitivity tab drive DCF valuation.")).font = Font(size=8, italic=True, color="888888")
 
 
 def _build_income_statement(wb, data, assumptions):
@@ -241,7 +244,7 @@ def _build_income_statement(wb, data, assumptions):
     ws = wb.create_sheet("Income Statement")
     _set_col_widths(ws, {"A": 28, "B": 12, "C": 12, "D": 12, "E": 12, "F": 12, "G": 12, "H": 12, "I": 12, "J": 12, "K": 12, "L": 12})
 
-    ws.cell(row=1, column=1, value="INCOME STATEMENT - Historical + Projected (USD millions)").font = TITLE_FONT
+    ws.cell(row=1, column=1, value=_xt("INCOME STATEMENT - Historical + Projected (USD millions)")).font = TITLE_FONT
 
     current_year = datetime.now().year
     hist_years = [current_year - 5, current_year - 4, current_year - 3, current_year - 2, current_year - 1]
@@ -249,7 +252,7 @@ def _build_income_statement(wb, data, assumptions):
     all_years = hist_years + proj_years
 
     # Header
-    headers = ["Line Item ($M)"] + [str(y) + ("E" if y in proj_years else "A") for y in all_years]
+    headers = [_xt("Line Item ($M)")] + [str(y) + ("E" if y in proj_years else "A") for y in all_years]
     _header_row(ws, 3, headers)
 
     # Highlight years projected
@@ -295,7 +298,7 @@ def _build_income_statement(wb, data, assumptions):
     all_revs = rev_row + rev_proj
 
     # Riga 4: Revenue
-    _label_row(ws, 4, "Revenue")
+    _label_row(ws, 4, _xt("Revenue"))
     for i, v in enumerate(all_revs, start=2):
         c = ws.cell(row=4, column=i, value=(round(v, 1) if v else None))
         c.number_format = "#,##0.0"
@@ -303,7 +306,7 @@ def _build_income_statement(wb, data, assumptions):
             c.fill = PROJ_FILL
 
     # Riga 5: % growth
-    _label_row(ws, 5, "% YoY Growth")
+    _label_row(ws, 5, _xt("% YoY Growth"))
     for i in range(2, len(all_revs) + 2):
         if i == 2:
             continue
@@ -322,8 +325,8 @@ def _build_income_statement(wb, data, assumptions):
     nm = data.get("net_margin") or 0.10
 
     # Riga 7: Gross Profit
-    _label_row(ws, 7, "Gross Profit")
-    ws.cell(row=8, column=1, value="  Gross Margin %").font = NORMAL_FONT
+    _label_row(ws, 7, _xt("Gross Profit"))
+    ws.cell(row=8, column=1, value=_xt("  Gross Margin %")).font = NORMAL_FONT
     for i in range(2, len(all_revs) + 2):
         rev_ref = ws.cell(row=4, column=i).coordinate
         gm_ref = ws.cell(row=8, column=i).coordinate
@@ -338,7 +341,7 @@ def _build_income_statement(wb, data, assumptions):
 
     # Riga 10: EBITDA
     _label_row(ws, 10, "EBITDA")
-    ws.cell(row=11, column=1, value="  EBITDA Margin %").font = NORMAL_FONT
+    ws.cell(row=11, column=1, value=_xt("  EBITDA Margin %")).font = NORMAL_FONT
     for i in range(2, len(all_revs) + 2):
         rev_ref = ws.cell(row=4, column=i).coordinate
         em_ref = ws.cell(row=11, column=i).coordinate
@@ -351,7 +354,7 @@ def _build_income_statement(wb, data, assumptions):
 
     # Riga 13: Operating Income (EBIT)
     _label_row(ws, 13, "EBIT")
-    ws.cell(row=14, column=1, value="  EBIT Margin %").font = NORMAL_FONT
+    ws.cell(row=14, column=1, value=_xt("  EBIT Margin %")).font = NORMAL_FONT
     for i in range(2, len(all_revs) + 2):
         rev_ref = ws.cell(row=4, column=i).coordinate
         om_ref = ws.cell(row=14, column=i).coordinate
@@ -363,8 +366,8 @@ def _build_income_statement(wb, data, assumptions):
             c_ebit.fill = PROJ_FILL
 
     # Riga 16: Net Income
-    _label_row(ws, 16, "Net Income")
-    ws.cell(row=17, column=1, value="  Net Margin %").font = NORMAL_FONT
+    _label_row(ws, 16, _xt("Net Income"))
+    ws.cell(row=17, column=1, value=_xt("  Net Margin %")).font = NORMAL_FONT
     for i in range(2, len(all_revs) + 2):
         rev_ref = ws.cell(row=4, column=i).coordinate
         nm_ref = ws.cell(row=17, column=i).coordinate
@@ -377,8 +380,8 @@ def _build_income_statement(wb, data, assumptions):
 
     # Footer note
     ws.cell(row=20, column=1,
-            value="Note: Yellow cells (margins) are EDITABLE - modify to test scenarios. "
-                  "Projected revenue uses linear-taper growth from current YoY rate to perpetual growth.").font = Font(size=9, italic=True, color="555555")
+            value=_xt("Note: Yellow cells (margins) are EDITABLE - modify to test scenarios. "
+                  "Projected revenue uses linear-taper growth from current YoY rate to perpetual growth.")).font = Font(size=9, italic=True, color="555555")
 
 
 def _build_fcf_bridge(wb, data, assumptions):
@@ -386,24 +389,24 @@ def _build_fcf_bridge(wb, data, assumptions):
     ws = wb.create_sheet("FCF Bridge")
     _set_col_widths(ws, {"A": 28, "B": 14, "C": 14, "D": 14, "E": 14, "F": 14})
 
-    ws.cell(row=1, column=1, value="FREE CASH FLOW BRIDGE - Projected ($M)").font = TITLE_FONT
+    ws.cell(row=1, column=1, value=_xt("FREE CASH FLOW BRIDGE - Projected ($M)")).font = TITLE_FONT
 
     current_year = datetime.now().year
     proj_years = list(range(current_year, current_year + assumptions["horizon_years"]))
-    headers = ["Line Item"] + [str(y) + "E" for y in proj_years]
+    headers = [_xt("Line Item")] + [str(y) + "E" for y in proj_years]
     _header_row(ws, 3, headers)
 
     # Link EBITDA da Income Statement
     rows_def = [
-        ("EBITDA (from IS)", "=", "'Income Statement'!{col}10"),
-        ("- D&A (% of revenue)", "input", 0.04),
+        (_xt("EBITDA (from IS)"), "=", "'Income Statement'!{col}10"),
+        (_xt("- D&A (% of revenue)"), "input", 0.04),
         ("EBIT", "calc", "=EBITDA - D&A"),
-        ("- Taxes (% of EBIT)", "input", 0.25),
+        (_xt("- Taxes (% of EBIT)"), "input", 0.25),
         ("NOPAT", "calc", "=EBIT * (1-tax)"),
-        ("+ D&A (add back)", "link", "= D&A"),
-        ("- CapEx (% of revenue)", "input", 0.06),
-        ("- Change in Working Capital (% of revenue)", "input", 0.02),
-        ("Free Cash Flow", "calc", "FCF"),
+        (_xt("+ D&A (add back)"), "link", "= D&A"),
+        (_xt("- CapEx (% of revenue)"), "input", 0.06),
+        (_xt("- Change in Working Capital (% of revenue)"), "input", 0.02),
+        (_xt("Free Cash Flow"), "calc", "FCF"),
     ]
 
     # Riga EBITDA - link da IS!
@@ -425,7 +428,7 @@ def _build_fcf_bridge(wb, data, assumptions):
         c = ws.cell(row=4, column=i, value="=" + ref); c.number_format = "#,##0.0"; c.fill = PROJ_FILL
 
     # D&A as % of revenue
-    _label_row(ws, 5, "(-) D&A (% rev)")
+    _label_row(ws, 5, _xt("(-) D&A (% rev)"))
     ws.cell(row=5, column=1).font = BOLD_FONT
     for i, ref in enumerate(revenue_is_cols, start=2):
         c = ws.cell(row=5, column=i, value=0.04); c.number_format = "0.0%"; c.fill = INPUT_FILL
@@ -441,7 +444,7 @@ def _build_fcf_bridge(wb, data, assumptions):
         c = ws.cell(row=7, column=i, value="={}-{}".format(ws.cell(row=4, column=i).coordinate, ws.cell(row=6, column=i).coordinate))
         c.number_format = "#,##0.0"
 
-    _label_row(ws, 8, "Tax Rate")
+    _label_row(ws, 8, _xt("Tax Rate"))
     ws.cell(row=8, column=1).font = BOLD_FONT
     for i in range(2, len(revenue_is_cols)+2):
         c = ws.cell(row=8, column=i, value=0.25); c.number_format = "0.0%"; c.fill = INPUT_FILL
@@ -451,12 +454,12 @@ def _build_fcf_bridge(wb, data, assumptions):
         c = ws.cell(row=9, column=i, value="={}*(1-{})".format(ws.cell(row=7, column=i).coordinate, ws.cell(row=8, column=i).coordinate))
         c.number_format = "#,##0.0"
 
-    _label_row(ws, 10, "(+) D&A (add back)")
+    _label_row(ws, 10, _xt("(+) D&A (add back)"))
     for i in range(2, len(revenue_is_cols)+2):
         c = ws.cell(row=10, column=i, value="=" + ws.cell(row=6, column=i).coordinate)
         c.number_format = "#,##0.0"
 
-    _label_row(ws, 11, "(-) CapEx (% rev)")
+    _label_row(ws, 11, _xt("(-) CapEx (% rev)"))
     ws.cell(row=11, column=1).font = BOLD_FONT
     for i in range(2, len(revenue_is_cols)+2):
         c = ws.cell(row=11, column=i, value=0.06); c.number_format = "0.0%"; c.fill = INPUT_FILL
@@ -467,19 +470,19 @@ def _build_fcf_bridge(wb, data, assumptions):
         c = ws.cell(row=12, column=i, value="=" + rev + "*" + ws.cell(row=11, column=i).coordinate)
         c.number_format = "#,##0.0"
 
-    _label_row(ws, 13, "(-) Change in NWC (% rev)")
+    _label_row(ws, 13, _xt("(-) Change in NWC (% rev)"))
     ws.cell(row=13, column=1).font = BOLD_FONT
     for i in range(2, len(revenue_is_cols)+2):
         c = ws.cell(row=13, column=i, value=0.02); c.number_format = "0.0%"; c.fill = INPUT_FILL
 
-    _label_row(ws, 14, "Change in NWC")
+    _label_row(ws, 14, _xt("Change in NWC"))
     for i in range(2, len(revenue_is_cols)+2):
         rev = revenue_is_cols[i-2]
         c = ws.cell(row=14, column=i, value="=" + rev + "*" + ws.cell(row=13, column=i).coordinate)
         c.number_format = "#,##0.0"
 
     # FCF
-    _label_row(ws, 16, "FREE CASH FLOW")
+    _label_row(ws, 16, _xt("FREE CASH FLOW"))
     ws.cell(row=16, column=1).font = Font(name="Calibri", size=11, bold=True, color="1A3A6E")
     for i in range(2, len(revenue_is_cols)+2):
         c = ws.cell(row=16, column=i, value="={}+{}-{}-{}".format(
@@ -497,24 +500,24 @@ def _build_dcf(wb, data, assumptions):
     ws = wb.create_sheet("DCF")
     _set_col_widths(ws, {"A": 32, "B": 14, "C": 14, "D": 14, "E": 14, "F": 14, "G": 14})
 
-    ws.cell(row=1, column=1, value="DCF VALUATION").font = TITLE_FONT
+    ws.cell(row=1, column=1, value=_xt("DCF VALUATION")).font = TITLE_FONT
 
     current_year = datetime.now().year
     proj_years = list(range(current_year, current_year + assumptions["horizon_years"]))
 
     # WACC input
-    ws.cell(row=3, column=1, value="WACC INPUTS").font = SECTION_FONT
+    ws.cell(row=3, column=1, value=_xt("WACC INPUTS")).font = SECTION_FONT
     ws.cell(row=3, column=1).fill = HEADER_FILL
     rows_inputs = [
-        ("Risk-Free Rate (10Y T)", assumptions["risk_free"], "0.00%"),
-        ("Equity Risk Premium", assumptions["erp"], "0.00%"),
+        (_xt("Risk-Free Rate (10Y T)"), assumptions["risk_free"], "0.00%"),
+        (_xt("Equity Risk Premium"), assumptions["erp"], "0.00%"),
         ("Beta", data.get("beta") or 1.0, "0.00"),
-        ("Cost of Equity (Ke)", "={}+{}*{}".format("B4","B5","B6"), "0.00%"),
-        ("Cost of Debt (after tax)", 0.04, "0.00%"),
-        ("Debt Weight", 0.30, "0.00%"),
-        ("Equity Weight", 0.70, "0.00%"),
+        (_xt("Cost of Equity (Ke)"), "={}+{}*{}".format("B4","B5","B6"), "0.00%"),
+        (_xt("Cost of Debt (after tax)"), 0.04, "0.00%"),
+        (_xt("Debt Weight"), 0.30, "0.00%"),
+        (_xt("Equity Weight"), 0.70, "0.00%"),
         ("WACC", "=B10*B7+B9*B8", "0.00%"),
-        ("Perpetual Growth", assumptions["g_perpetual"], "0.00%"),
+        (_xt("Perpetual Growth"), assumptions["g_perpetual"], "0.00%"),
     ]
     for i, (lbl, val, fmt) in enumerate(rows_inputs, start=4):
         ws.cell(row=i, column=1, value=lbl).font = BOLD_FONT
@@ -524,28 +527,28 @@ def _build_dcf(wb, data, assumptions):
             c.fill = INPUT_FILL
 
     # Periodi DCF
-    ws.cell(row=15, column=1, value="DCF CALCULATION").font = SECTION_FONT
+    ws.cell(row=15, column=1, value=_xt("DCF CALCULATION")).font = SECTION_FONT
     ws.cell(row=15, column=1).fill = HEADER_FILL
 
-    headers = ["Year"] + [str(y) + "E" for y in proj_years]
+    headers = [_xt("Year")] + [str(y) + "E" for y in proj_years]
     _header_row(ws, 16, headers)
 
     # FCF link da FCF Bridge
-    _label_row(ws, 17, "FCF (from FCF Bridge)")
+    _label_row(ws, 17, _xt("FCF (from FCF Bridge)"))
     for i, _y in enumerate(proj_years, start=2):
         fcf_col = get_column_letter(i)
         c = ws.cell(row=17, column=i, value="='FCF Bridge'!{}16".format(fcf_col))
         c.number_format = "#,##0.0"
 
     # Discount factor
-    _label_row(ws, 18, "Discount Factor")
+    _label_row(ws, 18, _xt("Discount Factor"))
     for i, _y in enumerate(proj_years, start=2):
         period = i - 1
         c = ws.cell(row=18, column=i, value="=1/(1+$B$11)^{}".format(period))
         c.number_format = "0.0000"
 
     # PV FCF
-    _label_row(ws, 19, "PV of FCF")
+    _label_row(ws, 19, _xt("PV of FCF"))
     for i in range(2, len(proj_years)+2):
         c = ws.cell(row=19, column=i, value="={}*{}".format(
             ws.cell(row=17, column=i).coordinate,
@@ -555,47 +558,47 @@ def _build_dcf(wb, data, assumptions):
 
     # Sum of PV
     last_proj_col = get_column_letter(1 + len(proj_years))
-    ws.cell(row=21, column=1, value="Sum of PV (FCF)").font = BOLD_FONT
+    ws.cell(row=21, column=1, value=_xt("Sum of PV (FCF)")).font = BOLD_FONT
     ws.cell(row=21, column=2, value="=SUM(B19:{}19)".format(last_proj_col)).number_format = "#,##0.0"
 
     # Terminal Value
-    ws.cell(row=22, column=1, value="Terminal Value = FCFn * (1+g) / (WACC-g)").font = BOLD_FONT
+    ws.cell(row=22, column=1, value=_xt("Terminal Value = FCFn * (1+g) / (WACC-g)")).font = BOLD_FONT
     last_fcf = ws.cell(row=17, column=1+len(proj_years)).coordinate
     ws.cell(row=22, column=2, value="={}*(1+$B$12)/($B$11-$B$12)".format(last_fcf)).number_format = "#,##0.0"
 
-    ws.cell(row=23, column=1, value="PV of Terminal Value").font = BOLD_FONT
+    ws.cell(row=23, column=1, value=_xt("PV of Terminal Value")).font = BOLD_FONT
     ws.cell(row=23, column=2, value="=B22*{}".format(ws.cell(row=18, column=1+len(proj_years)).coordinate)).number_format = "#,##0.0"
 
     # Enterprise Value -> Equity -> Fair Value/share
-    ws.cell(row=25, column=1, value="Enterprise Value").font = SECTION_FONT
+    ws.cell(row=25, column=1, value=_xt("Enterprise Value")).font = SECTION_FONT
     ws.cell(row=25, column=1).fill = HEADER_FILL
     ws.cell(row=25, column=2, value="=B21+B23").number_format = "#,##0.0"
     ws.cell(row=25, column=2).font = HEADER_FONT
     ws.cell(row=25, column=2).fill = HEADER_FILL
 
-    ws.cell(row=26, column=1, value="(-) Net Debt ($M)").font = BOLD_FONT
+    ws.cell(row=26, column=1, value=_xt("(-) Net Debt ($M)")).font = BOLD_FONT
     net_debt = ((data.get("total_debt") or 0) - (data.get("total_cash") or 0)) / 1e6
     ws.cell(row=26, column=2, value=net_debt).number_format = "#,##0.0"
     ws.cell(row=26, column=2).fill = INPUT_FILL
 
-    ws.cell(row=27, column=1, value="Equity Value").font = BOLD_FONT
+    ws.cell(row=27, column=1, value=_xt("Equity Value")).font = BOLD_FONT
     ws.cell(row=27, column=2, value="=B25-B26").number_format = "#,##0.0"
 
-    ws.cell(row=28, column=1, value="Shares Outstanding (M)").font = BOLD_FONT
+    ws.cell(row=28, column=1, value=_xt("Shares Outstanding (M)")).font = BOLD_FONT
     shares_m = (data.get("shares_outstanding") or 0) / 1e6
     ws.cell(row=28, column=2, value=shares_m).number_format = "#,##0.0"
     ws.cell(row=28, column=2).fill = INPUT_FILL
 
-    ws.cell(row=29, column=1, value="FAIR VALUE PER SHARE").font = Font(name="Calibri", size=12, bold=True, color="1A3A6E")
+    ws.cell(row=29, column=1, value=_xt("FAIR VALUE PER SHARE")).font = Font(name="Calibri", size=12, bold=True, color="1A3A6E")
     c_fv = ws.cell(row=29, column=2, value="=B27/B28")
     c_fv.number_format = "$#,##0.00"
     c_fv.font = Font(name="Calibri", size=14, bold=True, color="00C853")
     c_fv.fill = PatternFill("solid", fgColor="E8F5E9")
 
-    ws.cell(row=30, column=1, value="Current Price").font = BOLD_FONT
+    ws.cell(row=30, column=1, value=_xt("Current Price")).font = BOLD_FONT
     ws.cell(row=30, column=2, value=data.get("current_price") or 0).number_format = "$#,##0.00"
 
-    ws.cell(row=31, column=1, value="Upside / Downside %").font = BOLD_FONT
+    ws.cell(row=31, column=1, value=_xt("Upside / Downside %")).font = BOLD_FONT
     c_up = ws.cell(row=31, column=2, value="=(B29-B30)/B30")
     c_up.number_format = "0.0%"
     c_up.font = Font(name="Calibri", size=12, bold=True)
@@ -647,8 +650,8 @@ def _build_sensitivity(wb, data, assumptions):
     ws = wb.create_sheet("Sensitivity")
     _set_col_widths(ws, {"A": 22, "B": 14, "C": 14, "D": 14, "E": 14, "F": 14, "G": 14, "H": 14})
 
-    ws.cell(row=1, column=1, value="SENSITIVITY ANALYSIS - Fair Value per Share").font = TITLE_FONT
-    ws.cell(row=2, column=1, value="Matrix: WACC (rows) x Perpetual Growth (columns)").font = SUBTITLE_FONT
+    ws.cell(row=1, column=1, value=_xt("SENSITIVITY ANALYSIS - Fair Value per Share")).font = TITLE_FONT
+    ws.cell(row=2, column=1, value=_xt("Matrix: WACC (rows) x Perpetual Growth (columns)")).font = SUBTITLE_FONT
 
     wacc_values = [0.07, 0.08, 0.09, 0.10, 0.11, 0.12, 0.13]
     g_values = [0.01, 0.02, 0.025, 0.03, 0.035, 0.04]
@@ -725,9 +728,9 @@ def _build_sensitivity(wb, data, assumptions):
     # Current price reference
     cp = data.get("current_price")
     if cp:
-        ws.cell(row=14, column=1, value="Current Price").font = BOLD_FONT
+        ws.cell(row=14, column=1, value=_xt("Current Price")).font = BOLD_FONT
         ws.cell(row=14, column=2, value=cp).number_format = "$#,##0.00"
-        ws.cell(row=15, column=1, value="Color: red = downside, green = upside vs current price").font = Font(size=9, italic=True, color="555555")
+        ws.cell(row=15, column=1, value=_xt("Color: red = downside, green = upside vs current price")).font = Font(size=9, italic=True, color="555555")
 
 
 def _build_multiples(wb, data, assumptions):
@@ -735,10 +738,10 @@ def _build_multiples(wb, data, assumptions):
     ws = wb.create_sheet("Multiples")
     _set_col_widths(ws, {"A": 28, "B": 18, "C": 18, "D": 18})
 
-    ws.cell(row=1, column=1, value="MULTIPLES CROSS-CHECK").font = TITLE_FONT
-    ws.cell(row=2, column=1, value="Current company multiples vs typical sector ranges").font = SUBTITLE_FONT
+    ws.cell(row=1, column=1, value=_xt("MULTIPLES CROSS-CHECK")).font = TITLE_FONT
+    ws.cell(row=2, column=1, value=_xt("Current company multiples vs typical sector ranges")).font = SUBTITLE_FONT
 
-    _header_row(ws, 4, ["Multiple", "Company", "Sector Typical Range", "Implied Fair Value"])
+    _header_row(ws, 4, [_xt("Multiple"), _xt("Company"), _xt("Sector Typical Range"), _xt("Implied Fair Value")])
 
     rows = [
         # audit/11 §4: la chiave enterprise_value esiste SEMPRE (spesso None) -> il default
@@ -747,14 +750,14 @@ def _build_multiples(wb, data, assumptions):
          (data["enterprise_value"] / (data["revenue_ttm"] * data["ebitda_margin"]))
          if (data.get("enterprise_value") and data.get("revenue_ttm") and data.get("ebitda_margin")) else None,
          "10-14x"),
-        ("EV / Sales (TTM)",
+        (_xt("EV / Sales (TTM)"),
          (data["enterprise_value"] / data["revenue_ttm"])
          if (data.get("enterprise_value") and data.get("revenue_ttm")) else None,
          "1.5-3.5x"),
         ("Trailing P/E", data.get("trailing_pe"), "15-22x"),
         ("Forward P/E", data.get("forward_pe"), "13-18x"),
-        ("Price / Sales", None, "1-4x"),  # avere market_cap / revenue
-        ("ROE", data.get("roe"), ">15% = quality"),
+        (_xt("Price / Sales"), None, "1-4x"),  # avere market_cap / revenue
+        ("ROE", data.get("roe"), _xt(">15% = quality")),
     ]
     for i, (lbl, val, sect) in enumerate(rows, start=5):
         ws.cell(row=i, column=1, value=lbl).font = NORMAL_FONT
@@ -762,26 +765,27 @@ def _build_multiples(wb, data, assumptions):
         if isinstance(val, (int, float)):
             if "ROE" in lbl:
                 c.number_format = "0.0%"
-            elif "EBITDA" in lbl or "Sales" in lbl or "P/E" in lbl or "Sales" in lbl:
+            elif "EBITDA" in lbl or _xt("Sales") in lbl or "P/E" in lbl or _xt("Sales") in lbl:
                 c.number_format = "0.0\"x\""
         c.alignment = Alignment(horizontal="right")
         ws.cell(row=i, column=3, value=sect).alignment = Alignment(horizontal="center")
         # Implied FV column placeholder
-        ws.cell(row=i, column=4, value="See DCF tab")
+        ws.cell(row=i, column=4, value=_xt("See DCF tab"))
 
-    ws.cell(row=13, column=1, value="Note: Multiples are TTM. Sector ranges are illustrative - verify vs actual peer set.").font = Font(size=9, italic=True, color="555555")
+    ws.cell(row=13, column=1, value=_xt("Note: Multiples are TTM. Sector ranges are illustrative - verify vs actual peer set.")).font = Font(size=9, italic=True, color="555555")
 
 
 # ============================================================
 # MAIN ENTRY
 # ============================================================
 
+@scoped_language
 def build_dcf_excel(ticker, assumptions=None, output_path=None):
     """Genera l'Excel DCF completo. Ritorna il path del file."""
     if not OPENPYXL_AVAILABLE:
-        return {"error": "openpyxl non installato"}
+        return {"error": _xt("openpyxl non installato")}
     if not YFINANCE_AVAILABLE:
-        return {"error": "yfinance non installato"}
+        return {"error": _xt("yfinance non installato")}
 
     os.makedirs(MODELS_DIR, exist_ok=True)
 
@@ -797,16 +801,16 @@ def build_dcf_excel(ticker, assumptions=None, output_path=None):
         default_assumptions.update(assumptions)
     assumptions = default_assumptions
 
-    print("[DCF] Fetching " + ticker)
+    print(_xt("[DCF] Fetching ") + ticker)
     data = _fetch_fundamentals(ticker)
     if not data or "error" in data:
-        return {"error": "Fetch failed for " + ticker + ": " + str(data.get("error") if data else "no data")}
+        return {"error": _xt("Fetch failed for ") + ticker + ": " + str(data.get("error") if data else _xt("no data"))}
 
     if not output_path:
         output_path = os.path.join(MODELS_DIR,
                                     "DCF_" + ticker + "_" + datetime.now().strftime("%Y%m%d_%H%M") + ".xlsx")
 
-    print("[DCF] Building Excel workbook")
+    print(_xt("[DCF] Building Excel workbook"))
     wb = Workbook()
     # Default sheet creato in automatico - lo rimuovo
     if "Sheet" in wb.sheetnames:
@@ -824,7 +828,7 @@ def build_dcf_excel(ticker, assumptions=None, output_path=None):
     wb.move_sheet("Cover", offset=-(wb.sheetnames.index("Cover")))
 
     wb.save(output_path)
-    print("[DCF] Saved: " + output_path)
+    print(_xt("[DCF] Saved: ") + output_path)
     return {"path": output_path, "ticker": ticker,
             "fair_value": dcf_result.get("fair_value_per_share"),
             "upside_pct": dcf_result.get("upside_pct")}

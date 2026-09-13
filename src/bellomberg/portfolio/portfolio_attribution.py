@@ -27,6 +27,8 @@ Convenzioni DICHIARATE (regola no-fallback 14/07):
 - bucket economico = portfolio_sectors.econ_bucket_for: la STESSA funzione
   dell'esposizione (un solo asse, mai divergenze zitte).
 """
+from bellomberg.core.presentation import message as _message, render_payload, join_messages, error_text
+
 import math
 import time
 from datetime import datetime, timedelta
@@ -37,7 +39,7 @@ import bellomberg.storage.classificazione as cl
 # mattoni riusati dalla ricostruzione NAV (zero duplicazione)
 from bellomberg.portfolio.portfolio_analytics import (
     NUMPY_OK, YF_OK, prezzi_speciali,
-    _trade_history, _build_position_timeline, _qty_at, _valid_iso,
+    _trade_history, _opening_positions, _build_position_timeline, _qty_at, _valid_iso,
     _download_prices_for_history, _build_fx_history, _currency_labels_for_tickers,
 )
 from bellomberg.portfolio.portfolio_sectors import get_sector_map, econ_bucket_for, nota_negozio
@@ -106,12 +108,42 @@ def compute_attribution(period: str = "YTD",
                         prices=None, fx=None,
                         official_series: Optional[Dict[str, Any]] = None,
                         fetch=None,
-                        force: bool = False) -> Dict[str, Any]:
-    """Contribution attribution del periodo. trades/prices/fx/official_series/fetch
-    iniettabili per i test (default: DB + yfinance + twr_engine)."""
+                        force: bool = False,
+                        openings: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Contribution attribution del periodo. Dipendenze iniettabili per i test.
+
+    Senza trades iniettati legge anche i saldi iniziali dal DB, prima della cache:
+    la timeline corrente ricostruisce solo acquisti/vendite, non quei saldi.
+    Un ledger sintetico di soli trades implica openings=[] se non specificati.
+    """
     if period not in PERIODS:
-        return {"error": f"period '{period}' non valido (validi: {', '.join(PERIODS)})"}
+        return {"error": _message("period '{v0}' non valido (validi: {v1})", "Invalid period '{v0}' (valid: {v1})", v0=period, v1=', '.join(PERIODS))}
     injected = trades is not None
+
+    # A baseline can be registered while an earlier successful result is cached.
+    # Never misread its subsequent SELL as corrupt/negative quantity or omit it.
+    runtime_openings = openings is None and not injected
+
+    def opening_error():
+        try:
+            rows = _opening_positions() if runtime_openings else ([] if openings is None else openings)
+            if not isinstance(rows, list):
+                raise ValueError(_message("position_openings deve essere una lista", "position_openings must be a list"))
+            if rows:
+                return render_payload({
+                    "error_code": "OPENING_ATTRIBUTION_UNSUPPORTED",
+                    "error": _message("Attribuzione n.d.: la ricostruzione dai soli trade non include i saldi iniziali documentati. Nessun rendimento calcolato su un perimetro incompleto; la performance ufficiale resta disponibile soltanto sugli snapshot coperti successivi alla registrazione completa dei saldi.", "Attribution unavailable: reconstruction from trades alone does not include documented opening balances. No return is calculated on an incomplete portfolio; official performance remains available only from covered snapshots after all balances were registered."),
+                    "position_openings": rows,
+                    "baseline_added_at": max(row["created_at"] for row in rows),
+                })
+        except Exception as exc:
+            return {"error_code": "OPENING_ATTRIBUTION_UNAVAILABLE",
+                    "error": _message("Lettura dei saldi iniziali fallita: {cause}. Attribuzione non verificabile.", "Opening balance read failed: {cause}. Attribution cannot be verified.", cause=error_text(exc))}
+        return None
+
+    guard = opening_error()
+    if guard:
+        return guard
 
     # review 1b-L2 (BASSA-3): con end_date=None la chiave include la data di OGGI,
     # se no a cavallo di mezzanotte/fine mese si serve l'MTD del giorno vecchio.
@@ -120,22 +152,22 @@ def compute_attribution(period: str = "YTD",
     if not injected and not force and cache_key in _CACHE:
         ent = _CACHE[cache_key]
         if time.time() - ent["ts"] < CACHE_TTL_SEC:
-            return ent["data"]
+            return render_payload(ent["data"])
 
     if not injected and not (NUMPY_OK and YF_OK):
-        return {"error": "numpy/yfinance not available"}
+        return {"error": _message('numpy/yfinance non disponibili', 'numpy/yfinance not available')}
 
     if trades is None:
         trades = _trade_history()
     if not trades:
-        return {"error": "trade_history vuota"}
+        return {"error": _message("trade_history vuota", "Empty trade_history")}
     timeline = _build_position_timeline(trades)
     # review 1b-L2 (MEDIA-1): la data va VALIDATA (lezione 205-B: date spurie sono
     # successe davvero) — se no INCEPTION crasha su strptime invece di dichiarare.
     first_trade = next(((t.get("data") or "")[:10] for t in trades
                         if _valid_iso((t.get("data") or "")[:10])), None)
     if not first_trade:
-        return {"error": "nessuna data trade valida (YYYY-MM-DD) in trade_history"}
+        return {"error": _message('nessuna data trade valida (YYYY-MM-DD) in trade_history', 'No valid trade date (YYYY-MM-DD) in trade_history')}
     start_iso = _period_start(period, end_iso, first_trade)
     # buffer per avere il giorno-base (ultimo giorno di borsa <= start)
     dl_start = (datetime.strptime(start_iso, "%Y-%m-%d")
@@ -151,15 +183,14 @@ def compute_attribution(period: str = "YTD",
                   + timedelta(days=1)).strftime("%Y-%m-%d")
         prices = _download_prices_for_history(tickers, dl_start, dl_end, salta)
     if prices is None or prices.empty:
-        return {"error": "prezzi storici non disponibili"}
+        return {"error": _message('prezzi storici non disponibili', 'Historical prices unavailable')}
 
     negozio_veicoli = cl.carica_veicoli()
     currency_labels = _currency_labels_for_tickers(tickers, trades, negozio_veicoli)
     ccy_of = {tk: label.valore for tk, label in currency_labels.items()
               if label.valore is not None}
     if not ccy_of:
-        return {"error": "valuta non determinabile per tutti i ticker: " + "; ".join(
-                    label.dichiarazione for label in currency_labels.values()),
+        return {"error": _message("valuta non determinabile per tutti i ticker: {reasons}", "Currency cannot be determined for any ticker: {reasons}", reasons=join_messages("; ", (label.dichiarazione for label in currency_labels.values()))),
                 "currency_labels": {k: v.as_dict() for k, v in currency_labels.items()}}
     if fx is None:
         fx = _build_fx_history(sorted(set(ccy_of.values())), dl_start, end_iso)
@@ -176,11 +207,11 @@ def compute_attribution(period: str = "YTD",
         base_days = all_days[:1]
         fallback_base = True
     if not base_days:
-        return {"error": "nessun giorno di borsa nel periodo"}
+        return {"error": _message('nessun giorno di borsa nel periodo', 'No trading day in the period')}
     day0 = base_days[-1]
     days = [day0] + [ts for ts in all_days if ts > day0]
     if len(days) < 2:
-        return {"error": f"periodo {period} senza giorni di borsa completati"}
+        return {"error": _message('periodo {v0} senza giorni di borsa completati', 'Period {v0} has no completed trading days', v0=period)}
 
     # --- contributi giornalieri ---------------------------------------------
     # review 1b-L2 (MEDIA-2): l'esclusione e' PER GIORNO, non per nome — si
@@ -188,7 +219,10 @@ def compute_attribution(period: str = "YTD",
     # del buco (un nome puo' essere escluso solo in parte del periodo).
     excluded: Dict[str, Dict[str, int]] = {}
 
-    def _exclude(tk: str, reason: str):
+    reason_labels = {}
+
+    def _exclude(tk: str, reason: str, label=None):
+        reason_labels[reason] = label if label is not None else reason
         m = excluded.setdefault(tk, {})
         m[reason] = m.get(reason, 0) + 1
     contrib: Dict[str, Dict[str, float]] = {}   # ticker -> {tot, loc, fxc, cross} linkati (Carino num.)
@@ -216,7 +250,7 @@ def compute_attribution(period: str = "YTD",
             if qty < 0:
                 # review 1b-L2 (BASSA-1): il corrotto (oversell/ticker errato,
                 # caso gia' visto nel book) NON e' il legittimo qty=0: dichiarato.
-                _exclude(tk, "qty negativa: trade corrotti, nome escluso")
+                _exclude(tk, 'qty negativa: trade corrotti, nome escluso', _message('qty negativa: trade corrotti, nome escluso', 'Negative quantity: corrupt trades, holding excluded'))
                 continue
             if qty == 0:
                 continue
@@ -225,22 +259,24 @@ def compute_attribution(period: str = "YTD",
             # negozio che puo' MANCARE, «e' nella lista» e «la colonna non c'e'» non
             # sono la stessa cosa — e a negozio assente resta vera solo la seconda.
             if tk in salta:
-                _exclude(tk, "prezzi storici n.d. (dichiarato nel negozio dei prezzi speciali)")
+                _exclude(tk, 'prezzi storici n.d. (dichiarato nel negozio dei prezzi speciali)', _message('prezzi storici n.d. (dichiarato nel negozio dei prezzi speciali)', 'Historical prices unavailable (declared in the special price store)'))
                 continue
             if tk not in prices.columns:
-                _exclude(tk, "prezzi storici n.d. (colonna assente nel download)")
+                _exclude(tk, 'prezzi storici n.d. (colonna assente nel download)', _message('prezzi storici n.d. (colonna assente nel download)', 'Historical prices unavailable (column absent from download)'))
                 continue
             if tk not in ccy_of:
-                _exclude(tk, currency_labels[tk].dichiarazione)
+                label = currency_labels[tk].dichiarazione
+                # Keep legacy reason keys stable even when the first request is EN.
+                _exclude(tk, str(render_payload(label, language="it")), label)
                 continue
             fxr_prev = _fx_at(fx, ccy_of[tk], d_prev)
             fxr_d = _fx_at(fx, ccy_of[tk], d)
             if fxr_prev is None or fxr_d is None:
-                _exclude(tk, f"FX {ccy_of[tk]} n.d.")
+                _exclude(tk, f"FX {ccy_of[tk]} n.d.", _message("FX {currency} n.d.", "FX {currency} unavailable", currency=ccy_of[tk]))
                 continue
             px_prev, px_d = _px(tk, d_prev), _px(tk, d)
             if px_prev is None or px_d is None:
-                _exclude(tk, "prezzo n.d. nel periodo")
+                _exclude(tk, 'prezzo n.d. nel periodo', _message('prezzo n.d. nel periodo', 'Price unavailable in the period'))
                 continue
             mv_prev = qty * px_prev * fxr_prev
             r_loc = px_d / px_prev - 1.0
@@ -258,12 +294,12 @@ def compute_attribution(period: str = "YTD",
             norm[tk] = (w, r_tot, r_loc, r_fx)
             r_day += w * r_tot
         if r_day <= -1.0:
-            return {"error": f"rendimento giorno {_iso(d)} <= -100%: base dati corrotta"}
+            return {"error": _message('rendimento giorno {v0} <= -100%: base dati corrotta', 'Return on {v0} <= -100%: corrupt data', v0=_iso(d))}
         day_returns.append(r_day)
         daily_rows.append((d, norm))
 
     if not day_returns:
-        return {"error": f"periodo {period}: nessun giorno misurabile (capitale investito 0)"}
+        return {"error": _message('periodo {v0}: nessun giorno misurabile (capitale investito 0)', 'Period {v0}: no measurable day (invested capital 0)', v0=period)}
 
     # --- linking Carino ------------------------------------------------------
     log_total = sum(math.log1p(r) for r in day_returns)
@@ -288,11 +324,7 @@ def compute_attribution(period: str = "YTD",
     # il predicato e' l'ORIGINE (la causa), non il motivo (la conseguenza): un ramo di guasto
     # futuro senza motivo farebbe sparire la frase in silenzio (osservazione di e3, 05/09)
     if _prezzi["origine"] in ("assente", "illeggibile"):   # UNA frase, come per i veicoli
-        notes.append("negozio dei prezzi speciali %s (%s): l'insieme dei simboli da NON "
-                     "scaricare e' VUOTO perche' il negozio manca, non perche' non ci sia "
-                     "niente da saltare — nessun nome e' stato escluso per questo motivo "
-                     "(dichiarato, regola 14/07)"
-                     % (_prezzi["origine"].upper(), _prezzi["motivo"]))
+        notes.append(_message("negozio dei prezzi speciali {origin} ({reason}): l'insieme dei simboli da NON scaricare e' VUOTO perche' il negozio manca, non perche' non ci sia niente da saltare — nessun nome e' stato escluso per questo motivo (dichiarato, regola 14/07)", "Special price store {origin} ({reason}): the set of symbols NOT to download is EMPTY because the store is missing, not because there is nothing to skip — no holding was excluded for this reason (declared, rule 14/07)", origin=_prezzi["origine"].upper(), reason=_prezzi["motivo"]))
     by_position = []
     for tk, c in contrib.items():
         by_position.append({
@@ -311,11 +343,9 @@ def compute_attribution(period: str = "YTD",
     for tk, c in contrib.items():
         eb, anom = econ_bucket_for(tk, smap.get(tk), negozio=negozio_veicoli)
         if anom == "no_bucket":
-            notes.append(f"asse unico: {tk} senza bucket economico -> n.d. dichiarato "
-                         "(dichiarare bucket_economico nella voce del negozio dei veicoli)")
+            notes.append(_message('asse unico: {v0} senza bucket economico -> n.d. dichiarato (dichiarare bucket_economico nella voce del negozio dei veicoli)', 'Single axis: {v0} has no economic bucket -> explicitly unavailable (declare bucket_economico in the vehicle-store entry)', v0=tk))
         elif anom and anom.startswith("shadowed:"):
-            notes.append(f"asse unico: {tk} voce manuale '{eb}' maschera GICS "
-                         f"'{anom.split(':', 1)[1]}' — divergenza dichiarata (classe F-16)")
+            notes.append(_message("asse unico: {v0} voce manuale '{v1}' maschera GICS '{v2}' — divergenza dichiarata (classe F-16)", "Single axis: {v0} manual entry '{v1}' masks GICS '{v2}' — declared divergence (F-16 class)", v0=tk, v1=eb, v2=anom.split(':', 1)[1]))
         b = buckets.setdefault(eb, {"contribution": 0.0, "tickers": []})
         b["contribution"] += c["tot"]
         b["tickers"].append(tk)
@@ -340,20 +370,18 @@ def compute_attribution(period: str = "YTD",
         days_exc = sum(rmap.values())
         partial = tk in contrib
         excluded_out.append({"ticker": tk, "reasons": rmap,
+                             "reason_details": [{"reason": reason, "label": reason_labels[reason], "days": count} for reason, count in rmap.items()],
                              "days_excluded": days_exc, "days_total": n_days,
                              "partial": partial})
         if partial:
-            notes.append(f"esclusione PARZIALE per {tk} ({days_exc}/{n_days} giorni): "
-                         "contributo SOTTOSTIMATO e denominatore variabile — dichiarato")
+            notes.append(_message('esclusione PARZIALE per {v0} ({v1}/{v2} giorni): contributo SOTTOSTIMATO e denominatore variabile — dichiarato', 'PARTIAL exclusion for {v0} ({v1}/{v2} days): contribution UNDERESTIMATED and variable denominator — declared', v0=tk, v1=days_exc, v2=n_days))
     if fallback_base and period != "INCEPTION":
-        notes.append(f"base pre-{start_iso} non disponibile nelle candele scaricate: "
-                     "il rendimento del primo giorno della finestra NON e' misurato — dichiarato")
+        notes.append(_message("base pre-{v0} non disponibile nelle candele scaricate: il rendimento del primo giorno della finestra NON e' misurato — dichiarato", 'Pre-{v0} base unavailable in downloaded candles: return on the first day of the window is NOT measured — declared', v0=start_iso))
 
     check_sum = sum(c["tot"] for c in contrib.values())
     if abs(check_sum - r_period) > 1e-9:
         # per costruzione Carino chiude esatto: se non chiude e' un BUG, dichiarato
-        notes.append(f"CHECK FALLITO: somma contributi {check_sum:.6%} != rendimento "
-                     f"{r_period:.6%} — non fidarsi di questa vista")
+        notes.append(_message('CHECK FALLITO: somma contributi {v0:.6%} != rendimento {v1:.6%} — non fidarsi di questa vista', 'CHECK FAILED: contribution sum {v0:.6%} != return {v1:.6%} — do not rely on this view', v0=check_sum, v1=r_period))
 
     # --- riconciliazione DICHIARATA vs serie TWR ufficiale -------------------
     # Gli r ufficiali vengono da compute_twr_payload (twr_index), che gestisce la
@@ -375,7 +403,7 @@ def compute_attribution(period: str = "YTD",
                            if len(idx) > 1 else []),
                 }
         except Exception as e:
-            official_series = {"error": str(e)}
+            official_series = {"error": error_text(e)}
     if official_series and not official_series.get("error") and official_series.get("dates"):
         od = official_series["dates"]
         orr = official_series.get("_r")
@@ -388,8 +416,8 @@ def compute_attribution(period: str = "YTD",
             except Exception:
                 orr = None
         if not orr:
-            reconciliation = {"error": "r ufficiali non calcolabili",
-                              "note": "riconciliazione NON disponibile: dichiarato"}
+            reconciliation = {"error": _message('r ufficiali non calcolabili', 'Official returns cannot be computed'),
+                              "note": _message('riconciliazione NON disponibile: dichiarato', 'Reconciliation NOT available: declared')}
         else:
             start_bound = _iso(day0)
             lg = sum(math.log1p(r) for dstr, r in zip(od[1:], orr)
@@ -399,14 +427,11 @@ def compute_attribution(period: str = "YTD",
                 "recon_return_pct": round(r_period * 100.0, 3),
                 "official_twr_pct": round(r_official * 100.0, 3),
                 "delta_pp": round((r_period - r_official) * 100.0, 3),
-                "note": ("basi DIVERSE dichiarate: attribution = capitale investito, "
-                         "chiusure yfinance auto-adjusted; TWR ufficiale = NAV totale "
-                         "(cash incluso), snapshot price_updater nel tratto official. "
-                         "Un delta ampio va capito, non nascosto."),
+                "note": (_message('basi DIVERSE dichiarate: attribution = capitale investito, chiusure yfinance auto-adjusted; TWR ufficiale = NAV totale (cash incluso), snapshot price_updater nel tratto official. Un delta ampio va capito, non nascosto.', 'DIFFERENT bases declared: attribution = invested capital, yfinance auto-adjusted closes; official TWR = total NAV (including cash), price_updater snapshots in the official segment. A large delta must be understood, not hidden.')),
             }
     else:
-        reconciliation = {"error": (official_series or {}).get("error") or "serie ufficiale n.d.",
-                          "note": "riconciliazione NON disponibile: dichiarato"}
+        reconciliation = {"error": (official_series or {}).get("error") or _message("serie ufficiale n.d.", "Official series unavailable"),
+                          "note": _message('riconciliazione NON disponibile: dichiarato', 'Reconciliation NOT available: declared')}
 
     out = {
         "period": {"label": period, "base_day": _iso(day0), "end": _iso(days[-1]),
@@ -424,19 +449,19 @@ def compute_attribution(period: str = "YTD",
         "excluded": excluded_out,
         "reconciliation": reconciliation,
         "notes": notes,
-        "basis": ("CONTRIBUTION assoluta (NON Brinson vs benchmark): contributi al "
-                  "rendimento del capitale INVESTITO (cash escluso), pesi a inizio "
-                  "giorno, chiusure yfinance auto-adjusted (dividendi nel prezzo), "
-                  "linking Carino (somma contributi = rendimento composto esatto); "
-                  "scomposizione locale+FX+cross residuo dichiarato; bucket = asse "
-                  "economico unico di portfolio_sectors (fase 1b)"
-                  + (f"; {empty_days} giorni a capitale 0 esclusi" if empty_days else "")),
+        "basis": (_message("CONTRIBUTION assoluta (NON Brinson vs benchmark): contributi al rendimento del capitale INVESTITO (cash escluso), pesi a inizio giorno, chiusure yfinance auto-adjusted (dividendi nel prezzo), linking Carino (somma contributi = rendimento composto esatto); scomposizione locale+FX+cross residuo dichiarato; bucket = asse economico unico di portfolio_sectors (fase 1b){empty_note}", "Absolute CONTRIBUTION (NOT Brinson vs benchmark): contributions to INVESTED capital returns (cash excluded), beginning-of-day weights, yfinance auto-adjusted closes (dividends in price), Carino linking (sum of contributions = exact compounded return); local+FX+residual cross decomposition declared; bucket = portfolio_sectors single economic axis (phase 1b){empty_note}", empty_note=_message("; {days} giorni a capitale 0 esclusi", "; {days} zero-capital days excluded", days=empty_days) if empty_days else "")),
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "_source": "portfolio_attribution.compute_attribution",
     }
     if not injected:
+        # A new baseline may have arrived while market data was being prepared.
+        # Check again before publishing or caching a result from the old scope.
+        if runtime_openings:
+            guard = opening_error()
+            if guard:
+                return guard
         _CACHE[cache_key] = {"ts": time.time(), "data": out}
-    return out
+    return render_payload(out)
 
 
 if __name__ == "__main__":

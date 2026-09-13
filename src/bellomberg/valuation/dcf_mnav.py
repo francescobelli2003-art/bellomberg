@@ -41,6 +41,8 @@ GIA' convertito dal tool cef_nav (stesso tasso del payload del tool — mai
 due misure dello stesso cambio, lezione cross-valuta 23/07), conversione
 dichiarata in cella. payload_currency = valuta del NAV.
 """
+from bellomberg.core.language import scoped_language, text as _lt
+from bellomberg.reporting.i18n_excel import label as _xt
 from typing import Any, Dict, Optional
 
 import bellomberg.storage.classificazione as cl
@@ -556,48 +558,48 @@ def _hdr(ws, spec, sub):
     from bellomberg.valuation.dcf_bank import GREYTX, L, T
     from datetime import datetime as _dt
     T(ws, "A1", f"{spec['company_name']} ({spec['ticker']}) - {sub}")
-    L(ws, "A2", f"Motore mNAV V5 (audit/18) - {_dt.now():%d/%m/%Y %H:%M} - valuta {spec['currency']}"
-                + (" - valori in $M / M azioni" if spec["kind"] == "dat_hype" else ""),
+    L(ws, "A2", _lt(f"Motore mNAV V5 (audit/18) - {_dt.now():%d/%m/%Y %H:%M} - valuta {spec['currency']}",f"Motore mNAV V5 (audit/18) - {_dt.now():%d/%m/%Y %H:%M} - currency {spec['currency']}")
+                + (_xt(" - valori in $M / M azioni") if spec["kind"] == "dat_hype" else ""),
       italic=True, color=GREYTX)
-    L(ws, "A4", "PERCHE' NON C'E' UN DCF: e' un VEICOLO — il valore e' il NAV del "
+    L(ws, "A4", _xt("PERCHE' NON C'E' UN DCF: e' un VEICOLO — il valore e' il NAV del "
                 "sottostante e il premio/sconto che il mercato gli riconosce, non flussi "
                 "operativi da scontare (DCF vietato dal motore). Il canonico e' la FOTO "
-                "della tesi: il tool live resta la fonte del giorno-per-giorno.", italic=True)
-    L(ws, "A6", "TESI DELL'ANALISTA (variant view):", bold=True)
-    L(ws, "A7", str(spec.get("variant_view") or "(nessuna variant view fornita)"))
+                "della tesi: il tool live resta la fonte del giorno-per-giorno."), italic=True)
+    L(ws, "A6", _xt("TESI DELL'ANALISTA (variant view):"), bold=True)
+    L(ws, "A7", str(spec.get("variant_view") or _xt("(nessuna variant view fornita)")))
 
 
 def _fv_rows(ws, spec, mv, r, fv_formula, px_cell):
     """Blocco FAIR VALUE (D2): formula viva solo col target; n.d. dichiarato altrimenti.
     Ritorna la riga successiva."""
     from bellomberg.valuation.dcf_bank import GOLD, GREYTX, L, N
-    L(ws, f"A{r}", "FAIR VALUE (semantica D2)", bold=True); r += 1
+    L(ws, f"A{r}", _xt("FAIR VALUE (semantica D2)"), bold=True); r += 1
     if mv.get("fair_value_nav") is not None:
-        L(ws, f"A{r}", "Target premio/sconto (ANALISTA)")
+        L(ws, f"A{r}", _xt("Target premio/sconto (ANALISTA)"))
         N(ws, f"B{r}", spec["nav_target"], fmt="0.00")
         L(ws, f"C{r}", spec["_sources"].get("nav_target") or "ANALISTA", italic=True, color=GREYTX)
         t_cell = f"B{r}"; r += 1
-        L(ws, f"A{r}", "FAIR VALUE per azione", bold=True)
+        L(ws, f"A{r}", _xt("FAIR VALUE per azione"), bold=True)
         ws[f"B{r}"] = fv_formula(t_cell)
         ws[f"B{r}"].number_format = "#,##0.00"
         if Font is not None:
             ws[f"B{r}"].font = Font(bold=True, color=GOLD, size=11)
         fv_cell = f"B{r}"; r += 1
-        L(ws, f"A{r}", "Upside alla convergenza")
+        L(ws, f"A{r}", _xt("Upside alla convergenza"))
         ws[f"B{r}"] = f"={fv_cell}/{px_cell}-1"
         ws[f"B{r}"].number_format = "0.0%"
         r += 1
-        L(ws, f"A{r}", "NB: upside alla CONVERGENZA del premio/sconto dichiarato "
-                       "dall'analista — NON un target price.", italic=True, color=GREYTX)
+        L(ws, f"A{r}", _xt("NB: upside alla CONVERGENZA del premio/sconto dichiarato "
+                       "dall'analista — NON un target price."), italic=True, color=GREYTX)
         r += 1
     else:
-        L(ws, f"A{r}", "FV n.d. DICHIARATO: " + str(mv.get("fv_note") or
-          "nessun nav_target dell'analista (D2)"), color=GREYTX)
+        L(ws, f"A{r}", _xt("FV n.d. DICHIARATO: ") + str(mv.get("fv_note") or
+          _xt("nessun nav_target dell'analista (D2)")), color=GREYTX)
         r += 1
     r += 1
     warns = mv.get("warnings") or []
     if warns:
-        L(ws, f"A{r}", "ATTENZIONI (dal motore, da riportare nel report):", bold=True); r += 1
+        L(ws, f"A{r}", _xt("ATTENZIONI (dal motore, da riportare nel report):"), bold=True); r += 1
         for w in warns:
             L(ws, f"A{r}", "! " + w); r += 1
     return r
@@ -606,48 +608,48 @@ def _fv_rows(ws, spec, mv, r, fv_formula, px_cell):
 def _sheet_thesis_mstr(wb, spec, mv):
     from bellomberg.valuation.dcf_bank import GOLD, GREYTX, H, L, N
     ws = wb.create_sheet("Thesis & Assumptions", 0)
-    _hdr(ws, spec, "Canonico mNAV DAT Bitcoin")
-    H(ws, "A9", "INPUT UFFICIALI"); H(ws, "B9", "VALORE"); H(ws, "C9", "FONTE")
-    L(ws, "A10", "BTC posseduti"); N(ws, "B10", spec["btc_holdings"], fmt="#,##0")
+    _hdr(ws, spec, _xt("Canonico mNAV DAT Bitcoin"))
+    H(ws, "A9", _xt("INPUT UFFICIALI")); H(ws, "B9", _xt("VALORE")); H(ws, "C9", _xt("FONTE"))
+    L(ws, "A10", _xt("BTC posseduti")); N(ws, "B10", spec["btc_holdings"], fmt="#,##0")
     L(ws, "C10", spec["_sources"]["record"], italic=True, color=GREYTX)
-    L(ws, "A11", "Prezzo BTC (USD)"); N(ws, "B11", spec["px_btc"], fmt="#,##0")
+    L(ws, "A11", _xt("Prezzo BTC (USD)")); N(ws, "B11", spec["px_btc"], fmt="#,##0")
     L(ws, "C11", spec["_sources"]["prezzi"], italic=True, color=GREYTX)
     L(ws, "A12", "BTC-NAV (USD)"); ws["B12"] = "=B10*B11"; ws["B12"].number_format = "#,##0"
-    L(ws, "A13", "Azioni basic"); N(ws, "B13", spec["shares_basic"], fmt="#,##0")
-    L(ws, "C13", "record della fonte (basic: convertibili/RSU esclusi, limite dichiarato)",
+    L(ws, "A13", _xt("Azioni basic")); N(ws, "B13", spec["shares_basic"], fmt="#,##0")
+    L(ws, "C13", _xt("record della fonte (basic: convertibili/RSU esclusi, limite dichiarato)"),
       italic=True, color=GREYTX)
-    L(ws, "A14", "Prezzo azione (USD)"); N(ws, "B14", spec["price"], fmt="#,##0.00")
-    L(ws, "A15", "Market cap basic (USD)"); ws["B15"] = "=B13*B14"; ws["B15"].number_format = "#,##0"
+    L(ws, "A14", _xt("Prezzo azione (USD)")); N(ws, "B14", spec["price"], fmt="#,##0.00")
+    L(ws, "A15", _xt("Market cap basic (USD)")); ws["B15"] = "=B13*B14"; ws["B15"].number_format = "#,##0"
     if spec.get("ev_missing"):
-        L(ws, "A16", "Debt / Preferred / Cassa: " + spec["_sources"]["ev_fields"], color=GREYTX)
+        L(ws, "A16", _xt("Debt / Preferred / Cassa: ") + spec["_sources"]["ev_fields"], color=GREYTX)
     else:
-        L(ws, "A16", "Debito (USD)"); N(ws, "B16", spec["debt"], fmt="#,##0")
+        L(ws, "A16", _xt("Debito (USD)")); N(ws, "B16", spec["debt"], fmt="#,##0")
         L(ws, "C16", spec["_sources"]["ev_fields"], italic=True, color=GREYTX)
-        L(ws, "A17", "Preferred (USD)"); N(ws, "B17", spec["pref"], fmt="#,##0")
-        L(ws, "A18", "Cassa (USD)"); N(ws, "B18", spec["cash"], fmt="#,##0")
-    H(ws, "A20", "MISURE mNAV")
+        L(ws, "A17", _xt("Preferred (USD)")); N(ws, "B17", spec["pref"], fmt="#,##0")
+        L(ws, "A18", _xt("Cassa (USD)")); N(ws, "B18", spec["cash"], fmt="#,##0")
+    H(ws, "A20", _xt("MISURE mNAV"))
     L(ws, "A21", "mNAV equity basic = mktcap / BTC-NAV")
     ws["B21"] = "=B15/B12"; ws["B21"].number_format = "0.000"
     if spec.get("ev_missing"):
-        L(ws, "A22", "mNAV EV: n.d. DICHIARATO (campi %s assenti — assente != zero)"
+        L(ws, "A22", _xt("mNAV EV: n.d. DICHIARATO (campi %s assenti — assente != zero)")
           % spec["ev_missing"], color=GREYTX)
-        L(ws, "A23", "NAV equity per azione: n.d. DICHIARATO (stessi campi)", color=GREYTX)
+        L(ws, "A23", _xt("NAV equity per azione: n.d. DICHIARATO (stessi campi)"), color=GREYTX)
     else:
-        L(ws, "A22", "mNAV EV = (mktcap + debt + pref - cassa) / BTC-NAV", bold=True)
+        L(ws, "A22", _xt("mNAV EV = (mktcap + debt + pref - cassa) / BTC-NAV"), bold=True)
         ws["B22"] = "=(B15+B16+B17-B18)/B12"; ws["B22"].number_format = "0.000"
         if Font is not None:
             ws["B22"].font = Font(bold=True, color=GOLD, size=11)
-        L(ws, "A23", "NAV equity per azione = (BTC-NAV - debt - pref + cassa) / azioni")
+        L(ws, "A23", _xt("NAV equity per azione = (BTC-NAV - debt - pref + cassa) / azioni"))
         ws["B23"] = "=(B12-B16-B17+B18)/B13"; ws["B23"].number_format = "#,##0.00"
-    L(ws, "A25", "LEGGIMI (dal tool): " + str(spec.get("leggimi") or
-      "per giudizi di sconto/premio usare il mNAV EV: davanti alle ordinarie ci sono "
-      "debt+preferred."), italic=True, color=GREYTX)
+    L(ws, "A25", _xt("LEGGIMI (dal tool): ") + str(spec.get("leggimi") or
+      _xt("per giudizi di sconto/premio usare il mNAV EV: davanti alle ordinarie ci sono "
+      "debt+preferred.")), italic=True, color=GREYTX)
     r = _fv_rows(ws, spec, mv, 27,
                  lambda t: f"=({t}*B12-B16-B17+B18)/B13", "B14")
     if mv.get("fair_value_nav") is not None:
-        L(ws, f"A{r}", "NB target: inteso su mNAV EV (doctrine del tool) — FV = "
+        L(ws, f"A{r}", _xt("NB target: inteso su mNAV EV (doctrine del tool) — FV = "
                        "(target x BTC-NAV - debt - pref + cassa) / azioni; a target 1,0 "
-                       "coincide col NAV equity per azione.", italic=True, color=GREYTX)
+                       "coincide col NAV equity per azione."), italic=True, color=GREYTX)
     ws.column_dimensions["A"].width = 62
     ws.column_dimensions["B"].width = 18
     ws.column_dimensions["C"].width = 80
@@ -656,15 +658,15 @@ def _sheet_thesis_mstr(wb, spec, mv):
 def _sheet_thesis_purr(wb, spec, mv):
     from bellomberg.valuation.dcf_bank import GOLD, GREYTX, H, L, N
     ws = wb.create_sheet("Thesis & Assumptions", 0)
-    _hdr(ws, spec, "Canonico mNAV DAT HYPE (mirror computeDashboard)")
+    _hdr(ws, spec, _xt("Canonico mNAV DAT HYPE (mirror computeDashboard)"))
     i = spec["inputs_musd"]
-    H(ws, "A9", "INPUT UFFICIALI ($M salvo nota)"); H(ws, "B9", "VALORE"); H(ws, "C9", "FONTE")
-    rows = (("Book NAV", "bookNAV"), ("Cash from ops (da sottrarre)", "cashFromOps"),
-            ("Cash from financing", "cashFromFin"), ("Treasury deploy (da sottrarre)", "treasuryDeploy"),
-            ("Digital assets a bilancio (da sottrarre)", "reportedDigital"),
-            ("HYPE posseduti (M token)", "hypeHeld"), ("Tax rate (%)", "taxRate"),
-            ("Tax basis", "taxBasis"), ("DTL a bilancio", "reportedDTL"),
-            ("Azioni basic (M)", "basicShares"))
+    H(ws, "A9", _xt("INPUT UFFICIALI ($M salvo nota)")); H(ws, "B9", _xt("VALORE")); H(ws, "C9", _xt("FONTE"))
+    rows = ((_xt("Book NAV"), "bookNAV"), (_xt("Cash from ops (da sottrarre)"), "cashFromOps"),
+            (_xt("Cash from financing"), "cashFromFin"), (_xt("Treasury deploy (da sottrarre)"), "treasuryDeploy"),
+            (_xt("Digital assets a bilancio (da sottrarre)"), "reportedDigital"),
+            (_xt("HYPE posseduti (M token)"), "hypeHeld"), (_xt("Tax rate (%)"), "taxRate"),
+            (_xt("Tax basis"), "taxBasis"), (_xt("DTL a bilancio"), "reportedDTL"),
+            (_xt("Azioni basic (M)"), "basicShares"))
     r = 10
     cell = {}
     L(ws, "C10", spec["_sources"]["input_bilancio"], italic=True, color=GREYTX)
@@ -672,21 +674,21 @@ def _sheet_thesis_purr(wb, spec, mv):
         L(ws, f"A{r}", lbl); N(ws, f"B{r}", i[k], fmt="#,##0.00")
         if k in (spec.get("inputs_zero_keys") or []):
             # la nota ASSENTE vince sulla nota fonte generale (riga 10 = bookNAV)
-            L(ws, f"C{r}", "ASSENTE nel JSON IR -> 0 nella formula del sito (dichiarato)",
+            L(ws, f"C{r}", _xt("ASSENTE nel JSON IR -> 0 nella formula del sito (dichiarato)"),
               italic=True, color=GREYTX)
         cell[k] = f"B{r}"; r += 1
-    L(ws, f"A{r}", "Prezzo HYPE live (USD)"); N(ws, f"B{r}", spec["px_hype"], fmt="#,##0.00")
+    L(ws, f"A{r}", _xt("Prezzo HYPE live (USD)")); N(ws, f"B{r}", spec["px_hype"], fmt="#,##0.00")
     L(ws, f"C{r}", spec["_sources"]["prezzi"], italic=True, color=GREYTX)
     hy = f"B{r}"; r += 1
-    L(ws, f"A{r}", "Prezzo azione live (USD)"); N(ws, f"B{r}", spec["price"], fmt="#,##0.00")
+    L(ws, f"A{r}", _xt("Prezzo azione live (USD)")); N(ws, f"B{r}", spec["price"], fmt="#,##0.00")
     px = f"B{r}"; r += 2
-    H(ws, f"A{r}", "WARRANT (treasury method, formula del sito)")
+    H(ws, f"A{r}", _xt("WARRANT (treasury method, formula del sito)"))
     L(ws, f"D{r}", spec["_sources"]["warrants"], italic=True, color=GREYTX)
     r += 1
     dil_cells = []
     if spec["warrants"]:
-        H(ws, f"A{r}", "tranche"); H(ws, f"B{r}", "strike"); H(ws, f"C{r}", "amount (M)")
-        H(ws, f"D{r}", "diluizione (M)")
+        H(ws, f"A{r}", "tranche"); H(ws, f"B{r}", "strike"); H(ws, f"C{r}", _xt("amount (M)"))
+        H(ws, f"D{r}", _xt("diluizione (M)"))
         r += 1
         for n_, w in enumerate(spec["warrants"], start=1):
             L(ws, f"A{r}", f"warrant {n_}")
@@ -697,51 +699,51 @@ def _sheet_thesis_purr(wb, spec, mv):
             dil_cells.append(f"D{r}")
             r += 1
     r += 1
-    H(ws, f"A{r}", "FORMULA UFFICIALE (celle C7..C39 del sito)")
+    H(ws, f"A{r}", _xt("FORMULA UFFICIALE (celle C7..C39 del sito)"))
     r += 1
-    L(ws, f"A{r}", "Valore HYPE corrente ($M)")
+    L(ws, f"A{r}", _xt("Valore HYPE corrente ($M)"))
     ws[f"B{r}"] = f"={cell['hypeHeld']}*{hy}"; ws[f"B{r}"].number_format = "#,##0.0"
     hv = f"B{r}"; r += 1
-    L(ws, f"A{r}", "Azioni FD (M) = basic + diluizione ITM")
+    L(ws, f"A{r}", _xt("Azioni FD (M) = basic + diluizione ITM"))
     ws[f"B{r}"] = (f"={cell['basicShares']}+" + "+".join(dil_cells)) if dil_cells \
         else f"={cell['basicShares']}"
     ws[f"B{r}"].number_format = "#,##0.000"
     fd = f"B{r}"; r += 1
-    L(ws, f"A{r}", "DTL teorica ($M, negativa se plusvalenza)")
+    L(ws, f"A{r}", _xt("DTL teorica ($M, negativa se plusvalenza)"))
     ws[f"B{r}"] = f"=-{cell['taxRate']}/100*({hv}-{cell['taxBasis']})"
     ws[f"B{r}"].number_format = "#,##0.0"
     dtl = f"B{r}"; r += 1
-    L(ws, f"A{r}", "Delta DTL ($M) = DTL a bilancio - teorica")
+    L(ws, f"A{r}", _xt("Delta DTL ($M) = DTL a bilancio - teorica"))
     ws[f"B{r}"] = f"={cell['reportedDTL']}-{cell['taxRate']}/100*({hv}-{cell['taxBasis']})"
     ws[f"B{r}"].number_format = "#,##0.0"
     dch = f"B{r}"; r += 1
-    L(ws, f"A{r}", "Adjusted NAV ($M)", bold=True)
+    L(ws, f"A{r}", _xt("Adjusted NAV ($M)"), bold=True)
     ws[f"B{r}"] = (f"={cell['bookNAV']}-{cell['cashFromOps']}+{cell['cashFromFin']}"
                    f"-{cell['treasuryDeploy']}-{cell['reportedDigital']}+{hv}+{dch}")
     ws[f"B{r}"].number_format = "#,##0.0"
     anav = f"B{r}"; r += 1
-    L(ws, f"A{r}", "Adjusted NAV per azione FD (USD)")
+    L(ws, f"A{r}", _xt("Adjusted NAV per azione FD (USD)"))
     ws[f"B{r}"] = f"={anav}/{fd}"; ws[f"B{r}"].number_format = "#,##0.0000"
     anav_ps = f"B{r}"; r += 1
-    L(ws, f"A{r}", "Adjusted NAV/FD con DTL add-back (riga C24 del sito)")
+    L(ws, f"A{r}", _xt("Adjusted NAV/FD con DTL add-back (riga C24 del sito)"))
     ws[f"B{r}"] = f"=({anav}-{dtl})/{fd}"; ws[f"B{r}"].number_format = "#,##0.0000"
     anav_dtl = f"B{r}"; r += 1
     if mv.get("mnav") is None:
         # review V5 M3: caso degenerato (ANAV o FD non positivi) — il payload
         # dichiara n.d. e il foglio NON deve mostrare un rapporto negativo vivo
         # come headline: stessa resa del ramo dat_bitcoin ev_missing
-        L(ws, f"A{r}", "mNAV: n.d. DICHIARATO (Adjusted NAV o azioni FD non positivi "
-                       "— v. ATTENZIONI)", color=GREYTX); r += 1
-        L(ws, f"A{r}", "mNAV con DTL add-back: n.d. DICHIARATO (stesso motivo)",
+        L(ws, f"A{r}", _xt("mNAV: n.d. DICHIARATO (Adjusted NAV o azioni FD non positivi "
+                       "— v. ATTENZIONI)"), color=GREYTX); r += 1
+        L(ws, f"A{r}", _xt("mNAV con DTL add-back: n.d. DICHIARATO (stesso motivo)"),
           color=GREYTX); r += 1
         r += 1
     else:
-        L(ws, f"A{r}", "mNAV = prezzo azione / (Adjusted NAV / FD)", bold=True)
+        L(ws, f"A{r}", _xt("mNAV = prezzo azione / (Adjusted NAV / FD)"), bold=True)
         ws[f"B{r}"] = f"={px}/{anav_ps}"; ws[f"B{r}"].number_format = "0.000"
         if Font is not None:
             ws[f"B{r}"].font = Font(bold=True, color=GOLD, size=11)
         r += 1
-        L(ws, f"A{r}", "mNAV con DTL add-back")
+        L(ws, f"A{r}", _xt("mNAV con DTL add-back"))
         ws[f"B{r}"] = f"={px}/{anav_dtl}"; ws[f"B{r}"].number_format = "0.000"
         r += 2
     r = _fv_rows(ws, spec, mv, r, lambda t: f"={anav_ps}*{t}", px)
@@ -757,36 +759,36 @@ def _sheet_thesis_purr(wb, spec, mv):
 def _sheet_thesis_cef(wb, spec, mv):
     from bellomberg.valuation.dcf_bank import GOLD, GREYTX, H, L, N
     ws = wb.create_sheet("Thesis & Assumptions", 0)
-    _hdr(ws, spec, "Canonico NAV/sconto fondo chiuso")
-    H(ws, "A9", "INPUT UFFICIALI"); H(ws, "B9", "VALORE"); H(ws, "C9", "FONTE")
-    L(ws, "A10", "NAV per azione (USD)"); N(ws, "B10", spec["nav_per_share"], fmt="#,##0.00")
+    _hdr(ws, spec, _xt("Canonico NAV/sconto fondo chiuso"))
+    H(ws, "A9", _xt("INPUT UFFICIALI")); H(ws, "B9", _xt("VALORE")); H(ws, "C9", _xt("FONTE"))
+    L(ws, "A10", _xt("NAV per azione (USD)")); N(ws, "B10", spec["nav_per_share"], fmt="#,##0.00")
     L(ws, "C10", spec["_sources"]["nav"], italic=True, color=GREYTX)
     if spec.get("fx_rate"):
-        L(ws, "A11", "Prezzo di mercato (GBp)"); N(ws, "B11", spec["price_quote"], fmt="#,##0.0")
+        L(ws, "A11", _xt("Prezzo di mercato (GBp)")); N(ws, "B11", spec["price_quote"], fmt="#,##0.0")
         L(ws, "C11", spec["_sources"]["prezzo"], italic=True, color=GREYTX)
-        L(ws, "A12", "Cambio GBP/USD (tasso del tool)"); N(ws, "B12", spec["fx_rate"], fmt="0.0000")
-        L(ws, "A13", "Prezzo in USD = GBp/100 x cambio")
+        L(ws, "A12", _xt("Cambio GBP/USD (tasso del tool)")); N(ws, "B12", spec["fx_rate"], fmt="0.0000")
+        L(ws, "A13", _xt("Prezzo in USD = GBp/100 x cambio"))
         ws["B13"] = "=B11/100*B12"; ws["B13"].number_format = "#,##0.00"
         px = "B13"; r0 = 14
     else:
-        L(ws, "A11", "Prezzo di mercato (USD)"); N(ws, "B11", spec["price"], fmt="#,##0.00")
+        L(ws, "A11", _xt("Prezzo di mercato (USD)")); N(ws, "B11", spec["price"], fmt="#,##0.00")
         L(ws, "C11", spec["_sources"]["prezzo"], italic=True, color=GREYTX)
         px = "B11"; r0 = 12
-    L(ws, f"A{r0}", "Sconto/premio sul NAV = prezzo/NAV - 1", bold=True)
+    L(ws, f"A{r0}", _xt("Sconto/premio sul NAV = prezzo/NAV - 1"), bold=True)
     ws[f"B{r0}"] = f"={px}/B10-1"; ws[f"B{r0}"].number_format = "0.0%"
     if Font is not None:
         ws[f"B{r0}"].font = Font(bold=True, color=GOLD, size=11)
     r = r0 + 1
     L(ws, f"A{r}", "NB: " + str(spec.get("discount_note") or
-      "negativo = il mercato paga il fondo MENO dei suoi asset (sconto); il segnale "
-      "e' lo sconto vs la sua storia (storico: voce dati futura dichiarata)."),
+      _xt("negativo = il mercato paga il fondo MENO dei suoi asset (sconto); il segnale "
+      "e' lo sconto vs la sua storia (storico: voce dati futura dichiarata).")),
       italic=True, color=GREYTX)
     r += 2
-    H(ws, f"A{r}", "RITORNI DEL NAV (dal sito ufficiale)")
+    H(ws, f"A{r}", _xt("RITORNI DEL NAV (dal sito ufficiale)"))
     r += 1
     for k_ in ("MTD", "QTD", "YTD"):
         v_ = (spec.get("returns") or {}).get(k_)
-        L(ws, f"A{r}", f"Ritorno {k_}")
+        L(ws, f"A{r}", _lt(f'Rendimento {k_}',f'Return {k_}'))
         if v_ is None:
             L(ws, f"B{r}", "n.d.", color=GREYTX)
         else:
@@ -803,7 +805,7 @@ def _sheet_thesis_cef(wb, spec, mv):
 def _sheet_fonti(wb, spec):
     from bellomberg.valuation.dcf_bank import GREYTX, H, L
     ws = wb.create_sheet("Fonti & Vintage")
-    H(ws, "A1", "INPUT"); H(ws, "B1", "FONTE / VINTAGE")
+    H(ws, "A1", "INPUT"); H(ws, "B1", _xt("FONTE / VINTAGE"))
     r = 2
     for k, v in (spec.get("_sources") or {}).items():
         L(ws, f"A{r}", k); L(ws, f"B{r}", str(v)); r += 1
@@ -816,7 +818,7 @@ def _sheet_fonti(wb, spec):
         r += 1
     if spec.get("lag_note"):
         r += 1
-        L(ws, f"A{r}", "lag della fonte (nota del sito):", bold=True); r += 1
+        L(ws, f"A{r}", _xt("lag della fonte (nota del sito):"), bold=True); r += 1
         L(ws, f"B{r}", str(spec["lag_note"]), italic=True, color=GREYTX)
     ws.column_dimensions["A"].width = 28
     ws.column_dimensions["B"].width = 120
@@ -825,38 +827,38 @@ def _sheet_fonti(wb, spec):
 def _sheet_sens_mstr(wb, spec, mv):
     from bellomberg.valuation.dcf_bank import GREYTX, H, L, N
     ws = wb.create_sheet("Sensitivity")
-    H(ws, "A1", "SENSITIVITY sul prezzo BTC (celle vive dal foglio Thesis)")
+    H(ws, "A1", _xt("SENSITIVITY sul prezzo BTC (celle vive dal foglio Thesis)"))
     ws_t = "'Thesis & Assumptions'!"
     cols = "BCDEF"
     H(ws, "A3", "shock BTC")
     for c_, s_ in zip(cols, SENS_SHOCKS):
         N(ws, f"{c_}3", s_, fmt="+0%;-0%;0%")
-    L(ws, "A4", "Prezzo BTC (USD)")
+    L(ws, "A4", _xt("Prezzo BTC (USD)"))
     L(ws, "A5", "BTC-NAV (USD)")
     for c_ in cols:
         ws[f"{c_}4"] = f"={ws_t}B11*(1+{c_}3)"; ws[f"{c_}4"].number_format = "#,##0"
         ws[f"{c_}5"] = f"={ws_t}B10*{c_}4"; ws[f"{c_}5"].number_format = "#,##0"
     if spec.get("ev_missing"):
-        L(ws, "A6", "mNAV EV / FV: n.d. DICHIARATO (campi %s assenti nel record)"
+        L(ws, "A6", _xt("mNAV EV / FV: n.d. DICHIARATO (campi %s assenti nel record)")
           % spec["ev_missing"], color=GREYTX)
     else:
-        L(ws, "A6", "mNAV EV a prezzo azione corrente")
+        L(ws, "A6", _xt("mNAV EV a prezzo azione corrente"))
         for c_ in cols:
             ws[f"{c_}6"] = f"=({ws_t}B15+{ws_t}B16+{ws_t}B17-{ws_t}B18)/{c_}5"
             ws[f"{c_}6"].number_format = "0.000"
-        L(ws, "A7", "NAV equity per azione (USD)")
+        L(ws, "A7", _xt("NAV equity per azione (USD)"))
         for c_ in cols:
             ws[f"{c_}7"] = f"=({c_}5-{ws_t}B16-{ws_t}B17+{ws_t}B18)/{ws_t}B13"
             ws[f"{c_}7"].number_format = "#,##0.00"
         if mv.get("fair_value_nav") is not None and spec.get("_target_cell"):
             t_cell = spec["_target_cell"]   # cella del target sul Thesis (riferimento VIVO)
-            L(ws, "A8", "FV al target dichiarato (USD)")
+            L(ws, "A8", _xt("FV al target dichiarato (USD)"))
             for c_ in cols:
                 ws[f"{c_}8"] = f"=({ws_t}{t_cell}*{c_}5-{ws_t}B16-{ws_t}B17+{ws_t}B18)/{ws_t}B13"
                 ws[f"{c_}8"].number_format = "#,##0.00"
-    L(ws, "A10", "NB: banda di target dell'analista: modificare la cella target sul "
+    L(ws, "A10", _xt("NB: banda di target dell'analista: modificare la cella target sul "
                  "Thesis (formule vive) — griglia dedicata non implementata, deviazione "
-                 "dichiarata dal design V5.3.", italic=True)
+                 "dichiarata dal design V5.3."), italic=True)
     ws.column_dimensions["A"].width = 44
     for c_ in cols:
         ws.column_dimensions[c_].width = 15
@@ -865,7 +867,7 @@ def _sheet_sens_mstr(wb, spec, mv):
 def _sheet_sens_purr(wb, spec, mv):
     from bellomberg.valuation.dcf_bank import H, L, N
     ws = wb.create_sheet("Sensitivity")
-    H(ws, "A1", "SENSITIVITY sul prezzo HYPE (celle vive dal foglio Thesis)")
+    H(ws, "A1", _xt("SENSITIVITY sul prezzo HYPE (celle vive dal foglio Thesis)"))
     ws_t = "'Thesis & Assumptions'!"
     cc = spec.get("_cells") or {}
     cell, hy, px = cc.get("cell") or {}, cc.get("hy"), cc.get("px")
@@ -875,18 +877,18 @@ def _sheet_sens_purr(wb, spec, mv):
     for c_, s_ in zip(cols, SENS_SHOCKS):
         N(ws, f"{c_}3", s_, fmt="+0%;-0%;0%")
     rows = (
-        ("Prezzo HYPE (USD)", "#,##0.00",
+        (_xt("Prezzo HYPE (USD)"), "#,##0.00",
          lambda c: f"={ws_t}{hy}*(1+{c}3)"),
-        ("Valore HYPE ($M)", "#,##0.0",
+        (_xt("Valore HYPE ($M)"), "#,##0.0",
          lambda c: f"={ws_t}{cell['hypeHeld']}*{c}4"),
         ("Delta DTL ($M)", "#,##0.0",
          lambda c: f"={ws_t}{cell['reportedDTL']}-{ws_t}{cell['taxRate']}/100*({c}5-{ws_t}{cell['taxBasis']})"),
-        ("Adjusted NAV ($M)", "#,##0.0",
+        (_xt("Adjusted NAV ($M)"), "#,##0.0",
          lambda c: (f"={ws_t}{cell['bookNAV']}-{ws_t}{cell['cashFromOps']}+{ws_t}{cell['cashFromFin']}"
                     f"-{ws_t}{cell['treasuryDeploy']}-{ws_t}{cell['reportedDigital']}+{c}5+{c}6")),
-        ("Adjusted NAV per azione FD (USD)", "#,##0.0000",
+        (_xt("Adjusted NAV per azione FD (USD)"), "#,##0.0000",
          lambda c: f"={c}7/{ws_t}{fd}"),
-        ("mNAV a prezzo azione corrente", "0.000",
+        (_xt("mNAV a prezzo azione corrente"), "0.000",
          lambda c: f"={ws_t}{px}/{c}8"),
     )
     for j, (lbl, fmt, f_) in enumerate(rows, start=4):
@@ -895,16 +897,16 @@ def _sheet_sens_purr(wb, spec, mv):
             ws[f"{c_}{j}"] = f_(c_)
             ws[f"{c_}{j}"].number_format = fmt
     if mv.get("fair_value_nav") is not None and spec.get("_target_cell"):
-        L(ws, "A10", "FV al target dichiarato (USD) = ANAV/FD x target")
+        L(ws, "A10", _xt("FV al target dichiarato (USD) = ANAV/FD x target"))
         # la cella del target e' trovata sul Thesis dal builder (riferimento VIVO)
         t_cell = spec["_target_cell"]
         for c_ in cols:
             ws[f"{c_}10"] = f"={c_}8*{ws_t}{t_cell}"
             ws[f"{c_}10"].number_format = "#,##0.00"
-    L(ws, "A12", "NB: diluizione warrant funzione del prezzo dell'azione (costante nello shock "
+    L(ws, "A12", _xt("NB: diluizione warrant funzione del prezzo dell'azione (costante nello shock "
                  "HYPE); DTL teorica ricalcolata per shock come nella formula del sito. "
                  "Banda di target: modificare la cella target sul Thesis (formule vive) — "
-                 "griglia dedicata non implementata, deviazione dichiarata dal design V5.3.",
+                 "griglia dedicata non implementata, deviazione dichiarata dal design V5.3."),
       italic=True)
     ws.column_dimensions["A"].width = 46
     for c_ in cols:
@@ -914,26 +916,27 @@ def _sheet_sens_purr(wb, spec, mv):
 def _sheet_sens_cef(wb, spec, mv):
     from bellomberg.valuation.dcf_bank import H, L, N
     ws = wb.create_sheet("Sensitivity")
-    H(ws, "A1", "GRIGLIA prezzo/NAV (celle vive dal foglio Thesis)")
+    H(ws, "A1", _xt("GRIGLIA prezzo/NAV (celle vive dal foglio Thesis)"))
     ws_t = "'Thesis & Assumptions'!"
     px = (spec.get("_cells") or {}).get("px") or "B11"
     cols = "BCDEF"
-    H(ws, "A3", "prezzo/NAV")
+    H(ws, "A3", _xt("prezzo/NAV"))
     for c_, d_ in zip(cols, CEF_DISCOUNT_GRID):
         N(ws, f"{c_}3", d_, fmt="0.00")
-    L(ws, "A4", "Prezzo implicito (USD) = NAV x rapporto")
-    L(ws, "A5", "Upside vs prezzo corrente")
+    L(ws, "A4", _xt("Prezzo implicito (USD) = NAV x rapporto"))
+    L(ws, "A5", _xt("Upside vs prezzo corrente"))
     for c_ in cols:
         ws[f"{c_}4"] = f"={ws_t}B10*{c_}3"; ws[f"{c_}4"].number_format = "#,##0.00"
         ws[f"{c_}5"] = f"={c_}4/{ws_t}{px}-1"; ws[f"{c_}5"].number_format = "0.0%"
-    L(ws, "A7", "Lettura: ogni colonna e' un livello di sconto/premio a cui il mercato "
+    L(ws, "A7", _xt("Lettura: ogni colonna e' un livello di sconto/premio a cui il mercato "
                 "potrebbe prezzare il fondo — non una previsione. Il target dell'analista "
-                "(se dichiarato) sta nel foglio Thesis.", italic=True)
+                "(se dichiarato) sta nel foglio Thesis."), italic=True)
     ws.column_dimensions["A"].width = 46
     for c_ in cols:
         ws.column_dimensions[c_].width = 14
 
 
+@scoped_language
 def build_mnav_model(spec, output_path) -> Dict[str, Any]:
     """Workbook canonico mNAV (3 fogli: Thesis, Fonti & Vintage, Sensitivity) +
     payload dal mirror Python (fonte di verita'; i fogli riproducono le stesse
@@ -941,7 +944,7 @@ def build_mnav_model(spec, output_path) -> Dict[str, Any]:
     try:
         import openpyxl
     except ImportError:
-        return {"ok": False, "error": "openpyxl non disponibile"}
+        return {"ok": False, "error": _xt("openpyxl non disponibile")}
     mv = compute_mnav_values(spec)
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
@@ -952,7 +955,7 @@ def build_mnav_model(spec, output_path) -> Dict[str, Any]:
         ws_t = wb["Thesis & Assumptions"]
         for row in ws_t.iter_rows(min_col=1, max_col=1):
             for c in row:
-                if c.value == "Target premio/sconto (ANALISTA)":
+                if c.value == _xt("Target premio/sconto (ANALISTA)"):
                     spec["_target_cell"] = "B%d" % c.row
 
     if spec["kind"] == "dat_bitcoin":
@@ -995,8 +998,8 @@ def build_mnav_model(spec, output_path) -> Dict[str, Any]:
         # alias per la catena storica sanity/tesi (fair_value_base e' una delle
         # 4 chiavi che memo/persistenza gia' leggono) — stessa cifra, dichiarato
         out["fair_value_base"] = mv["fair_value_nav"]
-        out["fv_alias_note"] = ("fair_value_base = fair_value_nav (alias per la catena "
+        out["fv_alias_note"] = (_xt("fair_value_base = fair_value_nav (alias per la catena "
                                 "tesi/sanity; semantica: NAV x target dichiarato, NON "
-                                "un target price — D2)")
+                                "un target price — D2)"))
     out["sanity"] = _mnav_sanity(spec, mv)
     return out

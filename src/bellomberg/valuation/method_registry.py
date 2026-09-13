@@ -403,3 +403,196 @@ def select_valuation_method(profile: dict[str, Any]) -> dict[str, Any]:
                                     if support == "calculator_only" else
                                     "A dedicated adapter is planned; no valuation is available.")})
     return result
+
+
+# Explicit copies of authored registry descriptions only. Never used to look up
+# provider/user text or to mutate decision, acquisition or fingerprint inputs.
+_REGISTRY_DISPLAY_IT = {
+    'Historical fiscal periods identified by start/end dates and fiscal calendar.': 'Periodi storici identificati da date iniziali/finali e calendario fiscale.',
+    'Forecast intervals explicitly supplied by the case, with no fixed horizon.': 'Intervalli previsionali espliciti del caso, senza orizzonte fisso.',
+    'Valuation cutoff and source publication dates must be recorded separately.': 'Cutoff della valutazione e date di pubblicazione delle fonti registrati separatamente.',
+    'Issuer filings or audited/statutory financial statements.': 'Comunicazioni societarie o bilanci certificati/statutari.',
+    'Dated issuer guidance or provider consensus with attributable underlying source.': 'Guidance societaria datata o consensus del provider con fonte sottostante attribuibile.',
+    'Explicit analyst assumptions identified separately from reported observations.': 'Assunzioni esplicite dell’analista distinte dalle osservazioni riportate.',
+    'Case assumptions and alternatives with evidence and sensitivity.': 'Assunzioni del caso e alternative con evidenze e sensibilità.',
+    'Issuer, consolidated and legal-entity perimeter and share classes.': 'Emittente, perimetro consolidato e delle entità legali, classi azionarie.',
+    'Sourced currency-consistent discount-rate inputs and assumptions.': 'Input e assunzioni del tasso di sconto documentati e coerenti con la valuta.',
+    'Diluted share denominator and share-class/ADR reconciliation.': 'Denominatore azionario diluito e riconciliazione classi azionarie/ADR.',
+    'Reporting and quotation currencies, units and verified conversion.': 'Valute e unità di bilancio e quotazione, conversione verificata.',
+    'Capital, required levels and buffers for each legal entity and regime.': 'Capitale, requisiti e buffer per ciascuna entità legale e regime.',
+    'Cash liquidity, restrictions and transfers by legal entity.': 'Liquidità di cassa, restrizioni e trasferimenti per entità legale.',
+    'Parent cash, debt service, expenses, funding and distribution ledger.': 'Libro della capogruppo: cassa, servizio del debito, spese, finanziamenti e distribuzioni.',
+    'Consolidated earnings to legal-entity earnings without duplicating subsidiaries.': 'Utili consolidati riconciliati con quelli delle entità legali senza duplicare le controllate.',
+    'Opening capital plus earnings, transfers and other changes to closing capital.': 'Capitale iniziale più utili, trasferimenti e altre variazioni riconciliato con quello finale.',
+    'Distributions respect both entity capital and liquidity restrictions.': 'Distribuzioni rispettose dei vincoli di capitale e liquidità delle entità.',
+    'Subsidiary transfers and parent debt/cash counted once in shareholder flows.': 'Trasferimenti delle controllate e debito/cassa della capogruppo conteggiati una volta nei flussi agli azionisti.',
+    'Operating cash generation and reinvestment support enterprise FCFF valuation.': 'Generazione di cassa operativa e reinvestimenti sostengono la valutazione FCFF dell’impresa.',
+    'Income, balance-sheet and cash-flow history on a reconciled basis.': 'Storico di conto economico, stato patrimoniale e flussi di cassa riconciliati.',
+    'Evidence-based volume, price, mix or recurring-revenue forecast.': 'Previsione documentata di volumi, prezzi, mix o ricavi ricorrenti.',
+    'Operating costs, margins, taxes and material accounting adjustments.': 'Costi operativi, margini, imposte e rettifiche contabili rilevanti.',
+    'Capital expenditure, depreciation and working-capital investment.': 'Investimenti, ammortamenti e investimento nel capitale circolante.',
+    'Justified continuing economics or explicit finite-asset termination.': 'Economia a regime motivata o termine esplicito degli asset a vita finita.',
+    'Cash, debt, leases, minorities and other claims counted once.': 'Cassa, debito, leasing, minoranze e altri diritti conteggiati una volta.',
+    'Reported earnings to operating cash flow and FCFF.': 'Utili riportati riconciliati con flusso di cassa operativo e FCFF.',
+    'Enterprise value to equity value and per-share units.': 'Valore d’impresa riconciliato con valore del capitale e unità per azione.',
+    'Balance-sheet credit economics require equity returns and capital retention.': 'L’economia del credito in bilancio richiede rendimenti del capitale e capitale trattenuto.',
+    'Explicit forecast intervals and calendar-consistent discounting.': 'Intervalli previsionali espliciti e attualizzazione coerente con il calendario.',
+    'Opening equity and tangible-book reconciliation by share class.': 'Capitale iniziale e riconciliazione del patrimonio tangibile per classe azionaria.',
+    'Applicable regulatory regime, risk exposures and capital requirements.': 'Regime normativo applicabile, esposizioni al rischio e requisiti patrimoniali.',
+    'Forecast earnings, credit losses and return on a consistent equity base.': 'Previsione di utili, perdite su crediti e rendimento su una base patrimoniale coerente.',
+    'Growth, required capital and permitted shareholder distributions.': 'Crescita, capitale richiesto e distribuzioni consentite agli azionisti.',
+    'Case-sourced franchise fade and sustainable terminal economics.': 'Evoluzione del vantaggio competitivo e sostenibilità terminale documentate dal caso.',
+    'Earnings, retained capital and distributions reconcile to closing equity.': 'Utili, capitale trattenuto e distribuzioni riconciliati con il patrimonio finale.',
+    'Book-equity basis reconciles to regulatory and tangible capital.': 'Patrimonio contabile riconciliato con capitale normativo e tangibile.',
+    'Health-plan earnings require an entity capital/liquidity bridge to shareholder cash.': 'Gli utili dei piani sanitari richiedono un ponte da capitale/liquidità delle entità alla cassa degli azionisti.',
+    'Actual and forecast premium amounts by segment; membership/rate models must reconcile upstream to these consumed amounts.': 'Premi effettivi e previsti per segmento; i modelli iscritti/tariffe devono riconciliarsi a monte con questi importi utilizzati.',
+    'Actual claims and forecast segment MCR on premium revenue, plus separately specified other medical costs.': 'Sinistri effettivi e MCR previsto per segmento sui premi, più altri costi medici specificati separatamente.',
+    'Administrative costs, investment income, interest and tax bridge.': 'Ponte di costi amministrativi, proventi finanziari, interessi e imposte.',
+    'Reported earnings to adjusted earnings with no unconsumed adjustments.': 'Utili riportati riconciliati con quelli rettificati senza rettifiche non utilizzate.',
+    'Actual/forecast boundary, fiscal calendar and explicit discount intervals.': 'Confine consuntivo/previsionale, calendario fiscale e intervalli di sconto espliciti.',
+    'Reported/adjusted income and actual/forecast cutoff reconcile.': 'Riconciliazione di utili riportati/rettificati e cutoff consuntivo/previsionale.',
+    'Property/casualty insurance needs claims, reserves and entity capital before distributions.': 'Le assicurazioni danni richiedono sinistri, riserve e capitale delle entità prima delle distribuzioni.',
+    'Written/earned premiums and growth on a stated gross/net basis.': 'Premi contabilizzati/di competenza e crescita su base lorda/netta dichiarata.',
+    'Claims development, reserve adequacy and catastrophe exposure.': 'Sviluppo dei sinistri, adeguatezza delle riserve ed esposizione catastrofale.',
+    'Reinsurance recoverables, ceded premiums and counterparties.': 'Crediti da riassicurazione, premi ceduti e controparti.',
+    'Investment assets, cash yield and realized/unrealized accounting.': 'Attività finanziarie, rendimento di cassa e contabilizzazione realizzato/non realizzato.',
+    'Expense and tax forecasts consistent with underwriting and investments.': 'Previsioni di costi e imposte coerenti con sottoscrizione e investimenti.',
+    'Source-calculated insurance common-equity requirements, applicable regime and buffers.': 'Requisiti di capitale azionario assicurativo calcolati dalla fonte, regime applicabile e buffer.',
+    'Permitted and funded shareholder distributions.': 'Distribuzioni agli azionisti consentite e finanziate.',
+    'Entity balance sheets and consolidated income reconciled to the capital ledger.': 'Bilanci delle entità e utile consolidato riconciliati con il libro del capitale.',
+    'Insurance economics, capital and cash supporting continuing distributions.': 'Economia assicurativa, capitale e cassa a sostegno delle distribuzioni a regime.',
+    'Claims, reserves and reinsurance reconcile without duplication.': 'Sinistri, riserve e riassicurazione riconciliati senza duplicazioni.',
+    'Life insurance requires in-force/new-business earnings and capital-release projections.': 'Le assicurazioni vita richiedono proiezioni di utili del portafoglio in essere/nuova produzione e rilascio di capitale.',
+    'In-force cash flows, guarantees, policyholder behavior and liabilities.': 'Flussi in essere, garanzie, comportamento degli assicurati e passività.',
+    'New-business volumes, acquisition costs and required capital.': 'Volumi di nuova produzione, costi di acquisizione e capitale richiesto.',
+    'Mortality, morbidity, lapse and discount assumptions with sources.': 'Ipotesi documentate di mortalità, morbilità, riscatti e attualizzazione.',
+    'Asset returns, duration and asset/liability mismatch.': 'Rendimenti degli attivi, duration e disallineamento attività/passività.',
+    'Source-calculated insurance common-equity requirements and buffers.': 'Requisiti di capitale azionario assicurativo e buffer calcolati dalla fonte.',
+    'Permitted and funded distributions with explicit ownership.': 'Distribuzioni consentite e finanziate con quota di proprietà esplicita.',
+    'Actuarial GAAP reserves and paid/outstanding claims, distinct from profit metrics.': 'Riserve attuariali GAAP e sinistri pagati/da pagare, distinti dalle metriche di utile.',
+    'Cash expenses and tax with stated accounting treatment.': 'Spese di cassa e imposte con trattamento contabile dichiarato.',
+    'Annual periods and explicit discount intervals.': 'Periodi annuali e intervalli di sconto espliciti.',
+    'Sustainable in-force, production, reserves, assets and capital.': 'Portafoglio in essere, produzione, riserve, attivi e capitale sostenibili.',
+    'Accounting profit, CSM or embedded-value metrics reconciled to cash.': 'Utile contabile, CSM o valore intrinseco riconciliati con la cassa.',
+    'Accounting or embedded-value measures are not cash by assumption.': 'Le misure contabili o di valore intrinseco non sono assunte equivalenti alla cassa.',
+    'A recognized regulated asset base and documented return regime support network valuation.': 'Una base di attivi regolati riconosciuta e un regime di rendimento documentato sostengono la valutazione della rete.',
+    'Jurisdiction, regulator, allowed-revenue rules and review period.': 'Giurisdizione, regolatore, regole dei ricavi consentiti e periodo di revisione.',
+    'Recognized opening asset base and scope, not accounting PPE by proxy.': 'Base iniziale riconosciuta e perimetro, senza usare immobilizzazioni contabili come proxy.',
+    'Allowed return, inflation/indexation and tax conventions from the regulator.': 'Rendimento consentito, inflazione/indicizzazione e convenzioni fiscali del regolatore.',
+    'Recognized capex, depreciation, disposals and asset-base roll-forward.': 'Investimenti riconosciuti, ammortamenti, dismissioni e variazione della base di attivi.',
+    'Earnings, financing and sustainable cash distribution bridge.': 'Ponte tra utili, finanziamento e distribuzione sostenibile di cassa.',
+    'Explicit continuing cash, asset base and financing stability.': 'Cassa a regime, base di attivi e stabilità dei finanziamenti esplicite.',
+    'Opening regulatory base plus eligible investment minus depreciation/disposals.': 'Base regolata iniziale più investimenti ammissibili meno ammortamenti/dismissioni.',
+    'Regulatory earnings reconcile to financing and shareholder distributions.': 'Utili regolati riconciliati con finanziamento e distribuzioni agli azionisti.',
+    'An investment vehicle is assessed through attributable NAV and its quotation units.': 'Un veicolo d’investimento viene valutato tramite NAV attribuibile e unità di quotazione.',
+    'Vehicle and underlying holding perimeter.': 'Perimetro del veicolo e delle partecipazioni sottostanti.',
+    'Official NAV publisher, publication date and accessible source identity.': 'Editore del NAV ufficiale, data di pubblicazione e identità accessibile della fonte.',
+    'Reported NAV, per-share denominator and NAV valuation date.': 'NAV riportato, denominatore per azione e data di valutazione del NAV.',
+    'NAV/quotation currencies and units with verified conversion.': 'Valute e unità di NAV/quotazione con conversione verificata.',
+    'Debt, expenses and other claims included or excluded from NAV.': 'Debito, spese e altri diritti inclusi o esclusi dal NAV.',
+    'Income distributions, fees and dilution affecting NAV comparability.': 'Distribuzioni di reddito, commissioni e diluizione che incidono sulla confrontabilità del NAV.',
+    'Verified common-share denominator on the declared NAV basis.': 'Denominatore di azioni ordinarie verificato sulla base NAV dichiarata.',
+    'Explicit analyst NAV target and its economic basis; no assumed parity.': 'Obiettivo NAV esplicito dell’analista e sua base economica; nessuna parità presunta.',
+    'Underlying asset values, liabilities and share count reconcile to reported NAV.': 'Valori degli attivi sottostanti, passività e numero di azioni riconciliati con il NAV riportato.',
+    'NAV and market quotation use the same currency and per-share units.': 'NAV e quotazione di mercato utilizzano le stesse valute e unità per azione.',
+    'Official vehicle NAV publications and financial reports.': 'Pubblicazioni ufficiali del NAV del veicolo e relazioni finanziarie.',
+    'Dated market quotation with currency/unit provenance.': 'Quotazione di mercato datata con provenienza di valuta/unità.',
+    'A valuation premium/discount target, if any, is a separate documented analyst view.': 'Un eventuale obiettivo di premio/sconto è una distinta tesi documentata dell’analista.',
+    'Digital-asset treasury value needs verified holdings, claims and dilution.': 'La tesoreria di asset digitali richiede partecipazioni, diritti e diluizione verificati.',
+    'Explicit equity-NAV or gross-asset EV target; no assumed premium.': 'Obiettivo esplicito di NAV del capitale o EV degli attivi lordi; nessun premio presunto.',
+    'Verified units, asset identity, custodian/perimeter and disclosure date.': 'Unità verificate, identità degli attivi, depositario/perimetro e data di pubblicazione.',
+    'Dated prices matching each underlying asset and quotation unit.': 'Prezzi datati coerenti con ogni attivo sottostante e unità di quotazione.',
+    'Debt, preferred claims, cash and operating assets reconciled once.': 'Debito, diritti privilegiati, cassa e attivi operativi riconciliati una volta.',
+    'Common shares, convertible claims, issuance and financing terms.': 'Azioni ordinarie, diritti convertibili, condizioni di emissione e finanziamento.',
+    'Gross assets to common equity NAV after senior claims.': 'Attivi lordi riconciliati con NAV del capitale ordinario dopo i diritti prioritari.',
+    'Basic and diluted share/claim bases reconcile to the selected NAV convention.': 'Basi azionarie/diritti semplici e diluite riconciliate con la convenzione NAV scelta.',
+    'A pooled or direct asset exposure requires holdings/risk analysis rather than company DCF.': 'Un’esposizione collettiva o diretta richiede analisi di partecipazioni/rischio anziché un DCF societario.',
+    'Instrument type, legal structure, underlying and issuer.': 'Tipo di strumento, struttura legale, sottostante ed emittente.',
+    'Holdings/index or direct asset exposure, leverage and replication terms.': 'Partecipazioni/indice o esposizione diretta, leva e condizioni di replica.',
+    'Costs, issuer/counterparty or custody risks and liquidity.': 'Costi, rischi di emittente/controparte o custodia e liquidità.',
+    'Price currency and units; underlying/vehicle distinctions.': 'Valuta e unità del prezzo; distinzione sottostante/veicolo.',
+    'Holdings, leverage and terms reconcile to the stated exposure.': 'Partecipazioni, leva e condizioni riconciliate con l’esposizione dichiarata.',
+    'Official prospectus, holdings or underlying specifications.': 'Prospetto ufficiale, partecipazioni o specifiche del sottostante.',
+    'Dated price and exposure data from an identified provider.': 'Prezzi ed esposizione datati di un provider identificato.',
+    'Property economics need cash-rent/NOI and asset NAV with recurring capex reconciled.': 'L’economia immobiliare richiede canoni di cassa/NOI e NAV degli attivi con investimenti ricorrenti riconciliati.',
+    'Explicit equity NAV target with no default premium or parity.': 'Obiettivo esplicito di NAV del capitale senza premio o parità predefiniti.',
+    'Rents, occupancy, lease incentives and property operating expenses.': 'Canoni, occupazione, incentivi contrattuali e costi operativi degli immobili.',
+    'Maintenance, tenant improvements, leasing costs and expansion separated.': 'Manutenzione, migliorie degli inquilini, costi di locazione ed espansione separati.',
+    'Asset valuations, comparable cap rates and dated assumptions.': 'Valutazioni degli attivi, tassi di capitalizzazione comparabili e ipotesi datate.',
+    'Property/corporate debt, maturities and unencumbered claims.': 'Debito immobiliare/societario, scadenze e diritti non gravati da vincoli.',
+    'Reported FFO/AFFO reconciled to recurring distributable cash.': 'FFO/AFFO riportati riconciliati con la cassa ricorrente distribuibile.',
+    'NOI, FFO/AFFO and recurring cash are explicitly reconciled.': 'NOI, FFO/AFFO e cassa ricorrente riconciliati esplicitamente.',
+    'Property NAV to common equity deducts each liability once.': 'Dal NAV immobiliare al capitale ordinario, ogni passività si deduce una volta.',
+    'Property-development projects require finite project cash flows and financing.': 'I progetti di sviluppo immobiliare richiedono flussi di progetto finiti e finanziamenti.',
+    'Project ownership, status, land, permissions and finite timeline.': 'Proprietà, stato, terreni, permessi e durata finita del progetto.',
+    'Construction cost, sales or rent, working capital and tax by period.': 'Costi di costruzione, vendite o canoni, circolante e imposte per periodo.',
+    'Debt drawdown, funding needs, guarantees and residual claims.': 'Utilizzo del debito, fabbisogno finanziario, garanzie e diritti residui.',
+    'Finite project sales and remaining assets are counted once.': 'Vendite di progetto finite e attivi residui conteggiati una volta.',
+    'Project financing reconciles to the enterprise/equity valuation basis.': 'Finanziamento del progetto riconciliato con la base di valutazione impresa/capitale.',
+    'Extractive assets require production, depletion and end-of-life obligations.': 'Gli attivi estrattivi richiedono produzione, esaurimento e obblighi di fine vita.',
+    'Recoverable reserves/resources, classification, rights and finite asset life.': 'Riserve/risorse recuperabili, classificazione, diritti e vita finita degli attivi.',
+    'Volumes, decline/recovery assumptions and sourced commodity-price scenarios.': 'Volumi, ipotesi di declino/recupero e scenari documentati dei prezzi delle materie prime.',
+    'Operating cost, royalties, taxes, maintenance and development capex.': 'Costi operativi, royalties, imposte, investimenti di manutenzione e sviluppo.',
+    'Decommissioning, restoration and other terminal liabilities.': 'Dismissione, ripristino e altre passività terminali.',
+    'Debt, cash, minorities and asset ownership reconciled once.': 'Debito, cassa, minoranze e proprietà degli attivi riconciliati una volta.',
+    'Cumulative extraction reconciles to recoverable reserves and replenishment.': 'Estrazione cumulata riconciliata con riserve recuperabili e reintegro.',
+    'Finite asset economics and end-of-life obligations reconcile to equity.': 'Economia a vita finita e obblighi di fine vita riconciliati con il capitale.',
+    'Precommercial assets require conditional outcome cash flows and development funding.': 'Gli attivi precommerciali richiedono flussi condizionati agli esiti e finanziamenti dello sviluppo.',
+    'Asset identity, rights, development stage, milestones and timing.': 'Identità dell’attivo, diritti, fase di sviluppo, traguardi e tempi.',
+    'Sourced conditional transition probabilities and scenario structure.': 'Probabilità condizionate di transizione e struttura degli scenari documentate.',
+    'Costs, milestones, royalties and commercial flows for each outcome.': 'Costi, traguardi, royalties e flussi commerciali per ciascun esito.',
+    'Cash runway, financing needs and dilution by scenario.': 'Autonomia di cassa, fabbisogno finanziario e diluizione per scenario.',
+    'Patent, exclusivity or concession expiry and resulting finite cash flows.': 'Scadenza di brevetti, esclusiva o concessioni e conseguenti flussi finiti.',
+    'Outcome probabilities are conditional and branches are not double-counted.': 'Le probabilità degli esiti sono condizionate e i rami non sono conteggiati due volte.',
+    'Risk is not penalized twice through probabilities and discount assumptions.': 'Il rischio non viene penalizzato due volte tramite probabilità e ipotesi di sconto.',
+    'Materially different business economics require segment-specific methods and a group bridge.': 'Attività con economie sostanzialmente diverse richiedono metodi per segmento e un ponte di gruppo.',
+    'Complete segment ownership, activity and reporting perimeters.': 'Perimetri completi di proprietà, attività e rendicontazione dei segmenti.',
+    "Each material segment's method, evidence and EV/equity valuation basis.": 'Metodo, evidenze e base di valutazione EV/capitale di ogni segmento rilevante.',
+    'Group costs not already included in segment cash flows.': 'Costi di gruppo non già inclusi nei flussi dei segmenti.',
+    'Intercompany elimination, cash/debt, minorities and cross-holdings.': 'Elisioni infragruppo, cassa/debito, minoranze e partecipazioni incrociate.',
+    'Material segment coverage is complete before a total is usable.': 'Copertura completa dei segmenti rilevanti prima di utilizzare un totale.',
+    'No EV/equity mixing, intercompany duplication or double-counted debt.': 'Nessuna commistione EV/capitale, duplicazione infragruppo o doppio conteggio del debito.',
+}
+
+
+def method_presentation(decision):
+    """Current registry labels, separate from immutable acquired/stored identity."""
+    from bellomberg.core.presentation import message, render_payload
+    method_id = decision.get("method_id") if isinstance(decision, dict) else None
+    method = _METHODS.get(method_id) if isinstance(method_id, str) else None
+    result = {"requirements_display": None,
+              "decision_display": {"method_rationale": None, "support_note": None,
+                                   "registry_version": REGISTRY_VERSION}}
+    if method is None:
+        return result
+
+    def describe(authored):
+        # A missing translation is a programming error, not a source-text fallback.
+        return message(_REGISTRY_DISPLAY_IT[authored], authored)
+
+    requirements = get_method_requirements(method_id)
+    for field in requirements["fields"]:
+        field["description"] = describe(field["description"])
+    for key in ("periods", "sources", "reconciliations", "scenarios"):
+        requirements[key] = [describe(item) for item in requirements[key]]
+    support = decision.get("support_status")
+    if method_id == "managed_care_distributable_equity":
+        note = message("L’adattatore comune managed-care utilizza record documentati; ogni risultato richiede ancora dati completi e il gate di utilizzabilità.",
+                       "Common managed-care adapter consumes documented records; each result still requires complete data and the usability gate.")
+    elif method.get("record_adapter") and support == "integrated":
+        note = message("L’adattatore comune utilizza record documentati; ogni caso richiede ancora economia supportata, dati completi e il gate di utilizzabilità.",
+                       "Common adapter consumes documented records; each case still requires supported economics, complete data and the usability gate.")
+    elif support == "integrated":
+        note = message("Esiste un adattatore applicativo legacy; la pipeline comune S2 e la qualità degli input non sono certificate.",
+                       "Legacy application adapter exists; S2 common pipeline and input quality are not certified.")
+    elif support == "calculator_only":
+        note = message("Esiste un calcolatore; questo profilo economico non ha un adattatore applicativo completo.",
+                       "A calculator exists; this economic profile has no complete application adapter.")
+    elif support == "planned":
+        note = message("È previsto un adattatore dedicato; nessuna valutazione disponibile.",
+                       "A dedicated adapter is planned; no valuation is available.")
+    else:
+        note = None
+    result["requirements_display"] = requirements
+    result["decision_display"].update(method_rationale=describe(method["rationale"]), support_note=note)
+    return render_payload(result)

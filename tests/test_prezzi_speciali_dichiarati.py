@@ -27,6 +27,12 @@ import sys
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def _no_opening_balances(monkeypatch):
+    from bellomberg.portfolio import portfolio_analytics as pa
+    monkeypatch.setattr(pa, "_opening_positions", lambda: [])
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
@@ -176,18 +182,24 @@ def test_il_ko_arriva_prima_del_DB(negozio, monkeypatch):
     _messaggio_ko(pr.compute_portfolio_risk(force=True))
 
 
-def test_col_negozio_a_posto_il_calcolo_riparte(negozio, monkeypatch):
+@pytest.mark.parametrize("language, expected", [("it", "nessuna posizione"), ("en", "no positions")])
+def test_col_negozio_a_posto_il_calcolo_riparte(negozio, monkeypatch, language, expected):
     """Il contrario del KO: col negozio leggibile la funzione supera la guardia e arriva
     al DB (qui finto, vuoto) — cosi' il KO non e' un «si ferma sempre» travestito."""
     import bellomberg.portfolio.portfolio_risk as pr
+    from bellomberg.core.language import language_context
+    calls = []
 
     class _DB:
         def get_portfolio_summary(self):
+            calls.append("summary")
             return {"positions": []}
     monkeypatch.setattr(pr, "MemoryDB", _DB)
     negozio({"senza_yfinance": ["ALFA"]})
-    out = pr.compute_portfolio_risk(force=True)
-    assert out.get("error") == "no positions", out
+    with language_context(language):
+        out = pr.compute_portfolio_risk(force=True)
+    assert out.get("error") == expected, out
+    assert calls == ["summary"]
 
 
 def test_il_ramo_ILLEGGIBILE_ferma_i_motori_come_l_assente(negozio, monkeypatch, tmp_path):
@@ -347,8 +359,10 @@ def test_garch_passa_la_lista_a_get_portfolio_returns(negozio, monkeypatch):
     assert visti["salta"] == frozenset({"ALFA"}), visti
 
 
-def test_liquidity_dichiara_il_negozio_nella_nota(negozio, monkeypatch):
+@pytest.mark.parametrize("language, expected", [("it", "nessuna posizione"), ("en", "no positions")])
+def test_liquidity_dichiara_il_negozio_nella_nota(negozio, monkeypatch, language, expected):
     import bellomberg.portfolio.portfolio_analytics as pa
+    from bellomberg.core.language import language_context
     monkeypatch.setattr(pa, "YF_OK", True)
 
     class _DB:
@@ -356,8 +370,9 @@ def test_liquidity_dichiara_il_negozio_nella_nota(negozio, monkeypatch):
             return {"positions": []}
     monkeypatch.setattr(pa, "MemoryDB", _DB)
     negozio(None)
-    out = pa.compute_liquidity_scores()
-    assert out.get("error") == "no positions"   # perimetro vuoto: il KO qui non c'e'
+    with language_context(language):
+        out = pa.compute_liquidity_scores()
+    assert out.get("error") == expected   # perimetro vuoto: il KO qui non c'e'
 
 
 # ------------------------------------------------ price_updater
@@ -522,6 +537,7 @@ def test_attribution_a_negozio_assente_non_esclude_e_lo_DICE(negozio, monkeypatc
     assert esito["origine"] == "assente"
     src = open(os.path.join(REPO, "src", "bellomberg", "portfolio",
                             "portfolio_attribution.py"), encoding="utf-8").read()
-    assert "negozio dei prezzi speciali %s (%s)" in src
+    assert "negozio dei prezzi speciali {origin} ({reason})" in src
+    assert "Special price store {origin} ({reason})" in src
     assert "non perche' non ci sia" in src
     assert "SKIP_TICKERS" not in src, "l'import della costante non esiste piu'"

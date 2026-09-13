@@ -9,7 +9,7 @@ from bellomberg.core.config import PM_NAME
 BRAND_NAME = "BELLOMBERG"
 BRAND_TAGLINE = "Your Personal AI Hedge Fund Terminal"
 BRAND_SUBTAGLINE = "6 specialists. 1 senior analyst. Your portfolio."
-VERSION = "0.7.0"  # v0.7 — News Terminal Bloomberg-grade + bugfix wave (giu 2026)
+VERSION = "0.8.0"
 CODENAME = "Genesis"  # internal codename phase 1
 
 # Palette ufficiale Bellomberg (Citadel-meets-luxury)

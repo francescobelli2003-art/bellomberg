@@ -4,6 +4,12 @@ import types
 import pandas as pd
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def _no_opening_balances(monkeypatch):
+    from bellomberg.portfolio import portfolio_analytics as pa
+    monkeypatch.setattr(pa, "_opening_positions", lambda: [])
+
 from bellomberg.storage import classificazione
 from bellomberg.storage import memory_db
 import bellomberg.portfolio.portfolio_analytics as analytics

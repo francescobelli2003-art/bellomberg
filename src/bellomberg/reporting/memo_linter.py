@@ -14,6 +14,7 @@ VALIDATOR, cosi' analizza il memo pulito.
 """
 import re
 from datetime import datetime
+from bellomberg.core.language import scoped_language, text as _lt
 
 # tolleranze tarate per non fare rumore (flag-only ma un falso allarme a memo
 # brucia la fiducia del PM nel blocco)
@@ -23,7 +24,7 @@ SCENARI_SUM_RANGE = (95.0, 105.0)
 CASH_TOL_REL = 0.05         # 5% sul cash del DB
 SRC_MIN_MISSING = 3         # sotto questa soglia il conteggio [src] non fa rumore
 
-_AMOUNT = r"(?:€\s*)?\d[\d.,]*\s*(?:k|mila|mln|m|mld)?\s*(?:€|eur)?"
+_AMOUNT = r"(?:€\s*)?\d[\d.,]*\s*(?:(?:billion|million|thousand|miliard[oi]|milion[ei]|mila|mld|mln|bn|mm|k|m)\b)?\s*(?:€|eur)?"
 
 
 def _amt(s):
@@ -45,9 +46,9 @@ def _check_nav_percentages(memo, nav):
     out = []
     pats = [
         # importo ( X% del NAV )
-        re.compile(r"(" + _AMOUNT + r")\s*\(\s*(?:~|circa\s*)?(\d+(?:[.,]\d+)?)\s*%\s*del\s*NAV\s*\)", re.IGNORECASE),
+        re.compile(r"(" + _AMOUNT + r")\s*\(\s*(?:~|circa\s*|about\s*)?(\d+(?:[.,]\d+)?)\s*%\s*(?:del|of(?:\s+the)?)\s*NAV\s*\)", re.IGNORECASE),
         # X% del NAV ( importo )
-        re.compile(r"(?<![\d,.])(\d+(?:[.,]\d+)?)\s*%\s*del\s*NAV\s*\(\s*(?:~|circa\s*)?(" + _AMOUNT + r")\s*\)", re.IGNORECASE),
+        re.compile(r"(?<![\d,.])(\d+(?:[.,]\d+)?)\s*%\s*(?:del|of(?:\s+the)?)\s*NAV\s*\(\s*(?:~|circa\s*|about\s*)?(" + _AMOUNT + r")\s*\)", re.IGNORECASE),
     ]
     for i, pat in enumerate(pats):
         for m in pat.finditer(memo):
@@ -58,15 +59,18 @@ def _check_nav_percentages(memo, nav):
             implied = amount / nav * 100.0
             if abs(implied - claimed) > max(NAV_PCT_TOL_ABS, claimed * NAV_PCT_TOL_REL):
                 out.append(
-                    f"**% del NAV non torna**: \"{m.group(0).strip()[:70]}\" — "
-                    f"{amount:,.0f}€ su NAV {nav:,.0f}€ = {implied:.1f}%, "
-                    f"dichiarato {claimed:.1f}% (base probabilmente diversa dal NAV)")
+                    _lt(f"**% del NAV non torna**: \"{m.group(0).strip()[:70]}\" — "
+                        f"{amount:,.0f}€ su NAV {nav:,.0f}€ = {implied:.1f}%, "
+                        f"dichiarato {claimed:.1f}% (base probabilmente diversa dal NAV)",
+                        f"**NAV percentage mismatch**: \"{m.group(0).strip()[:70]}\" — "
+                        f"€{amount:,.0f} / NAV €{nav:,.0f} = {implied:.1f}%, "
+                        f"disclosed {claimed:.1f}% (the denominator likely differs from NAV)"))
     return out[:4]
 
 
 def _check_scenario_sum(memo):
     """Tabella Scenari: le probabilita' devono sommare ~100 (colonna con 'prob' nell'header)."""
-    m = re.search(r"##[^\n]*Tabella Scenari[^\n]*\n(.*?)(?=\n## |\Z)", memo,
+    m = re.search(r"##[^\n]*(?:Tabella Scenari|Scenario Table)[^\n]*\n(.*?)(?=\n## |\Z)", memo,
                   re.IGNORECASE | re.DOTALL)
     if not m:
         return []
@@ -90,9 +94,12 @@ def _check_scenario_sum(memo):
         return []
     tot = sum(probs)
     if not (SCENARI_SUM_RANGE[0] <= tot <= SCENARI_SUM_RANGE[1]):
-        return [f"**Tabella Scenari**: le probabilita' sommano {tot:.0f}% "
+        return [_lt(f"**Tabella Scenari**: le probabilita' sommano {tot:.0f}% "
                 f"({' + '.join(f'{p:.0f}' for p in probs)}) invece di ~100: "
-                "scenari non mutuamente esclusivi o proxy (regole sez. 10)"]
+                "scenari non mutuamente esclusivi o proxy (regole sez. 10)",
+                f"**Scenario Table**: probabilities total {tot:.0f}% "
+                f"({' + '.join(f'{p:.0f}' for p in probs)}) instead of ~100: "
+                "scenarios are not mutually exclusive, or are proxies (section 10 rules)")]
     return []
 
 
@@ -100,12 +107,12 @@ def _check_cash_quadrature(memo, cash_eur):
     """Prima dichiarazione di livello del dry powder/cash vs il cash del DB."""
     if not cash_eur or cash_eur <= 0:
         return []
-    _kw = r"(?:dry powder|liquidit[aà'] disponibile|cash disponibile)"
+    _kw = r"(?:dry powder|liquidit[aà'] disponibile|cash disponibile|available cash|cash available|available liquidity)"
     pats = [
         # "dry powder di 101k" / "cash disponibile: 34.716€"
         re.compile(_kw + r"\D{0,25}?(" + _AMOUNT + r")", re.IGNORECASE),
         # "~30k di dry powder" (frasario reale dei memo #39/#42)
-        re.compile(r"[~≈]?\s*(" + _AMOUNT + r")\s*di\s*" + _kw, re.IGNORECASE),
+        re.compile(r"[~≈]?\s*(" + _AMOUNT + r")\s*(?:di|of|in)\s*" + _kw, re.IGNORECASE),
     ]
     m = min((mm for p in pats if (mm := p.search(memo))),
             key=lambda mm: mm.start(), default=None)
@@ -115,32 +122,74 @@ def _check_cash_quadrature(memo, cash_eur):
     if not amount or amount < 1000:
         return []
     if abs(amount - cash_eur) > cash_eur * CASH_TOL_REL:
-        return [f"**Dry powder non quadra**: il memo dichiara {amount:,.0f}€, "
+        return [_lt(f"**Dry powder non quadra**: il memo dichiara {amount:,.0f}€, "
                 f"il DB dice {cash_eur:,.0f}€ di cash disponibile "
-                f"(delta {amount - cash_eur:+,.0f}€)"]
+                f"(delta {amount - cash_eur:+,.0f}€)",
+                f"**Cash mismatch**: the memo states €{amount:,.0f}; "
+                f"Database available cash is €{cash_eur:,.0f} "
+                f"(difference €{amount - cash_eur:+,.0f})")]
     return []
 
 
 def _check_src_coverage(memo):
     """Importi in EUR in prosa senza un tag [src|Decisione #] nella stessa riga."""
     missing = []
-    amount_line = re.compile(r"(?:€\s*\d|\d[\d.,]*\s*(?:k\b|mila\b|€)|\d[\d.,]*\s*eur\b)",
+    amount_line = re.compile(r"(?:€\s*\d|\d[\d.,]*\s*(?:(?:k|mila|thousand|million|billion|bn|mm|mln|mld)\b|€)|\d[\d.,]*\s*eur\b)",
                              re.IGNORECASE)
     for line in memo.split("\n"):
         ls = line.strip()
         if not ls or ls.startswith(("|", "#", "*(")):
             continue  # tabelle (hanno i loro validator), header, footer dei blocchi
-        if "[src" in ls.lower() or "[decisione" in ls.lower() or "decisione #" in ls.lower():
+        if "[src" in ls.lower() or re.search(r"(?:\[decisione?\b|decisione?\s*#)", ls, re.IGNORECASE):
             continue
         if amount_line.search(ls):
             missing.append(ls[:75])
     if len(missing) < SRC_MIN_MISSING:
         return []
     esempi = "; ".join('"' + s + '..."' for s in missing[:3])
-    return [f"**{len(missing)} righe con importi in EUR senza tag [src]** — "
-            f"esempi: {esempi}"]
+    return [_lt(f"**{len(missing)} righe con importi in EUR senza tag [src]** — esempi: {esempi}",
+                f"**{len(missing)} lines with EUR amounts and no [src] tag** — examples: {esempi}")]
 
 
+_DRAWDOWN_PCT = re.compile(r"(?P<pct>-\s?\d{1,3}(?:[.,]\d+)?)\s?%\s+(?:da(?:l|i)\s+massim|(?:from|below)\s+(?:the\s+)?(?:highs?|peaks?))", re.IGNORECASE)
+_DRAWDOWN_STOP = {"IL", "LA", "LO", "LE", "GLI", "I", "UN", "UNA", "NEL", "NELLA", "AL", "ALLA", "DEL",
+                  "DELLA", "CON", "PER", "MA", "E", "SE", "CHE", "IN", "A", "DA", "OGGI", "IERI", "RSI",
+                  "NAV", "EUR", "USD", "P&L", "SMA20", "SMA50", "THE", "AN", "AT", "OF", "WITH",
+                  "FOR", "BUT", "AND", "IF", "THAT", "FROM", "TODAY", "YESTERDAY"}
+
+
+def _check_drawdown_duplicati(memo):
+    """Audit 11/09 (Fable 5.1, memo #53): lo stesso indice con DUE drawdown «dal massimo»
+    (-10,8% dal tool, -14,79% da un articolo web vecchio) nello stesso memo, mai riconciliati.
+    Check deterministico e generale: stesso nome + «-X% dal/dai massim…» con valori diversi.
+    Il nome e' l'ultima parola maiuscola (o simbolo ^INDICE) della stessa riga prima del
+    numero, saltando articoli e sigle di contorno."""
+    visti = {}
+    for m in _DRAWDOWN_PCT.finditer(memo):
+        prima = memo[max(0, m.start() - 90):m.start()].split("\n")[-1]
+        tokens = re.findall(r"[A-Z^][A-Za-z0-9^&.\-]{1,30}", prima)
+        nome = next((t for t in reversed(tokens) if t.upper().strip(".") not in _DRAWDOWN_STOP), None)
+        if not nome:
+            continue
+        chiave = nome.upper().strip(".")
+        val = _pct(m.group("pct").replace(" ", ""))
+        if val is None:
+            continue
+        visti.setdefault(chiave, {"nome": nome, "valori": []})
+        if val not in visti[chiave]["valori"]:
+            visti[chiave]["valori"].append(val)
+    out = []
+    for chiave, info in visti.items():
+        if len(info["valori"]) > 1 and (max(info["valori"]) - min(info["valori"])) > 0.3:
+            out.append(_lt("**{}: piu' drawdown «dal massimo» nello stesso memo** ({}) senza "
+                           "riconciliazione — un numero da tool e uno da fonte web/vecchia?",
+                           "**{}: multiple drawdowns from highs in the same memo** ({}) without "
+                           "reconciliation — a tool value and an older/web-source value?").format(
+                           info["nome"], " / ".join("{:g}%".format(v) for v in info["valori"])))
+    return out
+
+
+@scoped_language
 def build_linter_block(memo_markdown, portfolio=None):
     """Ritorna il blocco markdown '## MEMO LINTER' (o stringa vuota se pulito).
     Non solleva mai: ogni check e' guarded (il chiamante ha comunque il try/except)."""
@@ -153,7 +202,8 @@ def build_linter_block(memo_markdown, portfolio=None):
     for check in (lambda: _check_nav_percentages(memo_markdown, nav),
                   lambda: _check_scenario_sum(memo_markdown),
                   lambda: _check_cash_quadrature(memo_markdown, cash),
-                  lambda: _check_src_coverage(memo_markdown)):
+                  lambda: _check_src_coverage(memo_markdown),
+                  lambda: _check_drawdown_duplicati(memo_markdown)):
         try:
             warnings.extend(check())
         except Exception:
@@ -161,11 +211,12 @@ def build_linter_block(memo_markdown, portfolio=None):
 
     if not warnings:
         return ""
-    block = ["## MEMO LINTER (verifica aritmetica automatica — flag-only, i numeri del Capo NON sono stati modificati)"]
+    block = [_lt("## MEMO LINTER (verifica aritmetica automatica — flag-only, i numeri del Capo NON sono stati modificati)",
+                 "## MEMO LINTER (automatic arithmetic checks — flags only, the Capo's numbers have NOT been changed)")]
     block += [f"- {w}" for w in warnings]
-    block.append(f"*(linter v1 — {datetime.now().strftime('%d/%m %H:%M')}; "
-                 "check deterministici: % del NAV ricalcolate, somma scenari, "
-                 "quadratura dry powder, copertura tag [src])*")
+    block.append(f"*(linter v1 — {datetime.now().strftime('%d/%m %H:%M')}; " + _lt(
+                 "check deterministici: % del NAV ricalcolate, somma scenari, quadratura dry powder, copertura tag [src], drawdown doppi)*",
+                 "deterministic checks: NAV percentages, scenario totals, cash reconciliation, [src] coverage, conflicting drawdowns)*"))
     return "\n".join(block)
 
 

@@ -1,0 +1,27 @@
+title: ""
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe a research workflow that could improve. Please search existing
+        ideas first and use synthetic examples. This is not a place to request
+        personalized investment recommendations or promote financial products.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: Who encounters it, on which page, and what are they trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired result
+      description: Describe the useful behavior and how you would recognize success.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and constraints
+      description: Include an existing workaround, data coverage or provider dependency if relevant.

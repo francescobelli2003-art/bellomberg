@@ -3,19 +3,22 @@ import { useNavigate } from 'react-router-dom';
 import { Bellomberg, API_BASE } from '../lib/api';
 import RunConfirmDialog from './RunConfirmDialog';
 import { conservaDettaglioRun, dettaglioLeggibile, statusHttp } from '../lib/mandato';
+import { useLingua, useT } from '../i18n/provider';
+import type { Chiave } from '../i18n/t';
 
 type Item = { k: string; label: string; hint?: string; run: () => void | Promise<void> };
 
-import { NAVIGATION } from '../lib/navigation';
+import { NAVIGATION, localizeDestination } from '../lib/navigation';
 import { portfolioTickers } from '../lib/chat-prompts';
 
 export default function CommandPalette() {
+  const tr = useT(), language = useLingua();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [idx, setIdx] = useState(0);
   const [tickers, setTickers] = useState<string[]>([]);
   const [tickersErr, setTickersErr] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busy, setBusy] = useState<{ key: Chiave; detail?: string } | null>(null);
   // la run costa: da qui partiva con UN INVIO (Lotto D) -> passa dalla conferma
   const [askRun, setAskRun] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -48,17 +51,17 @@ export default function CommandPalette() {
   }, [open]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const close = useCallback(() => setOpen(false), []);
-  const act = useCallback(async (label: string, fn: () => Promise<any>, done: string) => {
-    setBusy(label);
-    try { await fn(); setBusy(done); setTimeout(() => { setBusy(null); close(); }, 900); }
-    catch (e: any) { setBusy('ERRORE: ' + (e?.message || 'fallito')); setTimeout(() => setBusy(null), 2200); }
+  const act = useCallback(async (label: Chiave, fn: () => Promise<any>, done: Chiave) => {
+    setBusy({ key: label });
+    try { await fn(); setBusy({ key: done }); setTimeout(() => { setBusy(null); close(); }, 900); }
+    catch (e: any) { setBusy({ key: 'settings.command_failed', detail: e?.message }); setTimeout(() => setBusy(null), 2200); }
   }, [close]);
   const runConsigliere = useCallback(async () => {
-    setBusy('LANCIO RUN...');
-    try { await Bellomberg.runConsigliere(); setBusy('RUN AVVIATA ? apri Agents Live'); setTimeout(() => { setBusy(null); close(); }, 900); }
+    setBusy({ key: 'settings.run_starting' });
+    try { await Bellomberg.runConsigliere(); setBusy({ key: 'settings.run_started' }); setTimeout(() => { setBusy(null); close(); }, 900); }
     catch (e) {
       const detail = dettaglioLeggibile(e);
-      setBusy('ERRORE: ' + detail);
+      setBusy({ key: 'settings.command_failed', detail });
       if (statusHttp(e) === 428) { conservaDettaglioRun(detail); close(); navigate('/mandato'); }
     }
   }, [close, navigate]);
@@ -69,43 +72,44 @@ export default function CommandPalette() {
     // ticker-first: se la query matcha un ticker del book, le sue azioni salgono in testa
     for (const t of tickers) {
       if (Q && t.toUpperCase().includes(Q)) {
-        base.push({ k: t, label: `MKT ${t}`, hint: 'security terminal globale', run: () => {
+        base.push({ k: t, label: tr('settings.market_security', {a: t}), hint: tr('settings.global_terminal'), run: () => {
           sessionStorage.setItem('bb:mktTicker', t); navigate('/market'); close(); } });
-        base.push({ k: t, label: `NEWS ${t}`, hint: 'feed filtrato sul nome', run: () => {
+        base.push({ k: t, label: tr('settings.news_ticker', {a: t}), hint: tr('settings.filtered_feed'), run: () => {
           sessionStorage.setItem('bb:newsTicker', t); navigate('/news'); close(); } });
-        base.push({ k: t, label: `POSIZIONE ${t}`, hint: 'blotter + trade entry', run: () => { navigate('/trades'); close(); } });
+        base.push({ k: t, label: tr('settings.position_ticker', {a: t}), hint: tr('settings.blotter_entry'), run: () => { navigate('/trades'); close(); } });
       }
     }
     // ricerca GLOBALE: qualsiasi query apre il security terminal (T4)
     if (Q && Q.length >= 2) {
-      base.push({ k: 'MKT', label: `CERCA "${Q}" SUI MERCATI GLOBALI`, hint: 'azioni/ETF/indici/FX mondiali', run: () => {
+      base.push({ k: 'MKT', label: tr('settings.search_markets', {a: Q}), hint: tr('settings.global_instruments'), run: () => {
         sessionStorage.setItem('bb:mktQuery', Q); navigate('/market'); close(); } });
     }
     for (const entry of NAVIGATION) {
-      base.push({ k: entry.key, label: entry.label.toUpperCase(), hint: entry.group, run: () => {
+      const localized = localizeDestination(entry, language);
+      base.push({ k: entry.key, label: localized.label.toUpperCase(), hint: localized.group, run: () => {
         if (entry.kind === 'settings') window.dispatchEvent(new Event('bb:settings'));
         else navigate(entry.to);
         close();
       }});
     }
     base.push(
-      { k: 'RUN', label: 'LANCIA CONSIGLIERE', hint: 'analisi multi-agente ? conferma prima del lancio', run: () =>
+      { k: 'RUN', label: tr('settings.launch_run'), hint: tr('settings.run_confirm_hint'), run: () =>
           setAskRun(true) },
-      { k: 'PX', label: 'REFRESH PREZZI', hint: 'polygon -> yfinance, tutte le posizioni', run: () =>
-          act('AGGIORNO PREZZI...', () => Bellomberg.updatePrices(), 'PREZZI AGGIORNATI') },
-      { k: 'NEWS', label: 'REFRESH NEWS FEED', hint: 'pull + classify (~60s)', run: () =>
-          act('REFRESH FEED...', () => Bellomberg.newsFeedRefresh(1, true), 'FEED AGGIORNATO') },
-      { k: 'NAV', label: 'RICALCOLA NAV HISTORY', hint: 'force refresh performance', run: () =>
-          act('RICALCOLO NAV...', () => Bellomberg.navHistory(true), 'NAV RICALCOLATO') },
-      { k: 'MEMO', label: 'APRI ULTIMO MEMO (PDF)', hint: 'weekly research note', run: async () => {
+      { k: 'PX', label: tr('settings.refresh_prices'), hint: tr('settings.all_positions'), run: () =>
+          act('settings.prices_updating', () => Bellomberg.updatePrices(), 'settings.prices_updated') },
+      { k: 'NEWS', label: tr('settings.refresh_news'), hint: tr('settings.news_pull'), run: () =>
+          act('settings.feed_updating', () => Bellomberg.newsFeedRefresh(1, true), 'settings.feed_updated') },
+      { k: 'NAV', label: tr('settings.recalculate_nav'), hint: tr('settings.force_performance'), run: () =>
+          act('settings.nav_updating', () => Bellomberg.navHistory(true), 'settings.nav_updated') },
+      { k: 'MEMO', label: tr('settings.latest_memo'), hint: tr('settings.weekly_note'), run: async () => {
           const m = await Bellomberg.memos(1); const id = m.memos?.[0]?.id;
           if (id) window.open(`${API_BASE}/memos/${id}/pdf`, '_blank'); close(); } },
-      { k: 'BAK', label: 'BACKUP DATABASE', hint: 'snapshot data/consigliere.db', run: () =>
-          act('BACKUP...', () => Bellomberg.dbBackupCreate(), 'BACKUP CREATO') },
+      { k: 'BAK', label: tr('settings.database_backup'), hint: tr('settings.database_snapshot'), run: () =>
+          act('settings.backup_updating', () => Bellomberg.dbBackupCreate(), 'settings.backup_created_command') },
     );
     if (!Q) return base;
     return base.filter(i => (i.k + ' ' + i.label + ' ' + (i.hint || '')).toUpperCase().includes(Q));
-  }, [q, tickers, navigate, close, act]);
+  }, [q, tickers, navigate, close, act, tr, language]);
 
   useEffect(() => { setIdx(0); }, [q]);
   useEffect(() => { setIdx(i => Math.max(0, Math.min(i, items.length - 1))); }, [items.length]);
@@ -125,10 +129,10 @@ export default function CommandPalette() {
       <div className="cmdk-overlay" onClick={close} />
       <div className="cmdk-modal">
         <input ref={inputRef} className="cmdk-input" value={q} onChange={e => setQ(e.target.value)}
-               role="combobox" aria-label="Cerca pagine, ticker e azioni" aria-expanded={open} aria-controls="bb-command-list" aria-activedescendant={items[idx] ? `bb-command-${idx}` : undefined}
-               onKeyDown={onInputKey} placeholder="BELLOMBERG>  ticker, pagina o comando..." spellCheck={false} />
-        <div className="cmdk-list" ref={listRef} id="bb-command-list" role="listbox" aria-label="Risultati">
-          {busy && <div className="cmdk-item active"><span className="k">::</span>{busy}</div>}
+               role="combobox" aria-label={tr('settings.search_label')} aria-expanded={open} aria-controls="bb-command-list" aria-activedescendant={items[idx] ? `bb-command-${idx}` : undefined}
+               onKeyDown={onInputKey} placeholder={tr('settings.search_placeholder')} spellCheck={false} />
+        <div className="cmdk-list" ref={listRef} id="bb-command-list" role="listbox" aria-label={tr('settings.results')}>
+          {busy && <div className="cmdk-item active"><span className="k">::</span>{tr(busy.key)}{busy.detail ? ': ' + busy.detail : ''}</div>}
           {items.map((it, i) => (
             <div key={it.k + it.label} id={`bb-command-${i}`} role="option" aria-selected={i === idx} className={'cmdk-item' + (i === idx ? ' active' : '')}
                  onMouseEnter={() => setIdx(i)} onClick={() => it.run()}>
@@ -137,14 +141,14 @@ export default function CommandPalette() {
               {it.hint && <span style={{ marginLeft: 'auto', fontSize: 9, color: '#8D9FC4' }}>{it.hint}</span>}
             </div>
           ))}
-          {items.length === 0 && <div className="cmdk-item"><span className="k">--</span>nessun risultato</div>}
+          {items.length === 0 && <div className="cmdk-item"><span className="k">--</span>{tr('settings.no_results')}</div>}
           {tickersErr && (
             <div className="cmdk-item"><span className="k" style={{ color: '#ff3355' }}>!!</span>
-              <span style={{ color: '#ff3355' }}>book NON caricato (backend in errore): azioni ticker del portafoglio non disponibili</span>
+              <span style={{ color: '#ff3355' }}>{tr('settings.book_unavailable')}</span>
             </div>
           )}
         </div>
-        <div className="cmdk-hint">CTRL+K APRI/CHIUDI &nbsp;·&nbsp; ↑↓ NAVIGA &nbsp;·&nbsp; INVIO ESEGUI &nbsp;·&nbsp; ESC CHIUDI</div>
+        <div className="cmdk-hint">{tr('settings.palette_keys')}</div>
       </div>
       <RunConfirmDialog
         open={askRun}

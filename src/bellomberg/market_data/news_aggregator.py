@@ -26,6 +26,10 @@ data/news_search_terms.json (v. carica_termini); lo schema tracciato e'
 news_search_terms.example.json. Nessun simbolo del book vive in questo sorgente.
 """
 from bellomberg.core.paths import DATA_DIR, PROJECT_ROOT
+from bellomberg.core.language import capture_language, scoped_language, text as _lt
+from bellomberg.core.presentation import error_text, message, render_payload
+from pathlib import Path
+import tempfile
 import time
 import re
 import hashlib
@@ -218,7 +222,10 @@ def providers_blocked() -> Dict[str, str]:
         # budget (senza chiave non ha mai consumato nulla).
         var, valore = chiavi.get(p, (None, "presente"))
         if var and not valore:
-            fuori[p] = "SENZA_CHIAVE: %s assente nel .env" % var
+            # 13/09: il codice resta in testa (i lettori fanno startswith), la frase ha le due
+            # lingue fino al confine HTTP: prima era una str italiana anche con la UI in inglese
+            fuori[p] = message("SENZA_CHIAVE: {var} assente nel .env", "SENZA_CHIAVE: {var} missing from .env",
+                               var=var)
             continue
         st = provider_status(p, _probe)
         if st in ("SKIP_BUDGET", "SKIP_DISABLED"):
@@ -227,14 +234,18 @@ def providers_blocked() -> Dict[str, str]:
     try:
         from bellomberg.market_data.tiingo_news import tiingo_available
         if not tiingo_available():
-            fuori["tiingo"] = "SENZA_CHIAVE: TIINGO_API_KEY assente nel .env (o requests non importabile)"
+            fuori["tiingo"] = message("SENZA_CHIAVE: TIINGO_API_KEY assente nel .env (o requests non importabile)",
+                                      "SENZA_CHIAVE: TIINGO_API_KEY missing from .env (or requests cannot be imported)")
     except Exception as e:
-        fuori["tiingo"] = "MODULO_ASSENTE: tiingo_news non importabile (%s)" % type(e).__name__
+        fuori["tiingo"] = message("MODULO_ASSENTE: tiingo_news non importabile ({kind})",
+                                  "MODULO_ASSENTE: tiingo_news cannot be imported ({kind})", kind=type(e).__name__)
     # il negozio dei termini: senza, i nomi europei si cercano col ticker nudo (dichiarato nel
-    # log, ma il payload diceva solo «0 news»): e' una fonte muta del giro, e qui lo dice
+    # log, ma il payload diceva solo «0 news»): e' una fonte muta del giro, e qui lo dice.
+    # 13/09: niente % — riduceva a str il motivo (e con lui le sue due lingue)
     c = carica_termini()
     if c["origine"] in ("assente", "illeggibile"):
-        fuori[TERMINI_MUTI] = "NEGOZIO_%s: %s" % (c["origine"].upper(), c["motivo"])
+        fuori[TERMINI_MUTI] = message("NEGOZIO_{origine}: {motivo}", "NEGOZIO_{origine}: {motivo}",
+                                      origine=c["origine"].upper(), motivo=c["motivo"])
     # il negozio dei titoli per tema: senza, NESSUNA notizia porta i titoli che tocca, e il
     # payload direbbe solo «ecco le news» — il modello leggerebbe l'assenza di legami come
     # «nessuno dei tuoi titoli e' toccato», che e' una frase diversa e falsa
@@ -246,10 +257,12 @@ def providers_blocked() -> Dict[str, str]:
         from bellomberg.storage.negozi_privati import carica_temi_titoli
         tt = carica_temi_titoli()
         if tt["origine"] in ("assente", "illeggibile"):
-            fuori[TEMI_TITOLI_MUTI] = "NEGOZIO_%s: %s" % (tt["origine"].upper(), tt["motivo"])
+            fuori[TEMI_TITOLI_MUTI] = message("NEGOZIO_{origine}: {motivo}", "NEGOZIO_{origine}: {motivo}",
+                                              origine=tt["origine"].upper(), motivo=tt["motivo"])
     except Exception as e:
-        fuori[TEMI_TITOLI_MUTI] = ("MODULO_ASSENTE: negozi_privati non importabile (%s: %s)"
-                                   % (type(e).__name__, e))
+        fuori[TEMI_TITOLI_MUTI] = message("MODULO_ASSENTE: negozi_privati non importabile ({kind}: {cause})",
+                                          "MODULO_ASSENTE: negozi_privati cannot be imported ({kind}: {cause})",
+                                          kind=type(e).__name__, cause=error_text(e))
     return fuori
 
 
@@ -597,10 +610,13 @@ def carica_termini(path: str = None) -> Dict[str, Any]:
     'illeggibile', "motivo": str | None}. Una sola voce malformata rende illeggibile
     il negozio INTERO: mezzo negozio caricato e' un ripiego muto."""
     p = path or PERCORSO_TERMINI
+    # 13/09: i motivi sono message() (la chiave TERMINI_MUTI li porta al banner della NewsPage):
+    # il testo italiano e' quello di prima, l'inglese e' la variante nuova
     if not os.path.exists(p):
         return {"termini": {}, "origine": "assente",
-                "motivo": "negozio non trovato: %s (copia %s in data/ e mettici le TUE societa')"
-                          % (p, _ESEMPIO_TERMINI)}
+                "motivo": message("negozio non trovato: {path} (copia {esempio} in data/ e mettici le TUE societa')",
+                                  "Store not found: {path} (copy {esempio} into data/ and enter YOUR companies)",
+                                  path=p, esempio=_ESEMPIO_TERMINI)}
     try:
         with open(p, encoding="utf-8") as fh:
             grezzo = json.load(fh)
@@ -609,7 +625,8 @@ def carica_termini(path: str = None) -> Dict[str, Any]:
                 "motivo": "%s: %s" % (type(e).__name__, e)}
     if not isinstance(grezzo, dict):
         return {"termini": {}, "origine": "illeggibile",
-                "motivo": "il negozio non e' un oggetto JSON ma %s" % type(grezzo).__name__}
+                "motivo": message("il negozio non e' un oggetto JSON ma {kind}", "Store is not a JSON object but {kind}",
+                                  kind=type(grezzo).__name__)}
     termini: Dict[str, Any] = {}
     for k, v in grezzo.items():
         if k.startswith("_"):
@@ -620,16 +637,20 @@ def carica_termini(path: str = None) -> Dict[str, Any]:
             # verrebbe MAI trovata e il log direbbe «voce assente», vero per il codice e
             # falso per chi ha appena scritto la voce (review 04/09)
             return {"termini": {}, "origine": "illeggibile",
-                    "motivo": ("chiave %r non canonica o doppia: scrivila MAIUSCOLA, senza "
-                               "spazi e una volta sola (%r)" % (k, kk))}
+                    "motivo": message("chiave {chiave!r} non canonica o doppia: scrivila MAIUSCOLA, senza "
+                                      "spazi e una volta sola ({canonica!r})",
+                                      "Noncanonical or duplicate key {chiave!r}: write it UPPERCASE, without "
+                                      "spaces, once only ({canonica!r})", chiave=k, canonica=kk)}
         if v is None:
             termini[k] = None
             continue
         if (not isinstance(v, list) or not v
                 or not all(isinstance(x, str) and x.strip() for x in v)):
             return {"termini": {}, "origine": "illeggibile",
-                    "motivo": ("voce %r malformata: serve una lista non vuota di termini "
-                               "(stringhe), oppure null per escludere il simbolo dalle news" % k)}
+                    "motivo": message("voce {chiave!r} malformata: serve una lista non vuota di termini "
+                                      "(stringhe), oppure null per escludere il simbolo dalle news",
+                                      "Malformed entry {chiave!r}: a nonempty list of terms (strings) is "
+                                      "required, or null to exclude the symbol from news", chiave=k)}
         termini[k] = list(v)
     return {"termini": termini, "origine": p, "motivo": None}
 
@@ -908,7 +929,7 @@ def fetch_macro_news(categories: Optional[List[str]] = None,
     if cache_key in _CACHE:
         entry = _CACHE[cache_key]
         if time.time() - entry["ts"] < CACHE_TTL_SEC:
-            return entry["data"]
+            return render_payload(entry["data"])
 
     selected_cats = set(categories) if categories else set(CATEGORIES.keys())
     items: List[Dict[str, Any]] = []
@@ -988,7 +1009,7 @@ def fetch_macro_news(categories: Optional[List[str]] = None,
     ))
 
     _CACHE[cache_key] = {"ts": time.time(), "data": items}
-    return items
+    return render_payload(items)
 
 
 def fetch_corporate_events(days: int = 14, max_items: int = 30) -> List[Dict[str, Any]]:
@@ -999,7 +1020,7 @@ def fetch_corporate_events(days: int = 14, max_items: int = 30) -> List[Dict[str
     if cache_key in _CACHE:
         entry = _CACHE[cache_key]
         if time.time() - entry["ts"] < CACHE_TTL_SEC:
-            return entry["data"]
+            return render_payload(entry["data"])
 
     items: List[Dict[str, Any]] = []
 
@@ -1027,6 +1048,9 @@ def fetch_corporate_events(days: int = 14, max_items: int = 30) -> List[Dict[str
                 "event_type": e.get("type", ""),
                 "source_type": "sec",
                 "metadata": e.get("metadata", {}),
+                "title_origin": e.get("title_origin"),
+                "snippet_origin": e.get("snippet_origin"),
+                "presentation_languages": e.get("presentation_languages", []),
             })
     except Exception as e:
         _log(f"SEC corporate events failed: {e}")
@@ -1054,7 +1078,7 @@ def fetch_corporate_events(days: int = 14, max_items: int = 30) -> List[Dict[str
     items = items[:max_items]
 
     _CACHE[cache_key] = {"ts": time.time(), "data": items}
-    return items
+    return render_payload(items)
 
 
 def get_top_global(limit: int = 15) -> List[Dict[str, Any]]:
@@ -1179,6 +1203,76 @@ def _portfolio_weights_cached() -> Dict[str, float]:
     return out
 
 
+def _summary_identity(item):
+    """Bind generated prose to the exact stored original, not merely a reused URL."""
+    original = {key: item.get(key + "_original", item.get(key, "")) or ""
+                for key in ("title", "snippet")}
+    original["url"] = item.get("url") or ""
+    return hashlib.sha256(json.dumps(original, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _summary_path(db_path, item, language):
+    selected = capture_language(language)
+    # DB-specific directory also isolates test/copy databases in the same folder.
+    db_file = Path(db_path).resolve()
+    return db_file.parent / (db_file.name + ".news_summaries_v1") / selected / (_summary_identity(item) + ".json")
+
+
+def _save_summary(db_path, item, summary):
+    """Atomic, versioned generated cache. Original article and legacy IT fields stay put."""
+    language = capture_language(summary["language"])
+    if not summary.get("headline") and not summary.get("why_matters"):
+        return
+    path = _summary_path(db_path, item, language)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"version": 1, "language": language, "source_hash": _summary_identity(item),
+               "headline": summary.get("headline", ""), "why_matters": summary.get("why_matters", "")}
+    temp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+            temp_name = handle.name
+            json.dump(payload, handle, ensure_ascii=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_name, path)
+    finally:
+        if temp_name and os.path.exists(temp_name):
+            os.unlink(temp_name)
+
+
+def _present_summary(db_path, row):
+    language = capture_language()
+    row["title_original"] = row.get("title")
+    row["snippet_original"] = row.get("snippet")
+    path = _summary_path(db_path, row, language)
+    summary = None
+    status = "unavailable"
+    if path.exists():
+        try:
+            summary = json.loads(path.read_text(encoding="utf-8"))
+            if (summary.get("version") != 1 or summary.get("language") != language
+                    or summary.get("source_hash") != _summary_identity(row)
+                    or not all(isinstance(summary.get(key), str) for key in ("headline", "why_matters"))):
+                raise ValueError("invalid generated summary metadata")
+            status = "available"
+        except Exception as exc:
+            summary = None
+            status = "invalid"
+            _log(f"generated summary cache invalid: {exc}")
+    elif language == "it" and (row.get("headline_it") or row.get("why_matters")):
+        summary = {"headline": row.get("headline_it"), "why_matters": row.get("why_matters")}
+        status = "legacy"
+    if summary:
+        row["title"] = summary.get("headline") or row["title_original"]
+        row["snippet"] = summary.get("why_matters") or row["snippet_original"]
+    row["summary_language"] = language if summary else None
+    row["summary_status"] = status
+    row["summary_note"] = "" if summary else _lt(
+        "Sintesi nella lingua selezionata non disponibile: viene mostrato il testo originale.",
+        "Summary in the selected language is not available: original text is shown.")
+
+
+@scoped_language
 def get_feed(limit: int = 50, min_relevance: int = 0,
               ticker: Optional[str] = None,
               sentiment: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -1233,13 +1327,7 @@ def get_feed(limit: int = 50, min_relevance: int = 0,
             fresh = 6.0 if age_h <= 6 else (3.0 if age_h <= 24 else 0.0)
             fav_b = 6.0 if (r.get("ticker_mentioned") or "").upper() in favs else 0.0
             r["_materiality"] = round(rel * 2.0 + min(w, 25.0) * 0.4 + fresh + fav_b, 2)
-            # 201-A: il pannello mostra la headline da desk; originali conservati
-            if r.get("headline_it"):
-                r["title_original"] = r.get("title")
-                r["title"] = r["headline_it"]
-            if r.get("why_matters"):
-                r["snippet_original"] = r.get("snippet")
-                r["snippet"] = r["why_matters"]
+            _present_summary(db.db_path, r)
         rows.sort(key=lambda x: (-(x.get("_materiality") or 0), x.get("pulled_at") or ""), )
         return rows[: int(limit)]
     except Exception as e:
@@ -1281,6 +1369,7 @@ NEWS_SENTIMENT_PROMPT = (
 )
 
 
+@scoped_language
 def _classify_with_haiku(item: Dict[str, Any], context_tickers: List[str]) -> Dict[str, Any]:
     """Classifica con Haiku: sentiment + relevance score 1-10.
     Retry policy: 3 retries con backoff esponenziale per 529/429/5xx.
@@ -1308,7 +1397,11 @@ def _classify_with_haiku(item: Dict[str, Any], context_tickers: List[str]) -> Di
         tickers_str = ", ".join(context_tickers)
         tk_tag = item.get("ticker_mentioned", "") or ""
         theme_tag = item.get("theme", "") or ""
-        prompt = NEWS_SENTIMENT_PROMPT.format(title=title, snippet=snippet, tk_tag=tk_tag,
+        template = NEWS_SENTIMENT_PROMPT
+        if capture_language() == "en":
+            # Only the authored template changes; item text/quotes/book are inserted afterwards.
+            template = template.replace("in ITALIANO", "in ENGLISH").replace("UNA frase italiana", "ONE English sentence")
+        prompt = template.format(title=title, snippet=snippet, tk_tag=tk_tag,
                                               theme_tag=theme_tag, tickers_str=tickers_str)
 
         MAX_RETRIES = 3
@@ -1348,7 +1441,8 @@ def _classify_with_haiku(item: Dict[str, Any], context_tickers: List[str]) -> Di
                 raise last_err
             return {"sentiment": "neutral", "sentiment_score": 0.0, "relevance": 5, "headline_it": "", "why_matters": ""}
 
-        txt = msg.content[0].text.strip()
+        txt = "\n".join(block.text for block in msg.content
+                        if getattr(block, "type", "text") == "text").strip()
         if txt.startswith("```"):
             txt = txt.split("```")[1]
             if txt.startswith("json"):
@@ -1359,7 +1453,9 @@ def _classify_with_haiku(item: Dict[str, Any], context_tickers: List[str]) -> Di
             "sentiment": str(data.get("sentiment", "neutral"))[:16],
             "sentiment_score": float(data.get("sentiment_score", 0)),
             "relevance": int(data.get("relevance", 5)),
-            "headline_it": str(data.get("headline_it", "") or "")[:120],
+            "language": capture_language(),
+            "headline": str(data.get("headline_it", "") or "")[:120],
+            "headline_it": str(data.get("headline_it", "") or "")[:120] if capture_language() == "it" else "",
             "why_matters": str(data.get("why_matters", "") or "")[:180],
         }
     except Exception as e:
@@ -1432,6 +1528,7 @@ def stato_ultimo_giro(path: Optional[str] = None,
         return {"stato": "illeggibile", "motivo": f"{type(e).__name__}: {e}"}
 
 
+@scoped_language
 def auto_pull_feed(days: int = 1, classify: bool = True,
                     max_per_ticker: int = 5, max_per_theme: int = 5) -> Dict[str, Any]:
     # Opus 4.8 16/07: 3->5 (feed tiene i top max_per_ticker*2 = 10/ticker per data, era 6),
@@ -1507,6 +1604,7 @@ def auto_pull_feed(days: int = 1, classify: bool = True,
     saved = 0
     classified = 0
     skipped = 0
+    summary_errors = []
     for it in all_items:
         url = (it.get("url") or "").strip()
         if not url:
@@ -1542,14 +1640,22 @@ def auto_pull_feed(days: int = 1, classify: bool = True,
                 cls.get("sentiment", "neutral")[:16],
                 float(cls.get("sentiment_score", 0)),
                 int(cls.get("relevance", 5)),
-                (cls.get("headline_it") or "")[:120],
-                (cls.get("why_matters") or "")[:180],
+                (cls.get("headline_it") or "")[:120] if capture_language() == "it" else "",
+                (cls.get("why_matters") or "")[:180] if capture_language() == "it" else "",
             ))
             saved += 1
             # audit/11 §2: commit per-INSERT — prima la transazione di scrittura restava
             # aperta per TUTTE le chiamate Haiku successive (1-15s l'una): ogni altro
             # writer (price updater, /trade, heartbeat) andava in database-is-locked.
             conn.commit()
+            try:
+                stored_original = {"title": (it.get("title") or "")[:500],
+                                   "snippet": (it.get("snippet") or "")[:1000], "url": url[:500]}
+                _save_summary(db.db_path, stored_original, {**cls, "language": capture_language(),
+                              "headline": cls.get("headline", cls.get("headline_it", ""))})
+            except Exception as exc:
+                summary_errors.append(str(exc))
+                _log(f"generated summary cache failed: {exc}")
         except Exception as e:
             _log(f"insert failed: {e}")
             continue
@@ -1566,8 +1672,10 @@ def auto_pull_feed(days: int = 1, classify: bool = True,
         "classified": classified,
         "saved": saved,
         "skipped_duplicates": skipped,
+        "language": capture_language(),
+        "summary_errors": summary_errors,
         "providers_blocked": fuori,
-        "degraded": bool(fuori),
+        "degraded": bool(fuori or summary_errors),
     }
     if fuori:
         # NB: gli item NON sono taggati per provenienza (search_news_for_ticker mescola

@@ -3,18 +3,27 @@
 #      archivio privato e directory runtime esclusi;
 #   2) suite pytest OFFLINE in tests/ (zero rete/API/DB vivo:
 #      la ANTHROPIC_API_KEY qui e' un dummy dichiarato, mai una chiave vera).
-# NB: in locale il progetto gira su Python 3.14; qui 3.12 per la copertura
-# dei wheel binari (chromadb/arch/scipy) — differenza DICHIARATA, non tacita.
+# NB: in locale il progetto gira su Python 3.14; il job Linux prova 3.12 (copertura dei
+# wheel binari chromadb/arch/scipy) E 3.14 (matrice, 12/09); il job macOS resta su 3.12
+# — differenza DICHIARATA, non tacita.
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+  # 12/09: a comando, per il job macos-source sul repo PRIVATO (vedi la sua condizione `if`)
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    # 12/09 (mandato Fable, sez. 4): 3.12 per la copertura dei wheel binari (chromadb/arch/
+    # scipy) E 3.14, la versione con cui il PM lavora davvero (3.14.5). Matrice dichiarata.
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
     env:
       ANTHROPIC_API_KEY: dummy-ci-offline
     steps:
@@ -22,7 +31,7 @@ jobs:
 
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           cache: pip
 
       - name: Dipendenze
@@ -96,3 +105,67 @@ jobs:
       - name: Build Windows installer (external Python backend)
         working-directory: app
         run: npx electron-builder --win nsis --publish never
+
+  # 12/09 (mandato Fable, sez. 4 — ricognizione recon/mac.md §5.1): il percorso «clono e
+  # avvio» su macOS non era mai stato eseguito da nessuno. Questo job lo misura su Apple
+  # Silicon (macos-latest = macOS 26 arm64, doc actions/runner-images letta il 12/09):
+  #   - pip install -e . risolve i wheel arm64 (onnxruntime, dipendenza di chromadb, e' il
+  #     nodo duro: solo macosx_14_0_arm64, nessun wheel Intel — recon A1);
+  #   - la suite offline passa su POSIX/APFS (3 test saltano con motivo dichiarato);
+  #   - tsc + vite build con i binding darwin del lockfile; Electron parte headless con
+  #     preload/CSP corretti contro un backend SINTETICO (test:desktop non spawna Python).
+  # Cosa NON dimostra: l'avvio del backend vero dall'app, la finestra reale, i font dei PDF,
+  # Intel, Python 3.14, un pacchetto DMG (non firmabile senza identita' Apple).
+  # COSTO (doc GitHub billing, letta il 12/09): Actions gratuite sui repo pubblici con runner
+  # standard; sui privati macOS costa $0.062/min contro $0.006 Linux (~10x). Il job gira
+  # quindi sul repo pubblico e, sul privato, SOLO a comando (Actions → CI → Run workflow).
+  macos-source:
+    runs-on: macos-latest
+    if: ${{ github.event.repository.private == false || github.event_name == 'workflow_dispatch' }}
+    env:
+      ANTHROPIC_API_KEY: dummy-ci-offline
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Dipendenze Python (wheel arm64)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+          python -m pip check
+
+      - name: Compile package and operational tools
+        run: >
+          python -m compileall -q src/bellomberg tools/ops tools/migrations
+          bellomberg_api.py consigliere_multi.py price_updater.py
+          briefing_engine.py regenerate_memo.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.2"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      # The Python integration suite also exercises the real React valuation UI.
+      - name: Frontend dependencies for integration tests
+        working-directory: app
+        run: npm ci
+
+      - name: Suite offline (POSIX, APFS)
+        run: pytest tests/ -q
+
+      - name: Frontend production bundles and release contracts
+        working-directory: app
+        run: |
+          npm run build:bundles
+          npm run test:release
+
+      - name: Electron smoke (renderer/preload/CSP against a synthetic backend)
+        working-directory: app
+        run: |
+          npm run desktop:install
+          npm run test:desktop

@@ -1,3 +1,4 @@
+import { t as tr } from '@/i18n/t';
 import type { ValuationModel } from './api';
 
 /** Presentation guard for stale UI/API caches. Economic validation stays in Python. */
@@ -43,7 +44,7 @@ export function prepareValuationModel(model: ValuationModel): ValuationModel {
   copy.upside_pct = null;
   copy.valuation_usability = { usable: false,
     reasons: copy.valuation_usability?.reasons?.length ? copy.valuation_usability.reasons
-      : ['Verifica della valutazione mancante o stato non utilizzabile.'],
+      : [tr('fundamentals.f139')],
     missing_fields: copy.valuation_usability?.missing_fields ?? [] };
   return copy;
 }

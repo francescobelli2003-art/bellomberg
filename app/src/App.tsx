@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
 import LoginGate from './components/LoginGate';
+import LinguaGate from './components/LinguaGate';
 import Dashboard from './pages/Dashboard';
 import MemoArchive from './pages/MemoArchive';
 import Chat from './pages/Chat';
@@ -23,7 +24,8 @@ import CommandPalette from './components/CommandPalette';
 import MandatoGate from './components/MandatoGate';
 import MandatoPage from './pages/MandatoPage';
 import AgentProgressPage from './pages/AgentProgressPage';
-import { PAGE_DESTINATIONS } from './lib/navigation';
+import { PAGE_DESTINATIONS, localizeDestination } from './lib/navigation';
+import { useLingua, useT } from './i18n/provider';
 
 const PAGES: Record<string, React.ComponentType> = {
   dashboard: Dashboard, performance: PerformancePage, watchlist: WatchlistPage,
@@ -39,9 +41,11 @@ function AlertsRunner() {
 }
 
 export default function App() {
+  const language = useLingua(), t = useT();
   return (
-    <ErrorBoundary label="App Root">
+    <ErrorBoundary label={t('shell.app')}>
       <LoginGate>
+        <LinguaGate>
         <MandatoGate>
           <AlertsRunner />
           <CommandPalette />
@@ -50,12 +54,13 @@ export default function App() {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             {PAGE_DESTINATIONS.map(entry => {
               const Page = PAGES[entry.id];
-              return <Route key={entry.id} path={entry.to} element={<ErrorBoundary label={entry.label}><Page /></ErrorBoundary>} />;
+              return <Route key={entry.id} path={entry.to} element={<ErrorBoundary label={localizeDestination(entry, language).label}><Page /></ErrorBoundary>} />;
             })}
             <Route path="/settings" element={<Navigate to="/dashboard" replace />} />
           </Routes>
           </Layout>
         </MandatoGate>
+        </LinguaGate>
       </LoginGate>
     </ErrorBoundary>
   );

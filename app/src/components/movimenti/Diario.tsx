@@ -1,3 +1,4 @@
+import { useT } from '@/i18n/provider';
 // F14 · vista DIARIO — le parole (Opus 5, 27/07)
 //
 // Misurato il 27/07: 54 righe su 69 hanno un commento del PM, e una
@@ -10,7 +11,7 @@
 import { fmtNum } from '@/lib/format';
 import {
   StatoCancello, RigaRegistro,
-  ggmmaa, oraDi, testiDi, controvalore, esce, segnoPL, versoDi,
+  ggmmaa, oraTrade, legameMovimento, testiDi, controvalore, esce, segnoPL, versoDi,
 } from '@/lib/movimenti';
 
 interface Props {
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export default function Diario({ righe, cancello }: Props) {
+  const tr = useT();
   return (
     <>
       {righe.map((r, i) => {
@@ -38,16 +40,16 @@ export default function Diario({ righe, cancello }: Props) {
             <div className="voce" key={`c-${mov.id}-${i}`}>
               <div className="cap">
                 <span className="flx">
-                  {verso === 'dentro' ? '↓ VERSA'
-                    : verso === 'fuori' ? '↑ PRELEVA'
-                    : `VERSO n.d. (${mov.type})`}
+                  {verso === 'dentro' ? tr('movements.deposit')
+                    : verso === 'fuori' ? tr('movements.withdraw')
+                    : tr('movements.directionUnknown', {a: mov.type})}
                 </span>
-                <span className="tkn">CASSA</span>
+                <span className="tkn">{tr('movements.cash')}</span>
                 <span className="dt num">{ggmmaa(mov.date)}</span>
                 <span className="qp num">
                   {leggibile
                     ? `${segno}${fmtNum(Math.abs(v as number), 2)} EUR`
-                    : 'importo n.d.'}
+                    : tr('movements.amountUnknown')}
                 </span>
               </div>
               {/* ⚠️ etichettata «Causale» come le altre portano «Motivo»/«Nota»:
@@ -56,7 +58,7 @@ export default function Diario({ righe, cancello }: Props) {
                   «bonifico ~30k dichiarato dal PM», cioe' parla di lui in terza
                   persona: l'ha scritto chi ha importato la riga. */}
               {causale && (
-                <div className="tx pro"><span className="et">Causale</span>{causale}</div>
+                <div className="tx pro"><span className="et">{tr('movements.cashReason')}</span>{causale}</div>
               )}
             </div>
           );
@@ -65,7 +67,7 @@ export default function Diario({ righe, cancello }: Props) {
         const t = r.t;
         const { rationale, nota } = testiDi(t);
         const ctrl = controvalore(t);
-        const ora = oraDi(t.data);
+        const ora = oraTrade(t);
         // le due etichette compaiono SOLO quando i testi sono due: su una
         // riga sola sarebbero rumore, su due dicono chi ha scritto cosa
         const due = !!rationale && !!nota;
@@ -76,8 +78,9 @@ export default function Diario({ righe, cancello }: Props) {
               <span className={'act ' + t.action}>{t.action}</span>
               <span className="tkn">{t.ticker}</span>
               <span className="dt num">{ggmmaa(t.data)} <em>{ora || ''}</em></span>
+              <span className="dt">{legameMovimento(t)}{t.created_at ? tr('movements.recordedTrade', {a: t.created_at}) : ''}</span>
               {esce(t.action) && cancello === 'chiuso' && (
-                <span className="gate">P&amp;L AL CANCELLO</span>
+                <span className="gate">{tr('movements.pnlGate')}</span>
               )}
               {/* Col cancello aperto e la riga senza numero qui non compariva
                   NULLA: la stessa uscita passava dal dire "al cancello" al non
@@ -88,7 +91,7 @@ export default function Diario({ righe, cancello }: Props) {
                   ? <span className={'pl ' + segnoPL(t.realized_eur)}>
                       {(t.realized_eur > 0 ? '+' : '') + fmtNum(t.realized_eur, 2)} €
                     </span>
-                  : <span className="gate">REALIZZATO n.d.</span>
+                  : <span className="gate">{tr('movements.realizedUnknown')}</span>
               )}
               <span className="qp num">
                 {fmtNum(t.quantita, 0)} × {fmtNum(t.prezzo, 2)} {t.valuta}
@@ -97,12 +100,12 @@ export default function Diario({ righe, cancello }: Props) {
             </div>
             {rationale && (
               <div className="tx pro">
-                {due && <span className="et">Motivo</span>}{rationale}
+                {due && <span className="et">{tr('movements.reason')}</span>}{rationale}
               </div>
             )}
             {nota && (
               <div className={'tx pro' + (rationale ? ' due' : '')}>
-                {due && <span className="et">Nota</span>}{nota}
+                {due && <span className="et">{tr('movements.note')}</span>}{nota}
               </div>
             )}
           </div>

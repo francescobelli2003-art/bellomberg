@@ -29,6 +29,7 @@ except Exception:
     YF_OK = False
 
 from bellomberg.storage.memory_db import MemoryDB
+from bellomberg.core.presentation import message as _message, render_payload, join_messages, error_text
 
 # Cache risultati pesanti per evitare ricalcoli (NAV history + drawdowns)
 _ANALYTICS_CACHE: Dict[str, Any] = {}
@@ -65,9 +66,7 @@ def ko_negozio_prezzi(esito: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     mai un ripiego muto). Va chiamata PRIMA di toccare il DB, cosi' il KO non dipende da
     quanto e' arrivato lontano il calcolo."""
     if esito["origine"] in ("assente", "illeggibile"):
-        return {"error": "negozio dei prezzi speciali %s: %s — nessun simbolo da saltare, "
-                         "e senza quella lista il perimetro (e i numeri in euro) cambierebbe"
-                         % (esito["origine"], esito["motivo"]),
+        return {"error": _message("negozio dei prezzi speciali {origin}: {reason} — nessun simbolo da saltare, e senza quella lista il perimetro (e i numeri in euro) cambierebbe", "Special price store {origin}: {reason} — no symbols to skip, and without that list the scope (and EUR values) would change", origin=esito["origine"], reason=esito["motivo"]),
                 "negozio_prezzi": {"origine": esito["origine"], "motivo": esito["motivo"]},
                 "timestamp": datetime.now().isoformat()}
     return None
@@ -176,7 +175,7 @@ def _ticker_cost_value_at(trades: List[Dict[str, Any]], ticker: str, iso: str, f
             raise ValueError(etichetta_valuta.dichiarazione)
         fxr = fx_lookup(d, ccy)
         if fxr is None:
-            raise ValueError("FX %s n.d. per %s al %s" % (ccy, ticker, d))
+            raise ValueError(_message("FX {ccy} n.d. per {ticker} al {date}", "FX {ccy} unavailable for {ticker} on {date}", ccy=ccy, ticker=ticker, date=d))
         if a in ("BUY", "ADD"):
             cost += q * px * fxr
             qty += q
@@ -204,7 +203,7 @@ def _download_prices_for_history(tickers: List[str], start: str, end: str,
     except AliasFontiError:
         raise
     except Exception as e:
-        _log("alias yfinance non risolvibile: " + str(e))
+        _log(_message("alias yfinance non risolvibile: {error}", "Cannot resolve yfinance alias: {error}", error=error_text(e)))
         return None
     dl_list = sorted(set(dl_map.values()))
     try:
@@ -339,7 +338,7 @@ def _basis_and_realized_at(trades: List[Dict[str, Any]], iso_date: str,
         else:
             fx = fx_lookup(d, ccy)
         if fx is None:
-            raise ValueError("FX %s n.d. per %s al %s" % (ccy, ticker, d))
+            raise ValueError(_message("FX {ccy} n.d. per {ticker} al {date}", "FX {ccy} unavailable for {ticker} on {date}", ccy=ccy, ticker=ticker, date=d))
 
         h = holdings.setdefault(ticker, {"qty": 0.0, "avg": 0.0})
         if action in ("BUY", "ADD"):
@@ -393,38 +392,46 @@ def _fx_lookup_storico(fx_df):
     EUR non ha bisogno di serie."""
     def lookup(d_iso: str, ccy: str):
         if ccy is None or not str(ccy).strip():
-            return None, None, "valuta n.d.: costo storico n.d."
+            return None, None, _message('valuta n.d.: costo storico n.d.', 'Currency unavailable: historical cost unavailable')
         ccy = str(ccy).strip().upper()
         if ccy == "EUR":
             return 1.0, d_iso, None
         if fx_df is None or fx_df.empty or ccy not in fx_df.columns:
-            return None, None, f"FX {ccy} non disponibile: costo storico n.d."
+            return None, None, _message('FX {v0} non disponibile: costo storico n.d.', 'FX {v0} unavailable: historical cost unavailable', v0=ccy)
         sub = fx_df[ccy].dropna()
         if sub.empty:
-            return None, None, f"FX {ccy} senza osservazioni: costo storico n.d."
+            return None, None, _message('FX {v0} senza osservazioni: costo storico n.d.', 'FX {v0} has no observations: historical cost unavailable', v0=ccy)
         try:
             d_ts = pd.Timestamp(d_iso)
         except (ValueError, TypeError):
             # review 28/08: una data illeggibile mandava a n.d. TUTTO il book
-            return None, None, f"data del trade illeggibile ({d_iso!r}): FX n.d. per quel lotto"
+            return None, None, _message('data del trade illeggibile ({v0!r}): FX n.d. per quel lotto', 'Unreadable trade date ({v0!r}): FX unavailable for that lot', v0=d_iso)
         older = sub[sub.index <= d_ts]
         if len(older):
             giorno = older.index[-1].strftime("%Y-%m-%d")
-            nota = None if giorno == d_iso else f"FX {ccy} del {giorno} usato per il trade del {d_iso}"
+            nota = None if giorno == d_iso else _message('FX {v0} del {v1} usato per il trade del {v2}', 'FX {v0} from {v1} used for trade on {v2}', v0=ccy, v1=giorno, v2=d_iso)
             return float(older.iloc[-1]), giorno, nota
         giorno = sub.index[0].strftime("%Y-%m-%d")
-        return float(sub.iloc[0]), giorno, (f"FX {ccy}: trade del {d_iso} prima della prima "
-                                            f"osservazione ({giorno}), usata quella")
+        return float(sub.iloc[0]), giorno, (_message('FX {v0}: trade del {v1} prima della prima osservazione ({v2}), usata quella', 'FX {v0}: trade on {v1} precedes the first observation ({v2}), which was used', v0=ccy, v1=d_iso, v2=giorno))
     return lookup
 
 
-def costo_storico_per_ticker(trades: List[Dict[str, Any]], fx_lookup) -> Dict[str, Dict[str, Any]]:
+def costo_storico_per_ticker(trades: List[Dict[str, Any]], fx_lookup,
+                             openings=None) -> Dict[str, Dict[str, Any]]:
     """Replay dei trade a POOL: {ticker: {"qty", "costo_eur_storico" (pool in EUR al
     FX del giorno di ogni acquisto; None se un FX manca), "costo_nativo" (stesso
     pool in valuta di quotazione: serve a isolare la componente cambio), "note":
     [..]}}. DIVIDEND ignorati; vendita oltre la quantita' = fantasma dichiarato
     (pool a zero); note deduplicate."""
     out: Dict[str, Dict[str, Any]] = {}
+    for opening in openings or []:
+        native = float(opening["quantita"]) * float(opening["prezzo_medio"])
+        eur = opening["valuta"] == "EUR"
+        out[opening["ticker"]] = {
+            "qty": float(opening["quantita"]), "pool": native if eur else 0.0,
+            "pool_nat": native, "fx_mancante": not eur,
+            "note": [], "opening_fx_unknown": not eur,
+            "opening_as_of": opening["as_of"]}
     ordinati = sorted(trades, key=lambda t: (str(t.get("data") or ""), t.get("id") or 0))
     for t in ordinati:
         action = (t.get("action") or "BUY").upper()
@@ -461,12 +468,17 @@ def costo_storico_per_ticker(trades: List[Dict[str, Any]], fx_lookup) -> Dict[st
                 h["pool_nat"] *= resta
                 h["qty"] -= venduta
             if qty - venduta > 1e-9:
-                h["note"].append(f"vendita di {qty:g} oltre la quantita' in carico "
-                                 f"(fantasma di {qty - venduta:g}): pool azzerato")
+                h["note"].append(_message("vendita di {v0:g} oltre la quantita' in carico (fantasma di {v1:g}): pool azzerato", 'Sale of {v0:g} exceeds held quantity (unbacked quantity {v1:g}): pool reset to zero', v0=qty, v1=qty - venduta))
                 h["pool"] = 0.0
                 h["pool_nat"] = 0.0
                 h["qty"] = 0.0
+            if h["qty"] <= 1e-9 and "opening_as_of" in h:
+                # An unknown acquisition FX belongs to the closed pool only.
+                h["fx_mancante"] = False
+                h["opening_fx_unknown"] = False
     for h in out.values():
+        if h.get("opening_fx_unknown"):
+            h["note"].append(_message('Saldo iniziale documentato: data e FX di acquisto ignoti; costo storico EUR n.d.', 'Documented opening balance: acquisition date and FX unknown; historical EUR cost unavailable.'))
         h["costo_eur_storico"] = None if h["fx_mancante"] else round(h["pool"], 2)
         h["costo_nativo"] = round(h["pool_nat"], 6)
         h["qty"] = round(h["qty"], 6)
@@ -475,7 +487,7 @@ def costo_storico_per_ticker(trades: List[Dict[str, Any]], fx_lookup) -> Dict[st
     return out
 
 
-def pl_fx_per_posizione(trades: List[Dict[str, Any]], oggi_iso: str) -> Dict[str, Any]:
+def pl_fx_per_posizione(trades: List[Dict[str, Any]], oggi_iso: str, openings=None) -> Dict[str, Any]:
     """Costo storico per ticker. La SERIE FX (yfinance daily, immutabile per giorno)
     sta in cache per (valute, primo trade, giorno) — /portfolio e' interrogato ogni
     pochi secondi —; il replay si rifa' SEMPRE (microsecondi), cosi' un trade nuovo
@@ -483,18 +495,22 @@ def pl_fx_per_posizione(trades: List[Dict[str, Any]], oggi_iso: str) -> Dict[str
     del primo scarico, congelata; un trade datato oggi prende l'ultima chiusura, con
     nota, e si assesta domani. Errore = {"error": ...} NON cacheato (si riprova),
     mai il cambio di oggi spacciato per storico."""
-    if not trades:
-        return {"error": "trade_history vuota: costo storico n.d."}
-    tickers = sorted({t.get("ticker") or "?" for t in trades})
-    currency_labels = _currency_labels_for_tickers(tickers, trades)
+    if not trades and not openings:
+        return {"error": _message('trade_history vuota: costo storico n.d.', 'Empty trade_history: historical cost unavailable')}
+    labels_from = list(trades) + list(openings or [])
+    tickers = sorted({t.get("ticker") or "?" for t in labels_from})
+    currency_labels = _currency_labels_for_tickers(tickers, labels_from)
     non_determinate = [x for x in currency_labels.values() if x.valore is None]
     if non_determinate:
-        return {"error": "valuta non determinabile: " + "; ".join(
-                    x.dichiarazione for x in non_determinate),
+        return {"error": _message("valuta non determinabile: {reasons}", "Cannot determine currency: {reasons}", reasons=join_messages("; ", (x.dichiarazione for x in non_determinate))),
                 "currency_labels": {k: v.as_dict() for k, v in currency_labels.items()}}
     valute = sorted({x.valore for x in currency_labels.values()})
-    estere = [c for c in valute if c != "EUR"]
+    # A balance date is not an acquisition date: no historical FX lookup for it.
+    purchase_currencies = {_currency_label(t.get("ticker"), t.get("valuta")).valore
+                           for t in trades if t.get("action") in ("BUY", "ADD")}
+    estere = [c for c in valute if c != "EUR" and (not openings or c in purchase_currencies)]
     fx_df = None
+    fx_error = None
     start = end = None
     if estere:
         giorni = sorted(str(t.get("data") or "")[:10] for t in trades if _valid_iso(str(t.get("data") or "")[:10]))
@@ -509,17 +525,21 @@ def pl_fx_per_posizione(trades: List[Dict[str, Any]], oggi_iso: str) -> Dict[str
                     try:
                         fx_df = _build_fx_history(valute, start, end)
                     except Exception as e:
-                        return {"error": f"serie FX storica non disponibile ({type(e).__name__}: {e}): costo storico n.d."}
+                        fx_error = _message('serie FX storica non disponibile ({v0}: {v1}): costo storico n.d.', 'Historical FX series unavailable ({v0}: {v1}): historical cost unavailable', v0=type(e).__name__, v1=e)
                     if fx_df is None or fx_df.empty:
-                        return {"error": "serie FX storica non disponibile (yfinance): costo storico n.d."}
-                    _FX_DF_CACHE[chiave] = fx_df
-    return {"per_ticker": costo_storico_per_ticker(trades, _fx_lookup_storico(fx_df)),
+                        fx_error = fx_error or _message('serie FX storica non disponibile (yfinance): costo storico n.d.', 'Historical FX series unavailable (yfinance): historical cost unavailable')
+                    if fx_error and not openings:
+                        return {"error": fx_error}
+                    if not fx_error:
+                        _FX_DF_CACHE[chiave] = fx_df
+    base_lookup = _fx_lookup_storico(fx_df)
+    def lookup(day, currency):
+        if fx_error and currency != "EUR":
+            return None, None, fx_error
+        return base_lookup(day, currency)
+    return {"per_ticker": costo_storico_per_ticker(trades, lookup, openings),
             "currency_labels": {k: v.as_dict() for k, v in currency_labels.items()},
-            "fx_basis": ("costo = pool in EUR al FX daily yfinance (EURCCY=X, auto_adjust) del "
-                         "giorno di ogni acquisto, vendite pro-quota; componente cambio = "
-                         "pool in valuta x FX di oggi - pool in EUR. Differisce da "
-                         "nav_history.final_cost_basis_eur (la' le vendite tolgono il costo al FX "
-                         "del giorno della vendita e le posizioni chiuse restano nel costo)"),
+            "fx_basis": (_message("costo = pool in EUR al FX daily yfinance (EURCCY=X, auto_adjust) del giorno di ogni acquisto, vendite pro-quota; componente cambio = pool in valuta x FX di oggi - pool in EUR. Differisce da nav_history.final_cost_basis_eur (la' le vendite tolgono il costo al FX del giorno della vendita e le posizioni chiuse restano nel costo)", 'Cost = EUR pool at daily yfinance FX (EURCCY=X, auto_adjust) on each acquisition date, sales deducted pro rata; FX component = native currency pool x current FX - EUR pool. Differs from nav_history.final_cost_basis_eur (there sales remove cost at sale-date FX and closed positions remain in cost)')),
             "fx_serie": {"start": start, "end_escluso": end} if estere else None}
 
 
@@ -628,6 +648,11 @@ def _iso_safe(ts) -> str:
         return s[:10] if (s and s[0:1].isdigit()) else ""
 
 
+def _opening_positions():
+    """Explicit baseline dependency, separate from the trade-only history reader."""
+    return MemoryDB().get_opening_positions()
+
+
 def compute_nav_history(start_date: Optional[str] = None,
                          end_date: Optional[str] = None,
                          force: bool = False) -> Dict[str, Any]:
@@ -652,8 +677,15 @@ def compute_nav_history(start_date: Optional[str] = None,
         "n_days": int,
       }
     """
+    openings = _opening_positions()
+    if openings:
+        return {"error_code": "OPENING_HISTORY_INCOMPLETE",
+                "error": _message('Saldi iniziali documentati senza storia degli acquisti: NAV passato non ricostruibile dai soli trade. La performance usa gli snapshot successivi alla registrazione dei saldi.', 'Documented opening balances without acquisition history: past NAV cannot be reconstructed from trades alone. Performance uses snapshots after the balances were registered.'),
+                "position_openings": openings,
+                "baseline_added_at": max(row["created_at"] for row in openings),
+                "timestamp": datetime.now().isoformat()}
     if not (NUMPY_OK and YF_OK):
-        return {"error": "numpy/yfinance not available",
+        return {"error": _message('numpy/yfinance non disponibili', 'numpy/yfinance not available'),
                 "timestamp": datetime.now().isoformat()}
 
     # Il negozio PRIMA della cache e del DB: la serie del NAV scala sul perimetro scaricato,
@@ -669,11 +701,11 @@ def compute_nav_history(start_date: Optional[str] = None,
     if not force and cache_key in _ANALYTICS_CACHE:
         entry = _ANALYTICS_CACHE[cache_key]
         if time.time() - entry["ts"] < CACHE_TTL_SEC:
-            return entry["data"]
+            return render_payload(entry["data"])
 
     trades = _trade_history()
     if not trades:
-        return {"error": "trade_history empty: importa i trade (pagina Cassa/Trade, o tools/ops/importa_trade_csv.py).",
+        return {"error": _message('trade_history empty: importa i trade (pagina Cassa/Trade, o tools/ops/importa_trade_csv.py).', 'Empty trade_history: import trades (Cash/Trade page, or tools/ops/importa_trade_csv.py).'),
                 "timestamp": datetime.now().isoformat()}
 
     timeline = _build_position_timeline(trades)
@@ -681,8 +713,7 @@ def compute_nav_history(start_date: Optional[str] = None,
     currency_labels = _currency_labels_for_tickers(tickers, trades)
     non_determinate = [x for x in currency_labels.values() if x.valore is None]
     if non_determinate:
-        return {"error": "valuta non determinabile: " + "; ".join(
-                    x.dichiarazione for x in non_determinate),
+        return {"error": _message("valuta non determinabile: {reasons}", "Cannot determine currency: {reasons}", reasons=join_messages("; ", (x.dichiarazione for x in non_determinate))),
                 "currency_labels": {k: v.as_dict() for k, v in currency_labels.items()},
                 "timestamp": datetime.now().isoformat()}
     ccy_of = {ticker: label.valore for ticker, label in currency_labels.items()}
@@ -694,7 +725,7 @@ def compute_nav_history(start_date: Optional[str] = None,
         start_date = next(((t.get("data") or "")[:10] for t in trades
                            if _valid_iso(t.get("data"))), None)
         if not start_date:
-            return {"error": "nessuna data trade valida (YYYY-MM-DD) in trade_history",
+            return {"error": _message('nessuna data trade valida (YYYY-MM-DD) in trade_history', 'No valid trade date (YYYY-MM-DD) in trade_history'),
                     "timestamp": datetime.now().isoformat()}
     if end_date is None:
         end_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -704,10 +735,10 @@ def compute_nav_history(start_date: Optional[str] = None,
     try:
         prices = _download_prices_for_history(tickers, start_date, end_date, salta)
     except Exception as e:
-        return {"error": "alias yfinance non risolvibile: " + str(e),
+        return {"error": _message("alias yfinance non risolvibile: {error}", "Cannot resolve yfinance alias: {error}", error=error_text(e)),
                 "timestamp": datetime.now().isoformat()}
     if prices is None or prices.empty:
-        return {"error": "failed to download prices",
+        return {"error": _message('download prezzi fallito', 'failed to download prices'),
                 "timestamp": datetime.now().isoformat()}
 
     # FX history
@@ -720,7 +751,7 @@ def compute_nav_history(start_date: Optional[str] = None,
         (fx is None or fx.empty or c not in fx.columns or fx[c].dropna().empty)
     ]
     if _fx_missing:
-        return {"error": "FX storico n.d. per: " + ", ".join(_fx_missing),
+        return {"error": _message("FX storico n.d. per: {currencies}", "Historical FX unavailable for: {currencies}", currencies=", ".join(_fx_missing)),
                 "timestamp": datetime.now().isoformat()}
 
     # Helper: FX lookup at date d for currency ccy
@@ -769,7 +800,7 @@ def compute_nav_history(start_date: Optional[str] = None,
         except Exception:
             pass
     if len(date_index) == 0:
-        return {"error": "nessuna data valida nel range (prezzi/date anomali)",
+        return {"error": _message('nessuna data valida nel range (prezzi/date anomali)', 'No valid date in range (anomalous prices/dates)'),
                 "timestamp": datetime.now().isoformat()}
     nav_series: List[float] = []
     cost_basis_series: List[float] = []
@@ -801,8 +832,7 @@ def compute_nav_history(start_date: Optional[str] = None,
                 ccy = ccy_of[t]
                 fx_rate = fx_lookup(iso, ccy)
                 if fx_rate is None or not np.isfinite(fx_rate) or fx_rate <= 0:
-                    return {"error": "FX %s n.d. per %s al %s: NAV storico n.d."
-                                     % (ccy, t, iso),
+                    return {"error": _message("FX {ccy} n.d. per {ticker} al {date}: NAV storico n.d.", "FX {ccy} unavailable for {ticker} on {date}: historical NAV unavailable", ccy=ccy, ticker=t, date=iso),
                             "currency_labels": {k: v.as_dict()
                                                 for k, v in currency_labels.items()},
                             "timestamp": datetime.now().isoformat()}
@@ -813,7 +843,7 @@ def compute_nav_history(start_date: Optional[str] = None,
                 try:
                     nav_day += _ticker_cost_value_at(trades, t, iso, fx_lookup)
                 except ValueError as e:
-                    return {"error": str(e) + ": NAV storico n.d.",
+                    return {"error": _message("{error}: NAV storico n.d.", "{error}: historical NAV unavailable", error=error_text(e)),
                             "currency_labels": {k: v.as_dict()
                                                 for k, v in currency_labels.items()},
                             "timestamp": datetime.now().isoformat()}
@@ -827,7 +857,7 @@ def compute_nav_history(start_date: Optional[str] = None,
             cost_basis_day, realized_day = _basis_and_realized_at(
                 trades, iso, fx_lookup, use_current_fx=False)
         except ValueError as e:
-            return {"error": str(e) + ": NAV storico n.d.",
+            return {"error": _message("{error}: NAV storico n.d.", "{error}: historical NAV unavailable", error=error_text(e)),
                     "currency_labels": {k: v.as_dict()
                                         for k, v in currency_labels.items()},
                     "timestamp": datetime.now().isoformat()}
@@ -900,7 +930,7 @@ def compute_nav_history(start_date: Optional[str] = None,
     _ANALYTICS_CACHE[cache_key] = {"ts": time.time(), "data": result}
     _log(f"NAV history done: {len(dates_iso)} days, "
          f"final NAV = EUR {nav_total[-1]:,.0f}")
-    return result
+    return render_payload(result)
 
 
 # ============================================================
@@ -924,7 +954,7 @@ def compute_drawdowns(force: bool = False) -> Dict[str, Any]:
     pnl_series = nav_hist.get("pnl_eur") or []
     cb_series  = nav_hist.get("cost_basis_eur") or []
     if not pnl_series or not cb_series:
-        return {"error": "missing pnl/cost_basis series", "n_days": 0}
+        return {"error": _message('serie pnl/cost_basis assenti', 'missing pnl/cost_basis series'), "n_days": 0}
 
     # Cumulative return ratio = 1 + (pnl / cost_basis). At t=0 con CB=0 usiamo 1.0.
     # Questo e' il "growth of EUR1" che esclude l'effetto cashflow.
@@ -934,7 +964,7 @@ def compute_drawdowns(force: bool = False) -> Dict[str, Any]:
     ], dtype=float)
     nav = ratio  # use ratio in place of NAV for DD calculation
     if len(nav) < 5:
-        return {"error": "insufficient history (need >=5 days)",
+        return {"error": _message('storico insufficiente (servono >=5 giorni)', 'insufficient history (need >=5 days)'),
                 "n_days": len(nav)}
 
     # Running max
@@ -1019,7 +1049,7 @@ def compute_liquidity_scores() -> Dict[str, Any]:
     Green ≤1d, yellow ≤5d, red >5d.
     """
     if not YF_OK:
-        return {"error": "yfinance not available"}
+        return {"error": _message('yfinance non disponibile', 'yfinance not available')}
 
     # Qui il negozio assente NON sposta un numero in euro (lo skip e' un'ETICHETTA per
     # posizione): si calcola e lo si DICHIARA nel payload, invece di fermare la pagina.
@@ -1030,7 +1060,7 @@ def compute_liquidity_scores() -> Dict[str, Any]:
     snap = db.get_portfolio_summary()
     positions = snap.get("positions", [])
     if not positions:
-        return {"error": "no positions"}
+        return {"error": _message("nessuna posizione", "no positions")}
 
     from bellomberg.cli.price_updater import get_fx_to_eur
 
@@ -1054,7 +1084,7 @@ def compute_liquidity_scores() -> Dict[str, Any]:
                 "ticker": ticker,
                 "days_to_liquidate": None,
                 "score": "skip",
-                "reason": "not on yfinance (crypto custom)",
+                "reason": _message('non disponibile su yfinance (crypto personalizzata)', 'not on yfinance (crypto custom)'),
                 "position_eur": p.get("valore_mercato"),
             })
             continue
@@ -1066,7 +1096,7 @@ def compute_liquidity_scores() -> Dict[str, Any]:
                     "ticker": ticker,
                     "days_to_liquidate": None,
                     "score": "unknown",
-                    "reason": "no yfinance history",
+                    "reason": _message("storico yfinance assente", "no yfinance history"),
                     "position_eur": p.get("valore_mercato"),
                 })
                 continue
@@ -1079,7 +1109,7 @@ def compute_liquidity_scores() -> Dict[str, Any]:
                     "ticker": ticker,
                     "days_to_liquidate": None,
                     "score": "unknown",
-                    "reason": "FX %s n.d.: liquidita' in EUR n.d." % ccy,
+                    "reason": _message("FX {ccy} n.d.: liquidita' in EUR n.d.", "FX {ccy} unavailable: EUR liquidity unavailable", ccy=ccy),
                     "currency": ccy,
                     "currency_label": etichetta_valuta.as_dict(),
                     "position_eur": p.get("valore_mercato"),
@@ -1132,12 +1162,7 @@ def compute_liquidity_scores() -> Dict[str, Any]:
         "threshold_green_days": LIQ_GREEN_DAYS,
         "threshold_yellow_days": LIQ_YELLOW_DAYS,
         "assumption_pct_of_volume": LIQ_VOL_FRACTION,
-        "note": "Days assume you sell max 20% of avg 20d daily volume. ETF .MI may "
-                 "be understated due to market-maker liquidity outside yfinance."
-                 + ("" if _prezzi["origine"] not in ("assente", "illeggibile") else
-                    " ATTENZIONE: negozio dei prezzi speciali %s (%s): nessuna posizione e' "
-                    "stata etichettata «skip», anche se ce ne fossero da saltare."
-                    % (_prezzi["origine"], _prezzi["motivo"])),
+        "note": _message("I giorni assumono vendite massime del 20% del volume medio giornaliero a 20 giorni. Gli ETF .MI possono risultare sottostimati per la liquidità dei market maker esterna a yfinance.{warning}", "Days assume you sell max 20% of avg 20d daily volume. ETF .MI may be understated due to market-maker liquidity outside yfinance.{warning}", warning="" if _prezzi["origine"] not in ("assente", "illeggibile") else _message(" ATTENZIONE: negozio dei prezzi speciali {origin} ({reason}): nessuna posizione e' stata etichettata «skip», anche se ce ne fossero da saltare.", " WARNING: special price store {origin} ({reason}): no position was labeled skip, even if some should be skipped.", origin=_prezzi["origine"], reason=_prezzi["motivo"])),
         "negozio_prezzi": {"origine": _prezzi["origine"], "motivo": _prezzi["motivo"]},
         "timestamp": datetime.now().isoformat(),
     }
@@ -1153,11 +1178,11 @@ def compute_concentration() -> Dict[str, Any]:
     snap = db.get_portfolio_summary()
     positions = snap.get("positions", [])
     if not positions:
-        return {"error": "no positions"}
+        return {"error": _message("nessuna posizione", "no positions")}
 
     total = sum(p.get("valore_mercato") or 0 for p in positions)
     if total <= 0:
-        return {"error": "zero NAV"}
+        return {"error": _message("NAV nullo", "zero NAV")}
 
     # By ticker
     weights = [(p["ticker"], (p.get("valore_mercato") or 0) / total) for p in positions]
@@ -1213,9 +1238,9 @@ def compute_concentration() -> Dict[str, Any]:
         },
         "currency_labels": {k: v.as_dict() for k, v in currency_labels.items()},
         "interpretation": {
-            "diversified": "HHI < 1500 = well diversified",
-            "moderate": "1500 ≤ HHI < 2500 = moderate concentration",
-            "concentrated": "HHI >= 2500 = concentrated",
+            "diversified": _message('HHI < 1500 = ben diversificato', 'HHI < 1500 = well diversified'),
+            "moderate": _message('1500 ≤ HHI < 2500 = concentrazione moderata', '1500 ≤ HHI < 2500 = moderate concentration'),
+            "concentrated": _message('HHI >= 2500 = concentrato', 'HHI >= 2500 = concentrated'),
         },
         "timestamp": datetime.now().isoformat(),
     }
@@ -1234,7 +1259,7 @@ def compute_var_contribution(lookback_days: int = 252,
     where cov(r_i, r_p) = sum_j w_j * Cov[r_i, r_j]
     """
     if not (NUMPY_OK and YF_OK):
-        return {"error": "numpy/yfinance not available"}
+        return {"error": _message('numpy/yfinance non disponibili', 'numpy/yfinance not available')}
 
     # Il negozio PRIMA del DB: i numeri in euro scalano sul NAV COPERTO (`total_covered`) e
     # un simbolo che rientra nel panel con una serie parziale tronca il campione di TUTTI
@@ -1249,17 +1274,17 @@ def compute_var_contribution(lookback_days: int = 252,
     snap = db.get_portfolio_summary()
     positions = snap.get("positions", [])
     if not positions:
-        return {"error": "no positions"}
+        return {"error": _message("nessuna posizione", "no positions")}
 
     total = sum(p.get("valore_mercato") or 0 for p in positions)
     if total <= 0:
-        return {"error": "zero NAV"}
+        return {"error": _message("NAV nullo", "zero NAV")}
 
     tickers = [p["ticker"] for p in positions if p["ticker"] not in salta]
     weights_map = {p["ticker"]: (p.get("valore_mercato") or 0) / total for p in positions}
 
     if len(tickers) < 2:
-        return {"error": "need at least 2 tickers for VaR contribution"}
+        return {"error": _message('servono almeno 2 ticker per il contributo VaR', 'need at least 2 tickers for VaR contribution')}
 
     period = f"{lookback_days}d"
     try:
@@ -1282,9 +1307,9 @@ def compute_var_contribution(lookback_days: int = 252,
         close = close.dropna(axis=1, how="all")  # una colonna morta non svuota il panel
         returns = close.pct_change().dropna(how="any")
         if len(returns) < 60:
-            return {"error": f"insufficient history: {len(returns)} obs"}
+            return {"error": _message('storico insufficiente: {v0} osservazioni', 'insufficient history: {v0} obs', v0=len(returns))}
     except Exception as e:
-        return {"error": f"download failed: {e}"}
+        return {"error": _message('Download fallito: {v0}', 'download failed: {v0}', v0=e)}
 
     available = [t for t in tickers if t in returns.columns]
     R = returns[available].values
@@ -1301,7 +1326,7 @@ def compute_var_contribution(lookback_days: int = 252,
     var_p = float(w @ Sigma @ w)
     sigma_p = float(np.sqrt(var_p))
     if sigma_p <= 0:
-        return {"error": "zero portfolio volatility"}
+        return {"error": _message('volatilità di portafoglio nulla', 'zero portfolio volatility')}
     from scipy.stats import norm
     z_alpha = float(-norm.ppf(confidence))
     sigma_p_daily = sigma_p / np.sqrt(252)
@@ -1344,9 +1369,7 @@ def compute_var_contribution(lookback_days: int = 252,
         "coverage_nav_pct": round(coverage * 100, 1),
         "nav_covered_eur": round(total_covered, 0),
         "items": items,
-        "methodology": ("Component VaR (Jorion 2006), gaussiano-parametrico su rendimenti "
-                        "in valuta LOCALE (FX escluso, dichiarato); numeri EUR sul NAV "
-                        "coperto dai ticker modellati. sum(component_var) = portfolio VaR."),
+        "methodology": (_message('Component VaR (Jorion 2006), gaussiano-parametrico su rendimenti in valuta LOCALE (FX escluso, dichiarato); numeri EUR sul NAV coperto dai ticker modellati. sum(component_var) = portfolio VaR.', 'Component VaR (Jorion 2006), Gaussian-parametric on LOCAL currency returns (FX excluded, as declared); EUR figures use NAV covered by modeled tickers. sum(component_var) = portfolio VaR.')),
         "timestamp": datetime.now().isoformat(),
     }
 

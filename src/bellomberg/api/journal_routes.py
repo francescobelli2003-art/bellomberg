@@ -1,4 +1,5 @@
 """Router Diario: ogni lettura e scrittura richiede la sessione dell'app."""
+from bellomberg.core.presentation import message as _ui_text, error_text
 import logging
 from typing import Annotated, Literal
 
@@ -38,20 +39,20 @@ def create_journal_router(get_db, require_session):
         try:
             return getattr(JournalStore(get_db()), method)(*args, **kwargs)
         except JournalConflict as exc:
-            raise HTTPException(409, {"code": "journal_version_conflict", "message": str(exc),
+            raise HTTPException(409, {"code": "journal_version_conflict", "message": error_text(exc),
                                       "current_version": exc.current_version}) from exc
         except JournalMissing as exc:
-            raise HTTPException(404, {"code": "journal_not_found", "message": str(exc)}) from exc
+            raise HTTPException(404, {"code": "journal_not_found", "message": error_text(exc)}) from exc
         except JournalInvalid as exc:
-            raise HTTPException(422, {"code": "journal_invalid", "message": str(exc)}) from exc
+            raise HTTPException(422, {"code": "journal_invalid", "message": error_text(exc)}) from exc
         except JournalUnavailable as exc:
             _LOG.warning("Diario: %s", exc.code)
-            raise HTTPException(503, {"code": exc.code, "message": str(exc)}) from exc
+            raise HTTPException(503, {"code": exc.code, "message": error_text(exc)}) from exc
         except Exception as exc:
             # Nessun percorso, testo privato o credenziale nel payload o nel log.
             _LOG.warning("Diario non disponibile (%s)", type(exc).__name__)
             raise HTTPException(503, {"code": "journal_unavailable", "message":
-                                     "Diario non disponibile: accesso al database non riuscito."}) from exc
+                                     _ui_text('Diario non disponibile: accesso al database non riuscito.', 'Journal unavailable: database access failed.')}) from exc
 
     @router.get("")
     def list_entries(status: Literal["active", "archived", "all"] = "active",

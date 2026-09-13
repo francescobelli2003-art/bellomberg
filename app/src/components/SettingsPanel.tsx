@@ -23,10 +23,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle, HardDrive, Trash2, X } from 'lucide-react';
 import { Bellomberg } from '@/lib/api';
+import SceltaLingua from './SceltaLingua';
+import { useLingua, useT } from '../i18n/provider';
+import { localeDi } from '../i18n/lingua';
+import { t as tr, type Chiave } from '../i18n/t';
 import '../pages/settings-veglia.css';
 
 type Backup = { filename: string; path: string; size_mb: number; created: string };
-type Esito = { ok: boolean; text: string };
+type Numero = (value: number, digits?: number) => string;
+type Esito = { ok: boolean; text: (tr: ReturnType<typeof useT>, num: Numero) => string };
 
 /* Il payload del Task Scheduler arriva col formato US (07/26/2026 23:00:01).
    Un `new Date(stringa)` qui sarebbe un azzardo: si parsa a mano. */
@@ -41,20 +46,34 @@ function parseIso(s: unknown): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 const due = (n: number) => String(n).padStart(2, '0');
-const ggmm = (d: Date | null) => (d ? `${due(d.getDate())}/${due(d.getMonth() + 1)}` : 'n.d.');
+const ggmm = (d: Date | null) => (d ? `${due(d.getDate())}/${due(d.getMonth() + 1)}` : tr('settings.nd'));
 const hhmm = (d: Date | null) => (d ? `${due(d.getHours())}:${due(d.getMinutes())}` : '');
 const chiave = (d: Date) => `${d.getFullYear()}-${due(d.getMonth() + 1)}-${due(d.getDate())}`;
 const isAuto = (f: string) => /^bellomberg_backup_/i.test(f);
+const engineLabels: Record<string, Chiave> = {
+  chat: 'settings.engine_chat', committee_r0: 'settings.engine_r0', committee_r1_r2: 'settings.engine_r1_r2',
+  committee_macro: 'settings.engine_macro', committee_quant: 'settings.engine_quant', committee_options: 'settings.engine_options',
+  committee_fundamentals: 'settings.engine_fundamentals', committee_crypto: 'settings.engine_crypto', committee_eventdesk: 'settings.engine_eventdesk',
+  capo: 'settings.engine_capo', red_team: 'settings.engine_redteam', reflection: 'settings.engine_reflection',
+  action_extractor: 'settings.engine_extractor', synthesizer: 'settings.engine_synthesizer', briefing: 'settings.engine_briefing', news_classifier: 'settings.engine_news',
+};
 
 export default function SettingsPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const tr = useT(), language = useLingua();
+  const num: Numero = (value, digits) => value.toLocaleString(localeDi(language), digits === undefined
+    ? { maximumSignificantDigits: 21, useGrouping: true }
+    : { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: true });
   const [tasks, setTasks] = useState<any[] | null>(null);
+  const [taskDiagnostic, setTaskDiagnostic] = useState<string | null>(null);
   const [backups, setBackups] = useState<Backup[] | null>(null);
   const [count, setCount] = useState<number | null>(null);
   const [health, setHealth] = useState<any>(null);
   const [fx, setFx] = useState<Record<string, number> | null>(null);
   const [engines, setEngines] = useState<Record<string, string> | null>(null);
   // regola 14/07: i fetch falliti si DICHIARANO per nome, mai pannelli vuoti muti
-  const [buchi, setBuchi] = useState<string[]>([]);
+  const missingLabels = { backups: 'settings.missing_backups', tasks: 'settings.missing_tasks', health: 'settings.missing_health', fx: 'settings.missing_fx', engines: 'settings.missing_engines' } as const;
+  type MissingData = keyof typeof missingLabels;
+  const [buchi, setBuchi] = useState<MissingData[]>([]);
   const [esito, setEsito] = useState<Esito | null>(null);
   const [creando, setCreando] = useState(false);
   const [daCancellare, setDaCancellare] = useState<Backup | null>(null);
@@ -62,7 +81,7 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
   const box = useRef<HTMLDivElement>(null);
   const tornaA = useRef<HTMLElement | null>(null);
 
-  const segnala = useCallback((nome: string) => {
+  const segnala = useCallback((nome: MissingData) => {
     setBuchi(prev => (prev.includes(nome) ? prev : [...prev, nome]));
   }, []);
 
@@ -71,22 +90,29 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
       const r = await Bellomberg.dbBackupsList();
       setBackups(r.backups || []);
       setCount(typeof r.count === 'number' ? r.count : null);
-      setBuchi(prev => prev.filter(b => b !== 'elenco dei backup'));
+      setBuchi(prev => prev.filter(b => b !== 'backups'));
     } catch {
       setBackups(null);
-      segnala('elenco dei backup');
+      segnala('backups');
     }
   }, [segnala]);
 
   useEffect(() => {
     if (!open) return;
     setBuchi([]);
-    Bellomberg.scheduledTasks().then(r => setTasks(r.tasks || [])).catch(() => { setTasks(null); segnala('lavori schedulati'); });
-    Bellomberg.health().then(setHealth).catch(() => { setHealth(null); segnala('stato del backend'); });
-    Bellomberg.fx().then(r => setFx(r.rates || {})).catch(() => { setFx(null); segnala('cambi'); });
+    setTaskDiagnostic(null);
+    Bellomberg.scheduledTasks().then(r => {
+      if ('error' in r && r.error) throw new Error(String(r.error));
+      setTasks(r.tasks || []);
+    }).catch((e: unknown) => {
+      setTasks(null); segnala('tasks');
+      setTaskDiagnostic(e instanceof Error ? e.message : String(e));
+    });
+    Bellomberg.health().then(setHealth).catch(() => { setHealth(null); segnala('health'); });
+    Bellomberg.fx().then(r => setFx(r.rates || {})).catch(() => { setFx(null); segnala('fx'); });
     Bellomberg.agentsList()
       .then(r => setEngines((r.engines as unknown as Record<string, string>) || null))
-      .catch(() => { setEngines(null); segnala('motori'); });
+      .catch(() => { setEngines(null); segnala('engines'); });
     caricaBackups();
   }, [open, caricaBackups, segnala]);
 
@@ -179,12 +205,12 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
       const ko = Object.entries(r.db_quick_check || {}).filter(([, v]) => v !== 'ok');
       setEsito({
         ok: r.ok,
-        text: `Backup creato: ${r.size_mb} MB, ${r.files_count} file — ${r.backup_path}` +
-          (r.ok ? '' : ` · ATTENZIONE: ${ko.length} database ESCLUSO dal backup per quick_check fallito (${ko.map(([k, v]) => `${k}: ${v}`).join(' · ')})`),
+        text: (tr, num) => tr('settings.backup_created', {a: num(r.size_mb), b: num(r.files_count), c: r.backup_path}) +
+          (r.ok ? '' : tr('settings.backup_excluded', {a: ko.length, b: ko.map(([k, v]) => `${k}: ${v}`).join(' · ')})),
       });
       await caricaBackups();
     } catch (e: any) {
-      setEsito({ ok: false, text: 'Backup NON creato: ' + (e?.response?.data?.detail || e?.message || String(e)) });
+      setEsito({ ok: false, text: tr => tr('settings.backup_not_created') + (e?.response?.data?.detail || e?.message || String(e)) });
     } finally {
       setCreando(false);
     }
@@ -194,10 +220,10 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
     setDaCancellare(null); setEsito(null);
     try {
       await Bellomberg.dbBackupDelete(b.filename);
-      setEsito({ ok: true, text: `Eliminato ${b.filename} (${b.size_mb} MB). Non e' recuperabile: non passa dal cestino.` });
+      setEsito({ ok: true, text: (tr, num) => tr('settings.deleted', {a: b.filename, b: num(b.size_mb)}) });
       await caricaBackups();
     } catch (e: any) {
-      setEsito({ ok: false, text: 'NON eliminato: ' + (e?.response?.data?.detail || e?.message || String(e)) });
+      setEsito({ ok: false, text: tr => tr('settings.not_deleted') + (e?.response?.data?.detail || e?.message || String(e)) });
     }
   };
 
@@ -209,21 +235,20 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
   return (
     <>
       <div className="f11-scrim" onClick={onClose} />
-      <div className="f11v" role="dialog" aria-modal="true" aria-label="Impostazioni" tabIndex={-1} ref={box}>
+      <div className="f11v" role="dialog" aria-modal="true" aria-label={tr('settings.title')} tabIndex={-1} ref={box}>
         <span className="sq tl" /><span className="sq tr" /><span className="sq bl" /><span className="sq br" />
 
         <div className="phead">
-          <span className="tt">Impostazioni</span>
-          <span className="sub">La veglia — la guardia di stanotte</span>
-          <button className="x" onClick={onClose}><X size={11} /> ESC CHIUDE</button>
+          <span className="tt">{tr('settings.title')}</span>
+          <span className="sub">{tr('settings.subtitle')}</span>
+          <button className="x" onClick={onClose}><X size={11} /> {tr('settings.esc_close')}</button>
         </div>
 
         <div className="pbody">
+          <SceltaLingua />
           {buchi.length > 0 && (
             <div className="buco">
-              DATI NON CARICATI: {buchi.join(' · ')} — il backend ha risposto con un errore.
-              I riquadri qui sotto che dipendono da questi dati sono INCOMPLETI, non vuoti.
-              Richiudi e riapri il pannello per riprovare.
+              {tr('settings.data_missing')} {buchi.map(b => tr(missingLabels[b])).join(' · ')} {tr('settings.data_missing_detail')}
             </div>
           )}
 
@@ -231,24 +256,25 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
             <div className={'esito ' + (esito.ok ? 'ok' : 'ko')}>
               {esito.ok ? <CheckCircle size={11} style={{ verticalAlign: -1, marginRight: 6 }} />
                         : <AlertCircle size={11} style={{ verticalAlign: -1, marginRight: 6 }} />}
-              {esito.text}
+              {esito.text(tr, num)}
             </div>
           )}
 
           {/* ── I GUARDIANI ─────────────────────────────────── */}
           <div className="p">
             <div className="ph a">
-              I guardiani — {tasks ? tasks.length : '?'} lavori automatici
-              <span className="side">esito diverso da 0 = non riuscito</span>
+              {tr('settings.guardians')} {tasks ? tasks.length : '?'} {tr('settings.automatic_jobs')}
+              <span className="side">{tr('settings.result_nonzero')}</span>
             </div>
             <div className="pb nopad">
               {tasks === null ? (
                 <div style={{ padding: '9px 10px' }} className="nota">
-                  <b className="ko">lavori schedulati NON leggibili</b>: il backend ha risposto con un errore.
+                  <b className="ko">{tr('settings.jobs_unreadable')}</b>{tr('settings.backend_error')}
+                  {taskDiagnostic && <div>{taskDiagnostic}</div>}
                 </div>
               ) : tasks.length === 0 ? (
                 <div style={{ padding: '9px 10px' }} className="nota">
-                  Nessun lavoro schedulato. Esegui <b>install_all_schedulers.ps1</b> come amministratore.
+                  {tr('settings.no_jobs')} <b>powershell -ExecutionPolicy Bypass -File .\tools\ops\windows\install_all_schedulers.ps1</b> {tr('settings.as_admin')} {tr('settings.installer_warning')}
                 </div>
               ) : tasks.map((t, i) => {
                 const r = t.LastTaskResult;
@@ -258,27 +284,26 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
                 const lasciati = last ? (perGiorno[chiave(last)] || []) : [];
                 let frase: React.ReactNode;
                 if (spento) {
-                  frase = <>spento per scelta — l'esito <b>{String(r)}</b> e' l'ultimo di quando girava, non di stanotte</>;
+                  frase = <>{tr('settings.disabled_explanation')} <b>{String(r)}</b> {tr('settings.previous_result')}</>;
                 } else if (ok) {
-                  frase = <>esito <b>0</b>: il lavoro dichiara che e' andata bene</>;
+                  frase = <>{tr('settings.result')} <b>0</b>{tr('settings.reported_success')}</>;
                 } else if (lasciati.length) {
-                  frase = <>dichiara <b>esito {String(r)}</b> — ma quella notte in cartella c'e' <b>{lasciati.length} backup
-                    da {lasciati.reduce((s, x) => s + x.size_mb, 0).toFixed(2)} MB</b>. Le due cose non tornano.</>;
+                  frase = <>{tr('settings.reports')} <b>{tr('settings.result')} {String(r)}</b> {tr('settings.but_folder')} <b>{lasciati.length} {tr('settings.backups_size')} {num(lasciati.reduce((s, x) => s + x.size_mb, 0), 2)} MB</b>{tr('settings.inconsistent')}</>;
                 } else {
-                  frase = <>dichiara <b>esito {String(r)}</b> e non ha lasciato nulla in cartella</>;
+                  frase = <>{tr('settings.reports')} <b>{tr('settings.result')} {String(r)}</b> {tr('settings.nothing_left')}</>;
                 }
                 return (
                   <div key={i} className={'grd' + (!ok && !spento ? ' ko' : '')}>
                     <span className="nm">{String(t.TaskName || '?').replace('Bellomberg-', '')}</span>
                     <span className="es">
                       <span className={'chip ' + (spento ? 'm' : ok ? 'g' : 'r')}>
-                        {spento ? 'SPENTO' : `ESITO ${String(r ?? '?')}`}
+                        {spento ? tr('settings.disabled') : tr('settings.result_code', {a: String(r ?? '?')})}
                       </span>
                     </span>
                     <span className="qd">{frase}</span>
                     <span className="tm num">
                       {ggmm(last)} {hhmm(last)}
-                      <i>prossimo {ggmm(parseTask(t.NextRunTime))} {hhmm(parseTask(t.NextRunTime))}</i>
+                      <i>{tr('settings.next')} {ggmm(parseTask(t.NextRunTime))} {hhmm(parseTask(t.NextRunTime))}</i>
                     </span>
                   </div>
                 );
@@ -290,22 +315,22 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
           {contraddizione && (
             <div className="contro">
               <div className="lato">
-                <div className="k">La dichiarazione del guardiano</div>
+                <div className="k">{tr('settings.guardian_claim')}</div>
                 <div className="v">
-                  {String(contraddizione.t.TaskName).replace('Bellomberg-', '')}, notte del {ggmm(contraddizione.last)}:{' '}
-                  <b>esito {String(contraddizione.t.LastTaskResult)} — non riuscito</b>
+                  {String(contraddizione.t.TaskName).replace('Bellomberg-', '')}{tr('settings.night_of')} {ggmm(contraddizione.last)}:{' '}
+                  <b>{tr('settings.result')} {String(contraddizione.t.LastTaskResult)} {tr('settings.unsuccessful_suffix')}</b>
                 </div>
               </div>
               <div className="lato">
-                <div className="k">Il contenuto della cartella</div>
+                <div className="k">{tr('settings.folder_content')}</div>
                 <div className="v">
-                  <em>{contraddizione.lasciati[0].filename}</em> — il backup c'e'
-                  {contraddizione.lasciati.length > 1 ? ` (e altri ${contraddizione.lasciati.length - 1})` : ''}
+                  <em>{contraddizione.lasciati[0].filename}</em> {tr('settings.backup_exists')}
+                  {contraddizione.lasciati.length > 1 ? tr('settings.others', {a: contraddizione.lasciati.length - 1}) : ''}
                 </div>
               </div>
               <div className="lato">
-                <div className="k">La lettura</div>
-                <div className="v">il salvataggio riesce, <b>fallisce quello che viene dopo</b></div>
+                <div className="k">{tr('settings.interpretation')}</div>
+                <div className="v">{tr('settings.save_succeeds')} <b>{tr('settings.after_fails')}</b></div>
               </div>
             </div>
           )}
@@ -313,14 +338,14 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
           {/* ── IL PETTINE DELLE NOTTI ──────────────────────── */}
           <div className="p">
             <div className="ph c">
-              Il pettine delle notti — {calendario.length} giorni
-              <span className="side">dente cavo = notte scoperta · altezza = MB · punta per il numero esatto</span>
+              {tr('settings.nights_comb')} {calendario.length} {tr('settings.days')}
+              <span className="side">{tr('settings.nights_legend')}</span>
             </div>
             <div className="pb" style={{ padding: '14px 12px 26px' }}>
               {calendario.length === 0 ? (
                 <div className="nota">
-                  <b className="ko">nessun backup da rappresentare</b>
-                  {backups === null ? ': l\'elenco non e\' leggibile (errore del backend).' : ': la cartella dei backup e\' vuota.'}
+                  <b className="ko">{tr('settings.no_backups_chart')}</b>
+                  {backups === null ? tr('settings.list_error') : tr('settings.folder_empty')}
                 </div>
               ) : (
                 <>
@@ -337,12 +362,12 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
                           tabIndex={0}
                           role="img"
                           aria-label={c.n
-                            ? `${dd}/${mm}/${aa}: ${c.mb.toFixed(2)} MB in ${c.n} backup`
-                            : `${dd}/${mm}/${aa}: notte scoperta, nessun backup`}
+                            ? tr('settings.night_aria', {a: dd, b: mm, c: aa, d: num(c.mb, 2), e: c.n})
+                            : tr('settings.night_empty_aria', {a: dd, b: mm, c: aa})}
                         >
                           <span className="tip">
-                            {c.n ? <><b>{c.mb.toFixed(2)} MB</b> in {c.n} backup</> : <b className="ko">notte scoperta</b>}
-                            <i>{dd}/{mm}/{aa}{c.n ? (c.mano ? ` · ${c.mano} presi a mano` : ' · automatico') : ' — nessun backup'}</i>
+                            {c.n ? <><b>{num(c.mb, 2)} MB</b> {tr('settings.across')} {c.n} {tr('settings.backup_count')}</> : <b className="ko">{tr('settings.uncovered_night')}</b>}
+                            <i>{dd}/{mm}/{aa}{c.n ? (c.mano ? tr('settings.manual_count', {a: c.mano}) : tr('settings.automatic_suffix')) : tr('settings.no_backup_suffix')}</i>
                           </span>
                           <span className="st" style={{ height: h ? h + 'px' : undefined }} />
                           {eti && <span className="gg num">{eti}</span>}
@@ -351,17 +376,16 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
                     })}
                   </div>
                   <div className="legenda">
-                    <span><i className="sw notte" />notturno</span>
-                    <span><i className="sw mano" />preso a mano</span>
-                    <span><i className="sw vuoto" />notte scoperta</span>
-                    <span>coperte <b>{calendario.length - scoperte}</b> notti su <b>{calendario.length}</b></span>
-                    <span>scoperte <b className="ko">{scoperte}</b> ({(100 * scoperte / calendario.length).toFixed(1)}%)</span>
+                    <span><i className="sw notte" />{tr('settings.overnight')}</span>
+                    <span><i className="sw mano" />{tr('settings.manual')}</span>
+                    <span><i className="sw vuoto" />{tr('settings.uncovered_night')}</span>
+                    <span>{tr('settings.covered')} <b>{calendario.length - scoperte}</b> {tr('settings.nights_of')} <b>{calendario.length}</b></span>
+                    <span>{tr('settings.uncovered')} <b className="ko">{scoperte}</b> ({num(100 * scoperte / calendario.length, 1)}%)</span>
                   </div>
                   {nascosti > 0 && (
                     <div className="nota">
-                      Il backend dichiara <b>{count}</b> file e ne consegna <b>{backups?.length}</b>:
-                      <b className="ko"> {nascosti} non sono elencabili</b> da qui (il taglio e' a 50).
-                      La copertura vera puo' essere migliore di quella disegnata.
+                      {tr('settings.backend_reports')} <b>{count}</b> {tr('settings.files_returns')} <b>{backups?.length}</b>:
+                      <b className="ko"> {nascosti} {tr('settings.not_listable')}</b> {tr('settings.coverage_partial')}
                     </div>
                   )}
                 </>
@@ -372,50 +396,49 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
           {/* ── IL REGISTRO (innestato dall'opzione B) ──────── */}
           <div className="p">
             <div className="ph r">
-              Il registro — quello che il terminale afferma, e quanto regge
+              {tr('settings.register')}
               {/* 3 voci fisse + quella dei lavori guasti, se ce ne sono. La prima
                   stesura diceva "3 voci" mentre ne rendeva 4: un conto sbagliato
                   in un riquadro che si chiama REGISTRO e' il posto peggiore. */}
-              <span className="side">{3 + (guasti.length ? 1 : 0)} voci</span>
+              <span className="side">{3 + (guasti.length ? 1 : 0)} {tr('settings.entries')}</span>
             </div>
             <div className="pb nopad">
               <table className="reg"><tbody>
                 {guasti.length > 0 && (
                   <tr>
-                    <td className="st"><span className="chip r">NON RIUSCITO</span></td>
-                    <td className="af">Il salvataggio notturno del database</td>
+                    <td className="st"><span className="chip r">{tr('settings.unsuccessful')}</span></td>
+                    <td className="af">{tr('settings.nightly_backup')}</td>
                     <td className="no">
-                      {guasti.map(t => `${String(t.TaskName).replace('Bellomberg-', '')} esito ${t.LastTaskResult}`).join(' · ')}.
-                      {' '}Prossimo tentativo {ggmm(parseTask(guasti[0].NextRunTime))} {hhmm(parseTask(guasti[0].NextRunTime))}.
-                      {' '}La causa e' fuori dal terminale: sta nello script <code>run_db_backup.bat</code>.
+                      {guasti.map(t => tr('settings.task_result', {a: String(t.TaskName).replace('Bellomberg-', ''), b: t.LastTaskResult})).join(' · ')}.
+                      {' '}{tr('settings.next_attempt')} {ggmm(parseTask(guasti[0].NextRunTime))} {hhmm(parseTask(guasti[0].NextRunTime))}.
+                      {' '}{tr('settings.cause_not_declared')}
                     </td>
                   </tr>
                 )}
                 <tr>
-                  <td className="st"><span className="chip o">NON DICHIARATO</span></td>
-                  <td className="af">Il contenuto dello zip</td>
+                  <td className="st"><span className="chip o">{tr('settings.not_declared')}</span></td>
+                  <td className="af">{tr('settings.zip_content')}</td>
                   <td className="no">
-                    Nessuna chiamata di sola lettura lo dice. Si accende <b>dopo</b> un backup fatto da qui:
-                    la risposta porta l'elenco dei file e il <code>quick_check</code> per database.
+                    {tr('settings.read_doesnt_tell')} <b>{tr('settings.after')}</b> {tr('settings.after_backup')} <code>quick_check</code> {tr('settings.per_database')}
                   </td>
                 </tr>
                 <tr>
-                  <td className="st"><span className={'chip ' + (nascosti > 0 ? 'r' : 'g')}>{nascosti > 0 ? 'INCOMPLETO' : 'COMPLETO'}</span></td>
-                  <td className="af">L'elenco dei backup</td>
+                  <td className="st"><span className={'chip ' + (nascosti > 0 ? 'r' : 'g')}>{nascosti > 0 ? tr('settings.incomplete') : tr('settings.complete')}</span></td>
+                  <td className="af">{tr('settings.backup_list')}</td>
                   <td className="no">
                     {nascosti > 0
-                      ? <>Il backend ne dichiara <b>{count}</b> e ne consegna <b>{backups?.length}</b>: <b>{nascosti} non sono elencabili</b>.</>
-                      : <>Il backend ne dichiara <b>{count ?? '?'}</b> e li consegna tutti. Sopra i <b>50</b> comincia a troncarli, e allora questo conto va letto come parziale.</>}
+                      ? <>{tr('settings.backend_reports_them')} <b>{count}</b> {tr('settings.and_returns')} <b>{backups?.length}</b>: <b>{nascosti} {tr('settings.not_listable')}</b>.</>
+                      : <>{tr('settings.backend_reports_them')} <b>{count ?? '?'}</b> {tr('settings.returns_all')} <b>50</b> {tr('settings.truncates')}</>}
                   </td>
                 </tr>
                 <tr>
-                  <td className="st"><span className="chip g">CORRETTO</span></td>
-                  <td className="af">La cartella dei backup</td>
+                  <td className="st"><span className={'chip ' + (ordinati[0]?.path ? 'g' : 'o')}>{ordinati[0]?.path ? tr('settings.correct') : tr('settings.not_declared')}</span></td>
+                  <td className="af">{tr('settings.backup_folder')}</td>
                   <td className="no">
-                    {ordinati[0]
+                    {ordinati[0]?.path
                       ? <code>{ordinati[0].path.replace(/[/\\][^/\\]+$/, '')}</code>
-                      : <code>data/backups</code>}
-                    {' '}— percorso vero dal payload, non una stringa scritta a mano.
+                      : <span>{tr('settings.path_not_declared')}</span>}
+                    {ordinati[0]?.path && <> {tr('settings.path_from_payload')}</>}
                   </td>
                 </tr>
               </tbody></table>
@@ -427,23 +450,23 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
               un tetto si mangerebbe il pannello. Scorre dentro di se'. */}
           <div className="p" style={{ height: 300 }}>
             <div className="ph">
-              In cartella — {count ?? '?'} file, in ordine di data
-              <span className="side">{totMb.toFixed(0)} MB</span>
+              {tr('settings.in_folder')} {count ?? '?'} {tr('settings.files_date_order')}
+              <span className="side">{num(totMb, 0)} MB</span>
             </div>
             <div className="pb" style={{ padding: '8px 10px', flex: '0 0 auto' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <button className="btn am" onClick={creaBackup} disabled={creando}>
-                  <HardDrive size={11} />{creando ? 'BACKUP IN CORSO...' : 'FAI UN BACKUP ADESSO'}
+                  <HardDrive size={11} />{creando ? tr('settings.backup_updating') : tr('settings.backup_now')}
                 </button>
                 <span className="nota" style={{ margin: 0 }}>
-                  {ultimo ? <>l'ultimo e' del <b>{ggmm(ultimo)} {hhmm(ultimo)}</b></> : 'nessun backup in cartella'}
+                  {ultimo ? <>{tr('settings.latest_from')} <b>{ggmm(ultimo)} {hhmm(ultimo)}</b></> : tr('settings.no_backups_folder')}
                 </span>
               </div>
             </div>
             <div className="pb scroll nopad">
               {backups === null ? (
                 <div style={{ padding: '9px 10px' }} className="nota">
-                  <b className="ko">elenco NON leggibile</b>: il backend ha risposto con un errore.
+                  <b className="ko">{tr('settings.list_unreadable')}</b>{tr('settings.backend_error')}
                 </div>
               ) : ordinati.map(b => {
                 const d = parseIso(b.created);
@@ -451,15 +474,15 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
                   <div key={b.filename} className="bl">
                     <span className="aut">
                       <span className={'chip ' + (isAuto(b.filename) ? 'c' : 'm')}>
-                        {isAuto(b.filename) ? 'NOTTE' : 'A MANO'}
+                        {isAuto(b.filename) ? tr('settings.night') : tr('settings.manual_upper')}
                       </span>
                     </span>
                     <span className="fn" title={b.path}>{b.filename}</span>
-                    <span className="mb num">{b.size_mb.toFixed(2)} MB</span>
+                    <span className="mb num">{num(b.size_mb, 2)} MB</span>
                     <span className="dt num">{ggmm(d)} {hhmm(d)}</span>
                     <span className="rm">
-                      <button onClick={() => setDaCancellare(b)} title={'Elimina ' + b.filename}
-                              aria-label={'Elimina ' + b.filename}>
+                      <button onClick={() => setDaCancellare(b)} title={tr('settings.delete_prefix') + b.filename}
+                              aria-label={tr('settings.delete_prefix') + b.filename}>
                         <Trash2 size={11} />
                       </button>
                     </span>
@@ -472,42 +495,41 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
           {/* ── LA CODA ─────────────────────────────────────── */}
           <div className="coda">
             <div className="p">
-              <div className="ph">La macchina</div>
+              <div className="ph">{tr('settings.machine')}</div>
               <div className="pb">
-                <div className="kv"><span className="k">stato</span>
-                  <span className="v">{health ? String(health.status || 'n.d.').toUpperCase() : 'N.D.'}</span></div>
-                <div className="kv"><span className="k">versione backend</span>
-                  <span className="v num">{health?.version || 'n.d.'}</span></div>
+                <div className="kv"><span className="k">{tr('settings.status')}</span>
+                  <span className="v">{health ? String(health.status || tr('settings.nd')).toUpperCase() : tr('settings.nd_upper')}</span></div>
+                <div className="kv"><span className="k">{tr('settings.backend_version')}</span>
+                  <span className="v num">{health?.version || tr('settings.nd')}</span></div>
                 {/* (B10, 02/09) attribuzione che la licenza di Lightweight Charts
                     richiede (Apache-2.0 con avviso TradingView): il grafico non
                     mostra il logo (`attributionLogo: false` in TerminalChart),
                     quindi il link sta qui. Impianto A scelto dal PM sulla rosa
                     in situ (mockup_f11_licenza/). */}
-                <div className="kv"><span className="k">grafici</span>
+                <div className="kv"><span className="k">{tr('settings.charts')}</span>
                   <span className="v"><a className="lnk" href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView Lightweight Charts</a> · Apache-2.0</span></div>
-                <div className="kv"><span className="k">lavori accesi</span>
-                  <span className="v num">{tasks ? `${attivi.length} / ${tasks.length}` : 'n.d.'}</span></div>
-                <div className="kv"><span className="k">non riusciti</span>
-                  <span className={'v num' + (guasti.length ? ' ko' : '')}>{tasks ? guasti.length : 'n.d.'}</span></div>
+                <div className="kv"><span className="k">{tr('settings.enabled_jobs')}</span>
+                  <span className="v num">{tasks ? `${attivi.length} / ${tasks.length}` : tr('settings.nd')}</span></div>
+                <div className="kv"><span className="k">{tr('settings.failed_jobs')}</span>
+                  <span className={'v num' + (guasti.length ? ' ko' : '')}>{tasks ? guasti.length : tr('settings.nd')}</span></div>
                 {spenti.length > 0 && (
                   <div className="nota">
-                    {spenti.length} lavoro spento per scelta ({spenti.map(t => String(t.TaskName).replace('Bellomberg-', '')).join(', ')}):
-                    il suo vecchio esito <b>non</b> conta come guasto.
+                    {spenti.length} {tr('settings.disabled_job_count')}{spenti.map(t => String(t.TaskName).replace('Bellomberg-', '')).join(', ')}{tr('settings.old_result')} <b>{tr('settings.not')}</b> {tr('settings.counts_failure')}
                   </div>
                 )}
               </div>
             </div>
 
             <div className="p">
-              <div className="ph">Cambi</div>
+              <div className="ph">{tr('settings.fx')}</div>
               <div className="pb">
-                {fx === null ? <div className="nota"><b className="ko">cambi NON leggibili</b>: errore del backend.</div>
-                  : Object.keys(fx).length === 0 ? <div className="nota">nessun cambio consegnato</div>
+                {fx === null ? <div className="nota"><b className="ko">{tr('settings.fx_unreadable')}</b>{tr('settings.backend_error_short')}</div>
+                  : Object.keys(fx).length === 0 ? <div className="nota">{tr('settings.no_fx')}</div>
                   : Object.entries(fx).map(([c, v]) => (
                     <div className="kv" key={c}>
                       <span className="k">1 {c}</span>
                       <span className="v num">
-                        {typeof v === 'number' && isFinite(v) ? v.toFixed(6) : '—'} EUR
+                        {typeof v === 'number' && isFinite(v) ? num(v, 6) : '—'} EUR
                       </span>
                     </div>
                   ))}
@@ -515,21 +537,20 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
             </div>
 
             <div className="p">
-              <div className="ph">Motori</div>
+              <div className="ph">{tr('settings.engines')}</div>
               <div className="pb">
                 {engines === null ? (
                   <div className="nota">
-                    campo <b>engines</b> assente: si accende al riavvio del backend.
-                    Nessun modello e' scritto a mano qui.
+                    {tr('settings.field')} <b>engines</b> {tr('settings.engines_absent')}
                   </div>
                 ) : Object.entries(engines).filter(([k]) => !/_error$/.test(k)).map(([k, v]) => (
                   <div className="kv" key={k}>
-                    <span className="k">{k.replace(/_/g, ' ')}</span>
+                    <span className="k">{engineLabels[k] ? tr(engineLabels[k]) : k.replace(/_/g, ' ')}</span>
                     <span className="v">{String(v).replace('claude-', '').toUpperCase()}</span>
                   </div>
                 ))}
                 {engines && Object.entries(engines).filter(([k]) => /_error$/.test(k)).map(([k, v]) => (
-                  <div className="nota" key={k}><b className="ko">{k}</b>: {String(v)}</div>
+                  <div className="nota" key={k}><b className="ko">{k === 'engines_error' ? tr('settings.engines_read_error') : k}</b>: {String(v)}</div>
                 ))}
               </div>
             </div>
@@ -537,10 +558,10 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
         </div>
 
         <div className="pfoot">
-          <span>F19 APRE E CHIUDE</span>
-          <span>ESC CHIUDE</span>
+          <span>{tr('settings.f19_toggle')}</span>
+          <span>{tr('settings.esc_close')}</span>
           <span className="dx">
-            {count ?? '?'} file · {totMb.toFixed(0)} MB · {calendario.length} giorni di arco
+            {count ?? '?'} {tr('settings.files_dot')} {num(totMb, 0)} MB · {calendario.length} {tr('settings.days_span')}
           </span>
         </div>
       </div>
@@ -550,21 +571,19 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
           e non e' recuperabile. Al posto del confirm() nudo del
           browser, che in Electron e' anche fuori stile. */}
       {daCancellare && (
-        <div className="f11-ask" role="dialog" aria-modal="true" aria-label="Conferma eliminazione">
+        <div className="f11-ask" role="dialog" aria-modal="true" aria-label={tr('settings.delete_confirm')}>
           <div className="box">
-            <div className="bh">Eliminazione definitiva</div>
+            <div className="bh">{tr('settings.delete_permanent')}</div>
             <div className="bb">
               <b>{daCancellare.filename}</b><br />
-              {daCancellare.size_mb.toFixed(2)} MB · {ggmm(parseIso(daCancellare.created))} {hhmm(parseIso(daCancellare.created))}
+              {num(daCancellare.size_mb, 2)} MB · {ggmm(parseIso(daCancellare.created))} {hhmm(parseIso(daCancellare.created))}
               <div className="nota">
-                L'eliminazione e' <b className="ko">definitiva</b>: il file non passa dal cestino
-                e non esistono copie shadow del volume. Dopo, in cartella
-                ne restano <b>{Math.max(0, (count ?? 1) - 1)}</b>.
+                {tr('settings.deletion_is')} <b className="ko">{tr('settings.permanent')}</b>{tr('settings.delete_explanation')} <b>{Math.max(0, (count ?? 1) - 1)}</b>.
               </div>
             </div>
             <div className="bf">
-              <button className="btn" onClick={() => setDaCancellare(null)} autoFocus>ANNULLA</button>
-              <button className="btn ko" onClick={() => cancella(daCancellare)}>ELIMINA DEFINITIVAMENTE</button>
+              <button className="btn" onClick={() => setDaCancellare(null)} autoFocus>{tr('settings.cancel')}</button>
+              <button className="btn ko" onClick={() => cancella(daCancellare)}>{tr('settings.delete_forever')}</button>
             </div>
           </div>
         </div>

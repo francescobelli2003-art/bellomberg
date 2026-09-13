@@ -1,3 +1,7 @@
+import { useT } from '@/i18n/provider';
+import { localizePayload } from '@/lib/api-presentation';
+import { t as tr } from '@/i18n/t';
+import { linguaCorrente, localeDi } from '@/i18n/lingua';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Cpu, AlertCircle, AlertTriangle } from 'lucide-react';
 import {
@@ -5,7 +9,7 @@ import {
   ConcentrationResult, VarContributionResult, TwrPayload, OhlcBar,
   AdvancedMetrics, PortfolioSnapshot, AttributionPayload, BenchmarkPayload
 } from '@/lib/api';
-import { fmtEUR } from '@/lib/format';
+import { fmtEUR, fmtNum } from '@/lib/format';
 import { computeDailyPnl } from '@/lib/dailypl';
 import { portfolioValues } from '@/lib/portfolio-values';
 import { FlashVal } from '@/components/Flash';
@@ -22,18 +26,28 @@ import './dashboard-command.css';
    ============================================================ */
 
 type RangeKey = '1D' | '1W' | '1M' | '3M' | '1Y' | '5Y';
+type BenchReason = { kind: 'restart' } | { kind: 'endpoint'; detail: string };
+type BenchFailure = { kind: 'source'; detail: string } | { kind: 'empty' }
+  | { kind: 'fallback'; why: BenchReason; detail: string | null; stage: 'series' | 'alignment' | 'request' };
+type SourceProblem = { error?: string; clientMissingReason?: boolean };
+// Only the client-authored absence marker is localized; source details stay verbatim.
+function requestFailure(error: { message?: string } | null | undefined): SourceProblem {
+  return { error: error?.message || 'request failed', clientMissingReason: !error?.message };
+}
+const sourceProblemText = (value: SourceProblem) => value.clientMissingReason
+  ? tr('dashboard.client_request_failed') : value.error;
 const RANGE_DAYS: Record<RangeKey, number> = {
   '1D': 1, '1W': 7, '1M': 30, '3M': 90, '1Y': 252, '5Y': 1260,
 };
-const RANGE_LABEL: Record<RangeKey, string> = {
-  '1D': '1G', '1W': '1S', '1M': '1M', '3M': '3M', '1Y': '1A', '5Y': '5A',
-};
+const rangeLabels = (): Record<RangeKey, string> => ({
+  '1D': tr('dashboard.one_day'), '1W': tr('dashboard.one_week'), '1M': '1M', '3M': '3M', '1Y': tr('dashboard.one_year'), '5Y': tr('dashboard.five_years'),
+});
 
 // n.d. DICHIARATO su valore assente (regola 14/07); EUR via helper unico lib/format (B-UI15)
 const eur = (v: number | null | undefined, sign = false) =>
-  v != null && isFinite(v) ? fmtEUR(v, sign) : 'n.d.';
+  v != null && isFinite(v) ? fmtEUR(v, sign) : tr('dashboard.na');
 const pct = (v: number | null | undefined, sign = true) =>
-  v != null && isFinite(v) ? (sign && v > 0 ? '+' : '') + v.toFixed(2) + '%' : 'n.d.';
+  v != null && isFinite(v) ? (sign && v > 0 ? '+' : '') + fmtNum(v, 2) + '%' : tr('dashboard.na');
 
 function sliceFromEnd<T>(arr: T[], n: number): T[] {
   if (n >= arr.length) return arr.slice();
@@ -110,6 +124,7 @@ function K({ label, value, tone, sub }: {
 function RegimeRibbon({ dates, regimes, officialSince }: {
   dates: string[]; regimes: ('reconstructed' | 'official')[]; officialSince: string | null | undefined;
 }) {
+  const tr = useT();
   const n = Math.min(dates.length, regimes.length);
   if (n < 2) return null;
   const stops: string[] = [];
@@ -124,18 +139,18 @@ function RegimeRibbon({ dates, regimes, officialSince }: {
   const firstOff = regimes.findIndex(r => r === 'official');
   const pct = firstOff > 0 ? (firstOff / n) * 100 : null;
   return (
-    <div className="ribx num" title="fonte del dato sotto ogni punto della serie TWR: ambra = ricostruita (chiusure), verde = ufficiale (snapshot NAV)">
+    <div className="ribx num" title={tr('dashboard.regime_source')}>
       <div className="band" style={{ background: `linear-gradient(90deg, ${stops.join(', ')})` }} />
-      {firstOff !== 0 && <span className="rlab" style={{ left: 2, color: '#8A6210' }}>SERIE RICOSTRUITA (CHIUSURE)</span>}
+      {firstOff !== 0 && <span className="rlab" style={{ left: 2, color: '#8A6210' }}>{tr('dashboard.series_reconstructed')}</span>}
       {pct != null && (
         <>
           <span className="rdiv" style={{ left: pct + '%' }} />
           <span className="rlab" style={{ left: `min(${pct.toFixed(2)}% + 7px, 82%)`, color: '#21E0A0' }}>
-            UFFICIALE{officialSince ? ' DAL ' + fmtDateIt(officialSince) : ''}
+            {tr('dashboard.official')}{officialSince ? tr('dashboard.since') + fmtDateIt(officialSince) : ''}
           </span>
         </>
       )}
-      {firstOff === 0 && <span className="rlab" style={{ left: 2, color: '#21E0A0' }}>SERIE UFFICIALE (SNAPSHOT NAV)</span>}
+      {firstOff === 0 && <span className="rlab" style={{ left: 2, color: '#21E0A0' }}>{tr('dashboard.series_official')}</span>}
     </div>
   );
 }
@@ -145,14 +160,15 @@ function RegimeRibbon({ dates, regimes, officialSince }: {
 type HeatRow = { label: string; sub: string; cells: (number | null)[]; ytd: number | null; unit: '%' | ' pt' };
 type YearGroup = { year: string; rows: HeatRow[] };
 function MonthlyHeatmap({ groups, lastYm }: { groups: YearGroup[]; lastYm: string }) {
-  const MESI = ['GEN', 'FEB', 'MAR', 'APR', 'MAG', 'GIU', 'LUG', 'AGO', 'SET', 'OTT', 'NOV', 'DIC'];
+  const tr = useT();
+  const MESI = Array.from({ length: 12 }, (_, month) => new Intl.DateTimeFormat(localeDi(linguaCorrente()), { month: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2000, month, 1))).slice(0, 3).toUpperCase());
   const cell = (v: number | null, mtd: boolean, unit: string, key: string) => {
     if (v == null) return <td key={key} style={{ background: 'rgba(154,166,192,.035)' }}><span className="pl" style={{ color: '#232D4A' }}>—</span></td>;
     const a = Math.min(0.10 + Math.abs(v) / 15, 0.52);
     const rgb = v >= 0 ? '33,224,160' : '255,61,96';
     return (
-      <td key={key} style={{ background: `rgba(${rgb},${a})` }} title={(mtd ? 'mese in corso (MTD, parziale dichiarato) · ' : '') + 'rendimento del mese dalla serie indice'}>
-        <div className="pv" style={{ color: v >= 0 ? '#C4F7E3' : '#FFD4DC' }}>{(v >= 0 ? '+' : '') + v.toFixed(1) + (unit === '%' ? '%' : '')}</div>
+      <td key={key} style={{ background: `rgba(${rgb},${a})` }} title={(mtd ? tr('dashboard.month_partial') : '') + tr('dashboard.month_return')}>
+        <div className="pv" style={{ color: v >= 0 ? '#C4F7E3' : '#FFD4DC' }}>{(v >= 0 ? '+' : '') + fmtNum(v, 1) + (unit === '%' ? '%' : '')}</div>
         {mtd && <div className="pl">MTD</div>}
       </td>
     );
@@ -161,7 +177,7 @@ function MonthlyHeatmap({ groups, lastYm }: { groups: YearGroup[]; lastYm: strin
     <table className="hmx num">
       <thead>
         <tr>
-          <th>SERIE</th>
+          <th>{tr('dashboard.series')}</th>
           {MESI.map(m => <th key={m}>{m}</th>)}
           <th className="ytdh">YTD</th>
         </tr>
@@ -174,10 +190,10 @@ function MonthlyHeatmap({ groups, lastYm }: { groups: YearGroup[]; lastYm: strin
             <td className="ytdc" style={{ background: `rgba(${(r.ytd ?? 0) >= 0 ? '33,224,160' : '255,61,96'},.18)` }}>
               {r.ytd != null ? (
                 <>
-                  <div className="pv" style={{ color: r.ytd >= 0 ? '#C4F7E3' : '#FFD4DC' }}>{(r.ytd >= 0 ? '+' : '') + r.ytd.toFixed(2) + (r.unit === '%' ? '%' : ' pt')}</div>
+                  <div className="pv" style={{ color: r.ytd >= 0 ? '#C4F7E3' : '#FFD4DC' }}>{(r.ytd >= 0 ? '+' : '') + fmtNum(r.ytd, 2) + (r.unit === '%' ? '%' : ' pt')}</div>
                   <div className="pl">YTD</div>
                 </>
-              ) : <span className="pl">n.d.</span>}
+              ) : <span className="pl">{tr('dashboard.na')}</span>}
             </td>
           </tr>
         )))}
@@ -188,7 +204,7 @@ function MonthlyHeatmap({ groups, lastYm }: { groups: YearGroup[]; lastYm: strin
 
 // sparkline zero-dep per il pannello ROLLING (stesso spirito di NavSpark in F1)
 function Spark({ pts, color, h = 24 }: { pts: number[]; color: string; h?: number }) {
-  if (pts.length < 2) return <span className="pl" style={{ fontWeight: 600, color: '#73829F' }}>n.d.</span>;
+  if (pts.length < 2) return <span className="pl" style={{ fontWeight: 600, color: '#73829F' }}>{tr('dashboard.na')}</span>;
   const W = 160, mn = Math.min(...pts), mx = Math.max(...pts), span = (mx - mn) || 1;
   let d = '';
   for (let i = 0; i < pts.length; i++) {
@@ -211,10 +227,11 @@ type AttrPeriod = typeof ATTR_PERIODS[number];
 
 // barra bipolare attorno allo zero (scala = max |contributo| del gruppo, dichiarata)
 function BiBar({ v, max }: { v: number; max: number }) {
+  const tr = useT();
   const half = Math.min(50, Math.abs(v) / (max || 1) * 50);
   return (
     <div style={{ position: 'relative', height: 5, background: 'rgba(26,36,64,.85)', minWidth: 90 }}
-         title={'fondo scala barre: ±' + max.toFixed(2) + ' pt (max |contributo| del gruppo)'}>
+         title={tr('dashboard.bar_scale_points') + fmtNum(max, 2) + tr('dashboard.bar_max_group')}>
       <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: '#2A3760' }} />
       <div style={{
         position: 'absolute', top: 0, bottom: 0,
@@ -226,21 +243,24 @@ function BiBar({ v, max }: { v: number; max: number }) {
 }
 
 function AttributionPanel() {
+  const tr = useT();
   const [period, setPeriod] = useState<AttrPeriod>('YTD');
-  const [data, setData] = useState<AttributionPayload | null>(null);
+  const [dataRaw, setData] = useState<AttributionPayload | null>(null);
+  const data = useMemo(() => localizePayload(dataRaw), [dataRaw, tr]);
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ kind: 'missing' } | { kind: 'source'; detail: string } | null>(null);
+  const err = failure?.kind === 'missing' ? tr('dashboard.attribution_endpoint_missing')
+    : failure?.kind === 'source' ? failure.detail : null;
   useEffect(() => {
     let m = true;
-    setLoading(true); setErr(null); setData(null);
+    setLoading(true); setFailure(null); setData(null);
     Bellomberg.attribution(period)
       .then(d => { if (m) setData(d); })
       .catch(e => {
         if (!m) return;
         const st = e?.response?.status;
-        setErr(st === 404
-          ? 'endpoint /portfolio/attribution non ancora attivo sul backend vivo: si accende al riavvio (fase 1b, voce (36))'
-          : String(e?.response?.data?.detail || e?.message || e));
+        setFailure(st === 404 ? { kind: 'missing' }
+          : { kind: 'source', detail: String(e?.response?.data?.detail || e?.message || e) });
       })
       .finally(() => { if (m) setLoading(false); });
     return () => { m = false; };
@@ -254,20 +274,20 @@ function AttributionPanel() {
   return (
     <div className="p3 cy">
       <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
-      <div className="p3h">ATTRIBUTION // CONTRIBUTION
-        <span className="n">· CARINO · CAPITALE INVESTITO (CASH ESCLUSO) · NON BRINSON</span>
+      <div className="p3h">{tr('dashboard.attribution_title')}
+        <span className="n">{tr('dashboard.attribution_basis')}</span>
         <span className="tfg" style={{ marginLeft: 8 }}>
           {ATTR_PERIODS.map(p => (
-            <button key={p} className={'tb' + (p === period ? ' on' : '')} onClick={() => setPeriod(p)}>{p}</button>
+            <button key={p} className={'tb' + (p === period ? ' on' : '')} onClick={() => setPeriod(p)}>{p === 'INCEPTION' ? tr('dashboard.inception_upper') : p === '30D' ? tr('dashboard.thirty_days') : p}</button>
           ))}
         </span>
         <span className="side num">
           {data && !data.error && data.portfolio_return_pct != null && (
-            <>RITORNO {data.period?.label}: <span className={data.portfolio_return_pct >= 0 ? 'up' : 'dn'}>{pct(data.portfolio_return_pct)}</span>
+            <>{tr('dashboard.return_upper')} {data.period?.label}: <span className={data.portfolio_return_pct >= 0 ? 'up' : 'dn'}>{pct(data.portfolio_return_pct)}</span>
               {rec && rec.delta_pp != null && (
-                <span title={rec.note || ''}> · VS TWR UFF {pct(rec.official_twr_pct)} (Δ {rec.delta_pp >= 0 ? '+' : ''}{rec.delta_pp.toFixed(2)} pp — basi diverse dichiarate)</span>
+                <span title={rec.note || ''}> {tr('dashboard.official_twr')} {pct(rec.official_twr_pct)} (Δ {rec.delta_pp >= 0 ? '+' : ''}{fmtNum(rec.delta_pp, 2)} {tr('dashboard.different_basis')}</span>
               )}
-              {rec?.error && <span title={rec.note || ''}> · RICONCILIAZIONE N.D. (DICHIARATO)</span>}
+              {rec?.error && <span title={rec.note || ''}> {tr('dashboard.reconciliation_na')}</span>}
             </>
           )}
         </span>
@@ -275,14 +295,14 @@ function AttributionPanel() {
 
       {loading && (
         <div className="font-mono text-2xs text-faint" style={{ padding: '18px 12px', textAlign: 'center' }}>
-          <Cpu size={12} className="inline animate-pulse mr-2" />calcolo attribution {period}… (prima chiamata: scarico candele, poi cache 10 min)
+          <Cpu size={12} className="inline animate-pulse mr-2" />{tr('dashboard.attribution_calculating')} {period}{tr('dashboard.attribution_first')}
         </div>
       )}
       {err && !loading && (
         <div className="font-mono text-2xs text-amber" style={{ padding: '14px 12px' }}>⚠ {err}</div>
       )}
       {data?.error && !loading && (
-        <div className="font-mono text-2xs text-amber" style={{ padding: '14px 12px' }}>⚠ attribution: {data.error}</div>
+        <div className="font-mono text-2xs text-amber" style={{ padding: '14px 12px' }}>{tr('dashboard.attribution_error')} {data.error}</div>
       )}
 
       {data && !data.error && !loading && (
@@ -290,18 +310,18 @@ function AttributionPanel() {
           <div className="grid grid-cols-1 xl:grid-cols-3" style={{ gap: 0 }}>
             {/* BY POSITION: chi ha fatto il rendimento */}
             <div style={{ borderRight: '1px solid rgba(26,36,64,.6)' }}>
-              <div style={{ fontSize: 9, letterSpacing: '.18em', fontWeight: 600, color: '#73829F', textTransform: 'uppercase', padding: '6px 12px 2px' }}>BY POSITION · CONTRIBUTO IN PT DEL PERIODO</div>
+              <div style={{ fontSize: 9, letterSpacing: '.18em', fontWeight: 600, color: '#73829F', textTransform: 'uppercase', padding: '6px 12px 2px' }}>{tr('dashboard.attribution_position')}</div>
               <table className="num">
-                <thead><tr><th>Ticker</th><th style={{ textAlign: 'left' }}>—</th><th>Contrib</th><th>Locale</th><th>FX</th><th>Peso med</th></tr></thead>
+                <thead><tr><th>Ticker</th><th style={{ textAlign: 'left' }}>—</th><th>{tr('dashboard.contribution')}</th><th>{tr('dashboard.local')}</th><th>FX</th><th>{tr('dashboard.weight_mean')}</th></tr></thead>
                 <tbody>
                   {(data.by_position || []).map(p => (
                     <tr key={p.ticker}>
                       <td style={{ color: '#ECF1FA' }}>{p.ticker}<span style={{ fontWeight: 600, color: '#73829F', marginLeft: 5, fontSize: 9 }}>{p.currency}</span></td>
                       <td style={{ width: 110 }}><BiBar v={p.contribution_pct} max={maxPos} /></td>
-                      <td className={p.contribution_pct >= 0 ? 'up' : 'dn'} style={{ fontWeight: 600 }}>{(p.contribution_pct >= 0 ? '+' : '') + p.contribution_pct.toFixed(2)}</td>
-                      <td className="text-muted">{(p.local_pct >= 0 ? '+' : '') + p.local_pct.toFixed(2)}</td>
-                      <td className={Math.abs(p.fx_pct) < 0.005 ? 'text-muted' : p.fx_pct >= 0 ? 'up' : 'dn'}>{(p.fx_pct >= 0 ? '+' : '') + p.fx_pct.toFixed(2)}</td>
-                      <td className="text-muted">{p.avg_weight_pct.toFixed(1)}%</td>
+                      <td className={p.contribution_pct >= 0 ? 'up' : 'dn'} style={{ fontWeight: 600 }}>{(p.contribution_pct >= 0 ? '+' : '') + fmtNum(p.contribution_pct, 2)}</td>
+                      <td className="text-muted">{(p.local_pct >= 0 ? '+' : '') + fmtNum(p.local_pct, 2)}</td>
+                      <td className={Math.abs(p.fx_pct) < 0.005 ? 'text-muted' : p.fx_pct >= 0 ? 'up' : 'dn'}>{(p.fx_pct >= 0 ? '+' : '') + fmtNum(p.fx_pct, 2)}</td>
+                      <td className="text-muted">{fmtNum(p.avg_weight_pct, 1)}%</td>
                     </tr>
                   ))}
                 </tbody>
@@ -309,14 +329,14 @@ function AttributionPanel() {
             </div>
             {/* BY BUCKET economico (asse unico fase 1b) */}
             <div style={{ borderRight: '1px solid rgba(26,36,64,.6)' }}>
-              <div style={{ fontSize: 9, letterSpacing: '.18em', fontWeight: 600, color: '#73829F', textTransform: 'uppercase', padding: '6px 12px 2px' }}>BY BUCKET ECONOMICO · ASSE UNICO</div>
+              <div style={{ fontSize: 9, letterSpacing: '.18em', fontWeight: 600, color: '#73829F', textTransform: 'uppercase', padding: '6px 12px 2px' }}>{tr('dashboard.attribution_bucket')}</div>
               <table className="num">
                 <tbody>
                   {(data.by_bucket || []).map(b => (
                     <tr key={b.bucket} title={b.tickers.join(' · ')}>
                       <td style={{ color: '#8D9FC4', maxWidth: 190, overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.bucket}</td>
                       <td style={{ width: 130 }}><BiBar v={b.contribution_pct} max={maxBk} /></td>
-                      <td className={b.contribution_pct >= 0 ? 'up' : 'dn'} style={{ fontWeight: 600 }}>{(b.contribution_pct >= 0 ? '+' : '') + b.contribution_pct.toFixed(2)}</td>
+                      <td className={b.contribution_pct >= 0 ? 'up' : 'dn'} style={{ fontWeight: 600 }}>{(b.contribution_pct >= 0 ? '+' : '') + fmtNum(b.contribution_pct, 2)}</td>
                       <td className="text-muted" style={{ fontSize: 8 }}>{b.tickers.length} TKR</td>
                     </tr>
                   ))}
@@ -325,16 +345,16 @@ function AttributionPanel() {
             </div>
             {/* BY CURRENCY + split totale */}
             <div>
-              <div style={{ fontSize: 9, letterSpacing: '.18em', fontWeight: 600, color: '#73829F', textTransform: 'uppercase', padding: '6px 12px 2px' }}>BY CURRENCY · CONTRIBUTO (DI CUI FX)</div>
+              <div style={{ fontSize: 9, letterSpacing: '.18em', fontWeight: 600, color: '#73829F', textTransform: 'uppercase', padding: '6px 12px 2px' }}>{tr('dashboard.attribution_currency')}</div>
               <table className="num">
                 <tbody>
                   {(data.by_currency || []).map(c => (
                     <tr key={c.currency} title={c.tickers.join(' · ')}>
                       <td style={{ color: '#8D9FC4' }}>{c.currency}</td>
                       <td style={{ width: 130 }}><BiBar v={c.contribution_pct} max={maxCy} /></td>
-                      <td className={c.contribution_pct >= 0 ? 'up' : 'dn'} style={{ fontWeight: 600 }}>{(c.contribution_pct >= 0 ? '+' : '') + c.contribution_pct.toFixed(2)}</td>
+                      <td className={c.contribution_pct >= 0 ? 'up' : 'dn'} style={{ fontWeight: 600 }}>{(c.contribution_pct >= 0 ? '+' : '') + fmtNum(c.contribution_pct, 2)}</td>
                       <td className={Math.abs(c.fx_contribution_pct) < 0.005 ? 'text-muted' : c.fx_contribution_pct >= 0 ? 'up' : 'dn'} style={{ fontSize: 9 }}>
-                        fx {(c.fx_contribution_pct >= 0 ? '+' : '') + c.fx_contribution_pct.toFixed(2)}
+                        fx {(c.fx_contribution_pct >= 0 ? '+' : '') + fmtNum(c.fx_contribution_pct, 2)}
                       </td>
                     </tr>
                   ))}
@@ -342,9 +362,9 @@ function AttributionPanel() {
               </table>
               {data.totals && (
                 <div className="num" style={{ padding: '6px 12px', borderTop: '1px solid rgba(26,36,64,.6)', fontSize: 9, color: '#8D9FC4' }}>
-                  SPLIT TOTALE: locale <span className={data.totals.local_pct >= 0 ? 'up' : 'dn'}>{(data.totals.local_pct >= 0 ? '+' : '') + data.totals.local_pct.toFixed(2)}</span>
-                  {' '}· FX <span className={data.totals.fx_pct >= 0 ? 'up' : 'dn'}>{(data.totals.fx_pct >= 0 ? '+' : '') + data.totals.fx_pct.toFixed(2)}</span>
-                  {' '}· cross <span className="text-muted">{(data.totals.cross_pct >= 0 ? '+' : '') + data.totals.cross_pct.toFixed(2)}</span>
+                  {tr('dashboard.attribution_split')} <span className={data.totals.local_pct >= 0 ? 'up' : 'dn'}>{(data.totals.local_pct >= 0 ? '+' : '') + fmtNum(data.totals.local_pct, 2)}</span>
+                  {' '}· FX <span className={data.totals.fx_pct >= 0 ? 'up' : 'dn'}>{(data.totals.fx_pct >= 0 ? '+' : '') + fmtNum(data.totals.fx_pct, 2)}</span>
+                  {' '}{tr('dashboard.cross_term')} <span className="text-muted">{(data.totals.cross_pct >= 0 ? '+' : '') + fmtNum(data.totals.cross_pct, 2)}</span>
                 </div>
               )}
             </div>
@@ -352,14 +372,15 @@ function AttributionPanel() {
           {(data.excluded?.length || data.notes?.length) ? (
             <div style={{ padding: '5px 12px', borderTop: '1px solid #1A2440', fontSize: 9, color: '#8D9FC4', display: 'flex', flexDirection: 'column', gap: 2 }}>
               {(data.excluded || []).map(x => (
-                <div key={x.ticker}>• escluso {x.partial ? 'PARZIALE ' : ''}{x.ticker}: {x.days_excluded}/{x.days_total} giorni ({Object.keys(x.reasons).join(', ')}) — dichiarato</div>
+                <div key={x.ticker}>{tr('dashboard.excluded')} {x.partial ? tr('dashboard.partial') : ''}{x.ticker}: {x.days_excluded}/{x.days_total} {tr('dashboard.days_bracket')}{(x.reason_details?.map(detail => detail.label) ?? Object.keys(x.reasons)).join(', ')}{tr('dashboard.declared_suffix')}</div>
               ))}
+              {!!data.notes?.length && <div>{tr('dashboard.service_detail_upper')}</div>}
               {(data.notes || []).map((n, i) => <div key={i}>• {n}</div>)}
             </div>
           ) : null}
           {data.basis && (
             <div style={{ padding: '4px 12px 6px', borderTop: '1px solid rgba(26,36,64,.4)', fontSize: 9, fontWeight: 600, color: '#73829F', letterSpacing: '.04em' }} title={data.basis}>
-              BASE DICHIARATA: {data.basis}
+              {tr('dashboard.basis_declared')} ({tr('dashboard.service_detail')}) {data.basis}
             </div>
           )}
         </>
@@ -382,15 +403,25 @@ function HeroStat({ label, value, tone, sub }: {
 }
 
 export default function PerformancePage() {
-  const [navHist, setNavHist] = useState<NavHistory | null>(null);
-  const [drawdowns, setDrawdowns] = useState<DrawdownsResult | null>(null);
-  const [liquidity, setLiquidity] = useState<LiquidityResult | null>(null);
-  const [concentration, setConcentration] = useState<ConcentrationResult | null>(null);
-  const [varContrib, setVarContrib] = useState<VarContributionResult | null>(null);
-  const [twr, setTwr] = useState<TwrPayload | null>(null);
-  const [adv, setAdv] = useState<AdvancedMetrics | null>(null);
+  const tr = useT();
+  const RANGE_LABEL = rangeLabels();
+  const [navHistRaw, setNavHist] = useState<NavHistory | null>(null);
+  const [drawdownsRaw, setDrawdowns] = useState<DrawdownsResult | null>(null);
+  const [liquidityRaw, setLiquidity] = useState<LiquidityResult | null>(null);
+  const [concentrationRaw, setConcentration] = useState<ConcentrationResult | null>(null);
+  const [varContribRaw, setVarContrib] = useState<VarContributionResult | null>(null);
+  const [twrRaw, setTwr] = useState<TwrPayload | null>(null);
+  const [advRaw, setAdv] = useState<AdvancedMetrics | null>(null);
+  const navHist = useMemo(() => localizePayload(navHistRaw), [navHistRaw, tr]);
+  const drawdowns = useMemo(() => localizePayload(drawdownsRaw), [drawdownsRaw, tr]);
+  const liquidity = useMemo(() => localizePayload(liquidityRaw), [liquidityRaw, tr]);
+  const concentration = useMemo(() => localizePayload(concentrationRaw), [concentrationRaw, tr]);
+  const varContrib = useMemo(() => localizePayload(varContribRaw), [varContribRaw, tr]);
+  const twr = useMemo(() => localizePayload(twrRaw), [twrRaw, tr]);
+  const adv = useMemo(() => localizePayload(advRaw), [advRaw, tr]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loadFailure, setLoadFailure] = useState<{ detail: string | null } | null>(null);
+  const error = loadFailure ? loadFailure.detail || tr('dashboard.client_load_failed') : null;
   const [range, setRange] = useState<RangeKey>('3M');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   // F2 v3.1 — due viste come F8 wire/desk (richiesta PM): TEARSHEET = performance
@@ -398,16 +429,16 @@ export default function PerformancePage() {
   const [view, setView] = useState<'tearsheet' | 'risk'>('tearsheet');
 
   const loadAll = async (force = false) => {
-    setLoading(true); setError(null);
+    setLoading(true); setLoadFailure(null);
     try {
       const [nh, dd, lq, cc, vc, tw, am] = await Promise.all([
-        Bellomberg.navHistory(force).catch(e => ({ error: e?.message || 'failed' } as any)),
-        Bellomberg.drawdowns(force).catch(e => ({ error: e?.message || 'failed' } as any)),
-        Bellomberg.liquidity().catch(e => ({ error: e?.message || 'failed' } as any)),
-        Bellomberg.concentration().catch(e => ({ error: e?.message || 'failed' } as any)),
-        Bellomberg.varContribution().catch(e => ({ error: e?.message || 'failed' } as any)),
-        Bellomberg.twr(force).catch(e => ({ error: e?.message || 'failed' } as any)),
-        Bellomberg.metricsAdvanced().catch(e => ({ error: e?.message || 'failed' } as any)),
+        Bellomberg.navHistory(force).catch(e => requestFailure(e) as NavHistory),
+        Bellomberg.drawdowns(force).catch(e => requestFailure(e) as DrawdownsResult),
+        Bellomberg.liquidity().catch(e => requestFailure(e) as LiquidityResult),
+        Bellomberg.concentration().catch(e => requestFailure(e) as ConcentrationResult),
+        Bellomberg.varContribution().catch(e => requestFailure(e) as VarContributionResult),
+        Bellomberg.twr(force).catch(e => requestFailure(e) as TwrPayload),
+        Bellomberg.metricsAdvanced().catch(e => requestFailure(e) as AdvancedMetrics),
       ]);
       setNavHist(nh as NavHistory);
       setDrawdowns(dd as DrawdownsResult);
@@ -418,7 +449,7 @@ export default function PerformancePage() {
       setAdv(am as AdvancedMetrics);
       setLastUpdated(new Date());
     } catch (e: any) {
-      setError(e?.message || 'load failed');
+      setLoadFailure({ detail: e?.message || null });
     } finally {
       setLoading(false);
     }
@@ -436,7 +467,8 @@ export default function PerformancePage() {
   // forzatura /prices/update ogni 60s, STESSE cinture di F1 (throttle server 30s
   // rispettato, anti-accavallamento, pausa a finestra nascosta). Una sola pagina
   // e' montata alla volta: nessun raddoppio di forzature con F1.
-  const [snap, setSnap] = useState<PortfolioSnapshot | null>(null);
+  const [snapRaw, setSnap] = useState<PortfolioSnapshot | null>(null);
+  const snap = useMemo(() => localizePayload(snapRaw), [snapRaw, tr]);
   const forcing = useRef(false);
   useEffect(() => {
     let m = true;
@@ -544,21 +576,29 @@ export default function PerformancePage() {
   // lo SPY×EURUSD client-side PROVVISORIO di v3.1 (decaduto: mai due misure
   // zitte dello stesso oggetto). 404 = backend pre-riavvio: buco dichiarato
   // che si accende da solo (stesso pattern di attribution / P&L GG).
-  const [bench, setBench] = useState<BenchmarkPayload | null>(null);
+  const [benchRaw, setBench] = useState<BenchmarkPayload | null>(null);
+  const bench = useMemo(() => localizePayload(benchRaw), [benchRaw, tr]);
   const [benchFb, setBenchFb] = useState<{ t: number; v: number }[] | null>(null);
-  const [benchErr, setBenchErr] = useState<string | null>(null);
+  const [benchFailure, setBenchFailure] = useState<BenchFailure | null>(null);
+  const benchErr = benchFailure?.kind === 'source' ? benchFailure.detail
+    : benchFailure?.kind === 'empty' ? tr('dashboard.benchmark_empty')
+    : benchFailure?.kind === 'fallback' ? tr('dashboard.benchmark_fallback_ko', {
+      reason: benchFailure.why.kind === 'restart' ? tr('dashboard.benchmark_restart')
+        : tr('dashboard.benchmark_endpoint_ko', { detail: benchFailure.why.detail }),
+      detail: benchFailure.detail ?? tr(benchFailure.stage === 'alignment' ? 'dashboard.benchmark_alignment_empty' : 'dashboard.benchmark_series_empty'),
+    }) : null;
   useEffect(() => {
     let m = true;
     // FALLBACK PROVVISORIO DICHIARATO (richiesta PM live 25/07: "non c'e' piu'
     // il benchmark"): finche' l'endpoint (38) non risponde (backend pre-riavvio,
     // 404) torna lo SPY×EURUSD client-side di v3.1 ETICHETTATO CALC·PROVVISORIO
     // — proxy dichiarato, mai zitto (regola 14/07); decade DA SOLO al riavvio.
-    const loadFallback = (why: string) => {
+    const loadFallback = (why: BenchReason) => {
       Promise.all([Bellomberg.ohlc('SPY', '1y', '1d'), Bellomberg.ohlc('EURUSD=X', '1y', '1d')])
         .then(([spy, fx]) => {
           if (!m) return;
           if (spy.error || !spy.bars?.length || fx.error || !fx.bars?.length) {
-            setBenchErr(why + ' · fallback CALC KO: ' + (spy.error || fx.error || 'serie SPY/FX vuota')); return;
+            setBenchFailure({ kind: 'fallback', why, detail: spy.error || fx.error || null, stage: 'series' }); return;
           }
           const fxByDay = new Map<number, number>();
           for (const b of fx.bars) fxByDay.set(dayKey(b.t), b.c);
@@ -570,26 +610,25 @@ export default function PerformancePage() {
             if (f != null && f > 0) lastFx = f;
             if (lastFx != null) out.push({ t: k, v: b.c / lastFx });
           }
-          if (out.length < 2) { setBenchErr(why + ' · fallback CALC KO: allineamento vuoto'); return; }
-          setBenchFb(out); setBenchErr(null);
+          if (out.length < 2) { setBenchFailure({ kind: 'fallback', why, detail: null, stage: 'alignment' }); return; }
+          setBenchFb(out); setBenchFailure(null);
         })
-        .catch(e => { if (m) setBenchErr(why + ' · fallback CALC KO: ' + String(e?.message || e)); });
+        .catch(e => { if (m) setBenchFailure({ kind: 'fallback', why, detail: String(e?.message || e), stage: 'request' }); });
     };
     Bellomberg.benchmark('SPY')
       .then(r => {
         if (!m) return;
         if (r.error || !r.dates?.length || !r.index?.length) {
           // il backend DICHIARA la serie n.d.: si rispetta, niente proxy sopra
-          setBenchErr(r.error || 'serie benchmark vuota dal backend'); return;
+          setBenchFailure(r.error ? { kind: 'source', detail: r.error } : { kind: 'empty' }); return;
         }
-        setBench(r); setBenchErr(null);
+        setBench(r); setBenchFailure(null);
       })
       .catch(e => {
         if (!m) return;
         const st = e?.response?.status;
-        loadFallback(st === 404
-          ? 'serie uff. si accende al riavvio backend (38)'
-          : 'endpoint uff. KO: ' + String(st || e?.message || e));
+        loadFallback(st === 404 ? { kind: 'restart' }
+          : { kind: 'endpoint', detail: String(st || e?.message || e) });
       });
     return () => { m = false; };
   }, []);
@@ -636,7 +675,7 @@ export default function PerformancePage() {
     const ovs: ChartOverlay[] = [{
       points: benchOnTwr.map(p => ({ t: p.t, v: p.r })),
       color: 'rgba(154,166,192,.75)', dashed: true,
-      label: benchIsOfficial ? 'SPY (EUR)·TR UFF.' : 'SPY (EUR)·CALC',
+      label: benchIsOfficial ? tr('dashboard.spy_official') : 'SPY (EUR)·CALC',
     }];
     if (benchOnTwr.some(p => p.carried)) {
       ovs.push({
@@ -647,7 +686,7 @@ export default function PerformancePage() {
       });
     }
     return ovs;
-  }, [benchOnTwr, benchIsOfficial]);
+  }, [benchOnTwr, benchIsOfficial, tr]);
 
   // ITD del benchmark sulla finestra della serie TWR (per l'hero VS SPY)
   const spyItd = benchOnTwr ? benchOnTwr[benchOnTwr.length - 1].r - 100 : null;
@@ -673,12 +712,12 @@ export default function PerformancePage() {
     if (!book) return null;
     const benchM = benchOnTwr ? monthlyFromSeries(benchOnTwr.map(p => p.d), benchOnTwr.map(p => p.r)) : null;
     const groups: YearGroup[] = book.years.map(by => {
-      const rows: HeatRow[] = [{ label: 'BOOK ' + by.year, sub: 'TWR GIPS', cells: by.cells, ytd: by.ytd, unit: '%' }];
+      const rows: HeatRow[] = [{ label: tr('dashboard.book_year') + by.year, sub: 'TWR GIPS', cells: by.cells, ytd: by.ytd, unit: '%' }];
       const sy = benchM?.years.find(y => y.year === by.year);
       if (sy) {
-        rows.push({ label: 'SPY (EUR)', sub: benchIsOfficial ? 'BENCH · TR UFF.' : 'BENCH · CALC', cells: sy.cells, ytd: sy.ytd, unit: '%' });
+        rows.push({ label: 'SPY (EUR)', sub: benchIsOfficial ? tr('dashboard.benchmark_official_tr') : 'BENCH · CALC', cells: sy.cells, ytd: sy.ytd, unit: '%' });
         rows.push({
-          label: 'Δ VS SPY', sub: 'PUNTI',
+          label: 'Δ VS SPY', sub: tr('dashboard.points_upper'),
           cells: by.cells.map((v, i) => (v != null && sy.cells[i] != null) ? v - (sy.cells[i] as number) : null),
           ytd: (by.ytd != null && sy.ytd != null) ? by.ytd - sy.ytd : null, unit: ' pt',
         });
@@ -686,7 +725,7 @@ export default function PerformancePage() {
       return { year: by.year, rows };
     });
     return { groups, lastYm: book.lastYm };
-  }, [twr, benchOnTwr, benchIsOfficial]);
+  }, [twr, benchOnTwr, benchIsOfficial, tr]);
 
   // F2 v3.1 — ROLLING 30G sulla serie TWR: vol annualizzata, Sharpe (rf del
   // payload); v3.2: tracking error vs serie UFFICIALE sui SOLI GIORNI NATIVI
@@ -757,8 +796,8 @@ export default function PerformancePage() {
       if (!isFinite(t) || !isFinite(v)) continue;
       points.push({ t, v });
     }
-    return [{ points, color: '#FFA51E', dashed: true, label: 'COST BASIS' }];
-  }, [slice]);
+    return [{ points, color: '#FFA51E', dashed: true, label: tr('dashboard.cost_basis') }];
+  }, [slice, tr]);
 
   const pnlBars = useMemo<OhlcBar[]>(() => {
     const out: OhlcBar[] = [];
@@ -779,65 +818,65 @@ export default function PerformancePage() {
       {/* ══ HERO: P&L GG in vetrina + TWR + range ══ */}
       <div className="p3 hero">
         <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
-        <div className="p3h am">PERFORMANCE // TWR ANALYTICS
-          <span className="n">· CONTABILITA DA FONDO</span>
+        <div className="p3h am">{tr('dashboard.performance_title')}
+          <span className="n">{tr('dashboard.fund_accounting')}</span>
           <span className="side num">
-            {lastUpdated ? 'AGG ' + lastUpdated.toLocaleTimeString('it-IT', { hour12: false }) + ' · ' : ''}AUTO 5MIN · P&L GG LIVE 30/60S
+            {lastUpdated ? tr('dashboard.updated') + lastUpdated.toLocaleTimeString(localeDi(linguaCorrente()), { hour12: false }) + ' · ' : ''}{tr('dashboard.auto_refresh')}
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'stretch', flexWrap: 'wrap', minHeight: 74 }}>
           <div style={{ padding: '9px 16px 11px' }}>
-            <div style={{ fontSize: 9, letterSpacing: '.22em', fontWeight: 600, color: '#73829F', textTransform: 'uppercase' }}>P&L GG // INTERO PORTAFOGLIO</div>
+            <div style={{ fontSize: 9, letterSpacing: '.22em', fontWeight: 600, color: '#73829F', textTransform: 'uppercase' }}>{tr('dashboard.daily_portfolio')}</div>
             <div className="num"
                  style={{ fontSize: 22, fontWeight: 700, marginTop: 3, lineHeight: 1.1, color: gcol }}
                  title={dayTot == null
-                   ? 'prev_close/FX non ancora nel payload: riavviare il backend per il P&L daily'
-                   : 'P&L di giornata dell’INTERO portafoglio vs chiusura precedente (live, refresh 30/60s)'
-                     + (daily?.dayPartial ? ' — PARZIALE: posizioni senza prev_close/FX escluse (n.d.)' : '')
-                     + (daily?.dayTotPct != null ? ' · % sul valore investito di ieri · barra: fondo scala 5%' : '')}>
-              <FlashVal k="__plgg" value={dayTot}>{dayTot != null ? fmtEUR(dayTot, true) : 'n.d.'}</FlashVal>
+                   ? tr('dashboard.daily_missing')
+                   : tr('dashboard.daily_hint')
+                     + (daily?.dayPartial ? tr('dashboard.daily_partial') : '')
+                     + (daily?.dayTotPct != null ? tr('dashboard.daily_scale') : '')}>
+              <FlashVal k="__plgg" value={dayTot}>{dayTot != null ? fmtEUR(dayTot, true) : tr('dashboard.na')}</FlashVal>
               {daily?.dayTotPct != null && <span style={{ fontSize: 12, fontWeight: 600, marginLeft: 7 }}>{pct(daily.dayTotPct)}</span>}
-              {daily?.dayPartial && <span style={{ fontSize: 11, fontWeight: 600, marginLeft: 7, color: '#B97A00' }}>±PARZ</span>}
+              {daily?.dayPartial && <span style={{ fontSize: 11, fontWeight: 600, marginLeft: 7, color: '#B97A00' }}>{tr('dashboard.partial_chip')}</span>}
             </div>
             <div className="meter" style={{ width: 180, marginTop: 6 }}>
               <i style={{ width: Math.min(100, Math.abs(daily?.dayTotPct ?? 0) * 20) + '%', background: dayTot == null ? '#414B68' : gcol }} />
             </div>
-            <div style={{ fontSize: 9, fontWeight: 600, color: '#73829F', marginTop: 4, letterSpacing: '.1em', textTransform: 'uppercase' }}>vs chiusura prec. · fondo scala 5%</div>
+            <div style={{ fontSize: 9, fontWeight: 600, color: '#73829F', marginTop: 4, letterSpacing: '.1em', textTransform: 'uppercase' }}>{tr('dashboard.previous_close_scale')}</div>
           </div>
-          <HeroStat label={'TWR ' + rl} value={twrSlice ? pct(twrSlice.periodTwrPct) : 'n.d.'}
+          <HeroStat label={'TWR ' + rl} value={twrSlice ? pct(twrSlice.periodTwrPct) : tr('dashboard.na')}
                     tone={twrSlice ? (twrSlice.periodTwrPct >= 0 ? 'up' : 'dn') : undefined}
-                    sub="FLOW-ADJUSTED (GIPS)" />
+                    sub={tr('dashboard.flow_adjusted_caps')} />
           <HeroStat label="TWR ITD" value={pct(twr?.metrics?.twr_total_pct)}
                     tone={(twr?.metrics?.twr_total_pct ?? 0) >= 0 ? 'up' : 'dn'}
-                    sub="DALL'INIZIO" />
+                    sub={tr('dashboard.inception_upper')} />
           <HeroStat label="VS SPY ITD"
-                    value={vsSpyPt != null ? (vsSpyPt >= 0 ? '+' : '') + vsSpyPt.toFixed(2) + ' pt' : 'n.d.'}
+                    value={vsSpyPt != null ? (vsSpyPt >= 0 ? '+' : '') + fmtNum(vsSpyPt, 2) + ' pt' : tr('dashboard.na')}
                     tone={vsSpyPt != null ? (vsSpyPt >= 0 ? 'up' : 'dn') : undefined}
                     sub={vsSpyPt != null
-                      ? 'BOOK ' + pct(bookItd) + ' · SPY € ' + pct(spyItd) + (benchIsOfficial ? ' · TR UFF.' : ' · CALC PROVV.')
-                        + ((bench?.leading_dropped ?? 0) > 0 ? ' DA ' + fmtDateIt(bench?.base_date) : '')
-                      : (benchErr ? 'BENCHMARK N.D. — ' + benchErr.slice(0, 44) : 'CARICO BENCHMARK…')} />
-          <HeroStat label="NAV LIVE" value={eur(portfolioValues(snap).nav)}
-                    sub={snap ? portfolioValues(snap).note || 'INV + CASH · ' + (snap.n_positions || snap.positions?.length || 0) + ' POS' : 'CARICAMENTO'} />
+                      ? tr('dashboard.book_year') + pct(bookItd) + ' · SPY € ' + pct(spyItd) + (benchIsOfficial ? tr('dashboard.official_tr_tail') : tr('dashboard.provisional_calc_tail'))
+                        + ((bench?.leading_dropped ?? 0) > 0 ? tr('dashboard.since_caps', { a: fmtDateIt(bench?.base_date) }) : '')
+                      : (benchErr ? tr('dashboard.benchmark_unavailable_prefix') + benchErr.slice(0, 44) : tr('dashboard.benchmark_loading'))} />
+          <HeroStat label={tr('dashboard.nav_live_upper')} value={eur(portfolioValues(snap).nav)}
+                    sub={snap ? portfolioValues(snap).note || tr('dashboard.cash_ready_positions') + (snap.n_positions || snap.positions?.length || 0) + tr('dashboard.positions_suffix') : tr('dashboard.loading_upper')} />
           <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', gap: 6, padding: '8px 14px' }}>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               <span className="tfg">
-                <button className={'tb' + (view === 'tearsheet' ? ' on' : '')} onClick={() => setView('tearsheet')}>TEARSHEET</button>
-                <button className={'tb' + (view === 'risk' ? ' on' : '')} onClick={() => setView('risk')}>BOOK &amp; RISK</button>
+                <button className={'tb' + (view === 'tearsheet' ? ' on' : '')} onClick={() => setView('tearsheet')}>{tr('dashboard.tearsheet')}</button>
+                <button className={'tb' + (view === 'risk' ? ' on' : '')} onClick={() => setView('risk')}>{tr('dashboard.book_risk')}</button>
               </span>
-              <span className="tlab">RANGE</span>
+              <span className="tlab">{tr('dashboard.range')}</span>
               <span className="tfg">
                 {(['1D', '1W', '1M', '3M', '1Y', '5Y'] as RangeKey[]).map(r => (
                   <button key={r} onClick={() => setRange(r)} className={'tb' + (range === r ? ' on' : '')}>{RANGE_LABEL[r]}</button>
                 ))}
               </span>
               <button className="tb" onClick={() => loadAll(true)} disabled={loading} style={{ color: '#29D3F2' }}>
-                {loading ? 'CALCOLO…' : '↻ REFRESH'}
+                {loading ? tr('dashboard.calculating') : tr('dashboard.refresh')}
               </button>
             </div>
             {navHist && !navHist.error && (
               <div className="num" style={{ fontSize: 9, fontWeight: 600, color: '#73829F', letterSpacing: '.1em', textTransform: 'uppercase' }}>
-                {slice.dates.length} giorni mostrati{slice.dates.length < RANGE_DAYS[range] ? ' (solo ' + slice.dates.length + ' disponibili)' : ''}
+                {slice.dates.length} {tr('dashboard.days_shown')}{slice.dates.length < RANGE_DAYS[range] ? tr('dashboard.only_available') + slice.dates.length + tr('dashboard.available_tail') : ''}
               </div>
             )}
           </div>
@@ -850,11 +889,29 @@ export default function PerformancePage() {
         </div>
       )}
 
+      {[
+        { source: '/portfolio/analytics/drawdowns', data: drawdowns },
+        { source: '/portfolio/analytics/liquidity', data: liquidity },
+        { source: '/portfolio/analytics/concentration', data: concentration },
+        { source: '/portfolio/analytics/var_contribution', data: varContrib },
+        { source: '/portfolio/metrics/advanced', data: adv },
+      ].filter(item => item.data?.error).map(item => (
+        <div key={item.source} role="status" className="border border-amber/40 bg-amber/5 px-3 py-2 font-mono text-2xs text-amber">
+          <b>{tr('dashboard.data_unavailable')}</b> · <code>{item.source}</code> · {!(item.data as SourceProblem).clientMissingReason && <>{tr('dashboard.service_detail')}: </>}{sourceProblemText(item.data!)}
+        </div>
+      ))}
+
+      {adv?.risk_free_note && (
+        <div role="status" className="border border-amber/40 bg-amber/5 px-3 py-2 font-mono text-2xs text-amber">
+          {adv.risk_free_note}
+        </div>
+      )}
+
       {loading && !navHist && (
         <div className="p3" style={{ padding: '28px 12px', textAlign: 'center' }}>
           <div className="font-mono text-2xs text-muted"><Cpu size={13} className="inline animate-pulse mr-2" />
-            Ricostruzione NAV + cost basis da trade_history + yfinance…</div>
-          <div className="font-mono text-3xs text-faint mt-1">~30-60s alla prima run, poi cache 10 min</div>
+            {tr('dashboard.nav_reconstruction')}</div>
+          <div className="font-mono text-3xs text-faint mt-1">{tr('dashboard.first_load_time')}</div>
         </div>
       )}
 
@@ -863,53 +920,61 @@ export default function PerformancePage() {
       {/* ══ RITORNI (contabilita' da fondo) ══ */}
       {navHist && !navHist.error && (
         <div className="p3">
-          <div className="p3h">RITORNI // CONTABILITA DA FONDO
-            <span className="n">· RANGE {rl}</span>
-            <span className="side">ITD SU COSTO — NON FLOW-ADJ., V. TWR</span>
+          <div className="p3h">{tr('dashboard.returns_title')}
+            <span className="n">{tr('dashboard.range_tail')} {rl}</span>
+            <span className="side">{tr('dashboard.itd_cost_warning')}</span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8">
-            <K label="Market Value" value={eur(slice.navEnd)} sub={'cost basis ' + eur(slice.cbEnd)} />
-            <K label={'Return ' + rl + ' (TWR)'}
-               value={twrSlice ? pct(twrSlice.periodTwrPct) : 'n.d.'}
+            <K label={tr('dashboard.market_value')} value={eur(slice.navEnd)} sub={tr('dashboard.cost_basis_prefix') + eur(slice.cbEnd)} />
+            <K label={tr('dashboard.return_prefix') + rl + ' (TWR)'}
+               value={twrSlice ? pct(twrSlice.periodTwrPct) : tr('dashboard.na')}
                tone={twrSlice ? (twrSlice.periodTwrPct >= 0 ? 'up' : 'dn') : undefined}
-               sub={twrSlice ? 'flow-adjusted (GIPS)' : 'TWR engine non disponibile'} />
+               sub={twrSlice ? tr('dashboard.flow_adjusted') : tr('dashboard.twr_unavailable')} />
             <K label="Max DD ITD (TWR)"
                value={pct(twr?.metrics?.max_drawdown_pct ?? drawdowns?.max_drawdown_pct, false)}
                tone="dn"
-               sub={twr?.metrics ? 'su indice TWR flow-adjusted' : 'serie grezza (non flow-adjusted)'} />
-            <K label="Total Return ITD (su costo)"
+               sub={twr?.metrics ? tr('dashboard.twr_adjusted_index') : tr('dashboard.raw_series')} />
+            <K label={tr('dashboard.total_return_cost')}
                value={pct(slice.itdTotalReturnPctVsCB)}
                tone={slice.itdTotalReturnPctVsCB >= 0 ? 'up' : 'dn'}
-               sub={eur(slice.totalPnlEnd, true) + ' vs cost basis — NON flow-adj., v. TWR'} />
-            <K label="Unrealized P/L" value={eur(slice.pnlEnd, true)}
+               sub={eur(slice.totalPnlEnd, true) + tr('dashboard.vs_cost_warning')} />
+            <K label={tr('dashboard.unrealised_pl')} value={eur(slice.pnlEnd, true)}
                tone={slice.pnlEnd >= 0 ? 'up' : 'dn'} sub="mark-to-market ITD" />
-            <K label="Realized P/L" value={eur(slice.realizedEnd, true)}
+            <K label={tr('dashboard.realised_pl')} value={eur(slice.realizedEnd, true)}
                tone={slice.realizedEnd > 0 ? 'up' : slice.realizedEnd < 0 ? 'dn' : 'text-muted'}
-               sub="da vendite (avg cost)" />
-            <K label="Dividendi" value={eur(slice.dividendsEnd, true)}
-               tone={slice.dividendsEnd > 0 ? 'up' : 'text-muted'} sub="cash income ITD" />
-            <K label="Cash disponibile" value={eur(navHist.cash_eur)} tone="text-cyan" sub="per nuovi trade" />
+               sub={tr('dashboard.sales_average_cost')} />
+            <K label={tr('dashboard.dividends')} value={eur(slice.dividendsEnd, true)}
+               tone={slice.dividendsEnd > 0 ? 'up' : 'text-muted'} sub={tr('dashboard.cash_income')} />
+            <K label={tr('dashboard.cash_available')} value={eur(navHist.cash_eur)} tone="text-cyan" sub={tr('dashboard.new_trades')} />
           </div>
         </div>
       )}
 
       {/* ══ TWR INDEX (fix #30: contabilita' da fondo, flussi esterni esclusi) ══ */}
+      {twr?.copertura && <div className="p3panel p-3 text-xs text-muted" role="note">
+        <b>{tr('dashboard.performance_coverage')}</b> {tr('dashboard.first_trade')} {twr.copertura.primo_trade || tr('dashboard.na')}
+        {' · '}{tr('dashboard.first_snapshot')} {twr.copertura.primo_snapshot || tr('dashboard.na')}
+        {' · '}{tr('dashboard.official_series_since')} {twr.copertura.official_since || tr('dashboard.na')}
+        {' · '}{tr('dashboard.preceding_trades')} {twr.copertura.n_trade_prima_del_primo_snapshot ?? tr('dashboard.na')}
+        {' · '}{tr('dashboard.snapshot_gaps')} {twr.copertura.giorni_senza_snapshot ?? tr('dashboard.na')}.
+        {twr.copertura.nota && <p className="mt-1">{tr('dashboard.service_detail')}: {twr.copertura.nota}</p>}
+      </div>}
       {twr && !twr.error && twrSlice && (
         <div className="p3 cy">
           <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
-          <div className="p3h">TWR INDEX (GIPS)
-            <span className="n">· FLUSSI ESTERNI ESCLUSI</span>
+          <div className="p3h">{tr('dashboard.twr_index')}
+            <span className="n">{tr('dashboard.external_flows_excluded')}</span>
             {twr.regime_summary?.official_since ? (
-              <span className="chip g">SERIE UFFICIALE DA SNAPSHOT DAL {fmtDateIt(twr.regime_summary.official_since)}</span>
+              <span className="chip g">{tr('dashboard.official_snapshot_since')} {fmtDateIt(twr.regime_summary.official_since)}</span>
             ) : (
-              <span className="chip a">SERIE RICOSTRUITA (CHIUSURE, PRE-SNAPSHOT)</span>
+              <span className="chip a">{tr('dashboard.pre_snapshot')}</span>
             )}
             {/* F2 v3.2 — idea chat backend resa: coverage e carry MAI zitti */}
             {bench && benchOnTwr && (
               <span className="chip n"
-                    title={"serie benchmark ufficiale backend [src: " + (bench.src || 'benchmark_series') + "] — TOTAL-RETURN (dividendi inclusi), EUR, allineata al calendario TWR; giorni CARRY = benchmark fermo (weekend/festivi US), resi in ambra sull'overlay"
-                      + ((bench.leading_dropped ?? 0) > 0 ? '; testa senza dato esclusa: ' + bench.leading_dropped + 'g' : '')}>
-                BENCH {bench.ticker || 'SPY'} TR · COV {bench.coverage_pct != null ? bench.coverage_pct.toFixed(1) + '%' : 'n.d.'} · CARRY {bench.carried_days ?? 'n.d.'}G
+                    title={tr('dashboard.official_benchmark_source') + (bench.src || 'benchmark_series') + tr('dashboard.official_benchmark_hint')
+                      + ((bench.leading_dropped ?? 0) > 0 ? tr('dashboard.benchmark_dropped') + bench.leading_dropped + tr('dashboard.day_unit') : '')}>
+                BENCH {bench.ticker || 'SPY'} TR · {tr('dashboard.coverage_short')} {bench.coverage_pct != null ? fmtNum(bench.coverage_pct, 1) + '%' : tr('dashboard.na')} · CARRY {bench.carried_days ?? tr('dashboard.na')}{tr('dashboard.day_upper_unit')}
               </span>
             )}
             <span className="side num">BASE 100 = {twr.dates?.[0] ?? '-'} · {twrSlice.dts[0]} → {twrSlice.dts[twrSlice.dts.length - 1]}</span>
@@ -918,31 +983,31 @@ export default function PerformancePage() {
           {/* metriche calcolate SULLA serie TWR (backend) */}
           <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
             <K label={'TWR ' + rl} value={pct(twrSlice.periodTwrPct)}
-               tone={twrSlice.periodTwrPct >= 0 ? 'up' : 'dn'} sub="periodo selezionato" />
+               tone={twrSlice.periodTwrPct >= 0 ? 'up' : 'dn'} sub={tr('dashboard.selected_period')} />
             <K label="TWR ITD" value={pct(twr.metrics?.twr_total_pct)}
-               tone={(twr.metrics?.twr_total_pct ?? 0) >= 0 ? 'up' : 'dn'} sub="dall'inizio" />
-            <K label="TWR ann." value={pct(twr.metrics?.twr_annualized_pct)}
-               tone={(twr.metrics?.twr_annualized_pct ?? 0) >= 0 ? 'up' : 'dn'} sub="annualizzato" />
+               tone={(twr.metrics?.twr_total_pct ?? 0) >= 0 ? 'up' : 'dn'} sub={tr('dashboard.inception_lower')} />
+            <K label={tr('dashboard.annual_twr')} value={pct(twr.metrics?.twr_annualized_pct)}
+               tone={(twr.metrics?.twr_annualized_pct ?? 0) >= 0 ? 'up' : 'dn'} sub={tr('dashboard.annualised')} />
             <K label="Max DD (TWR)" value={pct(twr.metrics?.max_drawdown_pct, false)}
-               tone="dn" sub={'corrente: ' + pct(twr.metrics?.current_drawdown_pct, false)} />
-            <K label="Sharpe (TWR)" value={twr.metrics?.sharpe != null ? twr.metrics.sharpe.toFixed(2) : 'n.d.'}
-               tone="text-cyan" sub={'rf ' + ((twr.metrics?.risk_free_used ?? 0) * 100).toFixed(2) + '%'} />
-            <K label="Vol ann. (TWR)" value={pct(twr.metrics?.vol_annual_pct, false)}
-               sub="su rendimenti TWR" />
-            <K label="IRR (money-w.)" value={pct(twr.metrics?.irr_annual_pct)}
-               tone={(twr.metrics?.irr_annual_pct ?? 0) >= 0 ? 'up' : 'dn'} sub="rendimento del TUO capitale" />
+               tone="dn" sub={tr('dashboard.current_prefix') + pct(twr.metrics?.current_drawdown_pct, false)} />
+            <K label="Sharpe (TWR)" value={twr.metrics?.sharpe != null ? fmtNum(twr.metrics.sharpe, 2) : tr('dashboard.na')}
+               tone="text-cyan" sub={'rf ' + fmtNum(((twr.metrics?.risk_free_used ?? 0) * 100), 2) + '%'} />
+            <K label={tr('dashboard.annual_twr_vol')} value={pct(twr.metrics?.vol_annual_pct, false)}
+               sub={tr('dashboard.on_twr')} />
+            <K label={tr('dashboard.irr_weighted')} value={pct(twr.metrics?.irr_annual_pct)}
+               tone={(twr.metrics?.irr_annual_pct ?? 0) >= 0 ? 'up' : 'dn'} sub={tr('dashboard.your_capital')} />
             {/* fix 13/07: metriche istituzionali da /portfolio/metrics/advanced —
                 calcolate sulla STESSA serie TWR ufficiale, benchmark SPY in EUR per data */}
             {adv && !adv.error && (
               <>
-                <K label="Sortino" value={adv.sortino != null ? adv.sortino.toFixed(2) : 'n.d.'}
-                   tone="text-cyan" sub="downside risk (serie TWR)" />
-                <K label="Calmar" value={adv.calmar != null ? adv.calmar.toFixed(2) : 'n.d.'}
+                <K label="Sortino" value={adv.sortino != null ? fmtNum(adv.sortino, 2) : tr('dashboard.na')}
+                   tone="text-cyan" sub={tr('dashboard.downside_risk')} />
+                <K label="Calmar" value={adv.calmar != null ? fmtNum(adv.calmar, 2) : tr('dashboard.na')}
                    tone="text-cyan" sub="CAGR / max DD" />
                 <K label={'Beta vs ' + (adv.benchmark_ticker || 'SPY')}
-                   value={adv.benchmark?.beta != null ? adv.benchmark.beta.toFixed(2) : 'n.d.'}
-                   sub={adv.benchmark_alignment ? 'benchmark in EUR, per data' : 'benchmark n.d.'} />
-                <K label="Alpha ann." value={pct(adv.benchmark?.alpha_annual_pct)}
+                   value={adv.benchmark?.beta != null ? fmtNum(adv.benchmark.beta, 2) : tr('dashboard.na')}
+                   sub={adv.benchmark_alignment ? tr('dashboard.eur_benchmark') : tr('dashboard.benchmark_na')} />
+                <K label={tr('dashboard.annual_alpha')} value={pct(adv.benchmark?.alpha_annual_pct)}
                    tone={(adv.benchmark?.alpha_annual_pct ?? 0) >= 0 ? 'up' : 'dn'}
                    sub={'vs ' + (adv.benchmark_ticker || 'SPY') + ' (EUR)'} />
               </>
@@ -961,28 +1026,28 @@ export default function PerformancePage() {
           {uwBars.length > 1 && (
             <div style={{ padding: '2px 8px 2px', borderTop: '1px solid rgba(26,36,64,.6)', marginTop: 4 }}>
               <div style={{ fontSize: 9, letterSpacing: '.18em', fontWeight: 600, color: '#73829F', textTransform: 'uppercase', padding: '4px 4px 2px' }}>
-                UNDERWATER // DRAWDOWN CONTINUO DAL PICCO
+                {tr('dashboard.underwater_title')}
                 <span style={{ marginLeft: 10 }}>MAX <span className="dn">{pct(twr.metrics?.max_drawdown_pct, false)}</span></span>
-                <span style={{ marginLeft: 10 }}>CORRENTE <span className="dn">{pct(twr.metrics?.current_drawdown_pct, false)}</span></span>
+                <span style={{ marginLeft: 10 }}>{tr('dashboard.current_upper')} <span className="dn">{pct(twr.metrics?.current_drawdown_pct, false)}</span></span>
               </div>
               <TerminalChart bars={uwBars} mode="baseline" height={110} showSma={false} valueLegend />
             </div>
           )}
           <div style={{ textAlign: 'center', fontSize: 9, fontWeight: 600, color: '#73829F', letterSpacing: '.1em', textTransform: 'uppercase', padding: '3px 0 4px' }}>
-            ITD completa · scroll = zoom · drag = pan · banda = fonte del dato (<span style={{ color: '#B97A00' }}>ricostruita</span> → <span style={{ color: '#21E0A0' }}>ufficiale da snapshot NAV</span>) · underwater derivato dall'indice TWR
+            {tr('dashboard.itd_chart_hint')}<span style={{ color: '#B97A00' }}>{tr('dashboard.reconstructed_lower')}</span> → <span style={{ color: '#21E0A0' }}>{tr('dashboard.official_from_snapshots')}</span>{tr('dashboard.underwater_from_twr')}
           </div>
 
           {/* riga as-of + riconciliazione NAV live vs ultimo snapshot (breach dal payload, come F1) */}
           <div className="num" style={{ padding: '5px 12px', borderTop: '1px solid #1A2440', fontSize: 9, fontWeight: 600, color: '#73829F', display: 'flex', flexWrap: 'wrap', gap: '2px 16px' }}>
-            <span>as-of: <span style={{ color: '#29D3F2' }}>{twr.as_of?.computed_at?.replace('T', ' ') ?? '-'}</span></span>
+            <span>{tr('dashboard.as_of')} <span style={{ color: '#29D3F2' }}>{twr.as_of?.computed_at?.replace('T', ' ') ?? '-'}</span></span>
             {twr.reconciliation && (
               <span>
-                NAV live <span style={{ color: '#ECF1FA' }}>{eur(twr.reconciliation.nav_live_eur)}</span>
-                {' '}vs snapshot {twr.reconciliation.last_snapshot_date}{' '}
+                {tr('dashboard.nav_live_lower')} <span style={{ color: '#ECF1FA' }}>{eur(twr.reconciliation.nav_live_eur)}</span>
+                {' '}{tr('dashboard.vs_snapshot_date', { date: twr.reconciliation.last_snapshot_date })}{' '}
                 <span style={{ color: '#ECF1FA' }}>{eur(twr.reconciliation.last_snapshot_nav_eur)}</span>
                 {twr.reconciliation.delta_pct != null && (
                   <span style={{ color: (twr.reconciliation.breach ?? Math.abs(twr.reconciliation.delta_pct) > 1) ? '#FFA51E' : '#21E0A0' }}
-                        title={twr.reconciliation.tolerance_pct != null ? 'allarme dal backend: tolleranza ' + twr.reconciliation.tolerance_pct + '%' : 'soglia locale 1% (backend pre-riavvio senza campo breach)'}>
+                        title={twr.reconciliation.tolerance_pct != null ? tr('dashboard.backend_tolerance') + twr.reconciliation.tolerance_pct + '%' : tr('dashboard.legacy_tolerance')}>
                     {' '}(Δ {pct(twr.reconciliation.delta_pct)}){twr.reconciliation.breach ? ' ⚠ BREACH' : ''}
                   </span>
                 )}
@@ -992,6 +1057,7 @@ export default function PerformancePage() {
           </div>
           {twr.notes && twr.notes.length > 0 && (
             <div style={{ padding: '4px 12px', borderTop: '1px solid rgba(26,36,64,.4)', fontSize: 9, color: '#8D9FC4' }}>
+              <div>{tr('dashboard.service_detail_upper')}</div>
               {twr.notes.map((n, i) => <div key={i}>• {n}</div>)}
             </div>
           )}
@@ -1000,7 +1066,7 @@ export default function PerformancePage() {
 
       {twr?.error && (
         <div className="border border-amber/40 bg-amber/5 px-3 py-2 font-mono text-2xs text-amber flex items-center gap-2">
-          <AlertTriangle size={12} /> TWR engine: {twr.error} — mostra solo metriche su serie grezza.
+          <AlertTriangle size={12} /> {tr('dashboard.engine_twr_prefix')} {sourceProblemText(twr)} {tr('dashboard.raw_metrics_only')}
         </div>
       )}
 
@@ -1008,15 +1074,15 @@ export default function PerformancePage() {
       {monthly && monthly.groups.length > 0 && (
         <div className="p3">
           <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
-          <div className="p3h am">MONTHLY RETURNS // HEATMAP
-            <span className="n">· TWR MENSILE (GIPS) DALL'INDICE</span>
+          <div className="p3h am">{tr('dashboard.monthly_returns')}
+            <span className="n">{tr('dashboard.monthly_twr')}</span>
             <span className="side num">
               {benchOnTwr
                 ? (benchIsOfficial
-                    ? 'SPY = SERIE UFFICIALE BACKEND — TOTAL-RETURN, DIVIDENDI INCLUSI [src: ' + (bench?.src || 'benchmark_series') + '] · '
-                    : 'SPY = SPY×EURUSD CLIENT-SIDE [src: yfinance] — PROVVISORIO FINO AL RIAVVIO BACKEND (VOCE (38)) · ')
-                : (benchErr ? 'BENCHMARK N.D. (' + benchErr.slice(0, 44) + ') · ' : '')}
-              MESE IN CORSO = MTD DICHIARATO
+                    ? tr('dashboard.benchmark_total_return') + (bench?.src || 'benchmark_series') + '] · '
+                    : tr('dashboard.benchmark_provisional'))
+                : (benchErr ? tr('dashboard.benchmark_missing_prefix') + benchErr.slice(0, 44) + ') · ' : '')}
+              {tr('dashboard.month_mtd')}
             </span>
           </div>
           <MonthlyHeatmap groups={monthly.groups} lastYm={monthly.lastYm} />
@@ -1026,29 +1092,29 @@ export default function PerformancePage() {
       {/* ══ F2 v3.1: ROLLING 30G — vol · Sharpe · tracking error ══ */}
       {rolling && (
         <div className="p3">
-          <div className="p3h">ROLLING 30G <span className="n">· SULLA SERIE TWR (RENDIMENTI GIORNALIERI DALL'INDICE)</span>
-            <span className="side num">SPARK = ULTIMI 90G · RF {((twr?.metrics?.risk_free_used ?? 0) * 100).toFixed(2)}% · {benchIsOfficial ? 'TE VS SPY-EUR TR UFF. · GIORNI NATIVI (CARRY ESCLUSI)' : 'TE VS SPY-EUR CALC · PROVVISORIO'}</span>
+          <div className="p3h">{tr('dashboard.rolling_title')} <span className="n">{tr('dashboard.rolling_twr')}</span>
+            <span className="side num">{tr('dashboard.spark_rf')} {fmtNum(((twr?.metrics?.risk_free_used ?? 0) * 100), 2)}% · {benchIsOfficial ? tr('dashboard.tracking_official') : tr('dashboard.tracking_provisional')}</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '0 24px', padding: '8px 12px' }}>
             <div className="num" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span className="tlab" style={{ width: 110 }}>VOL 30G ANN.</span>
+              <span className="tlab" style={{ width: 110 }}>{tr('dashboard.vol_thirty')}</span>
               <Spark pts={rolling.vol} color="#95A1BA" />
-              <span style={{ fontSize: 12, fontWeight: 600, marginLeft: 'auto' }}>{rolling.volNow.toFixed(1)}%</span>
+              <span style={{ fontSize: 12, fontWeight: 600, marginLeft: 'auto' }}>{fmtNum(rolling.volNow, 1)}%</span>
             </div>
             <div className="num" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span className="tlab" style={{ width: 110 }}>SHARPE 30G</span>
+              <span className="tlab" style={{ width: 110 }}>{tr('dashboard.sharpe_thirty')}</span>
               <Spark pts={rolling.sharpe} color="#21E0A0" />
-              <span className={rolling.sharpeNow >= 0 ? 'up' : 'dn'} style={{ fontSize: 12, fontWeight: 600, marginLeft: 'auto' }}>{rolling.sharpeNow.toFixed(2)}</span>
+              <span className={rolling.sharpeNow >= 0 ? 'up' : 'dn'} style={{ fontSize: 12, fontWeight: 600, marginLeft: 'auto' }}>{fmtNum(rolling.sharpeNow, 2)}</span>
             </div>
             <div className="num" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span className="tlab" style={{ width: 110 }}>TRACK.ERR 30G</span>
+              <span className="tlab" style={{ width: 110 }}>{tr('dashboard.tracking_thirty')}</span>
               {rolling.te ? (
                 <>
                   <Spark pts={rolling.te} color="#9B7BFF" />
-                  <span style={{ fontSize: 12, fontWeight: 600, marginLeft: 'auto', color: '#9B7BFF' }}>{rolling.teNow!.toFixed(1)}%</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, marginLeft: 'auto', color: '#9B7BFF' }}>{fmtNum(rolling.teNow!, 1)}%</span>
                 </>
               ) : (
-                <span className="tlab" style={{ fontWeight: 600, color: '#73829F' }}>n.d. — serve la serie benchmark ufficiale (voce (38))</span>
+                <span className="tlab" style={{ fontWeight: 600, color: '#73829F' }}>{tr('dashboard.tracking_missing')}</span>
               )}
             </div>
           </div>
@@ -1066,9 +1132,9 @@ export default function PerformancePage() {
       {navBars.length > 1 && (
         <div className="p3 cy">
           <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
-          <div className="p3h">NAV VS COST BASIS // {rl}
-            <span className="n">· <span style={{ color: '#29D3F2' }}>NAV</span> / <span style={{ color: '#FFA51E' }}>COST BASIS (capitale investito)</span></span>
-            <span className="side num">{slice.dates[0]} → {slice.dates[slice.dates.length - 1]} · CROSSHAIR NATIVO</span>
+          <div className="p3h">{tr('dashboard.nav_cost')} {rl}
+            <span className="n">· <span style={{ color: '#29D3F2' }}>NAV</span> / <span style={{ color: '#FFA51E' }}>{tr('dashboard.cost_invested')}</span></span>
+            <span className="side num">{slice.dates[0]} → {slice.dates[slice.dates.length - 1]} {tr('dashboard.native_crosshair')}</span>
           </div>
           <div style={{ padding: '4px 8px 6px' }}>
             <TerminalChart bars={navBars} mode="area" height={280} showSma={false} valueLegend overlays={cbOverlays} />
@@ -1079,9 +1145,9 @@ export default function PerformancePage() {
       {/* ══ UNREALIZED P/L (B-UI13: BaselineSeries verde/rosso attorno allo zero) ══ */}
       {pnlBars.length > 1 && (
         <div className="p3">
-          <div className="p3h">UNREALIZED P/L // {rl}
+          <div className="p3h">{tr('dashboard.unrealised_chart')} {rl}
             <span className="side num">
-              da <span style={{ color: '#ECF1FA' }}>{eur(slice.pnlStart)}</span> → <span className={slice.pnlEnd >= 0 ? 'up' : 'dn'}>{eur(slice.pnlEnd, true)}</span>
+              {tr('dashboard.from')} <span style={{ color: '#ECF1FA' }}>{eur(slice.pnlStart)}</span> → <span className={slice.pnlEnd >= 0 ? 'up' : 'dn'}>{eur(slice.pnlEnd, true)}</span>
             </span>
           </div>
           <div style={{ padding: '4px 8px 6px' }}>
@@ -1094,20 +1160,20 @@ export default function PerformancePage() {
       {drawdowns && !drawdowns.error && (
         <div className="grid grid-cols-3 gap-2">
           <div className="p3 col-span-2">
-            <div className="p3h">TOP-5 DRAWDOWNS STORICI (ITD)
-              <span className="n">· SERIE GREZZA (NON FLOW-ADJUSTED)</span>
+            <div className="p3h">{tr('dashboard.top_drawdowns')}
+              <span className="n">{tr('dashboard.raw_series_upper')}</span>
             </div>
             {drawdowns.top_5_drawdowns.length === 0 ? (
               <div className="text-muted font-mono text-2xs text-center" style={{ padding: '16px 12px' }}>
-                Nessun episodio di drawdown completato.
-                {drawdowns.current_drawdown ? ' In DD ora — v. pannello a destra.' : ''}
+                {tr('dashboard.no_drawdowns')}
+                {drawdowns.current_drawdown ? tr('dashboard.drawdown_now') : ''}
               </div>
             ) : (
               <table className="num">
                 <thead>
                   <tr>
-                    <th>Peak</th><th>Trough</th><th>Recovery</th>
-                    <th>Depth</th><th>Days to Trough</th><th>Recovery Days</th>
+                    <th>{tr('dashboard.peak')}</th><th>{tr('dashboard.trough')}</th><th>{tr('dashboard.recovery')}</th>
+                    <th>{tr('dashboard.depth')}</th><th>{tr('dashboard.days_to_trough')}</th><th>{tr('dashboard.recovery_days')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1116,9 +1182,9 @@ export default function PerformancePage() {
                       <td className="text-muted" style={{ textAlign: 'left' }}>{dd.peak_date}</td>
                       <td className="text-muted">{dd.trough_date}</td>
                       <td className="text-muted">{dd.recovery_date || '-'}</td>
-                      <td className="dn">{dd.depth_pct.toFixed(2)}%</td>
-                      <td>{dd.duration_to_trough_days}g</td>
-                      <td className="up">{dd.recovery_days != null ? dd.recovery_days + 'g' : '-'}</td>
+                      <td className="dn">{fmtNum(dd.depth_pct, 2)}%</td>
+                      <td>{dd.duration_to_trough_days}{tr('dashboard.day_unit')}</td>
+                      <td className="up">{dd.recovery_days != null ? dd.recovery_days + tr('dashboard.day_unit') : '-'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1127,34 +1193,34 @@ export default function PerformancePage() {
           </div>
 
           <div className="p3">
-            <div className="p3h am">CURRENT DRAWDOWN <span className="n">· SERIE GREZZA</span></div>
+            <div className="p3h am">{tr('dashboard.current_drawdown')} <span className="n">{tr('dashboard.raw_series_short')}</span></div>
             <div className="num" style={{ padding: '10px 12px', fontSize: 10 }}>
               {drawdowns.current_drawdown ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                   <div className="dn" style={{ fontSize: 22, fontWeight: 300 }}>
-                    {drawdowns.current_drawdown.depth_from_peak_pct.toFixed(2)}%
+                    {fmtNum(drawdowns.current_drawdown.depth_from_peak_pct, 2)}%
                   </div>
-                  <div style={{ fontSize: 9, fontWeight: 600, color: '#73829F', letterSpacing: '.16em', textTransform: 'uppercase' }}>dal picco</div>
+                  <div style={{ fontSize: 9, fontWeight: 600, color: '#73829F', letterSpacing: '.16em', textTransform: 'uppercase' }}>{tr('dashboard.from_peak')}</div>
                   <div className="text-muted" style={{ marginTop: 6 }}>
-                    Picco: <span style={{ color: '#ECF1FA' }}>{drawdowns.current_drawdown.peak_date}</span>
+                    {tr('dashboard.peak_prefix')} <span style={{ color: '#ECF1FA' }}>{drawdowns.current_drawdown.peak_date}</span>
                   </div>
                   <div className="text-muted">
-                    Giorni dal picco: <span style={{ color: '#FFA51E' }}>{drawdowns.current_drawdown.days_since_peak}</span>
+                    {tr('dashboard.days_from_peak')} <span style={{ color: '#FFA51E' }}>{drawdowns.current_drawdown.days_since_peak}</span>
                   </div>
                   <div className="text-muted">
-                    Profondita' max finora: <span className="dn">{drawdowns.current_drawdown.max_depth_pct.toFixed(2)}%</span>
+                    {tr('dashboard.max_depth')} <span className="dn">{fmtNum(drawdowns.current_drawdown.max_depth_pct, 2)}%</span>
                   </div>
                 </div>
               ) : (
                 <div className="up" style={{ padding: '10px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  Non in drawdown. NAV al picco.
+                  {tr('dashboard.no_current_dd')}
                 </div>
               )}
               <div style={{ marginTop: 10, paddingTop: 6, borderTop: '1px solid rgba(26,36,64,.6)', fontSize: 9, fontWeight: 600, color: '#73829F' }}>
-                Pain Index: <span style={{ color: '#ECF1FA' }}>{drawdowns.pain_index.toFixed(4)}</span>
+                Pain Index: <span style={{ color: '#ECF1FA' }}>{fmtNum(drawdowns.pain_index, 4)}</span>
               </div>
               <div style={{ fontSize: 9, fontWeight: 600, color: '#73829F' }}>
-                Avg DD: <span style={{ color: '#ECF1FA' }}>{drawdowns.avg_drawdown_pct.toFixed(2)}%</span>
+                {tr('dashboard.avg_drawdown')} <span style={{ color: '#ECF1FA' }}>{fmtNum(drawdowns.avg_drawdown_pct, 2)}%</span>
               </div>
             </div>
           </div>
@@ -1164,8 +1230,8 @@ export default function PerformancePage() {
       {/* ══ LIQUIDITY ══ */}
       {liquidity && !liquidity.error && (
         <div className="p3">
-          <div className="p3h">LIQUIDITY SCORES
-            <span className="n">· GIORNI PER LIQUIDARE AL {(liquidity.assumption_pct_of_volume * 100).toFixed(0)}% DEL VOLUME MEDIO</span>
+          <div className="p3h">{tr('dashboard.liquidity_scores')}
+            <span className="n">{tr('dashboard.liquidation_days')} {fmtNum((liquidity.assumption_pct_of_volume * 100), 0)}{tr('dashboard.mean_volume_tail')}</span>
             <span className="side num">
               <span className="up">●{liquidity.n_green}</span>
               <span className="text-amber" style={{ marginLeft: 8 }}>●{liquidity.n_yellow}</span>
@@ -1175,8 +1241,8 @@ export default function PerformancePage() {
           <table className="num">
             <thead>
               <tr>
-                <th>Ticker</th><th>Position EUR</th><th>Avg Daily Vol EUR</th>
-                <th>Days to Liquidate</th><th style={{ textAlign: 'center' }}>Score</th>
+                <th>Ticker</th><th>{tr('dashboard.position_eur')}</th><th>{tr('dashboard.average_daily_volume')}</th>
+                <th>{tr('dashboard.days_liquidate')}</th><th style={{ textAlign: 'center' }}>{tr('dashboard.score')}</th>
               </tr>
             </thead>
             <tbody>
@@ -1189,15 +1255,15 @@ export default function PerformancePage() {
                   <tr key={it.ticker}>
                     <td style={{ color: '#ECF1FA' }}>{it.ticker}</td>
                     <td className="text-muted">{eur(it.position_eur)}</td>
-                    <td className="text-muted">{it.avg_daily_volume_eur ? eur(it.avg_daily_volume_eur) : 'n.d.'}</td>
-                    <td style={{ color: '#ECF1FA' }}>{it.days_to_liquidate != null ? it.days_to_liquidate.toFixed(2) + 'g' : 'n.d.'}</td>
-                    <td className={scoreCls} style={{ textAlign: 'center', textTransform: 'uppercase', letterSpacing: '.12em' }}>● {it.score}</td>
+                    <td className="text-muted">{it.avg_daily_volume_eur ? eur(it.avg_daily_volume_eur) : tr('dashboard.na')}</td>
+                    <td style={{ color: '#ECF1FA' }}>{it.days_to_liquidate != null ? fmtNum(it.days_to_liquidate, 2) + tr('dashboard.day_unit') : tr('dashboard.na')}</td>
+                    <td className={scoreCls} style={{ textAlign: 'center', textTransform: 'uppercase', letterSpacing: '.12em' }}>● {it.score === 'green' ? tr('dashboard.liquidity_green') : it.score === 'yellow' ? tr('dashboard.liquidity_yellow') : it.score === 'red' ? tr('dashboard.liquidity_red') : it.score}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-          <div style={{ padding: '5px 12px', borderTop: '1px solid #1A2440', fontSize: 9, fontWeight: 600, color: '#73829F' }}>{liquidity.note}</div>
+          <div style={{ padding: '5px 12px', borderTop: '1px solid #1A2440', fontSize: 9, fontWeight: 600, color: '#73829F' }}>{liquidity.note && <>{tr('dashboard.service_detail')}: {liquidity.note}</>}</div>
         </div>
       )}
 
@@ -1206,8 +1272,8 @@ export default function PerformancePage() {
         <div className="grid grid-cols-3 gap-2">
           {(['by_ticker', 'by_region', 'by_currency'] as const).map(dim => {
             const d = concentration[dim];
-            const title = dim === 'by_ticker' ? 'BY TICKER' :
-                          dim === 'by_region' ? 'BY REGION' : 'BY CURRENCY';
+            const title = dim === 'by_ticker' ? tr('dashboard.by_ticker') :
+                          dim === 'by_region' ? tr('dashboard.by_region') : tr('dashboard.by_currency');
             const cls = d.classification === 'diversified' ? 'up'
               : d.classification === 'moderate' ? 'text-amber' : 'dn';
             return (
@@ -1216,16 +1282,16 @@ export default function PerformancePage() {
                 <div className="num" style={{ padding: '8px 12px', fontSize: 10 }}>
                   <div style={{ fontSize: 22, fontWeight: 300, color: '#ECF1FA' }}>{Math.round(d.hhi)}</div>
                   <div className={cls} style={{ fontSize: 8, letterSpacing: '.18em', textTransform: 'uppercase' }}>
-                    {d.classification}
+                    {d.classification === 'diversified' ? tr('dashboard.diversified') : d.classification === 'moderate' ? tr('dashboard.moderate') : d.classification === 'concentrated' ? tr('dashboard.concentrated') : d.classification}
                   </div>
                   {dim === 'by_ticker' && 'effective_n' in d && (
                     <div className="text-muted" style={{ marginTop: 6, fontSize: 9 }}>
-                      Effective N: <span style={{ color: '#29D3F2' }}>{(d as any).effective_n.toFixed(2)}</span>
+                      {tr('dashboard.effective_n')} <span style={{ color: '#29D3F2' }}>{fmtNum((d as any).effective_n, 2)}</span>
                     </div>
                   )}
                   {dim === 'by_ticker' && 'top_5_pct' in d && (
                     <div className="text-muted" style={{ fontSize: 9 }}>
-                      Top-5: <span style={{ color: '#FFA51E' }}>{(d as any).top_5_pct.toFixed(1)}%</span>
+                      Top-5: <span style={{ color: '#FFA51E' }}>{fmtNum((d as any).top_5_pct, 1)}%</span>
                     </div>
                   )}
                   {dim !== 'by_ticker' && (
@@ -1233,7 +1299,7 @@ export default function PerformancePage() {
                       {Object.entries((d as any).weights_pct).map(([k, v]) => (
                         <div key={k} style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span className="text-muted">{k}</span>
-                          <span style={{ color: '#ECF1FA' }}>{(v as number).toFixed(1)}%</span>
+                          <span style={{ color: '#ECF1FA' }}>{fmtNum((v as number), 1)}%</span>
                         </div>
                       ))}
                     </div>
@@ -1248,28 +1314,28 @@ export default function PerformancePage() {
       {/* ══ VAR CONTRIBUTION ══ */}
       {varContrib && !varContrib.error && (
         <div className="p3">
-          <div className="p3h">COMPONENT VAR (JORION 2006)
-            <span className="n">· DAILY {(varContrib.confidence_level * 100).toFixed(0)}%</span>
+          <div className="p3h">{tr('dashboard.component_var_title')}
+            <span className="n">{tr('dashboard.daily_prefix')} {fmtNum((varContrib.confidence_level * 100), 0)}%</span>
             <span className="side num">
-              Portfolio VaR: <span className="dn">{varContrib.portfolio_var_pct_daily.toFixed(2)}% = {eur(varContrib.portfolio_var_eur_daily)}</span>
-              {' '}· Vol ann: <span style={{ color: '#29D3F2' }}>{varContrib.portfolio_vol_annual_pct.toFixed(2)}%</span>
+              {tr('dashboard.portfolio_var')} <span className="dn">{fmtNum(varContrib.portfolio_var_pct_daily, 2)}% = {eur(varContrib.portfolio_var_eur_daily)}</span>
+              {' '}{tr('dashboard.annual_vol_tail')} <span style={{ color: '#29D3F2' }}>{fmtNum(varContrib.portfolio_vol_annual_pct, 2)}%</span>
             </span>
           </div>
           <table className="num">
             <thead>
               <tr>
-                <th>Ticker</th><th>Weight</th><th>Component VaR €</th>
-                <th>% of Total VaR</th><th>Marginal VaR</th><th style={{ textAlign: 'left' }}>Bar</th>
+                <th>Ticker</th><th>{tr('dashboard.weight')}</th><th>{tr('dashboard.component_var')}</th>
+                <th>{tr('dashboard.total_var_pct')}</th><th>{tr('dashboard.marginal_var')}</th><th style={{ textAlign: 'left' }}>{tr('dashboard.bar')}</th>
               </tr>
             </thead>
             <tbody>
               {varContrib.items.map(it => (
                 <tr key={it.ticker}>
                   <td style={{ color: '#ECF1FA' }}>{it.ticker}</td>
-                  <td className="text-muted">{it.weight_pct.toFixed(2)}%</td>
+                  <td className="text-muted">{fmtNum(it.weight_pct, 2)}%</td>
                   <td className="dn">{eur(it.component_var_eur)}</td>
-                  <td className="text-amber">{it.contribution_pct_of_total_var.toFixed(1)}%</td>
-                  <td className="text-muted">{it.marginal_var_pct_per_1pct_weight.toFixed(4)}</td>
+                  <td className="text-amber">{fmtNum(it.contribution_pct_of_total_var, 1)}%</td>
+                  <td className="text-muted">{fmtNum(it.marginal_var_pct_per_1pct_weight, 4)}</td>
                   <td style={{ width: 180 }}>
                     <div style={{ height: 5, background: 'rgba(26,36,64,.85)', border: '1px solid #1A2440', overflow: 'hidden' }}>
                       <div style={{ height: '100%', background: '#FF3D60', opacity: 0.7, width: Math.min(100, Math.abs(it.contribution_pct_of_total_var)) + '%' }} />
@@ -1279,7 +1345,7 @@ export default function PerformancePage() {
               ))}
             </tbody>
           </table>
-          <div style={{ padding: '5px 12px', borderTop: '1px solid #1A2440', fontSize: 9, fontWeight: 600, color: '#73829F' }}>{varContrib.methodology}</div>
+          <div style={{ padding: '5px 12px', borderTop: '1px solid #1A2440', fontSize: 9, fontWeight: 600, color: '#73829F' }}>{varContrib.methodology && <>{tr('dashboard.service_detail')}: {varContrib.methodology}</>}</div>
         </div>
       )}
 
@@ -1289,9 +1355,9 @@ export default function PerformancePage() {
         <div className="border border-amber/40 bg-amber/5 px-3 py-2 font-mono text-2xs text-amber flex items-start gap-2">
           <AlertTriangle size={12} className="mt-0.5 shrink-0" />
           <div>
-            <b>Storico NAV non disponibile:</b> {navHist.error}<br />
+            <b>{tr('dashboard.nav_history_missing')}</b> {sourceProblemText(navHist)}<br />
             <span className="text-muted">
-              Registra i trade dalla pagina Cassa/Trade, o importali con <code>python scripts/importa_trade_csv.py miei_trade.csv --apply</code>, poi refresh.
+              {tr('dashboard.nav_record_trades', { page: tr('nav.trades') })} <code>{tr('dashboard.import_trades_command')}</code>{tr('dashboard.import_trades_steps', { page: tr('nav.trades') })}
             </span>
           </div>
         </div>

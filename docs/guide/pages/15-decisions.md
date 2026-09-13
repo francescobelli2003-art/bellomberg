@@ -17,8 +17,23 @@ portfolio ledger.
 4. Add feedback explaining why you accepted, deferred or rejected the idea.
 5. Use veto, revoke-veto, archive or reopen controls when appropriate, retaining
    the reason for the change.
-6. If you executed a trade independently, record its actual fill in
-   [Trade Entry](16-trade-entry.md).
+6. For an eligible BUY/ADD/SELL/TRIM recommendation, use **Record linked
+   transaction** to open [Trade Entry](16-trade-entry.md) with its ID, ticker and
+   direction. Enter the actual fill; quantities and prices are not guessed.
+
+Multiple fills can link to the same decision. The detail reports cumulative
+execution and its share of the proposed amount when calculable. The decision's
+status remains under your control. A timestamp-based inference is labelled and
+is weaker evidence than an explicit link; conventional times and ambiguous ties
+do not justify an automatic attribution.
+
+Saved rationales, feedback and notes retain their original wording. Interface
+labels can change language without rewriting a recommendation or changing its
+link to recorded executions.
+
+Outcome fields keep the numeric format selected when you opened the detail.
+Switching interface language, including before further typing, does not
+reinterpret the amount; inspect the field's format hint and validation message.
 
 ## Feedback has a different role from the Journal
 Decision feedback and research notes are part of the committee's decision
@@ -37,3 +52,6 @@ scoring context and sample size.
 
 Archiving removes an item from the active workflow; it should not be mistaken
 for deleting the corresponding trade, cash movement or history.
+Closing a RESEARCH item excludes it from subsequent runs; it does not stop a
+committee process already in progress. Reopening it makes it eligible for a
+later run again.

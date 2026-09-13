@@ -4,21 +4,22 @@ European Black–Scholes–Merton with continuous dividend yield; ACT/365.
 Cash flows are in the explicitly supplied currency. Price is per underlying
 unit; position values/greeks apply quantity, direction and contract multiplier.
 """
+from bellomberg.core.presentation import message as _ui_text
 from fractions import Fraction
 from math import erf, exp, fsum, isfinite, log, pi, sqrt
 
 
 def _number(value, name, low=None, high=None):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{name}: numero finito obbligatorio")
+        raise ValueError(_ui_text(f'{name}: numero finito obbligatorio', f'{name}: finite number required'))
     try:
         value = float(value)
     except OverflowError as exc:
-        raise ValueError(f"{name}: numero fuori intervallo") from exc
+        raise ValueError(_ui_text(f'{name}: numero fuori intervallo', f'{name}: number out of range')) from exc
     if not isfinite(value):
-        raise ValueError(f"{name}: numero finito obbligatorio")
+        raise ValueError(_ui_text(f'{name}: numero finito obbligatorio', f'{name}: finite number required'))
     if (low is not None and value < low) or (high is not None and value > high):
-        raise ValueError(f"{name}: fuori intervallo consentito [{low}, {high}]")
+        raise ValueError(_ui_text(f'{name}: fuori intervallo consentito [{low}, {high}]', f'{name}: outside the allowed range [{low}, {high}]'))
     return float(value)
 
 
@@ -30,12 +31,12 @@ def european_option(spot, strike, days, iv, rate, dividend_yield, option_type):
     """
     s = _number(spot, "spot", 0, 1e9)
     k = _number(strike, "strike", 1e-9, 1e9)
-    d = _number(days, "giorni", 0, 36500)
+    d = _number(days, _ui_text('giorni', 'days'), 0, 36500)
     vol = _number(iv, "IV", 1e-8, 5)
-    r = _number(rate, "tasso", -1, 1)
+    r = _number(rate, _ui_text('tasso', 'rate'), -1, 1)
     q = _number(dividend_yield, "dividend yield", -1, 1)
     if option_type not in ("call", "put"):
-        raise ValueError("tipo opzione: call o put")
+        raise ValueError(_ui_text('tipo opzione: call o put', 'option type: call or put'))
     call = option_type == "call"
     if d == 0:
         kink = s == k
@@ -74,40 +75,40 @@ def european_option(spot, strike, days, iv, rate, dividend_yield, option_type):
 
 def _validated(body):
     if not isinstance(body, dict):
-        raise ValueError("simulazione: oggetto obbligatorio")
+        raise ValueError(_ui_text('simulazione: oggetto obbligatorio', 'simulation: object required'))
     cfg = {"spot": _number(body.get("spot"), "spot", 1e-8, 1e8),
-           "scenario_spot": _number(body.get("scenario_spot", body.get("spot")), "prezzo scenario", 0, 1e8),
-           "rate": _number(body.get("rate"), "tasso", -1, 1),
+           "scenario_spot": _number(body.get("scenario_spot", body.get("spot")), _ui_text('prezzo scenario', 'scenario price'), 0, 1e8),
+           "rate": _number(body.get("rate"), _ui_text('tasso', 'rate'), -1, 1),
            "dividend_yield": _number(body.get("dividend_yield"), "dividend yield", -1, 1),
-           "elapsed_days": _number(body.get("elapsed_days"), "giorni trascorsi", 0, 36500),
+           "elapsed_days": _number(body.get("elapsed_days"), _ui_text('giorni trascorsi', 'elapsed days'), 0, 36500),
            "iv_shift": _number(body.get("iv_shift"), "shock IV", -4.99, 4.99),
-           "commission": _number(body.get("commission"), "costo per contratto", 0, 1e6)}
+           "commission": _number(body.get("commission"), _ui_text('costo per contratto', 'cost per contract'), 0, 1e6)}
     currency = body.get("currency")
     if not isinstance(currency, str) or not currency.isalpha() or len(currency) != 3 or not currency.isupper():
-        raise ValueError("valuta: codice ISO di tre lettere obbligatorio")
+        raise ValueError(_ui_text('valuta: codice ISO di tre lettere obbligatorio', 'currency: three-letter ISO code required'))
     cfg["currency"] = currency
     rows = body.get("legs")
     if not isinstance(rows, list) or not 1 <= len(rows) <= 12:
-        raise ValueError("servono da 1 a 12 gambe")
+        raise ValueError(_ui_text('servono da 1 a 12 gambe', '1 to 12 legs required'))
     legs = []
     for i, raw in enumerate(rows, 1):
         if not isinstance(raw, dict):
-            raise ValueError(f"gamba {i}: oggetto obbligatorio")
+            raise ValueError(_ui_text(f'gamba {i}: oggetto obbligatorio', f'leg {i}: object required'))
         if raw.get("type") not in ("call", "put") or raw.get("side") not in ("buy", "sell"):
-            raise ValueError(f"gamba {i}: tipo/direzione non validi")
-        qty = _number(raw.get("quantity"), f"gamba {i} quantità", 1, 100000)
+            raise ValueError(_ui_text(f'gamba {i}: tipo/direzione non validi', f'leg {i}: invalid type/direction'))
+        qty = _number(raw.get("quantity"), _ui_text(f'gamba {i} quantità', f'leg {i} quantity'), 1, 100000)
         if not qty.is_integer():
-            raise ValueError(f"gamba {i}: quantità contratti intera obbligatoria")
+            raise ValueError(_ui_text(f'gamba {i}: quantità contratti intera obbligatoria', f'leg {i}: integer contract quantity required'))
         leg = {"type": raw["type"], "side": raw["side"], "quantity": qty,
-               "strike": _number(raw.get("strike"), f"gamba {i} strike", 1e-8, 1e8),
-               "days": _number(raw.get("days"), f"gamba {i} giorni a scadenza", 0, 36500),
-               "iv": _number(raw.get("iv"), f"gamba {i} IV", 1e-8, 5),
-               "premium": _number(raw.get("premium"), f"gamba {i} premio", 0, 1e8),
-               "multiplier": _number(raw.get("multiplier"), f"gamba {i} moltiplicatore", 1e-8, 1e6)}
+               "strike": _number(raw.get("strike"), _ui_text(f'gamba {i} strike', f'leg {i} strike'), 1e-8, 1e8),
+               "days": _number(raw.get("days"), _ui_text(f'gamba {i} giorni a scadenza', f'leg {i} days to expiry'), 0, 36500),
+               "iv": _number(raw.get("iv"), _ui_text(f'gamba {i} IV', f'leg {i} IV'), 1e-8, 5),
+               "premium": _number(raw.get("premium"), _ui_text(f'gamba {i} premio', f'leg {i} premium'), 0, 1e8),
+               "multiplier": _number(raw.get("multiplier"), _ui_text(f'gamba {i} moltiplicatore', f'leg {i} multiplier'), 1e-8, 1e6)}
         if cfg["elapsed_days"] > leg["days"]:
-            raise ValueError("orizzonte oltre la prima scadenza: non si inventa il percorso di regolamento delle gambe scadute")
+            raise ValueError(_ui_text('orizzonte oltre la prima scadenza: non si inventa il percorso di regolamento delle gambe scadute', 'horizon beyond the first expiry: settlement paths for expired legs are not invented'))
         if not 0 < leg["iv"] + cfg["iv_shift"] <= 5:
-            raise ValueError(f"gamba {i}: IV dopo lo shock fuori intervallo (0, 500%]")
+            raise ValueError(_ui_text(f'gamba {i}: IV dopo lo shock fuori intervallo (0, 500%]', f'leg {i}: IV after shock outside the range (0, 500%]'))
         # Preserve decimal contract arithmetic: 3 * 0.1 and 1 * 0.3 cancel
         # exactly. Never decide risk or break-even using a cash epsilon.
         leg["units"] = Fraction(str(qty)) * Fraction(str(leg["multiplier"])) * (1 if leg["side"] == "buy" else -1)
@@ -197,11 +198,11 @@ def simulate_strategy(body):
         elapsed = horizon * i / 5
         heat.append({"elapsed_days": elapsed, "cells": [scenario_at(cfg["spot"] * ratio, elapsed, cfg["iv_shift"])
                     for ratio in (.7, .8, .9, 1.0, 1.1, 1.2, 1.3)]})
-    return {"currency": cfg["currency"], "model": "Black–Scholes–Merton europeo",
-            "model_source": "calcolo locale teorico, nessuna quotazione recuperata",
-            "greek_units": {"delta": "unità sottostante", "gamma": "delta per unità di prezzo",
-                            "vega": "valuta per +1 punto percentuale IV", "theta": "valuta per giorno ACT/365",
-                            "rho": "valuta per +1 punto percentuale tasso"},
+    return {"currency": cfg["currency"], "model": _ui_text('Black–Scholes–Merton europeo', 'European Black–Scholes–Merton'),
+            "model_source": _ui_text('calcolo locale teorico, nessuna quotazione recuperata', 'local theoretical calculation; no quote retrieved'),
+            "greek_units": {"delta": _ui_text('unità sottostante', 'underlying units'), "gamma": _ui_text('delta per unità di prezzo', 'delta per price unit'),
+                            "vega": _ui_text('valuta per +1 punto percentuale IV', 'currency per +1 percentage point IV'), "theta": _ui_text('valuta per giorno ACT/365', 'currency per ACT/365 day'),
+                            "rho": _ui_text('valuta per +1 punto percentuale tasso', 'currency per +1 percentage point interest rate')},
             "entry_cost": float(entry_cost), "net_premium": float(premium), "fees": float(fees),
             "entry_kind": "debit" if entry_cost >= 0 else "credit",
             "same_expiry": same_expiry, "expiry_days": horizon,
@@ -211,9 +212,9 @@ def simulate_strategy(body):
             "max_loss": None if max_loss is None else float(max_loss),
             "unlimited_profit": unlimited_profit, "unlimited_loss": unlimited_loss,
             "today": now, "scenario": selected, "curve": curves, "heatmap": heat,
-            "assumptions": {**cfg, "premium_basis": "premi inseriti dall'utente; non sono prezzi di esecuzione",
-                            "fees_basis": "costo iniziale per contratto; uscita, slippage, finanziamento e imposte esclusi"},
-            "limits": ["Opzioni europee; esercizio anticipato americano e dividendi discreti non modellati.",
-                       "IV costante per gamba più shock parallelo; nessuna previsione di mercato.",
-                       "Premi e quote possono riferirsi a istanti diversi: controllare i timestamp prima di confrontarli.",
-                       "Payoff unico a scadenza disponibile solo se tutte le gambe scadono insieme; per calendari, scenari fino alla prima scadenza."]}
+            "assumptions": {**cfg, "premium_basis": _ui_text("premi inseriti dall'utente; non sono prezzi di esecuzione", 'user-entered premiums; these are not execution prices'),
+                            "fees_basis": _ui_text('costo iniziale per contratto; uscita, slippage, finanziamento e imposte esclusi', 'initial cost per contract; exit, slippage, financing and taxes excluded')},
+            "limits": [_ui_text('Opzioni europee; esercizio anticipato americano e dividendi discreti non modellati.', 'European options; American early exercise and discrete dividends are not modeled.'),
+                       _ui_text('IV costante per gamba più shock parallelo; nessuna previsione di mercato.', 'Constant IV per leg plus a parallel shock; no market forecast.'),
+                       _ui_text('Premi e quote possono riferirsi a istanti diversi: controllare i timestamp prima di confrontarli.', 'Premiums and quotes may refer to different times: check timestamps before comparing them.'),
+                       _ui_text('Payoff unico a scadenza disponibile solo se tutte le gambe scadono insieme; per calendari, scenari fino alla prima scadenza.', 'A single expiry payoff is available only when all legs expire together; calendar spreads show scenarios up to the first expiry.')]}

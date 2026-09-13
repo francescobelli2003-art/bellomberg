@@ -1098,3 +1098,50 @@ class _StreamAsync:
         async for _ in self:
             pass
         return _dichiara_forzato(self._ric.messaggio(), self._forzato)
+
+
+# ---------------------------------------------------------------------------
+# SONDA DEI MODELLI (audit 11/09, Fable 5.1 — run 10/09 memo #53): il modello del red
+# team era respinto da OpenRouter (HTTP 403, attestazione 18+) e lo si e' scoperto a
+# meta' run, a Round 0 e 1 gia' pagati. Una call da pochi token per slug distinto,
+# PRIMA del Round 0; esito dichiarato per slug, nessuna eccezione propagata, nessun
+# ritentativo (un 403 e' lo stesso errore ripetuto). Non cambia nessuna model string.
+# ---------------------------------------------------------------------------
+
+def sonda_modelli(slugs, client=None, max_tokens=5, timeout_s=45.0):
+    """{slug: {"ok": bool, "motivo": None|str, "durata_s": float}} per ogni slug distinto
+    (ordine di prima apparizione). `client` finto nei test; in produzione OpenRouterClient
+    senza retry: la sonda misura, non insiste."""
+    esiti = {}
+    distinti = []
+    for s in slugs or []:
+        s = str(s or "").strip()
+        if s and s not in distinti:
+            distinti.append(s)
+    if not distinti:
+        return esiti
+    if client is None:
+        client = OpenRouterClient(timeout=timeout_s, max_retries=0)
+    for s in distinti:
+        t0 = time.perf_counter()
+        try:
+            client.messages.create(model=s, max_tokens=int(max_tokens),
+                                   messages=[{"role": "user", "content": "ping"}],
+                                   thinking={"type": "disabled"})
+            esiti[s] = {"ok": True, "motivo": None, "durata_s": round(time.perf_counter() - t0, 2)}
+        except Exception as e:
+            esiti[s] = {"ok": False,
+                        "motivo": (type(e).__name__ + ": " + str(e))[:300],
+                        "durata_s": round(time.perf_counter() - t0, 2)}
+    return esiti
+
+
+def righe_log_sonda(esiti):
+    """Righe di log '[OK] slug (0.8s)' / '[KO] slug: motivo', una per slug."""
+    righe = []
+    for s, e in (esiti or {}).items():
+        if e.get("ok"):
+            righe.append("[OK] modello %s (%ss)" % (s, e.get("durata_s", "?")))
+        else:
+            righe.append("[KO] modello %s: %s" % (s, e.get("motivo") or "causa n.d."))
+    return righe

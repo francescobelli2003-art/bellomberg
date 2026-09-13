@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useT } from '@/i18n/provider';
 
 export type ConfirmRow = { k: string; v: string; tone?: 'amber' | 'crimson' | 'cyan' };
 
@@ -26,9 +27,10 @@ type Props = {
  *    alla chiusura.
  */
 export default function ConfirmDialog({
-  open, title, intro, rows, warn, confirmLabel, cancelLabel = 'ANNULLA',
+  open, title, intro, rows, warn, confirmLabel, cancelLabel,
   tone = 'amber', onConfirm, onCancel,
 }: Props) {
+  const t = useT();
   const boxRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const prevFocus = useRef<HTMLElement | null>(null);
@@ -77,10 +79,10 @@ export default function ConfirmDialog({
         {warn && <div className="cfm-warn">{warn}</div>}
         {/* ANNULLA per primo nel DOM = primo nell'ordine di TAB e primo a prendere il focus */}
         <div className="cfm-actions">
-          <button ref={cancelRef} className="cfm-btn no" onClick={onCancel}>{cancelLabel}</button>
+          <button ref={cancelRef} className="cfm-btn no" onClick={onCancel}>{cancelLabel ?? t('shell.cancel')}</button>
           <button className="cfm-btn go" onClick={onConfirm}>{confirmLabel}</button>
         </div>
-        <div className="cfm-hint">ESC ANNULLA &nbsp;·&nbsp; TAB CAMBIA PULSANTE &nbsp;·&nbsp; INVIO ATTIVA QUELLO IN FOCUS</div>
+        <div className="cfm-hint">{t('shell.confirm_keys')}</div>
       </div>
     </>
   );

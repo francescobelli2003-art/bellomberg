@@ -4,7 +4,9 @@ Cover con banda laterale + grafici, KPI strip, tabella metriche, corpo memo form
 Font ROBUSTO (Arial su Windows, Liberation su Linux, Helvetica fallback reportlab).
 """
 import os, re
+import sys
 from datetime import datetime
+from bellomberg.reporting.i18n import label as _t, number as _n, localized, date_label
 
 from bellomberg.core.paths import REPORT_DIR as _REPORT_DIR
 
@@ -50,11 +52,16 @@ MUTEDB=C.HexColor("#6A7793") if RL else None   # era #66738E = 4.25:1 su obsidia
 W,Hh=(A4 if RL else (595,842))
 
 _FONT_DONE=False
+_FONT_WARNED=False
 def _register_fonts():
     """Registra Arial-like robusto. Ritorna (reg,bold,italic) nomi font reportlab."""
-    global _FONT_DONE
+    global _FONT_DONE, _FONT_WARNED
     if _FONT_DONE: return ("LS","LSB","LSI")
     cands=[("C:/Windows/Fonts/arial.ttf","C:/Windows/Fonts/arialbd.ttf","C:/Windows/Fonts/ariali.ttf"),
+           ("/System/Library/Fonts/Supplemental/Arial.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Italic.ttf"),
+           ("/Library/Fonts/Arial.ttf", "/Library/Fonts/Arial Bold.ttf", "/Library/Fonts/Arial Italic.ttf"),
            ("/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
             "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
             "/usr/share/fonts/truetype/liberation2/LiberationSans-Italic.ttf"),
@@ -72,6 +79,9 @@ def _register_fonts():
             except Exception:
                 continue
     # fallback reportlab built-in
+    if not _FONT_WARNED:
+        print("[pdf_institutional] Font TTF non disponibile: ripiego Helvetica; i glifi fuori WinAnsi non sono garantiti.", file=sys.stderr)
+        _FONT_WARNED=True
     return ("Helvetica","Helvetica-Bold","Helvetica-Oblique")
 
 
@@ -118,7 +128,7 @@ def _draw_lockup(cnv,x,y,size,reg,bold,ink,dim,accent,tagline=True):
     w=pdfmetrics.stringWidth(_LK_TEXT,bold,size)
     if tagline:
         cnv.setFillColor(dim); cnv.setFont(reg,size*_LK_TAG_SIZE)
-        cnv.drawString(x+size*_LK_TAG_DX,y-size*_LK_TAG_DY,_LK_TAG)
+        cnv.drawString(x+size*_LK_TAG_DX,y-size*_LK_TAG_DY,_t(_LK_TAG))
     ry=y-size*(_LK_RULE_DY if tagline else _LK_RULE_DY0)
     cnv.setStrokeColor(accent); cnv.setLineWidth(max(size*_LK_RULE_TH,_LK_RULE_MIN))
     cnv.line(x,ry,x+w*_LK_RULE_W,ry)
@@ -144,8 +154,8 @@ def _gen_charts(portfolio_data, nav_history):
         # nel grafico "Rendimento per posizione" qui accanto.
         _top=8
         donut=ci.donut_chart(items,f"NAV\n{nav/1000:.0f}k€",
-                             f"Allocazione per posizione",
-                             sub=f"Peso di mercato · prime {min(_top,len(items))} su {len(items)} posizioni · resto aggregato in \"Altri\"",
+                             _t("Allocazione per posizione"),
+                             sub=_t("portfolio.weights", top=min(_top, len(items)), count=len(items)),
                              top_n=_top)
     except Exception: pass
     # hbar rendimento per posizione: TUTTE le posizioni (richiesta PM 15/07).
@@ -155,8 +165,8 @@ def _gen_charts(portfolio_data, nav_history):
     try:
         pl=[(p["ticker"],p.get("pl_pct") or 0) for p in positions if p.get("pl_pct") is not None]
         pl=sorted(pl,key=lambda x:-x[1])
-        hbar=ci.hbar_chart(pl,"Rendimento per posizione",
-                           f"Da inizio mandato · tutte le {len(pl)} posizioni",
+        hbar=ci.hbar_chart(pl,_t("Rendimento per posizione"),
+                           _t("portfolio.all_positions", count=len(pl)),
                            color_by_sign=True)
     except Exception: pass
     # line NAV
@@ -167,14 +177,15 @@ def _gen_charts(portfolio_data, nav_history):
         dates=nh.get("dates") or []
         if len(navs)>10:
             base=navs[0] or 1
-            series={"NAV portafoglio":[v/base*100 for v in navs]}
-            if cb and cb[0]: series["Cost basis"]=[v/cb[0]*100 for v in cb]
+            series={_t("NAV portafoglio"):[v/base*100 for v in navs]}
+            if cb and cb[0]: series[_t("Cost basis")]=[v/cb[0]*100 for v in cb]
             xl=[d[5:7] for d in dates] if dates else [str(i) for i in range(len(navs))]
-            line=ci.line_chart(series,xl,"Performance: NAV vs cost basis","Indicizzato a 100")
+            line=ci.line_chart(series,xl,_t("Performance: NAV vs cost basis"),_t("Indicizzato a 100"))
     except Exception: pass
     return line,hbar,donut
 
 
+@localized
 def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
                              nav_history=None, output_path=None, title_date=None, sizing_data=None, scoring_data=None):
     if not RL:
@@ -183,7 +194,7 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
     os.makedirs(REPORT_DIR,exist_ok=True)
     if not output_path:
         output_path=os.path.join(REPORT_DIR,"weekly_"+datetime.now().strftime("%Y%m%d_%H%M")+".pdf")
-    date_str=title_date or datetime.now().strftime("%d %B %Y")
+    date_str=title_date or date_label()
     line,hbar,donut=_gen_charts(portfolio_data,nav_history)
 
     # estrai BLUF per la sintesi cover
@@ -231,12 +242,14 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
         # lockup, vestito SCURO: ambra su obsidian (B-DC7). Reso identico al disegno
         # hardcoded precedente: e' da qui che sono state misurate le proporzioni.
         _draw_lockup(cnv,1.1*cm,Hh-2.3*cm,21,REG,BOLD,AMBER,AMBER_DEEP,AMBER,tagline=True)
-        cnv.setFillColor(TEXTLT); cnv.setFont(BOLD,16); cnv.drawString(1.1*cm,Hh-4.4*cm,"Weekly Research Note")
+        cover_title = _t("Weekly Research Note")
+        title_size = min(16, 16 * (band - 2.2*cm) / pdfmetrics.stringWidth(cover_title, BOLD, 16))
+        cnv.setFillColor(TEXTLT); cnv.setFont(BOLD,title_size); cnv.drawString(1.1*cm,Hh-4.4*cm,cover_title)
         cnv.setFillColor(TEXTDIM); cnv.setFont(REG,10)
-        cnv.drawString(1.1*cm,Hh-5.0*cm,"Comitato Multi-Agent"); cnv.drawString(1.1*cm,Hh-5.45*cm,date_str)
+        cnv.drawString(1.1*cm,Hh-5.0*cm,_t("Comitato Multi-Agent")); cnv.drawString(1.1*cm,Hh-5.45*cm,date_str)
         # sintesi
         cnv.setFillColor(AMBER); cnv.setFont(BOLD,9.5)
-        cnv.drawString(1.1*cm,Hh-6.7*cm,"IN SINTESI")
+        cnv.drawString(1.1*cm,Hh-6.7*cm,_t("IN SINTESI"))
         from textwrap import wrap
         yy=Hh-7.4*cm; cnv.setFont(REG,8.1)
         _floor=1.45*cm   # sopra il disclaimer di cover
@@ -254,16 +267,16 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
         if _cut:
             # troncamento DICHIARATO, mai silenzioso: il testo integrale e' nel corpo
             cnv.setFillColor(AMBER); cnv.setFont(ITAL,7)
-            cnv.drawString(1.1*cm,max(yy,_floor),"[...] segue nel BLUF a pagina 2")
+            cnv.drawString(1.1*cm,max(yy,_floor),_t("[...] segue nel BLUF a pagina 2"))
         cnv.setFillColor(MUTEDB); cnv.setFont(ITAL,6)
-        cnv.drawString(1.1*cm,1.0*cm,"Documento interno. Non costituisce consulenza finanziaria.")
+        cnv.drawString(1.1*cm,1.0*cm,_t("Documento interno. Non costituisce consulenza finanziaria."))
         # grafici a destra
         rx=band+0.5*cm; rw=W-band-0.9*cm; yc=Hh-1.0*cm
         for ch in [line,hbar,donut]:
             if ch and os.path.exists(ch):
                 ir=ImageReader(ch); iw,ih=ir.getSize(); h=rw*ih/iw
                 cnv.drawImage(ch,rx,yc-h,width=rw,height=h,mask="auto"); yc-=h+0.25*cm
-        cnv.setFillColor(GREY); cnv.setFont(ITAL,7); cnv.drawRightString(W-0.7*cm,0.8*cm,"Bellomberg Quant Engine   ·   Pagina 1")
+        cnv.setFillColor(GREY); cnv.setFont(ITAL,7); cnv.drawRightString(W-0.7*cm,0.8*cm,_t("Bellomberg Quant Engine   ·   Pagina 1"))
         cnv.restoreState()
 
     def draw_body(cnv,doc):
@@ -273,12 +286,12 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
         # nera e ambra — decisione PM 15/07, la stessa dei titoli di sezione)
         _draw_lockup(cnv,2*cm,Hh-1.4*cm,12,REG,BOLD,OBSIDIAN,GREY,AMBER,tagline=False)
         cnv.setFillColor(GREY); cnv.setFont(REG,7.5)
-        cnv.drawRightString(W-2*cm,Hh-1.38*cm,"WEEKLY RESEARCH NOTE   ·   "+date_str.upper())
+        cnv.drawRightString(W-2*cm,Hh-1.38*cm,_t("WEEKLY RESEARCH NOTE   ·   ")+date_str.upper())
         cnv.setStrokeColor(NAVY); cnv.setLineWidth(1); cnv.line(2*cm,Hh-1.75*cm,W-2*cm,Hh-1.75*cm)
         cnv.setStrokeColor(RULE); cnv.setLineWidth(0.5); cnv.line(2*cm,1.5*cm,W-2*cm,1.5*cm)
         cnv.setFillColor(GREY); cnv.setFont(ITAL,7)
-        cnv.drawString(2*cm,1.15*cm,"Bellomberg Research · Documento interno")
-        cnv.drawRightString(W-2*cm,1.15*cm,"Pagina "+str(doc.page))
+        cnv.drawString(2*cm,1.15*cm,_t("Bellomberg Research · Documento interno"))
+        cnv.drawRightString(W-2*cm,1.15*cm,_t("Pagina ")+str(doc.page))
         cnv.restoreState()
 
     doc=BaseDocTemplate(output_path,pagesize=A4,leftMargin=2*cm,rightMargin=2*cm,
@@ -320,9 +333,9 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
 
     story=[NextPageTemplate("body"),PageBreak()]
     # header sezione + KPI strip
-    story.append(sec("Sintesi e profilo del portafoglio",h1))
-    kpi=[["NAV TOTALE","INVESTITO","CASH","P/L (su investito)","POSIZIONI"],
-         [f"{nav_tot:,.0f} €",f"{mkt_eur:,.0f} €",f"{cash:,.0f} €",f"{pl_eur:+,.0f} €  ({pl_pct:+.1f}%)",
+    story.append(sec(_t("Sintesi e profilo del portafoglio"),h1))
+    kpi=[[_t("NAV TOTALE"),_t("INVESTITO"),_t("CASH"),_t("P/L (su investito)"),_t("POSIZIONI")],
+         [f"{_n(nav_tot)} €",f"{_n(mkt_eur)} €",f"{_n(cash)} €",f"{_n(pl_eur, '+,.0f')} €  ({_n(pl_pct, '+.1f')}%)",
           str(pd.get('n_positions',len(pd.get('positions',[]))))]]
     kt=Table(kpi,colWidths=[(W-4*cm)/5]*5)
     kt.setStyle(TableStyle([
@@ -342,7 +355,7 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
         if at:
             for ln_ in at.group(1).strip().split("\n"):
                 cells=[c.strip() for c in ln_.strip().strip("|").split("|")]
-                if not cells or "---" in cells[0] or cells[0].lower() in ("action",""):
+                if not cells or "---" in cells[0] or cells[0].lower() in ("action","azione",""):
                     continue
                 if len(cells)>=5:
                     cells=cells[:5]
@@ -356,8 +369,8 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
                         cells[2]=""
                     arows.append(cells)
         if arows:
-            story.append(sec("Action table - decisioni della settimana",h2))
-            adata=[["Azione","Ticker","EUR","Timing","Confidence"]]+arows
+            story.append(sec(_t("Action table - decisioni della settimana"),h2))
+            adata=[[_t("Azione"),"Ticker","EUR",_t("Timing"),_t("Confidence")]]+arows
             att=Table(adata,colWidths=[2.6*cm,3.2*cm,2.6*cm,(W-4*cm-11.0*cm),2.6*cm])
             asty=[("BACKGROUND",(0,0),(-1,0),OBSIDIAN),("TEXTCOLOR",(0,0),(-1,0),AMBER),
                   ("FONT",(0,0),(-1,0),BOLD,8),("FONT",(0,1),(-1,-1),REG,8.3),
@@ -379,14 +392,14 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
     # tabella metriche se risk_data
     if risk_data and isinstance(risk_data,dict):
         p=risk_data.get("portfolio",risk_data)
-        mrows=[["Metrica","Valore","Lettura"]]
+        mrows=[[_t("Metrica"),_t("Valore"),_t("Lettura")]]
         def add(k,v,r):
             if v is not None: mrows.append([k,v,r])
-        add("Volatilita' annualizzata",f"{p.get('vol_annual_pct','')}%","oscillazione tipica annua")
-        add("Sharpe ratio",f"{p.get('sharpe','')}","rendimento per unita' di rischio")
-        add("Beta vs S&P 500",f"{p.get('beta_vs_spy','')}","sensibilita' al mercato USA")
-        add("VaR 95% (1 giorno)",f"{p.get('var_95_1d_pct','')}%","perdita 1 giorno su 20")
-        add("Max Drawdown (1 anno)",f"{p.get('max_dd_1y_pct','')}%","massima caduta picco-minimo")
+        add(_t("Volatilita' annualizzata"),f"{p.get('vol_annual_pct','')}%",_t("oscillazione tipica annua"))
+        add(_t("Sharpe ratio"),f"{p.get('sharpe','')}",_t("rendimento per unita' di rischio"))
+        add(_t("Beta vs S&P 500"),f"{p.get('beta_vs_spy','')}",_t("sensibilita' al mercato USA"))
+        add(_t("VaR 95% (1 giorno)"),f"{p.get('var_95_1d_pct','')}%",_t("perdita 1 giorno su 20"))
+        add(_t("Max Drawdown (1 anno)"),f"{p.get('max_dd_1y_pct','')}%",_t("massima caduta picco-minimo"))
         if len(mrows)>1:
             mt=Table(mrows,colWidths=[7*cm,3*cm,(W-4*cm-10*cm)])
             st=[("BACKGROUND",(0,0),(-1,0),OBSIDIAN),("TEXTCOLOR",(0,0),(-1,0),AMBER),
@@ -405,13 +418,13 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
             from bellomberg.agents.specialist_scores import collect_scoreboard
             srows = collect_scoreboard(scoring_data)
             if srows:
-                story.append(sec("Cruscotto di rischio (score deterministici degli specialisti)", h2))
+                story.append(sec(_t("Cruscotto di rischio (score deterministici degli specialisti)"), h2))
                 # Il grezzo NON e' confrontabile fra domini: il max cambia col numero di
                 # metriche disponibili (9/18 e 8/21 sembrano simili ma valgono 50 e 38).
                 # Si mostra l'indice NORMALIZZATO 0-100 — la grandezza su cui gli scorer
                 # tarano davvero le bande (0-25 basso / 25-50 medio / 50-72 elevato /
                 # 72+ critico) — e si tiene il grezzo accanto per tracciabilita'.
-                data=[["Dominio","Verdetto","Rischio\n0-100","Score\ngrezzo"]]
+                data=[[_t("Dominio"),_t("Verdetto"),_t("Rischio\n0-100"),_t("Score\ngrezzo")]]
                 for r in srows:
                     mx=r.get("max_score") or 0
                     idx="{:.0f}".format(100.0*r["score"]/mx) if mx else "n.d."
@@ -442,10 +455,10 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
                     sty.append(("TEXTCOLOR",(2,i),(2,i),col))
                 stt.setStyle(TableStyle(sty)); story.append(stt)
                 story.append(Paragraph(
-                    "Indice 0-100 = score grezzo rapportato al suo massimo (piu' alto = piu' "
+                    _t("Indice 0-100 = score grezzo rapportato al suo massimo (piu' alto = piu' "
                     "rischio). E' l'unica colonna confrontabile fra domini: il massimo grezzo "
                     "varia col numero di metriche disponibili per ciascuno specialista. "
-                    "Bande: &lt;25 basso · 25-50 medio · 50-72 elevato · &ge;72 critico.", small))
+                    "Bande: &lt;25 basso · 25-50 medio · 50-72 elevato · &ge;72 critico."), small))
                 story.append(Spacer(1,0.4*cm))
         except Exception:
             pass
@@ -461,16 +474,16 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
             import bellomberg.reporting.charts_institutional as ci
             ch=ci.sizing_headroom_chart(sizing_data["positions"])
             if not ch:
-                _sz_err="motore grafici non disponibile o posizioni non plottabili"
+                _sz_err=_t("motore grafici non disponibile o posizioni non plottabili")
             elif not os.path.exists(ch):
-                _sz_err="file grafico non trovato: "+str(ch)
+                _sz_err=_t("file grafico non trovato: ")+str(ch)
         except Exception as _e:
             ch=None; _sz_err=type(_e).__name__+": "+str(_e)
-        story.append(sec("Esposizione vs limiti di rischio (sizing vol x correlazione)",h2))
+        story.append(sec(_t("Esposizione vs limiti di rischio (sizing vol x correlazione)"),h2))
         if _sz_err:
             _m=str(_sz_err).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
-            story.append(Paragraph("[n.d.] Grafico non disponibile - "+_m+
-                                   ". Buco dichiarato: nessun dato sostitutivo.", small))
+            story.append(Paragraph(_t("[n.d.] Grafico non disponibile - ")+_m+
+                                   _t(". Buco dichiarato: nessun dato sostitutivo."), small))
         else:
             ir=ImageReader(ch); iw,ih=ir.getSize(); w_img=W-4*cm
             story.append(Image(ch,width=w_img,height=w_img*ih/iw))

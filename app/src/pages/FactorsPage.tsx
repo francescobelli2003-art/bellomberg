@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useT } from '@/i18n/provider';
+import { localizePayload } from '@/lib/api-presentation';
+import { leggiDetail, dataIt } from '@/lib/quota';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bellomberg } from '@/lib/api';
 import type { PortfolioSnapshot, AdvancedMetrics, PortfolioRisk } from '@/lib/api';
 import {
@@ -33,16 +36,16 @@ import './factor-riconciliazione.css';
    ========================================================================== */
 
 // ── numeri ──────────────────────────────────────────────────────────────────
-// ⚠ `fmtNum` di lib/format.ts non forza il raggruppamento: 39265 -> 39.265 ma
-//   8053 -> 8053. In una colonna di numeri e' una scala che cambia regola a
-//   meta' tabella. Qui si usa il formattatore di lib/fattori.ts, che lo forza.
+// Il formattatore di lib/fattori.ts mantiene il raggruppamento esplicito e
+// segue la lingua corrente, come il formattatore condiviso.
 
 /** un numero che non c'e' non e' un trattino: e' una frase che dice perche' */
 function Cifra({ v, dec = 2, suffisso = '', motivo, segno }: {
   v: unknown; dec?: number; suffisso?: string; motivo?: string; segno?: boolean;
 }) {
+  const tr = useT();
   const x = num(v);
-  if (x === null) return <span className="muto">{motivo || 'non misurato'}</span>;
+  if (x === null) return <span className="muto">{motivo || tr('factors.f001')}</span>;
   return <>{segno && x > 0 ? '+' : ''}{fnum(x, dec)}{suffisso}</>;
 }
 
@@ -60,14 +63,15 @@ function Cifra({ v, dec = 2, suffisso = '', motivo, segno }: {
 function Baffo({ ic, limite, nome, unita }: {
   ic: Intervallo | null; limite: number; nome: string; unita: string;
 }) {
+  const tr = useT();
   if (!ic) return <span className="muto">{perche('coefficiente-assente')}</span>;
   if (ic.lo === null || ic.hi === null) return <span className="muto">{perche(ic.muto)}</span>;
   const p = (v: number) => Math.max(0, Math.min(100, 50 + (v / (limite * 2)) * 100));
   const a = p(ic.lo), b = p(ic.hi), c = p(ic.beta);
-  const lettura = `${nome} ${fnum(ic.beta, 2)}${unita} · intervallo al 95% da `
-    + `${fnum(ic.lo, 2)}${unita} a ${fnum(ic.hi, 2)}${unita} · t ${fnum(ic.t, 2)} · `
-    + (ic.sig ? 'significativo al 5%'
-      : ic.attraversaZero ? 'non distinguibile da zero' : 'non significativo al 5%');
+  const lettura = tr('factors.f002', {a: nome, b: fnum(ic.beta, 2) ?? tr('factors.f013'), c: unita})
+    + tr('factors.f003', {a: fnum(ic.lo, 2) ?? tr('factors.f013'), b: unita, c: fnum(ic.hi, 2) ?? tr('factors.f013'), d: unita, e: fnum(ic.t, 2) ?? tr('factors.f013')})
+    + (ic.sig ? tr('factors.f004')
+      : ic.attraversaZero ? tr('factors.f005') : tr('factors.f006'));
   return (
     <div className={'baffo ' + (ic.sig ? 'sig' : 'ns')} data-strato="baffo"
          tabIndex={0} role="img" aria-label={lettura} title={lettura}>
@@ -80,35 +84,43 @@ function Baffo({ ic, limite, nome, unita }: {
 }
 
 export default function FactorsPage() {
+  const tr = useT();
   // una sorgente per stato, e ogni errore si DICHIARA: mai un buco muto
-  const [fac, setFac] = useState<PayloadFattori | null>(null);
+  const [facRaw, setFac] = useState<PayloadFattori | null>(null);
   const [facErr, setFacErr] = useState<string | null>(null);
-  const [rec, setRec] = useState<PayloadRiconciliazione | null>(null);
+  const [recRaw, setRec] = useState<PayloadRiconciliazione | null>(null);
   const [recErr, setRecErr] = useState<string | null>(null);
   const [recAtt, setRecAtt] = useState(false);
-  const [fac3, setFac3] = useState<PayloadFattori | null>(null);
+  const [fac3Raw, setFac3] = useState<PayloadFattori | null>(null);
   const [fac3Err, setFac3Err] = useState<string | null>(null);
-  const [snap, setSnap] = useState<PortfolioSnapshot | null>(null);
+  const [snapRaw, setSnap] = useState<PortfolioSnapshot | null>(null);
   const [snapErr, setSnapErr] = useState<string | null>(null);
-  const [adv, setAdv] = useState<AdvancedMetrics | null>(null);
+  const [advRaw, setAdv] = useState<AdvancedMetrics | null>(null);
   // ⚠ Queste due mancavano: `.catch(() => setAdv(null))` faceva sparire due
   //   misure su quattro senza che nessuno dicesse che una rotta non aveva
   //   risposto — il fallback silenzioso vietato il 14/07, commesso proprio
   //   nella pagina che esiste per denunciarlo. Trovato dalla review.
   const [advErr, setAdvErr] = useState<string | null>(null);
-  const [risk, setRisk] = useState<PortfolioRisk | null>(null);
+  const [riskRaw, setRisk] = useState<PortfolioRisk | null>(null);
   const [riskErr, setRiskErr] = useState<string | null>(null);
   const [caricando, setCaricando] = useState(false);
   const [riscalda, setRiscalda] = useState(false);
   const [scelta, setScelta] = useState(0);
+  const [riscaldaErr, setRiscaldaErr] = useState<string | null>(null);
+  // Only explicitly authored variants are projected; the original response is retained.
+  const fac = useMemo(() => localizePayload(facRaw), [facRaw, tr]);
+  const rec = useMemo(() => localizePayload(recRaw), [recRaw, tr]);
+  const fac3 = useMemo(() => localizePayload(fac3Raw), [fac3Raw, tr]);
+  const snap = useMemo(() => localizePayload(snapRaw), [snapRaw, tr]);
+  const adv = useMemo(() => localizePayload(advRaw), [advRaw, tr]);
+  const risk = useMemo(() => localizePayload(riskRaw), [riskRaw, tr]);
   const vivo = useRef(true);
 
   useEffect(() => () => { vivo.current = false; }, []);
 
   const err = (e: unknown): string => {
-    const x = e as { response?: { data?: { detail?: string } }; message?: string };
-    return (x && x.response && x.response.data && x.response.data.detail)
-      || (x && x.message) || String(e);
+    const x = e as { response?: { data?: { detail?: unknown } }; message?: unknown };
+    return leggiDetail(x?.response?.data?.detail ?? x?.message ?? e);
   };
 
   /* ⚠ L'ORDINE E' MISURATO, NON SCELTO A GUSTO. Vedi ORDINE_CHIAMATE in
@@ -128,7 +140,7 @@ export default function FactorsPage() {
     inCorsa.current = true;
     setCaricando(true);
     setFacErr(null); setRecErr(null); setFac3Err(null); setSnapErr(null);
-    setAdvErr(null); setRiskErr(null);
+    setAdvErr(null); setRiskErr(null); setRiscaldaErr(null);
 
     // ⚠ Una risposta 200 puo' portare un campo `error` dentro: succede su
     //   /metrics/advanced (numpy assente, storico NAV insufficiente) e sui
@@ -180,7 +192,8 @@ export default function FactorsPage() {
     // 4. la cortesia: si rimette la 1y in cache come l'avevamo trovata.
     //    ⚠ E' lavoro che il PM non ha chiesto: sta scritto nella nota CACHE.
     if (vivo.current) setRiscalda(true);
-    try { await Bellomberg.portfolioFactors(false); } catch { /* non cambia nulla in pagina */ }
+    try { buono(await Bellomberg.portfolioFactors(false)); }
+    catch (e) { if (vivo.current) setRiscaldaErr(err(e)); }
     if (vivo.current) setRiscalda(false);
     inCorsa.current = false;
   }, []);
@@ -277,8 +290,8 @@ export default function FactorsPage() {
       <div className="testa">
         <span className="marchio">FACTOR LAB</span>
         <span className="sotto">
-          RICONCILIAZIONE MISURE
-          {fac ? ` · ${fac.n_holdings_analyzed ?? '?'} HOLDING · FINESTRA ${(fac.period || '').toUpperCase()}` : ''}
+          {tr('factors.f007')}
+          {fac ? tr('factors.f008', {a: fac.n_holdings_analyzed ?? '?', b: (fac.period || '').toUpperCase()}) : ''}
           {fac && fac.version ? ` · ${fac.version.toUpperCase()}` : ''}
         </span>
         {/* ⚠ il bottone dice in quale delle tre fasi si trova: prima diceva
@@ -286,30 +299,30 @@ export default function FactorsPage() {
             dichiarava a riposo mentre lavorava */}
         <button className="bt" onClick={() => carica(true)}
                 disabled={caricando || recAtt || riscalda}>
-          {caricando ? 'RICALCOLO FATTORI…'
-            : recAtt ? 'RICONCILIAZIONE…'
-              : riscalda ? 'RISCALDO LA CACHE…'
-                : 'RICALCOLA'}
+          {caricando ? tr('factors.f009')
+            : recAtt ? tr('factors.f010')
+              : riscalda ? tr('factors.f011')
+                : tr('factors.f012')}
         </button>
         {/* ⚠ DECISIONE PM 27/07: badge in testata e si disegna. I fattori
             Kenneth French finiscono due mesi fa; non dichiararlo sarebbe il
             fallback silenzioso vietato il 14/07. */}
         <div className={'eta' + (ritardo !== null && ritardo > 90 ? ' ko' : '')}>
-          <span className="n num">{ritardo === null ? 'n.d.' : ritardo + 'G'}</span>
+          <span className="n num">{ritardo === null ? tr('factors.f013') : ritardo + tr('factors.f014')}</span>
           <span>
-            <span className="d">ritardo dati fattoriali</span><br />
+            <span className="d">{tr('factors.f015')}</span><br />
             <span className="p">
               {fac && fac.ff_data_last_date
-                ? 'FAMA-FRENCH AL ' + fac.ff_data_last_date
+                ? tr('factors.f016') + dataIt(fac.ff_data_last_date)
                 : perche('coefficiente-assente')}
             </span>
           </span>
         </div>
       </div>
 
-      {facErr && (
+      {facErr !== null && (
         <div className="avviso">
-          MODELLO FATTORIALE NON DISPONIBILE — {facErr}
+          {tr('factors.f017')} {facErr || tr('factors.errorMissing')}
         </div>
       )}
 
@@ -317,20 +330,20 @@ export default function FactorsPage() {
       <div className="rq">
         <span className="sq tl" /><span className="sq br" />
         <div className="ph a">
-          <h1>BETA DI PORTAFOGLIO — {cal.lancette.length || 'NESSUNA'} FONTI</h1>
+          <h1>{tr('factors.f018')} {cal.lancette.length || tr('factors.f019')} {tr('factors.f020')}</h1>
           <span className="side">
             {cal.verdetto
-              ? <>ESITO <span className={cal.verdetto === 'RECONCILED' ? 'up' : 'dn'}>{cal.verdetto}</span>
+              ? <>{tr('factors.f021')} <span className={cal.verdetto === 'RECONCILED' ? 'up' : 'dn'}>{cal.verdetto}</span>
                 {' · SPREAD MAX '}<Cifra v={cal.spreadMax} />
-                {' · SOGLIA '}<Cifra v={cal.soglia} />
-                {' · CONSENSO '}<Cifra v={cal.consenso} />
+                {tr('factors.f022')}<Cifra v={cal.soglia} />
+                {tr('factors.f023')}<Cifra v={cal.consenso} />
                 {/* ⚠ prima si stampava solo il CONTEGGIO delle fonti cadute:
                     il motivo, che il backend manda verbatim, spariva */}
                 {cal.fontiCadute.length === 0
-                  ? ' · NESSUNA FONTE CADUTA'
-                  : ' · CADUTE: ' + cal.fontiCadute.map(([k, v]) => `${k} (${v})`).join(' · ')}</>
+                  ? tr('factors.f024')
+                  : tr('factors.f025') + cal.fontiCadute.map(([k, v]) => `${k} (${v})`).join(' · ')}</>
               : recAtt
-                ? 'RICONCILIAZIONE IN CORSO…'
+                ? tr('factors.f026')
                 : <span className="muto">{recErr || perche('riconciliazione-assente')}</span>}
           </span>
         </div>
@@ -338,10 +351,10 @@ export default function FactorsPage() {
         <div className="pb nopad">
           {cal.lancette.length === 0 ? (
             <div className="attesa">
-              <div className="t">{recAtt || caricando ? 'RICALCOLO IN CORSO' : 'NESSUNA STIMA DISPONIBILE'}</div>
+              <div className="t">{recAtt || caricando ? tr('factors.f027') : tr('factors.f028')}</div>
               <div className="s">
                 {recAtt || caricando
-                  ? `Il motore fattoriale sta rifacendo le regressioni sulla finestra a 3 anni per la riconciliazione. Costo misurato: ~${COSTO_CACHE.reconcile} s.`
+                  ? tr('factors.f029', {a: fnum(COSTO_CACHE.reconcile, 1) ?? tr('factors.f013')})
                   : (facErr || recErr || perche('riconciliazione-assente'))}
               </div>
             </div>
@@ -353,7 +366,7 @@ export default function FactorsPage() {
                   scusa solo se condividono QUESTO contenitore, mai fra
                   strumenti diversi (deciso PM 03/08: non e' data-inerte,
                   gli strati restano visibili e misurati) */}
-              <div className="calibro" role="radiogroup" aria-label="stime del beta di portafoglio"
+              <div className="calibro" role="radiogroup" aria-label={tr('factors.f030')}
                    data-strato="calibro" onKeyDown={tasti}>
                 {/* ⚠ La finestra della soglia si CENTRA SUL PUNTO MEDIO di
                     [min, max] delle riconciliate, non sul consenso (mediana):
@@ -413,7 +426,7 @@ export default function FactorsPage() {
                       onFocus={() => setScelta(i)}
                       onMouseEnter={() => setScelta(i)}
                       onClick={() => setScelta(i)}
-                      aria-label={`${l.etichetta}: ${fnum(l.valore, 3)}. ${l.riconciliato ? 'inclusa nella riconciliazione' : 'non inclusa nella riconciliazione'}. ${l.definizione || perche(l.definizioneMuta)}`}
+                      aria-label={`${l.etichetta}: ${fnum(l.valore, 3)}. ${l.riconciliato ? tr('factors.f031') : tr('factors.f032')}. ${l.definizione || perche(l.definizioneMuta)}`}
                       className={'lanc' + (l.riconciliato ? '' : ' fuori') + (i === scelta ? ' on' : '')}
                       style={{ left: p.toFixed(2) + '%' }}
                     >
@@ -437,7 +450,7 @@ export default function FactorsPage() {
                   <div key={l.chiave}
                        className={(i === scelta ? 'on' : '') + (l.riconciliato ? '' : ' fuori')}>
                     <div className={'k' + (l.riconciliato ? '' : ' fuori')}>
-                      {l.etichetta}{l.riconciliato ? '' : ' · NON RICONCILIATO'}
+                      {l.etichetta}{l.riconciliato ? '' : tr('factors.f033')}
                     </div>
                     <div className="v num">{fnum(l.valore, 3)}</div>
                     <div className="d">{l.definizione || perche(l.definizioneMuta)}</div>
@@ -459,22 +472,22 @@ export default function FactorsPage() {
               serie TWR arriva a ieri — 59 giorni di distanza fra gli estremi
               destri. Il backend manda la frase giusta in `benchmark_alignment`
               e la prima stesura la buttava per scriverne una falsa. */}
-          <div className="ph r"><h2>ALPHA E SHARPE — FONTI DISCORDANTI</h2>
+          <div className="ph r"><h2>{tr('factors.f034')}</h2>
             <span className="side">
-              {allineamento ? 'ALLINEAMENTO DICHIARATO' : <span className="muto">allineamento non dichiarato</span>}
+              {allineamento ? tr('factors.f035') : <span className="muto">{tr('factors.f036')}</span>}
             </span></div>
           <div className="pb fisso">
-            {(advErr || riskErr) && (
+            {(advErr !== null || riskErr !== null) && (
               <div className="avviso" style={{ marginBottom: 8 }}>
-                {advErr ? `METRICHE AVANZATE NON DISPONIBILI — ${advErr}` : ''}
-                {advErr && riskErr ? ' · ' : ''}
-                {riskErr ? `RISCHIO DI PORTAFOGLIO NON DISPONIBILE — ${riskErr}` : ''}
+                {advErr !== null ? tr('factors.f037', {a: advErr || tr('factors.errorMissing')}) : ''}
+                {advErr !== null && riskErr !== null ? ' · ' : ''}
+                {riskErr !== null ? tr('factors.f038', {a: riskErr || tr('factors.errorMissing')}) : ''}
               </div>
             )}
             <Duello
-              nome="ALPHA ANNUALIZZATO"
-              a={{ v: alphaFattoriale, u: '%', fonte: 'MODELLO FATTORIALE',
-                   come: `media pesata di ${fac?.n_holdings_analyzed ?? '?'} α di regressione · finestra ${(fac?.period || '?').toUpperCase()} · fattori al ${fac?.ff_data_last_date || 'n.d.'}`,
+              nome={tr('factors.f039')}
+              a={{ v: alphaFattoriale, u: '%', fonte: tr('factors.f040'),
+                   come: tr('factors.f041', {a: fac?.n_holdings_analyzed ?? '?', b: (fac?.period || '?').toUpperCase(), c: fac?.ff_data_last_date ? dataIt(fac.ff_data_last_date) : tr('factors.f013')}),
                    // ⚠ `portfolio_aggregate` NON porta `alpha_tstat`: verificato,
                    //   la chiave non esiste. Colorare questo numero di verde per
                    //   il solo segno e' esattamente la bugia n.6 che questa
@@ -482,9 +495,9 @@ export default function FactorsPage() {
                    //   ricommetteva a 26px, mentre 52 righe sotto applicava la
                    //   regola giusta sui 27 alpha per titolo. Trovato dalla review.
                    giudicabile: false,
-                   nonGiudicabile: 'l’aggregato non ha t-stat nel payload: nessun colore' }}
-              b={{ v: alphaBenchmark, u: '%', fonte: 'BENCHMARK UFFICIALE',
-                   come: 'serie TWR ufficiale vs benchmark EUR total-return',
+                   nonGiudicabile: tr('factors.f042') }}
+              b={{ v: alphaBenchmark, u: '%', fonte: tr('factors.f043'),
+                   come: tr('factors.f044'),
                    // ⚠ Stessa regola del lato A, che la prima stesura applicava
                    //   a UNA sola delle due rese dello stesso alpha: il blocco
                    //   benchmark di /metrics/advanced porta beta/alpha/correl/IR/
@@ -492,20 +505,20 @@ export default function FactorsPage() {
                    //   Il -12,56% rosso a 26px per il solo segno era la bugia
                    //   n.6 sul lato B (audit/24 B.7).
                    giudicabile: false,
-                   nonGiudicabile: 'nessuna t-stat nel payload: nessun colore',
+                   nonGiudicabile: tr('factors.f045'),
                    motivoAssente: allineamento || undefined }}
               dec={3} unitaScarto=" PP"
             />
             <Duello
               nome="SHARPE RATIO"
               a={{ v: sharpeRisk, u: '', fonte: '/PORTFOLIO/RISK',
-                   come: 'rendimenti book in EUR',
+                   come: tr('factors.f046'),
                    giudicabile: false,
-                   nonGiudicabile: 'nessun test di significatività: nessun colore' }}
-              b={{ v: sharpeAdv, u: '', fonte: '/METRICS/ADVANCED',
-                   come: `serie TWR ufficiale · risk-free ${adv && (adv as {risk_free_used?: number}).risk_free_used !== undefined ? fnum((adv as {risk_free_used?: number}).risk_free_used! * 100, 2) + '%' : 'n.d.'}`,
+                   nonGiudicabile: tr('factors.f047') }}
+              b={{ v: sharpeAdv, u: '', fonte: '/PORTFOLIO/METRICS/ADVANCED',
+                   come: tr('factors.f048', {a: adv && (adv as {risk_free_used?: number}).risk_free_used !== undefined ? fnum((adv as {risk_free_used?: number}).risk_free_used! * 100, 2) + '%' : tr('factors.f013')}),
                    giudicabile: false,
-                   nonGiudicabile: 'nessun test di significatività: nessun colore' }}
+                   nonGiudicabile: tr('factors.f047') }}
               dec={2} unitaScarto=""
             />
             {/* le due frasi che il backend manda gia' scritte, VERBATIM e per
@@ -514,9 +527,9 @@ export default function FactorsPage() {
             {notaSharpe && <div className="nota" style={{ paddingTop: 4 }}>{notaSharpe}</div>}
           </div>
 
-          <div className="ph divide"><h2>ALPHA PER TITOLO</h2>
+          <div className="ph divide"><h2>{tr('factors.f049')}</h2>
             <span className="side">
-              {alfa.length ? `${nSigAlfa}/${alfa.length} SIGNIFICATIVI AL 5%` : '—'}
+              {alfa.length ? tr('factors.f050', {a: nSigAlfa, b: alfa.length}) : '—'}
             </span></div>
           <div className="pb scorre nopad" style={{ flex: '1 1 0' }}>
             {/* l'id serve al collaudo degli stati (prova_riconciliazione.py):
@@ -527,8 +540,8 @@ export default function FactorsPage() {
                 {/* ⚠ `text-transform:uppercase` distrugge α e β: senza il
                     contenitore .sym l'intestazione dell'alpha diventava
                     «A ANN.». Trovato dalla review. */}
-                <th>Titolo</th><th className="n">Peso su investito</th><th className="n">Oss.</th>
-                <th style={{ width: '38%' }}><span className="sym">α</span> ann. · IC 95%</th>
+                <th>{tr('factors.f051')}</th><th className="n">{tr('factors.f052')}</th><th className="n">{tr('factors.f053')}</th>
+                <th style={{ width: '38%' }}><span className="sym">α</span> {tr('factors.f054')}</th>
                 <th className="n"><span className="sym">α</span> ann.</th><th className="n">R²</th>
               </tr></thead>
               <tbody>
@@ -541,19 +554,19 @@ export default function FactorsPage() {
         {/* ══ ④ + REGIONI ════════════════════════════════════════════════ */}
         <div className="rq col-1">
           <span className="sq tl" /><span className="sq br" />
-          <div className="ph c"><h2>REGRESSIONE — FINESTRA 1Y vs 3Y</h2>
+          <div className="ph c"><h2>{tr('factors.f055')}</h2>
             <span className="side">
               {fac3
-                ? `SCALA ±${fnum(scala, 2)}`
-                : fac3Err
-                  ? <span className="muto">{fac3Err}</span>
-                  : 'FINESTRA 3Y IN ARRIVO…'}
+                ? tr('factors.f056', {a: fnum(scala, 2) ?? tr('factors.f013')})
+                : fac3Err !== null
+                  ? <span className="muto">{tr('factors.windowUnavailable')} — {fac3Err || tr('factors.errorMissing')}</span>
+                  : tr('factors.f057')}
             </span></div>
           <div className="pb scorre nopad fisso">
             <table>
               <thead><tr>
-                <th>Fattore</th><th className="n">1Y</th><th className="n">3Y</th>
-                <th style={{ width: '34%' }}>Scarto</th><th className="n">Δ</th>
+                <th>{tr('factors.f058')}</th><th className="n">1Y</th><th className="n">3Y</th>
+                <th style={{ width: '34%' }}>{tr('factors.f059')}</th><th className="n">Δ</th>
               </tr></thead>
               <tbody>
                 {conf.map(r => (
@@ -575,17 +588,17 @@ export default function FactorsPage() {
             </table>
           </div>
 
-          <div className="ph divide"><h2>DATASET FATTORIALI PER REGIONE</h2>
+          <div className="ph divide"><h2>{tr('factors.f060')}</h2>
             <span className="side">
               {reg.length
-                ? `${reg.length} DATASET · ${fuori.n} TITOLI SCARTATI`
+                ? tr('factors.f061', {a: reg.length, b: fuori.n})
                 : '—'}
             </span></div>
           <div className="pb scorre nopad" style={{ flex: '1 1 0' }}>
             <table>
               <thead><tr>
-                <th>Regione</th><th className="n">Titoli</th><th className="n">Peso</th>
-                <th className="n">Oss.</th><th className="data">Ultima data</th>
+                <th>{tr('factors.f062')}</th><th className="n">{tr('factors.f063')}</th><th className="n">{tr('factors.f064')}</th>
+                <th className="n">{tr('factors.f053')}</th><th className="data">{tr('factors.f065')}</th>
               </tr></thead>
               <tbody>
                 {reg.map(r => (
@@ -595,7 +608,7 @@ export default function FactorsPage() {
                     <td className="n"><Cifra v={r.nHolding} dec={0} /></td>
                     <td className="n"><Cifra v={r.peso} dec={1} suffisso="%" /></td>
                     <td className="n"><Cifra v={r.nObs} dec={0} /></td>
-                    <td className="data t-et">{r.ultimaData || <span className="muto">n.d.</span>}</td>
+                    <td className="data t-et">{r.ultimaData ? dataIt(r.ultimaData) : <span className="muto">{tr('factors.f013')}</span>}</td>
                   </tr>
                 ))}
                 {/* ⚠ REGRESSIONE RIPARATA. La pagina sostituita mostrava
@@ -606,10 +619,10 @@ export default function FactorsPage() {
                 {fuori.n > 0 && (
                   <tr><td colSpan={5} style={{ paddingTop: 7 }}>
                     <span className="dn" style={{ fontWeight: 600 }}>
-                      {fuori.n} {fuori.n === 1 ? 'titolo scartato' : 'titoli scartati'} dal motore
+                      {fuori.n} {fuori.n === 1 ? tr('factors.f066') : tr('factors.f067')} {tr('factors.f068')}
                     </span>
                     {fuori.righe.length === 0 && (
-                      <> — <span className="muto">il backend non manda il dettaglio</span></>
+                      <> — <span className="muto">{tr('factors.f069')}</span></>
                     )}
                   </td></tr>
                 )}
@@ -629,13 +642,13 @@ export default function FactorsPage() {
         {/* ══ ⑤ BASE DI CALCOLO ══════════════════════════════════════════ */}
         <div className="rq col-base">
           <span className="sq tl" /><span className="sq br" />
-          <div className="ph v"><h2>BASE DI CALCOLO — COPERTURA</h2>
-            <span className="side">denominatore dichiarato</span></div>
+          <div className="ph v"><h2>{tr('factors.f070')}</h2>
+            <span className="side">{tr('factors.f071')}</span></div>
           <div className="pb scorre">
             <div id="cop-dichiarata" className="grande num t-et">
               <Cifra v={cop.dichiarata} dec={2} suffisso="%" />
             </div>
-            <div className="sotto-grande">coverage dichiarata · sul capitale investito</div>
+            <div className="sotto-grande">{tr('factors.f072')}</div>
             <div style={{ height: 14 }} />
             {/* ⚠ la coverage vera sul NAV e' il PRODOTTO delle due frazioni,
                 non il solo investito/NAV: v. lib/fattori.ts.
@@ -644,23 +657,23 @@ export default function FactorsPage() {
             <div id="cop-effettiva" className="grande num cy">
               <Cifra v={cop.effettiva} dec={2} suffisso="%" motivo={perche(cop.effettivaMuta || cop.muto)} />
             </div>
-            <div className="sotto-grande">coverage effettiva sul NAV</div>
+            <div className="sotto-grande">{tr('factors.f073')}</div>
             <div style={{ height: 12 }} />
             <table>
               <tbody>
-                <tr><td className="t-et">Capitale investito</td>
+                <tr><td className="t-et">{tr('factors.f074')}</td>
                   <td className="n"><Cifra v={cop.investito} suffisso=" €" motivo={perche(cop.muto)} /></td></tr>
-                <tr><td className="t-et">Liquidità</td>
+                <tr><td className="t-et">{tr('factors.f075')}</td>
                   <td className="n"><Cifra v={cop.cassa} suffisso=" €" motivo={perche(cop.muto)} /></td></tr>
                 <tr><td className="t-et">NAV</td>
                   <td className="n"><Cifra v={cop.nav} suffisso=" €" motivo={perche(cop.muto)} /></td></tr>
-                <tr><td className="t-et">Liquidità / NAV</td>
+                <tr><td className="t-et">{tr('factors.f076')}</td>
                   <td className="n"><Cifra v={cop.cassaPct} suffisso="%" motivo={perche(cop.muto)} /></td></tr>
-                <tr><td className="t-et">Investito / NAV</td>
+                <tr><td className="t-et">{tr('factors.f077')}</td>
                   <td className="n"><Cifra v={cop.investitoSuNav} suffisso="%" motivo={perche(cop.muto)} /></td></tr>
               </tbody>
             </table>
-            {snapErr && <div className="nota" style={{ marginTop: 8 }}><span className="dn">{snapErr}</span></div>}
+            {snapErr !== null && <div className="nota" style={{ marginTop: 8 }}><span className="dn">{tr('factors.portfolioUnavailable')} — {snapErr || tr('factors.errorMissing')}</span></div>}
             {/* ⚠ il riquadro si intitola «denominatore dichiarato» e ignorava
                 fx_incomplete e stale_positions: un NAV con cambi mancanti
                 scritto in euro senza una parola. Trovato dalla review. */}
@@ -672,8 +685,8 @@ export default function FactorsPage() {
                 commenti che confondono le cose importanti da guardare». Le
                 stesse informazioni sono cifre: stanno in tabella. */}
             <div className="ph divide" style={{ margin: '12px -11px 0' }}>
-              <h2>SIGNIFICATIVIT&Agrave;</h2>
-              <span className="side">{fac ? <>{rumore.celle} CELLE <span className="sym">β</span></> : '—'}</span>
+              <h2>{tr('factors.f078')}</h2>
+              <span className="side">{fac ? <>{rumore.celle} {tr('factors.f079')} <span className="sym">β</span></> : '—'}</span>
             </div>
             {/* ⚠ Senza il modello fattoriale questa tabella scriveva «0 / 0» e
                 «In saturazione 0»: lo zero al posto del dato assente, vietato
@@ -685,29 +698,31 @@ export default function FactorsPage() {
             ) : (
               <table style={{ marginTop: 6 }}>
                 <tbody>
-                  <tr><td className="t-et">|t| ≥ 1,96</td>
+                  <tr><td className="t-et">{tr('factors.f080')}</td>
                     <td className="n">{rumore.significative} / {rumore.celle}</td></tr>
-                  <tr><td className="t-et"><span className="sym">α</span> significativi al 5%</td>
+                  <tr><td className="t-et"><span className="sym">α</span> {tr('factors.f081')}</td>
                     <td className="n">
                       <Cifra v={fac.n_alpha_significant_5pct} dec={0} /> / <Cifra v={fac.n_holdings_analyzed} dec={0} />
                     </td></tr>
-                  <tr><td className="t-et">R² medio pesato</td>
+                  <tr><td className="t-et">{tr('factors.f082')}</td>
                     <td className="n"><Cifra v={num(fac.portfolio_avg_r_squared) !== null ? fac.portfolio_avg_r_squared! * 100 : null} dec={1} suffisso="%" /></td></tr>
-                  <tr><td className="t-et">Colorate dalla resa precedente</td>
+                  <tr><td className="t-et">{tr('factors.f083')}</td>
                     <td className="n">{rumore.colorateRegolaVecchia}</td></tr>
-                  <tr><td className="t-et">…di cui non significative</td>
+                  <tr><td className="t-et">{tr('factors.f084')}</td>
                     <td className="n">{rumore.colorateNonSignificative}</td></tr>
-                  <tr><td className="t-et">In saturazione (|<span className="sym">β</span>| &gt; 1,5)</td>
+                  <tr><td className="t-et">{tr('factors.f085')}<span className="sym">β</span>{tr('factors.f086')}</td>
                     <td className="n">{rumore.inSaturazione}</td></tr>
                 </tbody>
               </table>
             )}
 
             <div className="nota sep">
-              CACHE — il motore tiene una finestra alla volta: un giro completo costa{' '}
-              <b className="am">~{COSTO_CACHE.totale} s</b>, misurati. La pagina rimette la 1Y
-              in cache a fine caricamento.{riscalda && <> <b className="am">In corso.</b></>}
+              {tr('factors.f087')}{' '}
+              <b className="am">~{fnum(COSTO_CACHE.totale, 1)} s</b>{tr('factors.f088')}{riscalda && <> <b className="am">{tr('factors.f089')}</b></>}
             </div>
+            {riscaldaErr !== null && <div className="avviso" role="alert">
+              {tr('factors.cacheRestoreFailed')} — {riscaldaErr || tr('factors.errorMissing')}
+            </div>}
           </div>
         </div>
       </div>
@@ -735,6 +750,7 @@ interface LatoDuello {
 function Duello({ nome, a, b, dec, unitaScarto }: {
   nome: string; a: LatoDuello; b: LatoDuello; dec: number; unitaScarto: string;
 }) {
+  const tr = useT();
   const sc = scartoInPunti(a.v, b.v);
   const tono = (x: LatoDuello) =>
     x.v === null ? 'muto' : x.giudicabile === false ? 't-et' : x.v >= 0 ? 'up' : 'dn';
@@ -756,7 +772,7 @@ function Duello({ nome, a, b, dec, unitaScarto }: {
         <div className="et">{nome}</div>
         <div className="sc num">
           {sc === null
-            ? <span className="muto">scarto non calcolabile</span>
+            ? <span className="muto">{tr('factors.f090')}</span>
             : <>SPREAD {fnum(sc, 2)}{unitaScarto}</>}
         </div>
       </div>
@@ -779,6 +795,7 @@ function DueFinestre({ a, b, lim }: { a: number; b: number; lim: number }) {
 }
 
 function RigaAlfa({ r, lim }: { r: RigaAlpha; lim: number }) {
+  const tr = useT();
   const sig = !!(r.ic && r.ic.sig);
   return (
     <tr className={sig ? undefined : 'ns'}>
@@ -793,7 +810,7 @@ function RigaAlfa({ r, lim }: { r: RigaAlpha; lim: number }) {
       {/* ⚠ n_obs va reso: PURR e' stimato su 121 osservazioni contro una
           mediana di 210 e mostra il piu' grande alpha della tabella. */}
       <td className="n t-et"><Cifra v={r.nObs} dec={0} /></td>
-      <td><Baffo ic={r.ic} limite={lim} nome="alpha annualizzato" unita="%" /></td>
+      <td><Baffo ic={r.ic} limite={lim} nome={tr('factors.f091')} unita="%" /></td>
       <td className={'n ' + (sig ? (r.alpha !== null && r.alpha >= 0 ? 'up' : 'dn') : 'muto')}>
         <Cifra v={r.alpha} dec={1} suffisso="%" segno />
       </td>

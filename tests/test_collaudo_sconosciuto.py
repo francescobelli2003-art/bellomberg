@@ -255,7 +255,7 @@ def test_pacchetti_mancanti_confronta_senza_maiuscole_ne_trattini():
 # provato su un'app FastAPI FINTA, con lo stesso interprete di questa suite
 # ============================================================================
 APP_FINTA = '''
-from fastapi import FastAPI
+from fastapi import FastAPI, APIRouter
 app = FastAPI(openapi_url=None)
 
 @app.get("/health")
@@ -273,6 +273,12 @@ def search(q: str):
 @app.post("/trade")
 def trade():
     return {}
+
+router = APIRouter(prefix='/included')
+@router.get('/{name}')
+def included(name: str, required: str):
+    return {'name': name}
+app.include_router(router)
 '''
 
 
@@ -289,6 +295,8 @@ def test_programma_route_elenca_le_route_con_i_parametri(tmp_path):
     assert route["/position/{ticker}"]["query_required"] == []
     assert route["/search"]["query_required"] == ["q"]
     assert route["/trade"]["methods"] == ["POST"]
+    assert route['/included/{name}']['path_params'] == ['name']
+    assert route['/included/{name}']['query_required'] == ['required']
 
 
 # ============================================================================
@@ -387,3 +395,161 @@ def test_classifica_affinamenti_giro_2(body, atteso):
 
 def test_ogni_collezione_vuota_lo_dice_nel_motivo():
     assert "collezion" in cs.classifica(200, {"count": 0, "items": []})["motivo"]
+
+
+@pytest.fixture
+def primo_utente_api(monkeypatch):
+    """Fake HTTP ledger: no filesystem, database or network."""
+    import copy
+    state = {"cash": 0.0, "cash_source": None, "positions": [], "trades": [], "movements": [], "openings": [],
+             "language": None, "calls": [], "reject_preview": False, "uncertain_trade": False}
+    def request(porta, method, url, corpo=None, **kw):
+        state["calls"].append((method, url, copy.deepcopy(corpo)))
+        status, body = 200, None
+        if url == "/preferences":
+            if method == "PUT": state["language"] = corpo["language"]
+            body = {"language": state["language"] or "it", "selected": state["language"] is not None,
+                    "source": "preferences" if state["language"] else "compatibility_default"}
+        elif url == "/portfolio":
+            body = {"positions": state["positions"], "cash_disponibile_eur": state["cash"], "cash_source": state['cash_source'],
+                    "cash_source_note": 'SQLite cash_state not initialized; zero is not measured' if state['cash_source'] is None else None}
+        elif url == "/trades": body = {"trades": state["trades"]}
+        elif url == "/cash/movements": body = {"movements": state["movements"]}
+        elif url == "/cash/movement":
+            state['cash_source'] = 'sqlite:cash_state'
+            state["cash"] += corpo["importo_eur"]; state["movements"].append({"id": 1, **corpo})
+            body = {"ok": True, "cash_disponibile_eur": state["cash"], "cash_source": "sqlite:cash_state"}
+        elif url == "/trade/preview":
+            status = 409 if state["reject_preview"] else 200
+            body = {"ok": status == 200, "preview_id": "synthetic-trade-token", "expires_in_seconds": 120,
+                    "cash_delta_eur": -125.0, "cash_disponibile_eur": state["cash"] - 125.0,
+                    "cash_source": "sqlite:cash_state", "fx": {"tasso": 1.0, "fonte": "identity"}}
+        elif url == "/trade":
+            assert corpo["preview_id"] == "synthetic-trade-token"
+            if state["uncertain_trade"]: return {"status": 503, "body": {"detail": "synthetic uncertain write"}, "errore": None, "secondi": 0}
+            state["cash"] -= 125.0; state["trades"].append({"id": 1, **corpo})
+            state["positions"].append({"ticker": corpo["ticker"], "quantita": corpo["quantita"], "prezzo_medio": corpo["prezzo"], "valuta": corpo["valuta"]})
+            body = {"ok": True, "trade_id": 1, "cash_disponibile_eur": state["cash"], "cash_source": "sqlite:cash_state"}
+        elif url == "/positions/opening" and method == "GET": body = {"openings": state["openings"]}
+        elif url == "/positions/opening/preview":
+            opening = {**corpo, "precisione_data": "day"}
+            body = {"ok": True, "preview_id": "synthetic-opening-token", "expires_in_seconds": 120,
+                    "opening": opening, "position": {**corpo, "data_apertura": None}, "cash_delta_eur": 0,
+                    "cash_disponibile_eur": state["cash"], "performance_note": "Synthetic documented coverage"}
+        elif url == "/positions/opening" and method == "POST":
+            assert corpo["preview_id"] == "synthetic-opening-token"
+            opening = {k: v for k, v in corpo.items() if k != "preview_id"}
+            opening.update(id=1, precisione_data="day", created_at="2026-09-12T12:00:00+00:00")
+            state["openings"].append(opening); state["positions"].append({**opening, "data_apertura": None})
+            body = {"ok": True, "opening": opening, "cash_delta_eur": 0, "cash_disponibile_eur": state["cash"]}
+        elif url.startswith('/positions/opening/'):
+            body = {"opening": state["openings"][0]}
+        else: pytest.fail("Unexpected first-run request: " + method + ' ' + url)
+        return {"status": status, "body": copy.deepcopy(body), "errore": None, "secondi": 0}
+    monkeypatch.setattr(cs, "richiesta", request)
+    return state
+
+
+def test_primo_utente_usa_anteprima_e_cassa_sqlite_senza_creare_json(tmp_path, primo_utente_api):
+    result = cs.fase_flusso(8766, "fake-token", str(tmp_path), 1)
+    assert result["ok"], result
+    assert not (tmp_path / 'portfolio.json').exists()
+    calls = primo_utente_api["calls"]
+    preview = next(c[2] for c in calls if c[:2] == ('POST', '/trade/preview'))
+    confirmed = next(c[2] for c in calls if c[:2] == ('POST', '/trade'))
+    assert confirmed == {**preview, 'preview_id': 'synthetic-trade-token'}
+    assert result['misure']['cash_after_trade'] == 875.0
+    assert result['misure']['initial_cash'] is None
+    assert result['misure']['initial_cash_source'] is None
+    assert result['misure']['opening_trade_delta'] == result['misure']['opening_cash_movement_delta'] == 0
+    assert result['misure']['opening_cash_delta'] == 0
+    assert primo_utente_api['language'] == 'en'
+
+
+def test_rapporto_conserva_le_misure_del_flusso_senza_troncarle(tmp_path, primo_utente_api):
+    flow = cs.fase_flusso(8766, 'fake-token', str(tmp_path), 1)
+    rendered = cs.rapporto_md({'flusso': flow}, (0, []))
+    assert '"initial_cash": null' in rendered
+    assert '"opening_trade_delta": 0' in rendered
+    assert '"opening_rows_delta": 1' in rendered
+
+
+@pytest.mark.parametrize('fault', ['reject_preview', 'uncertain_trade'])
+def test_primo_utente_non_ritenta_scritture_dopo_rifiuto_o_incertezza(tmp_path, primo_utente_api, fault):
+    primo_utente_api[fault] = True
+    result = cs.fase_flusso(8766, 'fake-token', str(tmp_path), 1)
+    assert not result['ok']
+    trades = [c for c in primo_utente_api['calls'] if c[:2] == ('POST', '/trade')]
+    assert len(trades) == (0 if fault == 'reject_preview' else 1)
+    assert not any(c[:2] == ('POST', '/positions/opening') for c in primo_utente_api['calls'])
+
+
+def test_primo_utente_rifiuta_un_profilo_non_vuoto_prima_di_scrivere(tmp_path, primo_utente_api):
+    primo_utente_api['cash'] = 99
+    result = cs.fase_flusso(8766, 'fake-token', str(tmp_path), 1)
+    assert not result['ok']
+    assert not any(method in ('POST', 'PUT', 'DELETE') for method, *_ in primo_utente_api['calls'])
+
+
+def test_main_non_copia_piu_il_portafoglio_esempio_nel_profilo():
+    import inspect
+    assert 'shutil.copyfile' not in inspect.getsource(cs.main)
+
+
+@pytest.mark.parametrize('fault', ['position_shape', 'fx_shape', 'missing_receipt_id'])
+def test_primo_utente_dichiara_risposte_malformate_senza_riscrivere(tmp_path, primo_utente_api, monkeypatch, fault):
+    original = cs.richiesta
+    def malformed(porta, method, url, *args, **kw):
+        result = original(porta, method, url, *args, **kw)
+        if fault == 'position_shape' and url == '/portfolio':
+            result['body']['positions'] = [None]
+        elif fault == 'fx_shape' and url == '/trade/preview':
+            result['body']['fx'] = None
+        elif fault == 'missing_receipt_id' and url.startswith('/positions/opening') and 'opening' in result['body']:
+            result['body']['opening'].pop('id', None)
+        return result
+    monkeypatch.setattr(cs, 'richiesta', malformed)
+    result = cs.fase_flusso(8766, 'fake-token', str(tmp_path), 1)
+    assert not result['ok']
+    assert 'KO:' in result['motivo']
+    writes = [url for method, url, *_ in primo_utente_api['calls'] if method == 'POST' and not url.endswith('/preview')]
+    assert len(writes) == {'position_shape': 0, 'fx_shape': 1, 'missing_receipt_id': 3}[fault]
+
+
+def test_backend_del_collaudo_usa_entrypoint_installato_e_porta_isolata(tmp_path, monkeypatch):
+    scripts = tmp_path / ('Scripts' if os.name == 'nt' else 'bin'); scripts.mkdir()
+    py = scripts / ('python.exe' if os.name == 'nt' else 'python')
+    entry = scripts / ('bellomberg-api.exe' if os.name == 'nt' else 'bellomberg-api')
+    entry.write_text('synthetic executable placeholder', encoding='utf-8')
+    seen = []
+    stopped = []
+    class Process:
+        pid = 9999999
+        def poll(self): return None
+        def terminate(self): pass
+        def wait(self, *args): return 0
+    monkeypatch.setattr(cs.subprocess, 'Popen', lambda args, **kw: seen.append((args, kw)) or Process())
+    monkeypatch.setattr(cs.subprocess, 'run', lambda args, **kw: stopped.append((args, kw)) or subprocess.CompletedProcess(args, 0, '', ''))
+    monkeypatch.setattr(cs, 'richiesta', lambda *a, **k: {'status': 200})
+    backend = cs.Backend(str(tmp_path), str(py), {}, 8876, str(tmp_path / 'log.txt'))
+    try:
+        backend.avvia()
+        assert seen[0][0] == [str(entry)]
+        assert seen[0][1]['env']['BELLOMBERG_API_PORT'] == '8876'
+        assert seen[0][1]['creationflags'] == getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    finally: backend.ferma()
+    if os.name == 'nt':
+        assert stopped[0][0] == ['taskkill', '/PID', '9999999', '/T', '/F']
+        assert stopped[0][1]['creationflags'] == subprocess.CREATE_NO_WINDOW
+
+
+def test_backend_rifiuta_porta_rioccupata_prima_di_leggere_health(tmp_path, monkeypatch):
+    entry = tmp_path / ('bellomberg-api.exe' if os.name == 'nt' else 'bellomberg-api')
+    entry.write_text('synthetic executable placeholder', encoding='utf-8')
+    monkeypatch.setattr(cs, 'richiesta', lambda *a, **k: pytest.fail('health di un processo estraneo'))
+    monkeypatch.setattr(cs.subprocess, 'Popen', lambda *a, **k: pytest.fail('avvio su porta occupata'))
+    with socket.socket() as listener:
+        listener.bind(('127.0.0.1', 0)); listener.listen()
+        backend = cs.Backend(str(tmp_path), str(tmp_path / 'python'), {}, listener.getsockname()[1], str(tmp_path / 'log.txt'))
+        with pytest.raises(RuntimeError, match='OCCUPATA'):
+            backend.avvia()

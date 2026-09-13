@@ -7,6 +7,7 @@ DICHIARA (niente numeri finti, regola no-fallback-silenziosi).
 """
 import os
 from datetime import datetime
+from bellomberg.reporting.i18n import label as _t, number as _n, localized
 
 from bellomberg.core.paths import REPORT_DIR
 
@@ -44,7 +45,7 @@ def _panel_curve(ax, env, color, name):
     pts = (env or {}).get("points") or []
     status = (env or {}).get("status")
     if not pts or status in ("error", "needs_connector", "declared_gap"):
-        gap_panel(ax, "DATO NON DISPONIBILE\n(" + str(status or "n.d.") + ")", title=name)
+        gap_panel(ax, _t("DATO NON DISPONIBILE\n(") + str(status or "n.d.") + ")", title=name)
         return
     stale = (status == "stale")
     as_of = (env or {}).get("as_of")
@@ -57,11 +58,11 @@ def _panel_curve(ax, env, color, name):
     y_1y = [r[2].get("value_1y") for r in rows]
     # 1 anno fa (punti, molto tenue) e 1 mese fa (tratteggio) prima, oggi sopra
     if all(v is not None for v in y_1y):
-        ax.plot(xs, y_1y, color=color, lw=1.0, ls=":", alpha=0.42, zorder=2, label="1 anno fa")
+        ax.plot(xs, y_1y, color=color, lw=1.0, ls=":", alpha=0.42, zorder=2, label=_t("1 anno fa"))
     if all(v is not None for v in y_1m):
-        ax.plot(xs, y_1m, color=color, lw=1.2, ls=(0, (4, 2)), alpha=0.62, zorder=3, label="1 mese fa")
+        ax.plot(xs, y_1m, color=color, lw=1.2, ls=(0, (4, 2)), alpha=0.62, zorder=3, label=_t("1 mese fa"))
     ax.plot(xs, y_now, color=color, lw=2.1, marker="o", ms=3.2, zorder=4,
-            label="Ultimo dato (STALE)" if stale else "Oggi")
+            label=_t("Ultimo dato (STALE)") if stale else _t("Oggi"))
     # Etichetta 10Y e legenda vanno negli angoli LIBERI: su curva in salita restano
     # vuoti alto-sx e basso-dx, su curva invertita alto-dx e basso-sx. Senza questa
     # scelta il testo finisce sopra la linea (curve US/DE, 15/07).
@@ -85,7 +86,7 @@ def _panel_curve(ax, env, color, name):
     # e MOF pubblicano con lag diversi), quindi una sola data in testata sarebbe falsa
     # per due pannelli su tre.
     ax.set_title(name, fontsize=8.5, color=INK, fontweight="bold", pad=12)
-    stamp = ("DATO STALE · as of " + str(as_of or "n.d.")) if stale else ("as of " + str(as_of or "n.d."))
+    stamp = (_t("DATO STALE · as of ") + str(as_of or "n.d.")) if stale else (_t("as of ") + str(as_of or "n.d."))
     ax.text(0.5, 1.012, stamp, transform=ax.transAxes, ha="center", va="bottom",
             fontsize=6.2, color=(DOWN if stale else MUTED),
             fontweight="bold" if stale else "normal")
@@ -103,11 +104,12 @@ def _panel_curve(ax, env, color, name):
     for s in ["top", "right"]:
         ax.spines[s].set_visible(False)
     ax.spines["left"].set_color(BASE); ax.spines["bottom"].set_color(BASE)
-    ax.set_xlabel("Scadenza", fontsize=7.5)
+    ax.set_xlabel(_t("Scadenza"), fontsize=7.5)
     ax.legend(loc="lower right" if rising else "lower left",
               fontsize=6.4, frameon=False, handlelength=1.6)
 
 
+@localized
 def yield_curves_chart(us=None, de=None, jp=None):
     """3 pannelli US/Germania/Giappone: curva oggi + 1m + 1y. Dati da macro_rates
     (o iniettati per test)."""
@@ -121,18 +123,19 @@ def yield_curves_chart(us=None, de=None, jp=None):
     apply_style()
     fig, axes = plt.subplots(1, 3, figsize=(10.2, 3.9))
     _panel_curve(axes[0], us, C_US, "US Treasury")
-    _panel_curve(axes[1], de, C_DE, "Germania Bund")
-    _panel_curve(axes[2], jp, C_JP, "Giappone JGB")
-    axes[0].set_ylabel("Rendimento %", fontsize=8)
+    _panel_curve(axes[1], de, C_DE, _t("Germania Bund"))
+    _panel_curve(axes[2], jp, C_JP, _t("Giappone JGB"))
+    axes[0].set_ylabel(_t("Rendimento %"), fontsize=8)
     # NIENTE as_of di figura: ogni pannello stampa il suo (vintage diversi per fonte).
-    _titlebar(fig, "Curve dei rendimenti — US / Germania / Giappone",
-              "Struttura a termine · linea piena ultimo dato, tratteggio 1 mese fa, punti 1 anno fa "
-              "· as of dichiarato per curva",
+    _titlebar(fig, _t("Curve dei rendimenti — US / Germania / Giappone"),
+              _t("Struttura a termine · linea piena ultimo dato, tratteggio 1 mese fa, punti 1 anno fa "
+              "· as of dichiarato per curva"),
               "macro_rates · FRED Treasury / Bundesbank / MOF Japan")
     fig.subplots_adjust(left=0.06, right=0.985, top=0.76, bottom=0.14, wspace=0.16)
     return _save(fig, "yield_curves")
 
 
+@localized
 def credit_chart(hy=None):
     """Serie storica del credito HY europeo (OAS proxy iTraxx Crossover)."""
     if not MPL:
@@ -159,15 +162,15 @@ def credit_chart(hy=None):
     ax.annotate(("%.0f bps (STALE)" if stale else "%.0f bps") % vals[-1],
                 xy=(x[-1], vals[-1]), xytext=(7, 0), textcoords="offset points",
                 fontsize=8.4, color=(DOWN if stale else INK), va="center", fontweight="bold")
-    ax.set_ylabel("OAS (bps)", fontsize=8); ax.set_xlabel("Giorni (storico disponibile)", fontsize=8)
+    ax.set_ylabel("OAS (bps)", fontsize=8); ax.set_xlabel(_t("Giorni (storico disponibile)"), fontsize=8)
     ax.grid(axis="y", color=GRID, lw=0.8); ax.set_axisbelow(True); ax.set_xlim(0, len(x) + 12)
     for s in ["top", "right"]:
         ax.spines[s].set_visible(False)
     ax.spines["left"].set_color(BASE); ax.spines["bottom"].set_color(BASE); ax.tick_params(length=2)
     sub = hy.get("label", "")
     if stale:
-        sub = "DATO STALE (as of " + str(hy.get("as_of") or "n.d.") + ") · " + sub
-    _titlebar(fig, "Credito HY europeo — OAS (proxy iTraxx Crossover)",
+        sub = _t("DATO STALE (as of ") + str(hy.get("as_of") or "n.d.") + ") · " + sub
+    _titlebar(fig, _t("Credito HY europeo — OAS (proxy iTraxx Crossover)"),
               sub, "macro_rates · " + str(hy.get("source", "FRED")), hy.get("as_of"))
     return _save(fig, "eu_hy_credit")
 

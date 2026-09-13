@@ -1,3 +1,4 @@
+import { t as tr } from '../i18n/t.js';
 // ============================================================================
 // F7 TRADE ENTRY — "LA CASSA" · le derivazioni, FUORI dai componenti
 // (Opus 5, 27/07. Spec: docs/superpowers/specs/2026-07-27-f7-trade-entry-la-cassa-design.md)
@@ -23,6 +24,9 @@
 // tutti e quattro i punti: le correzioni sono annotate una per una.
 // ============================================================================
 import type { Position, PortfolioSnapshot } from '@/lib/api';
+import { linguaCorrente, type Lingua } from '../i18n/lingua.js';
+import { analizzaNumero, scriviNumero } from '../i18n/numeri.js';
+import { traduci } from '../i18n/t.js';
 
 export type Verbo = 'BUY' | 'ADD' | 'TRIM' | 'SELL' | 'DIVIDEND';
 
@@ -311,15 +315,15 @@ export function simula(
 /** la frase da mettere accanto a un numero che non c'e'. Mai un trattino nudo. */
 export function perche(m: Muto, valute?: string[]): string {
   switch (m) {
-    case 'ordine-incompleto': return 'ordine non ancora scritto';
+    case 'ordine-incompleto': return tr('trade.order_incomplete');
     case 'valuta-discorde':
-      return `sommerebbe ${valute && valute.length === 2 ? valute.join(' e ') : 'due valute'}`;
-    case 'carico-assente': return 'questa posizione non ha un prezzo medio in archivio';
-    case 'posizione-chiusa': return 'posizione chiusa: non resta nessun titolo';
-    case 'book-assente': return 'il portafoglio non è caricato';
-    case 'non-posseduto': return 'questo nome non risulta fra le posizioni attive';
-    case 'prezzo-ignoto': return 'manca il prezzo di mercato per valutare il residuo';
-    case 'cambio-assente': return 'manca il cambio verso l’euro';
+      return tr('trade.would_add_currencies', {a: valute && valute.length === 2 ? valute.join(tr('trade.and_fragment')) : tr('trade.two_currencies')});
+    case 'carico-assente': return tr('trade.cost_missing');
+    case 'posizione-chiusa': return tr('trade.position_closed');
+    case 'book-assente': return tr('trade.portfolio_unloaded');
+    case 'non-posseduto': return tr('trade.holding_not_active');
+    case 'prezzo-ignoto': return tr('trade.residual_market_missing');
+    case 'cambio-assente': return tr('trade.euro_fx_missing');
     default: return '';
   }
 }
@@ -499,10 +503,11 @@ export function esitoScrittura(r: RispostaTrade | null | undefined): Esito {
   return { tradeId: id ?? '?', riconosciuta, stato, cassa, nota, guardia };
 }
 
-/** una rejection HTTP prova il rifiuto solo se il server ha RISPOSTO. */
+/** Un 4xx dichiara il rifiuto; un 5xx può arrivare anche dopo il commit. */
 export function scritturaRifiutata(err: unknown): boolean {
   const e = err as { response?: { status?: number } } | null | undefined;
-  return !!(e && e.response && typeof e.response.status === 'number');
+  return !!(e && e.response && typeof e.response.status === 'number'
+    && e.response.status >= 400 && e.response.status < 500);
 }
 
 // ── IL CANALE CASSA (F7 «il libretto», F14 lo storico) ──────────────────────
@@ -588,7 +593,7 @@ export interface RifiutoCassa {
  *  avvenuta, e affermare il contrario spinge al doppio invio. */
 export function leggiRifiuto(err: unknown): RifiutoCassa | null {
   if (!scritturaRifiutata(err)) return null;
-  const e = err as { response?: { status?: number; data?: { detail?: unknown } } };
+  const e = err as { response?: { status?: number; data?: { detail?: unknown; code?: unknown } } };
   const status = typeof e?.response?.status === 'number' ? e.response.status : 0;
   const d = e?.response?.data?.detail;
   // ⚠ il `detail` di un 422 di pydantic e' un ARRAY di oggetti, non una
@@ -598,10 +603,14 @@ export function leggiRifiuto(err: unknown): RifiutoCassa | null {
   const motivo = typeof d === 'string' ? d
     : d == null ? ''
       : (() => { try { return JSON.stringify(d); } catch { return String(d); } })();
-  const rimediabile = /conferma\s*=\s*true/i.test(motivo);
-  const quale: GuardiaCassa = /^GUARDIA DUPLICATO\b/.test(motivo) ? 'duplicato'
-    : /^GUARDIA IMPORTO\b/.test(motivo) ? 'soglia'
-      : 'ignota';
+  const code = e?.response?.data?.code;
+  const coded = e?.response?.data != null && Object.prototype.hasOwnProperty.call(e.response.data, 'code');
+  const quale: GuardiaCassa = coded
+    ? code === 'cash_duplicate' ? 'duplicato' : code === 'cash_threshold' ? 'soglia' : 'ignota'
+    : /^GUARDIA DUPLICATO\b/.test(motivo) ? 'duplicato'
+      : /^GUARDIA IMPORTO\b/.test(motivo) ? 'soglia' : 'ignota';
+  // Codes are language-independent. Legacy prose applies only when no code was sent.
+  const rimediabile = coded ? status === 422 && quale !== 'ignota' : /conferma\s*=\s*true/i.test(motivo);
   return { motivo, rimediabile, quale, status, nonScritto: status === 422 || status === 401 };
 }
 
@@ -628,14 +637,14 @@ export function leggiDataValuta(s: string, oggi?: string): LetturaData | null {
   const t = (s || '').trim();
   if (!t) return null;                        // vuoto: legittimo, decide il backend
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
-  if (!m) return { ok: false, motivo: 'la data va scritta YYYY-MM-DD (es. 2026-08-12)' };
+  if (!m) return { ok: false, motivo: tr('trade.date_iso_required') };
   const [a, me, g] = [Number(m[1]), Number(m[2]), Number(m[3])];
   const d = new Date(Date.UTC(a, me - 1, g));
   if (d.getUTCFullYear() !== a || d.getUTCMonth() !== me - 1 || d.getUTCDate() !== g) {
-    return { ok: false, motivo: `${t} non è un giorno di calendario` };
+    return { ok: false, motivo: tr('trade.date_invalid_calendar', {a: t}) };
   }
   if (t < DATA_MIN) {
-    return { ok: false, motivo: `${t} è prima del ${DATA_MIN}: refuso sull'anno?` };
+    return { ok: false, motivo: tr('trade.date_before_min', {a: t, b: DATA_MIN}) };
   }
   if (oggi) {
     const lim = new Date(Date.UTC(
@@ -644,7 +653,7 @@ export function leggiDataValuta(s: string, oggi?: string): LetturaData | null {
     const limIso = lim.toISOString().slice(0, 10);
     if (t > limIso) {
       return { ok: false,
-        motivo: `${t} è oltre ${GIORNI_AVANTI_MAX} giorni nel futuro (oggi ${oggi}): refuso sull'anno?` };
+        motivo: tr('trade.date_future_limit', {a: t, b: GIORNI_AVANTI_MAX, c: oggi}) };
     }
   }
   return { ok: true, iso: t };
@@ -695,10 +704,10 @@ export type LetturaNumero =
   | { ok: true; valore: number }
   | { ok: false; motivo: string };
 
-export function leggiNumero(s: string): LetturaNumero | null {
-  const r = normalizza(s);
+export function leggiNumero(s: string, lingua: Lingua = linguaCorrente(), linguaMessaggio: Lingua = lingua): LetturaNumero | null {
+  const r = analizzaNumero(s, lingua, linguaMessaggio);
   if (r == null || !r.ok) return r;
-  if (r.valore <= 0) return { ok: false, motivo: 'deve essere maggiore di zero' };
+  if (r.valore <= 0) return { ok: false, motivo: traduci(linguaMessaggio, 'numeri.maggiore_zero') };
   return r;
 }
 
@@ -706,62 +715,15 @@ export function leggiNumero(s: string): LetturaNumero | null {
  *  chiudere in perdita e lo zero è un pareggio, non un errore — il dominio
  *  «maggiore di zero» vale per quantità e prezzi, non qui. Normalizzazione e
  *  rifiuto dell'ambiguo restano quelli di leggiNumero. */
-export function leggiNumeroConSegno(s: string): LetturaNumero | null {
+export function leggiNumeroConSegno(s: string, lingua: Lingua = linguaCorrente(), linguaMessaggio: Lingua = lingua): LetturaNumero | null {
   const t = (s || '').trim();
   if (!t) return null;                                   // campo vuoto: non e' un errore
   const negativo = t[0] === '-';
   const corpo = negativo || t[0] === '+' ? t.slice(1) : t;
-  const r = normalizza(corpo);
-  if (r == null) return { ok: false, motivo: 'manca il numero dopo il segno' };
+  const r = analizzaNumero(corpo, lingua, linguaMessaggio);
+  if (r == null) return { ok: false, motivo: traduci(linguaMessaggio, 'numeri.manca_dopo_segno') };
   if (!r.ok) return r;
   return { ok: true, valore: negativo ? -r.valore : r.valore };
-}
-
-function normalizza(s: string): LetturaNumero | null {
-  const t = (s || '').trim().replace(/\s/g, '');
-  if (!t) return null;                                   // campo vuoto: non e' un errore
-  if (!/^[0-9.,]+$/.test(t)) return { ok: false, motivo: 'usa solo cifre, virgola o punto' };
-
-  const virgole = (t.match(/,/g) || []).length;
-  const punti = (t.match(/\./g) || []).length;
-  if (virgole > 1) return { ok: false, motivo: 'più di una virgola' };
-
-  let norm: string;
-  if (virgole === 1) {
-    // la virgola e' il decimale: i punti che restano sono separatori di migliaia
-    norm = t.replace(/\./g, '').replace(',', '.');
-  } else if (punti === 1) {
-    const [int, dec] = t.split('.');
-    // ⚠ L'AMBIGUO SI RIFIUTA: `1.234` puo' essere milleduecentotrentaquattro
-    // (uso italiano) o uno virgola duecentotrentaquattro. Non si indovina.
-    // Con la parte intera `0` pero' l'ambiguita' non esiste: `0.125` non e'
-    // mai una grafia di migliaia — era il falso positivo (a) della review
-    // 01/08 (audit/24 §B), plausibile su un outcome F10 sotto l'1%. E il
-    // motivo ora parla dell'INPUT, non di un «1.234» cablato.
-    if (dec.length === 3 && int !== '0' && t.replace('.', '').length > 3) {
-      return {
-        ok: false,
-        motivo: `${t} è ambiguo: scrivi ${t.replace('.', '')} oppure ${t.replace('.', ',')}`,
-      };
-    }
-    norm = t;
-  } else if (punti > 1) {
-    // ⚠ piu' punti = migliaia SOLO se la forma e' quella vera (primo gruppo
-    // 1-3 cifre senza zero iniziale, poi gruppi da 3). Prima qualunque cosa
-    // veniva spogliata dei punti: `1..2` diventava `12` in silenzio — una
-    // lettura ×10 senza errore, il difetto (b) della review 01/08, la classe
-    // peggiore («l'ambiguo si rifiuta», non si indovina).
-    if (!/^[1-9]\d{0,2}(\.\d{3})+$/.test(t)) {
-      return { ok: false, motivo: 'punti in posizione non da migliaia: scrivi 1.234.567 oppure togli i punti' };
-    }
-    norm = t.replace(/\./g, '');                         // 3.850.000 → 3850000
-  } else {
-    norm = t;
-  }
-
-  const n = Number(norm);
-  if (!isFinite(n)) return { ok: false, motivo: 'non è un numero' };
-  return { ok: true, valore: n };
 }
 
 /**
@@ -770,14 +732,12 @@ function normalizza(s: string): LetturaNumero | null {
  * formattazione nel campo trasferisce la coda numerica nel prezzo salvato.
  * Si limita la rappresentazione a quattro decimali, senza presentare il
  * rumore binario come precisione della quotazione.
- * ⚠ Il decimale si scrive con la VIRGOLA: col punto, un live a 3 decimali
- * cade nella regola dell'ambiguo di leggiNumero
- * e il campo nasce già in errore, submit spento (review 01/08, audit/24 B.3:
- * l'app rifiutava il prezzo che lei stessa precompilava). La virgola è il
- * formato che leggiNumero accetta sempre, ed è la grafia del PM.
+ * Il decimale segue la lingua del modulo (virgola IT, punto EN): una
+ * quotazione a tre decimali deve essere riletta senza ambiguità. La prova
+ * verifica il ciclo scrittura/lettura in entrambe le lingue.
  */
-export function prezzoDaBook(p: Position): string {
+export function prezzoDaBook(p: Position, lingua: Lingua = linguaCorrente()): string {
   const v = p.prezzo_live;
   if (typeof v !== 'number' || !isFinite(v) || v <= 0) return '';
-  return String(Number(v.toFixed(4))).replace('.', ',');
+  return scriviNumero(v, lingua, 4);
 }

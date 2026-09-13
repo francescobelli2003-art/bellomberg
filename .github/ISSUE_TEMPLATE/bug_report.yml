@@ -1,0 +1,97 @@
+name: Bug report
+description: Something in Bellomberg does not behave as documented.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for the report. Two rules before you continue:
+
+        - **Security problems are not reported here.** Use the repository's private vulnerability reporting (Security → Report a vulnerability); see `SECURITY.md`.
+        - **Remove every secret and every personal or portfolio detail** from what you paste: `.env` content, PIN, keys, tokens, positions, balances, mandate or journal text, absolute personal paths. Reproduce with synthetic instruments. See `SUPPORT.md`.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The version declared in `pyproject.toml` / `app/package.json`, or the output of `git rev-parse --short HEAD`.
+      placeholder: "0.8.0 (commit abc1234)"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS (source only; CI job, not validated on a physical Mac)
+        - Linux (source only; CI suite, no installer)
+    validations:
+      required: true
+  - type: input
+    id: runtimes
+    attributes:
+      label: Python and Node.js versions
+      description: Output of `python --version` and `node --version`.
+      placeholder: "Python 3.12.x, Node v22.23.2"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Desktop application (Electron, pages, navigation)
+        - Backend API (bellomberg-api)
+        - Committee, agents or chat
+        - Valuation and fundamentals
+        - Portfolio ledger, cash and performance
+        - Options and Vol Deck
+        - Data providers and news
+        - Installation, build or CI
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Name the page (F-number) and the exact actions. Use synthetic instruments and values.
+      placeholder: |
+        1. Open F16 Trade Entry
+        2. Record a deposit of ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: What happened instead, including any `n.d.`, `STALE` or error label shown on screen.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or error output (secrets removed)
+      description: Paste sanitized output only. Remove API keys, the PIN, session tokens, absolute personal paths, tickers, quantities, balances and mandate text.
+      render: text
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: This report contains no secrets (no `.env` content, PIN, API keys or tokens).
+          required: true
+        - label: This report contains no personal or portfolio data (positions, balances, mandate, journal, real identifiers, personal paths).
+          required: true
+        - label: This is not a security vulnerability (those go through private reporting, see `SECURITY.md`).
+          required: true

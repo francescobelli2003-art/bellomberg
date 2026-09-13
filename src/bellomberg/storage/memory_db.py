@@ -23,6 +23,8 @@ ChromaDB collections:
   decision_rationale - rationale ogni decisione (perche')
   pm_feedback_emb    - feedback PM embedded per semantic search
 """
+from bellomberg.core.language import text as _storage_text
+from bellomberg.core.presentation import message as _message, join_messages
 from bellomberg.core.paths import (CHROMA_PATH as _CHROMA_PATH, DATA_DIR as _DATA_DIR,
                                    PROJECT_ROOT, REPORT_DIR as _REPORT_DIR,
                                    RESEARCH_NOTES_DIR as _RESEARCH_NOTES_DIR,
@@ -32,7 +34,7 @@ import sqlite3
 import json
 import math
 import re
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from contextlib import contextmanager
 
 try:
@@ -47,7 +49,7 @@ except ImportError:
 # BELLOMBERG_DATA_DIR. Prima `DB_DIR = "data"` era relativo alla cwd:
 # `python /altra/cartella/bellomberg_api.py` creava un DB VUOTO altrove senza
 # dirlo (lezione CLAUDE.md "0 posizioni = path sbagliato"). La junction
-# data/ -> BellombergData del PM resta identica (il path non si risolve).
+# data/ resta lo stesso archivio: core.paths ne risolve la destinazione reale.
 REPO_DIR = str(PROJECT_ROOT)
 try:  # il .env lo carica config.py, ma price_updater/recover_db/regenerate_memo
       # importano memory_db PRIMA di config (review 02/09, F2): qui non si
@@ -82,6 +84,22 @@ RESEARCH_NOTES_DIR = str(_RESEARCH_NOTES_DIR)
 # il Capo nella run non ha tool per recuperare la coda.
 MAX_CHAR_FEEDBACK_PM = 2000   # stessa policy di current_facts.MAX_CHAR_TESI: sono le stesse parole
 MAX_RIGHE_FEEDBACK_PM = 60    # tetto sulle RIGHE, non sul testo. Oggi ne esistono 28.
+# Audit 11/09 (Fable 5.1): una run RIPETUTA (10/09 22:45, memo #54, sette ore dopo la run
+# 15:30 del memo #53) si archivia in modo reversibile marcando `memos.notes` e
+# `decisions.outcome_notes` con questo prefisso: le sue decisioni escono dalla memoria del
+# Capo (non sono ne' pendenti ne' decadute: il PM non le ha mai valutate) e dal track record
+# dello scorekeeper (non doppiano le call della stessa settimana). Tutto resta nel DB.
+MARCATORE_DUPLICATO = "[DUPLICATO"
+
+
+def e_duplicato(riga):
+    """True se la riga (memo o decisione) porta il marcatore della run ripetuta."""
+    if not isinstance(riga, dict):
+        return False
+    for k in ("notes", "outcome_notes"):
+        if str(riga.get(k) or "").lstrip().startswith(MARCATORE_DUPLICATO):
+            return True
+    return False
 
 _MANDATO_MEMO_RE = re.compile(
     r"^\[MANDATO PM: impronta ([0-9a-f]{64}); origine [^\]\r\n]+; "
@@ -637,6 +655,102 @@ from bellomberg.agents.score_history import SCORE_HISTORY_MIGRATION
 
 MIGRATIONS.extend([JOURNAL_MIGRATION, SCORE_HISTORY_MIGRATION])
 
+# Lotto trade_date (12/09, Fable 5.1): la data del trade la sceglie il PM. Tre colonne
+# ADDITIVE su trade_history, pattern migrazione 5 (ALTER solo qui, i DB freschi le
+# prendono da questa voce). NULL = riga LEGACY (scritta prima della migrazione), mai
+# un default zitto:
+#   ora_convenzionale  1 = il PM ha dato la SOLA data e l'ora 12:00:00 e' la convenzione
+#                        (la stessa dei trade storici importati senza ora); 0 = ora misurata.
+#   link_origin        'explicit' = linked_decision_id scelto dal PM; 'none' = il PM ha
+#                        dichiarato «nessuna decisione» (l'inferenza lo salta);
+#                        'unknown' = «non so» (l'inferenza resta ammessa).
+#   fx_fonte           cambio usato per la cassa: 'storico' (serie daily del giorno del
+#                        trade), 'corrente' (live al momento della registrazione),
+#                        'identity' (trade in EUR).
+TRADE_DATE_MIGRATION = (
+    10, "data del trade scelta dal PM (lotto 12/09): ora_convenzionale, link_origin, "
+        "fx_fonte su trade_history (NULL = legacy)",
+    ["ALTER TABLE trade_history ADD COLUMN ora_convenzionale INTEGER",
+     "ALTER TABLE trade_history ADD COLUMN link_origin TEXT",
+     "ALTER TABLE trade_history ADD COLUMN fx_fonte TEXT"])
+MIGRATIONS.append(TRADE_DATE_MIGRATION)
+
+# A documented holding balance is not a purchase or an external cash flow.
+POSITION_OPENINGS_MIGRATION = (
+    11, "documented opening holdings, separate from trades and cash",
+    ["""CREATE TABLE IF NOT EXISTS position_openings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticker TEXT NOT NULL UNIQUE,
+        quantita REAL NOT NULL CHECK(quantita > 0),
+        prezzo_medio REAL NOT NULL CHECK(prezzo_medio >= 0),
+        valuta TEXT NOT NULL,
+        as_of TEXT NOT NULL,
+        precisione_data TEXT NOT NULL CHECK(precisione_data IN ('day','second')),
+        provenienza TEXT NOT NULL,
+        nota TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(ticker) REFERENCES positions(ticker)
+    )"""])
+MIGRATIONS.append(POSITION_OPENINGS_MIGRATION)
+
+OUTPUT_LANGUAGE_MIGRATION = (
+    12, "language of new generated output; legacy metadata remains NULL",
+    [f"ALTER TABLE {table} ADD COLUMN output_language TEXT CHECK(output_language IN ('it','en'))"
+     for table in ("memos", "specialist_reports", "llm_usage", "chat_sessions", "chat_messages")])
+MIGRATIONS.append(OUTPUT_LANGUAGE_MIGRATION)
+
+
+class DataTradeNonValida(ValueError):
+    """La data di un trade non e' ISO, e' nel futuro o e' prima del 2000."""
+
+
+class RicalcoloImpossibile(RuntimeError):
+    """Il replay per data dei trade di un ticker non torna (dati incoerenti): niente
+    scritture a meta', la transazione va annullata."""
+
+
+DATA_TRADE_MIN_ANNO = 2000
+ORA_CONVENZIONALE = "12:00:00"
+
+
+def normalizza_data_trade(data, oggi=None):
+    """(data_iso_con_ora, ora_convenzionale) per `trade_history.data`.
+
+    Accetta None (= adesso, ora misurata), `YYYY-MM-DD` (= giorno scelto dal PM, ora
+    12:00:00 PER CONVENZIONE -> ora_convenzionale 1), un ISO con l'ora (`T` o spazio,
+    con o senza secondi -> ora_convenzionale 0) o un datetime. Rifiuta con
+    DataTradeNonValida: non ISO, giorno nel FUTURO (rispetto a `oggi`, giorno locale),
+    anno prima del 2000. E' il parse che `log_trade` fa SEMPRE (recon 12/09 §4.2: prima
+    il DB accettava qualunque stringa e i consumer si difendevano a valle)."""
+    oggi = oggi or date.today()
+    if data is None:
+        return datetime.now().isoformat(timespec="seconds"), 0
+    if isinstance(data, datetime):
+        dt, sola_data = data, False
+    elif isinstance(data, date):
+        dt, sola_data = datetime(data.year, data.month, data.day), True
+    else:
+        s = str(data).strip()
+        if not s:
+            return datetime.now().isoformat(timespec="seconds"), 0
+        try:
+            dt = datetime.fromisoformat(s)
+        except ValueError:
+            raise DataTradeNonValida(
+                _storage_text(f"data del trade '{s}' non e' ISO: usa YYYY-MM-DD (ora 12:00 per convenzione) oppure YYYY-MM-DDTHH:MM:SS", f"Trade date '{s}' is not ISO: use YYYY-MM-DD (12:00 by convention) or YYYY-MM-DDTHH:MM:SS"))
+        sola_data = len(s) == 10
+    if dt.tzinfo is not None:
+        dt = dt.astimezone().replace(tzinfo=None)
+    if dt.year < DATA_TRADE_MIN_ANNO:
+        raise DataTradeNonValida(
+            _storage_text(f"data del trade {dt.date().isoformat()} prima del {DATA_TRADE_MIN_ANNO}: refuso sull'anno?", f'Trade date {dt.date().isoformat()} before {DATA_TRADE_MIN_ANNO}: year typo?'))
+    if dt.date() > oggi:
+        raise DataTradeNonValida(
+            _storage_text(f'data del trade {dt.date().isoformat()} nel futuro (oggi {oggi.isoformat()}): un trade si registra dopo averlo eseguito', f'Trade date {dt.date().isoformat()} is in the future (today {oggi.isoformat()}): record a trade after execution'))
+    if sola_data:
+        return dt.strftime("%Y-%m-%d") + "T" + ORA_CONVENZIONALE, 1
+    return dt.isoformat(timespec="seconds"), 0
+
 
 # Manual override per match nome Excel -> ticker quando fuzzy non basta
 NAME_TO_TICKER_OVERRIDES = {
@@ -659,11 +773,11 @@ def _parse_eur_amount(s):
     txt = txt.replace("eur", "").replace("\u20ac", "").replace("$", "")
     # moltiplicatore
     mult = 1.0
-    if "mld" in txt or "miliard" in txt:
+    if "mld" in txt or "miliard" in txt or _re.search(r"\b(?:billion|bn)\b", txt):
         mult = 1e9
-    elif "mln" in txt or "milion" in txt:
+    elif "mln" in txt or "milion" in txt or _re.search(r"\b(?:million|mm)\b", txt):
         mult = 1e6
-    elif "mila" in txt or _re.search(r"\dk\b", txt) or _re.search(r"\dk", txt) or txt.rstrip().endswith("k"):
+    elif "mila" in txt or _re.search(r"\bthousand\b", txt) or _re.search(r"\dk\b", txt) or _re.search(r"\dk", txt) or txt.rstrip().endswith("k"):
         mult = 1e3
     elif _re.search(r"\d\s*m\b", txt):
         mult = 1e6
@@ -726,13 +840,21 @@ class CashNotInitialized(RuntimeError):
     """Il ledger non ha ancora un saldo iniziale misurato."""
 
 
+class CashConfirmationRequired(ValueError):
+    """Existing cash guards with language-independent identifiers for clients."""
+
+    def __init__(self, code, message):
+        self.code = code
+        super().__init__(message)
+
+
 def _cash_state_from_conn(conn):
     row = conn.execute(
         "SELECT balance_cents FROM cash_state WHERE singleton_id=1"
     ).fetchone()
     if row is None:
         return {"cash_eur": 0.0, "cash_source": None,
-                "cash_source_note": "cash_state SQLite non inizializzata: cassa 0 NON misurata"}
+                "cash_source_note": _storage_text('cash_state SQLite non inizializzata: cassa 0 NON misurata', 'SQLite cash_state is not initialized: zero cash has NOT been measured')}
     return {"cash_eur": row[0] / 100.0, "cash_source": "sqlite:cash_state",
             "cash_source_note": None}
 
@@ -749,7 +871,7 @@ def _cash_balance_cents_from_conn(conn):
     ).fetchone()
     if row is None:
         raise CashNotInitialized(
-            "cash_state SQLite non inizializzata: cassa 0 NON misurata")
+            _storage_text('cash_state SQLite non inizializzata: cassa 0 NON misurata', 'SQLite cash_state is not initialized: zero cash has NOT been measured'))
     return row[0]
 
 
@@ -1026,6 +1148,90 @@ class MemoryDB:
                       note, now, 1 if (quantita or 0) > 0 else 0))
                 return cur.lastrowid
 
+    def get_opening_positions(self, ticker=None):
+        """Documented balances; their as_of is not an acquisition date."""
+        with self._conn() as conn:
+            rows = conn.execute("SELECT * FROM position_openings"
+                                + (" WHERE ticker=?" if ticker is not None else "")
+                                + " ORDER BY created_at,id",
+                                ((str(ticker).strip().upper(),) if ticker is not None else ())).fetchall()
+        return [dict(row) for row in rows]
+
+    @staticmethod
+    def _normalize_opening(ticker, quantita, prezzo_medio, valuta, as_of, provenienza,
+                           nome=None, nota=None):
+        for label, value in (("ticker", ticker), ("valuta", valuta), ("provenienza", provenienza), ("as_of", as_of)):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(_storage_text(f'{label} obbligatorio per il saldo iniziale documentato', f'{label} required for the documented opening balance'))
+        ticker, valuta = ticker.strip().upper(), valuta.strip().upper()
+        if not re.fullmatch(r"[A-Z]{3}", valuta):
+            raise ValueError(_storage_text('valuta di quotazione non valida', 'Invalid quote currency'))
+        for label, value, positive in (("quantita", quantita, True), ("prezzo_medio", prezzo_medio, False)):
+            if (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+                    or value < 0 or (positive and value == 0)):
+                raise ValueError(_storage_text(f'{label} non valido per il saldo iniziale', f'{label} invalid for the opening balance'))
+        if not math.isfinite(quantita * prezzo_medio):
+            raise ValueError(_storage_text('controvalore nativo del saldo iniziale non finito', 'Opening balance native amount is not finite'))
+        stamp = as_of.strip()
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}(?:[T ].+)?", stamp):
+            raise ValueError(_storage_text('as_of deve essere una data ISO esplicita', 'as_of must be an explicit ISO date'))
+        when, conventional = normalizza_data_trade(stamp)
+        if not conventional and datetime.fromisoformat(when) > datetime.now():
+            raise ValueError(_storage_text('as_of nel futuro: il saldo deve essere gia noto', 'as_of is in the future: the balance must already be known'))
+        return {"ticker": ticker, "quantita": float(quantita), "prezzo_medio": float(prezzo_medio),
+                "valuta": valuta, "as_of": when[:10] if conventional else when,
+                "precisione_data": "day" if conventional else "second", "provenienza": provenienza.strip(),
+                "nome": nome, "nota": nota}
+
+    def prepare_position_opening(self, **values):
+        opening = self._normalize_opening(**values)
+        context = self.trade_context(opening["ticker"])
+        if context["position"] is not None or context["trades"] or context["opening"] is not None:
+            raise RicalcoloImpossibile(_storage_text('posizione, storico o saldo iniziale gia presenti: nessun retrofit implicito', 'Position, history or opening balance already present: no implicit retrofit'))
+        return {"opening": opening, "expected_context": context["fingerprint"],
+                "position": {k: opening[k] for k in ("ticker", "nome", "quantita", "prezzo_medio", "valuta")}
+                            | {"data_apertura": None},
+                "cash_delta_eur": 0.0,
+                "cash_disponibile_eur": context["cash"]["balance_cents"] / 100 if context["cash"] else None,
+                "performance_note": _storage_text('Saldo noto alla data indicata, acquisti precedenti non documentati. Nessun trade o movimento cassa creato; performance da snapshot successivi alla registrazione completa.', 'Balance known at the stated date; earlier purchases are undocumented. No trade or cash movement created; performance starts from snapshots after complete registration.')}
+
+    def create_position_opening(self, *, expected_context, **values):
+        from datetime import timezone
+        opening = self._normalize_opening(**values)
+        with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            context = self.trade_context(opening["ticker"], _conn=conn)
+            if (context["fingerprint"] != expected_context or context["position"] is not None
+                    or context["trades"] or context["opening"] is not None):
+                raise RicalcoloImpossibile(_storage_text('anteprima del saldo iniziale cambiata: ripeti la conferma', 'Opening balance preview changed: preview and confirm again'))
+            created = datetime.now(timezone.utc).isoformat()
+            conn.execute("INSERT INTO positions(ticker,nome,quantita,prezzo_medio,valuta,data_apertura,last_updated,is_active) "
+                         "VALUES (?,?,?,?,?,NULL,?,1)",
+                         (opening["ticker"], opening["nome"], opening["quantita"], opening["prezzo_medio"], opening["valuta"], created))
+            cur = conn.execute("INSERT INTO position_openings(ticker,quantita,prezzo_medio,valuta,as_of,precisione_data,provenienza,nota,created_at) "
+                               "VALUES (?,?,?,?,?,?,?,?,?)", tuple(opening[k] for k in
+                               ("ticker", "quantita", "prezzo_medio", "valuta", "as_of", "precisione_data", "provenienza", "nota")) + (created,))
+            return dict(conn.execute("SELECT * FROM position_openings WHERE id=?", (cur.lastrowid,)).fetchone())
+
+    @staticmethod
+    def _assert_trade_after_opening(trade, opening):
+        if not opening:
+            return
+        day, start_day = trade["data"][:10], opening["as_of"][:10]
+        ambiguous = (opening["precisione_data"] == "day" or trade.get("ora_convenzionale"))
+        if day < start_day or (day == start_day and (ambiguous or trade["data"] <= opening["as_of"])):
+            raise RicalcoloImpossibile(_storage_text('trade precedente al saldo iniziale o ordine intraday non documentato: as_of descrive il saldo noto, non un acquisto', 'Trade predates the opening balance or intraday order is undocumented: as_of describes the known balance, not a purchase'))
+
+    @staticmethod
+    def _apply_position_replay(conn, ticker, trade_id, plan):
+        after = plan["dopo"]
+        conn.execute("UPDATE positions SET quantita=?,prezzo_medio=?,data_apertura=?,is_active=?,last_updated=? WHERE ticker=?",
+                     (after["quantita"], after["prezzo_medio"], after["data_apertura"],
+                      int(after["quantita"] > 0), datetime.now().isoformat(timespec="seconds"), ticker))
+        for row in plan["updates"]:
+            conn.execute("UPDATE trade_history SET realized_local=?,realized_eur=? WHERE id=?",
+                         (row["realized_local"], row["realized_eur"], row["id"] if row["id"] is not None else trade_id))
+
     # soglia di accorciamento oltre la quale si chiede conferma: sotto meta' del
     # testo precedente non e' una correzione, e' una riscrittura (POLICY, PM)
     TESI_TAGLIO_SOSPETTO = 0.5
@@ -1044,7 +1250,8 @@ class MemoryDB:
             row = conn.execute("SELECT tesi, last_updated, is_active FROM positions "
                                "WHERE ticker=?", (t,)).fetchone()
         if row is None:
-            return {"error": "posizione %s non trovata" % t}
+            return {"error": _storage_text('posizione %s non trovata', 'Position %s not found') % t,
+                    "code": "thesis_position_missing"}
         storico = []
         try:
             with open(self._tesi_history_path(), "r", encoding="utf-8") as f:
@@ -1080,29 +1287,31 @@ class MemoryDB:
         """
         t = str(ticker or "").upper().strip()
         if not isinstance(tesi, str):
-            return {"error": "tesi deve essere testo, non %s" % type(tesi).__name__}
+            return {"error": _storage_text('tesi deve essere testo, non %s', 'Thesis must be text, not %s') % type(tesi).__name__}
         nuova = tesi.strip()
         with self._conn() as conn:
             row = conn.execute("SELECT tesi FROM positions WHERE ticker=? AND is_active=1",
                                (t,)).fetchone()
             if row is None:
-                return {"error": "posizione %s non trovata o non attiva" % t}
+                return {"error": _storage_text('posizione %s non trovata o non attiva', 'Position %s not found or inactive') % t,
+                        "code": "thesis_position_missing"}
             vecchia = (row["tesi"] or "").strip()
 
             if nuova == vecchia:
                 return {"ok": True, "ticker": t, "invariata": True, "scritture": 0,
-                        "nota": "testo identico a quello a registro: nessuna scrittura"}
+                        "nota": _storage_text("testo identico a quello a registro: nessuna scrittura", "Text identical to the stored version: no writes")}
             if vecchia and not nuova and not conferma:
-                return {"error": ("GUARDIA TESI: stai SVUOTANDO una tesi di %d caratteri. "
-                                  "Se e' voluto rimanda con conferma=true (la versione "
-                                  "precedente resta comunque nello storico)." % len(vecchia))}
+                return {"code": "thesis_empty_confirmation", "error": (_storage_text("GUARDIA TESI: stai SVUOTANDO una tesi di %d caratteri. Se e' voluto rimanda con conferma=true (la versione precedente resta comunque nello storico).", 'THESIS GUARD: you are EMPTYING a thesis of %d characters. If intended, resubmit with conferma=true (the previous version remains in history).') % len(vecchia))}
             if (vecchia and nuova
                     and len(nuova) < len(vecchia) * self.TESI_TAGLIO_SOSPETTO
                     and not conferma):
-                return {"error": ("GUARDIA TESI: la tesi passerebbe da %d a %d caratteri "
+                return {"code": "thesis_shortening_confirmation", "error": (_storage_text("GUARDIA TESI: la tesi passerebbe da %d a %d caratteri "
                                   "(-%.0f%%). Se stai riscrivendo apposta rimanda con "
                                   "conferma=true; se invece hai perso un addendum, "
-                                  "recuperalo da GET /positions/%s/tesi."
+                                  "recuperalo da GET /positions/%s/tesi.",
+                                  "THESIS GUARD: the thesis would change from %d to %d characters "
+                                  "(-%.0f%%). If you are intentionally rewriting it, resubmit with "
+                                  "conferma=true; if an addendum was lost, recover it from GET /positions/%s/tesi.")
                                   % (len(vecchia), len(nuova),
                                      100.0 * (1 - len(nuova) / len(vecchia)), t))}
 
@@ -1127,8 +1336,7 @@ class MemoryDB:
                         json.dump(tutto, f, ensure_ascii=False, indent=1)
                     versione = len(tutto[t])
                 except Exception as e:
-                    return {"error": ("storico tesi NON scritto (%s: %s): la tesi "
-                                      "precedente sarebbe andata persa, non sovrascrivo"
+                    return {"error": (_storage_text('storico tesi NON scritto (%s: %s): la tesi precedente sarebbe andata persa, non sovrascrivo', 'Thesis history NOT saved (%s: %s): the previous thesis would be lost, so it was not overwritten')
                                       % (type(e).__name__, e))}
 
             now = datetime.now().isoformat(timespec="seconds")
@@ -1137,8 +1345,8 @@ class MemoryDB:
         out = {"ok": True, "ticker": t, "scritture": n, "caratteri": len(nuova),
                "caratteri_precedenti": len(vecchia), "versione_storico": versione,
                "last_updated": now,
-               "nota": ("tesi aggiornata; la precedente e' la versione %s dello storico"
-                        % versione) if versione else "tesi scritta (non ce n'era una)"}
+               "nota": (_storage_text("tesi aggiornata; la precedente e' la versione %s dello storico", 'Thesis updated; the previous text is version %s in history')
+                        % versione) if versione else _storage_text("tesi scritta (non ce n'era una)", 'Thesis saved (none existed previously)')}
         # 20/08: durante il collaudo ho corrotto io una tesi passandola per la shell
         # ('è' -> 'Ã¨', UTF-8 riletto come latin-1). Il testo era gia' scritto e nessuno
         # l'avrebbe detto: il campo e' libero e il mojibake e' testo valido. Non si
@@ -1148,20 +1356,26 @@ class MemoryDB:
                     if s in nuova]
         if sospette:
             out["avviso_encoding"] = (
-                "il testo contiene sequenze tipiche di UTF-8 riletto come latin-1 (%s): "
-                "probabile testo passato per un canale con la codifica sbagliata. "
-                "Scritto lo stesso, ma controllalo — la versione precedente e' nello "
-                "storico." % ", ".join(repr(s) for s in sospette))
+                _storage_text("il testo contiene sequenze tipiche di UTF-8 riletto come latin-1 (%s): probabile testo passato per un canale con la codifica sbagliata. Scritto lo stesso, ma controllalo — la versione precedente e' nello storico.", 'The text contains sequences typical of UTF-8 read as Latin-1 (%s): it likely passed through a channel with the wrong encoding. Saved, but check it — the previous version is in history.') % ", ".join(repr(s) for s in sospette))
         return out
 
     def log_trade(self, ticker, action, quantita, prezzo, valuta="EUR",
                   data=None, note=None, pm_rationale=None, linked_decision_id=None,
-                  _conn=None):
+                  ora_convenzionale=None, link_origin=None, fx_fonte=None,
+                  _conn=None, _realized_fx="legacy"):
         """Registra storico + posizione senza cambiare il saldo corrente.
 
         E' il percorso intenzionale per importazioni storiche e fixture. Le
         operazioni correnti devono usare `execute_trade`, che include cash_state
-        nella stessa transazione.
+        nella stessa transazione (e, se il trade e' retrodatato, la ricostruzione
+        della posizione per data).
+
+        `data`: None = adesso; `YYYY-MM-DD` = giorno scelto dal PM con ora 12:00:00
+        PER CONVENZIONE (ora_convenzionale=1, la stessa dei trade storici importati
+        senza ora); ISO con ora = ora misurata. Si PARSA SEMPRE (normalizza_data_trade):
+        non ISO / futuro / prima del 2000 -> DataTradeNonValida, nessuna scrittura.
+        `ora_convenzionale`/`link_origin`/`fx_fonte`: colonne della migrazione 10;
+        se non passate, l'ora la decide il parse e le altre restano NULL (legacy).
 
         Actions:
           BUY/ADD  - increase position, recompute avg cost
@@ -1172,18 +1386,34 @@ class MemoryDB:
         """
         action = action.upper()
         if action not in ("BUY", "SELL", "TRIM", "ADD", "DIVIDEND"):
-            raise ValueError("action deve essere BUY/SELL/TRIM/ADD/DIVIDEND")
+            raise ValueError(_storage_text('action deve essere BUY/SELL/TRIM/ADD/DIVIDEND', 'action must be BUY/SELL/TRIM/ADD/DIVIDEND'))
         # Normalizzazione (review 03/08): canonici QUI, non solo all'endpoint —
         # "mstr"/" MSTR" con la SELECT esatta bypassavano la guardia valute e
         # aprivano una riga positions PARALLELA; "usd" passava ma finiva raw in
         # trade_history. DB gia' canonico (0 righe non-upper, misurato 03/08).
         ticker = (ticker or "").strip().upper()
         if not ticker:
-            raise ValueError("ticker vuoto")
+            raise ValueError(_storage_text('ticker vuoto', 'Empty ticker'))
         valuta = (valuta or "EUR").strip().upper()
-        data = data or datetime.now().isoformat(timespec="seconds")
+        data, _ora_conv = normalizza_data_trade(data)
+        if ora_convenzionale is None:
+            ora_convenzionale = _ora_conv
         from contextlib import nullcontext
         with (nullcontext(_conn) if _conn is not None else self._conn()) as conn:
+            if _conn is None:
+                conn.execute("BEGIN IMMEDIATE")  # standalone import shares the replay's locked state
+            baseline_plan = None
+            baseline_row = conn.execute("SELECT * FROM position_openings WHERE ticker=?", (ticker,)).fetchone()
+            if baseline_row is not None:
+                baseline = dict(baseline_row)
+                event = {"ticker": ticker, "action": action, "quantita": quantita, "prezzo": prezzo,
+                         "valuta": valuta, "data": data, "ora_convenzionale": ora_convenzionale}
+                self._assert_trade_after_opening(event, baseline)
+                if _conn is None:
+                    if _realized_fx == "legacy":
+                        _realized_fx = None  # An undocumented acquisition FX is never a live-FX proxy.
+                    baseline_plan = self._trade_replay_plan(event, self.trade_context(ticker, _conn=conn),
+                                                          {(data[:10], valuta): _realized_fx})
             # GUARDIA VALUTE (blocco cassa/valute 03/08, ponte F22): la guardia
             # dell'endpoint copre solo POST /trade — da qui passano TUTTI i
             # chiamanti (script, import, automazioni) ed e' da qui che il
@@ -1201,16 +1431,14 @@ class MemoryDB:
                 _v_trd = valuta
                 if _v_pos and _v_trd and _v_trd != _v_pos:
                     raise ValueError(
-                        f"GUARDIA VALUTE: valuta del trade ({_v_trd}) diversa da "
-                        f"quella della posizione {ticker} ({_v_pos}): rifiutato "
-                        f"senza conversione automatica (classe del carico "
-                        f"contaminato #46/#47). Reinserisci nella valuta di "
-                        f"quotazione della posizione.")
+                        _storage_text(f'GUARDIA VALUTE: valuta del trade ({_v_trd}) diversa da quella della posizione {ticker} ({_v_pos}): rifiutato senza conversione automatica (classe del carico contaminato #46/#47). Reinserisci nella valuta di quotazione della posizione.', f'CURRENCY GUARD: trade currency ({_v_trd}) differs from position {ticker} ({_v_pos}): refused without automatic conversion (contaminated cost basis class #46/#47). Re-enter in the position quote currency.'))
             cur = conn.execute("""
                 INSERT INTO trade_history (ticker, action, quantita, prezzo, valuta, data,
-                                            note, pm_rationale, linked_decision_id)
-                VALUES (?,?,?,?,?,?,?,?,?)
-            """, (ticker, action, quantita, prezzo, valuta, data, note, pm_rationale, linked_decision_id))
+                                            note, pm_rationale, linked_decision_id,
+                                            ora_convenzionale, link_origin, fx_fonte)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (ticker, action, quantita, prezzo, valuta, data, note, pm_rationale, linked_decision_id,
+                  int(ora_convenzionale), link_origin, fx_fonte))
             trade_id = cur.lastrowid
 
             # DIVIDEND: only logs income, NO position update
@@ -1262,6 +1490,12 @@ class MemoryDB:
                         ccy = (valuta or "EUR").upper()
                         if ccy == "EUR":
                             realized_eur = realized_local
+                        elif _realized_fx != "legacy":
+                            # execute_trade supplies the observed FX before taking the
+                            # write lock. None declares a missing historical conversion.
+                            if (_realized_fx is not None and math.isfinite(_realized_fx)
+                                    and _realized_fx > 0):
+                                realized_eur = round(realized_local * _realized_fx, 6)
                         else:
                             try:
                                 # FX CORRENTE = FX del giorno del trade nel flusso
@@ -1282,6 +1516,8 @@ class MemoryDB:
                                 "UPDATE trade_history SET realized_local=?, realized_eur=? WHERE id=?",
                                 (realized_local, realized_eur, trade_id))
                         except Exception as e:
+                            if _conn is not None:
+                                raise  # atomic trade/cash execution cannot hide a realized write failure
                             # trade valido comunque, buco dichiarato a log con la
                             # causa VERA (review Lotto B: "migrazione mancante?" su
                             # un lock transitorio era una diagnosi fuorviante)
@@ -1289,23 +1525,195 @@ class MemoryDB:
                                       if "no column" in str(e).lower() or "has no column" in str(e).lower()
                                       else type(e).__name__ + ": " + str(e)[:120])
                             print(f"[MEMORY_DB] realized non persistito per trade {trade_id}: {_cause}")
+            if baseline_plan:
+                self._apply_position_replay(conn, ticker, trade_id, baseline_plan)
             return trade_id
 
-    def execute_trade(self, *, cash_delta_cents, **trade):
+    def trade_context(self, ticker, linked_decision_id=None, _conn=None):
+        """Read the rows that a trade may change; no price/provider calls or writes."""
+        from contextlib import nullcontext
+        from hashlib import sha256
+        with (nullcontext(_conn) if _conn is not None else self._conn()) as conn:
+            row = conn.execute("SELECT * FROM positions WHERE ticker=?", (ticker,)).fetchone()
+            cash = conn.execute("SELECT * FROM cash_state WHERE singleton_id=1").fetchone()
+            decision = conn.execute("SELECT * FROM decisions WHERE id=?", (linked_decision_id,)).fetchone()
+            opening = conn.execute("SELECT * FROM position_openings WHERE ticker=?", (ticker,)).fetchone()
+            context = {"position": dict(row) if row else None, "cash": dict(cash) if cash else None,
+                       "opening": dict(opening) if opening else None,
+                       "decision": dict(decision) if decision else None,
+                       "trades": [dict(r) for r in conn.execute(
+                           "SELECT * FROM trade_history WHERE ticker=? ORDER BY data,id", (ticker,))]}
+        context["fingerprint"] = sha256(json.dumps(context, sort_keys=True, allow_nan=False,
+                                                   separators=(",", ":")).encode()).hexdigest()
+        return context
+
+    @classmethod
+    def _validate_trade_decision(cls, trade, context):
+        did, origin = trade.get("linked_decision_id"), trade.get("link_origin")
+        if origin not in (None, "explicit", "none", "unknown"):
+            raise ValueError(_storage_text('link_origin non valido', 'Invalid link_origin'))
+        if did is None:
+            if origin == "explicit":
+                raise ValueError(_storage_text('legame esplicito senza decisione', 'Explicit link without a decision'))
+            return None
+        if origin in ("none", "unknown"):
+            raise ValueError(_storage_text('decisione esplicita e senza decisione/non so incompatibili', 'Explicit decision is incompatible with no decision/unknown'))
+        decision = context["decision"]
+        if not decision:
+            raise ValueError(_storage_text(f'decisione {did} inesistente', f'Decision {did} does not exist'))
+        if str(decision["ticker"]).strip().upper() != trade["ticker"]:
+            raise ValueError(_storage_text(f"decisione {did} riguarda {decision['ticker']}, non {trade['ticker']}", f"Decision {did} concerns {decision['ticker']}, not {trade['ticker']}"))
+        verso = cls._VERSO.get(trade["action"])
+        if verso is None or verso != cls._VERSO.get(decision["action"]):
+            raise ValueError(_storage_text(f'decisione {did}: verso incompatibile con il trade', f'Decision {did}: direction incompatible with the trade'))
+        if decision["status"] not in ("PENDING", "PARTIAL", "EXECUTED") or decision.get("veto"):
+            raise ValueError(_storage_text(f"decisione {did}: stato {decision['status']} o veto incompatibile", f"Decision {did}: status {decision['status']} or veto incompatible"))
+        try:
+            t_dec = datetime.fromisoformat(decision["timestamp"])
+            t_trade = datetime.fromisoformat(trade["data"])
+        except (ValueError, TypeError):
+            raise ValueError(_storage_text(f'decisione {did}: data non valida, legame non verificabile', f'Decision {did}: invalid date, link cannot be verified'))
+        # With a date-only trade the intraday ordering is not known, not noon.
+        before = (t_trade.date() < t_dec.date() if trade.get("ora_convenzionale")
+                  else t_trade < t_dec)
+        if before:
+            raise ValueError(_storage_text(f'trade precedente alla decisione {did}: legame rifiutato', f'Trade predates decision {did}: link refused'))
+        return {"id": did, "status": decision["status"],
+                "nota": (_storage_text('Decisione PENDING: il trade non cambia lo stato scelto dal PM.', 'PENDING decision: the trade does not change the status chosen by the PM.')
+                         if decision["status"] == "PENDING" else None)}
+
+    @classmethod
+    def _trade_replay_plan(cls, trade, context, realized_fx=None):
+        """Strict chronological average cost for backdating or documented balances.
+
+        No opening position is inferred from an incomplete trade history. FX is supplied
+        by the caller; absent historical FX leaves realized_eur unavailable.
+        """
+        opening = context.get("opening")
+        cls._assert_trade_after_opening(trade, opening)
+        old = []
+        for row in context["trades"]:
+            try:
+                if not isinstance(row["data"], str) or not row["data"].strip():
+                    raise DataTradeNonValida(_storage_text('data del trade storico assente', 'Historical trade date missing'))
+                when, _ = normalizza_data_trade(row["data"])
+            except (ValueError, TypeError) as exc:
+                raise RicalcoloImpossibile(_storage_text(f'replay impossibile: data legacy non valida ({exc})', f'Replay impossible: invalid legacy date ({exc})')) from exc
+            old.append(dict(row, data=when))
+            cls._assert_trade_after_opening(old[-1], opening)
+        following = [r for r in old if r["data"] > trade["data"]]
+        if (not following and not opening) or trade["action"] == "DIVIDEND":
+            return None
+        position = context["position"]
+        qty_before = (opening["quantita"] if opening else 0) + sum(r["quantita"] * (1 if r["action"] in ("BUY", "ADD") else -1)
+                         for r in old if r["action"] != "DIVIDEND")
+        if not position or not math.isclose(qty_before, position["quantita"], abs_tol=1e-7):
+            raise RicalcoloImpossibile(_storage_text('replay impossibile: storico non riconciliato con la posizione; manca una base iniziale documentata', 'Replay impossible: history does not reconcile with the position; a documented opening balance is missing'))
+        qty, avg, opened = (opening["quantita"], opening["prezzo_medio"], None) if opening else (0.0, 0.0, None)
+        if opening:
+            check_qty, check_avg = qty, avg
+            for row in old:
+                if row["action"] == "DIVIDEND":
+                    continue
+                q, price = row["quantita"], row["prezzo"]
+                if row["valuta"] != opening["valuta"] or not math.isfinite(q) or q <= 0 or not math.isfinite(price) or price <= 0:
+                    raise RicalcoloImpossibile(_storage_text('storico del saldo iniziale non valido', 'Invalid opening balance history'))
+                if row["action"] in ("BUY", "ADD"):
+                    check_avg = (check_qty * check_avg + q * price) / (check_qty + q)
+                    check_qty += q
+                elif row["action"] in ("SELL", "TRIM") and q <= check_qty + 1e-9:
+                    check_qty = max(0.0, check_qty - q)
+                else:
+                    raise RicalcoloImpossibile(_storage_text('storico del saldo iniziale non riconciliabile', 'Opening balance history cannot be reconciled'))
+            if (position["valuta"] != opening["valuta"] or trade["valuta"] != opening["valuta"]
+                    or position["prezzo_medio"] is None or not math.isclose(check_avg, position["prezzo_medio"], abs_tol=1e-7)):
+                raise RicalcoloImpossibile(_storage_text('costo/valuta della posizione divergono dal saldo iniziale documentato e dai trade', 'Position cost/currency diverge from the documented opening balance and trades'))
+        updates, notes = [], []
+        unknown_opening_fx = bool(opening and opening["valuta"] != "EUR")
+        current = dict(trade, id=None)
+        all_rows = sorted([*old, current], key=lambda r: (r["data"], r["id"] if r["id"] is not None else float("inf")))
+        for row in all_rows:
+            action, q, price = row["action"], row["quantita"], row["prezzo"]
+            if action == "DIVIDEND":
+                continue
+            if (not math.isfinite(q) or q <= 0 or not math.isfinite(price) or price <= 0
+                    or row["valuta"] != trade["valuta"]):
+                raise RicalcoloImpossibile(_storage_text('replay impossibile: quantita/prezzo/valuta dello storico non validi', 'Replay impossible: invalid historical quantity/price/currency'))
+            if action in ("BUY", "ADD"):
+                if row["id"] is None and action == "ADD" and qty <= 1e-9:
+                    raise RicalcoloImpossibile(_storage_text('replay impossibile: ADD senza posizione alla data del trade; usa BUY', 'Replay impossible: ADD without a position on the trade date; use BUY'))
+                if qty <= 1e-9:
+                    opened = row["data"]
+                    avg, qty = 0.0, 0.0
+                avg = (qty * avg + q * price) / (qty + q)
+                qty += q
+            elif action in ("SELL", "TRIM"):
+                if q > qty + 1e-9:
+                    raise RicalcoloImpossibile(
+                        _storage_text(f"replay impossibile: vendita {row['data']} di {q:g} oltre {qty:g} detenute", f"Replay impossible: sale {row['data']} of {q:g} exceeds {qty:g} held"))
+                local = round(q * (price - avg), 6)
+                if row["id"] is None or row in following:
+                    rate = 1.0 if row["valuta"] == "EUR" else (realized_fx or {}).get(
+                        (row["data"][:10], row["valuta"]))
+                    eur = round(local * rate, 6) if rate is not None else None
+                    if unknown_opening_fx:
+                        eur = None
+                        notes.append(_storage_text('Saldo iniziale estero: FX di acquisto ignoto, realized EUR n.d.; realized locale noto.', 'Foreign opening balance: acquisition FX unknown, realized EUR unavailable; local realized P&L known.'))
+                    elif eur is None:
+                        notes.append(_storage_text(
+                            f"FX storico {row['valuta']} del {row['data'][:10]} n.d.: realized EUR n.d.",
+                            f"Historical {row['valuta']} FX for {row['data'][:10]} unavailable: EUR realized P&L unavailable."))
+                    updates.append({"id": row["id"], "realized_local": local, "realized_eur": eur})
+                qty = max(0.0, qty - q)
+                if qty <= 1e-9:
+                    unknown_opening_fx = False
+            else:
+                raise RicalcoloImpossibile(_storage_text('replay impossibile: azione storica sconosciuta', 'Replay impossible: unknown historical action'))
+        realized_before = [r["realized_local"] for r in old if r["action"] in ("SELL", "TRIM")]
+        changed = {r["id"]: r["realized_local"] for r in updates}
+        realized_after = [changed.get(r["id"], r["realized_local"]) for r in old
+                          if r["action"] in ("SELL", "TRIM")]
+        if None in changed:
+            realized_after.append(changed[None])
+        def total(values):
+            return round(sum(values), 6) if all(v is not None for v in values) else None
+        return {"valuta": trade["valuta"],
+                "prima": {"quantita": position["quantita"], "prezzo_medio": position["prezzo_medio"],
+                          "data_apertura": position["data_apertura"], "realized": total(realized_before)},
+                "dopo": {"quantita": qty, "prezzo_medio": avg, "data_apertura": opened,
+                         "realized": total(realized_after)},
+                "trade_successivi": [r["id"] for r in following], "note": list(dict.fromkeys(notes)),
+                "baseline": opening,
+                "updates": updates}
+
+    def execute_trade(self, *, cash_delta_cents, expected_context=None, realized_fx=None, **trade):
         """Registra trade, posizione e saldo cassa nella stessa transazione.
 
         `log_trade` resta il percorso esplicito per importazioni storiche e
         fixture: registra lo storico senza modificare il saldo corrente.
         """
         if isinstance(cash_delta_cents, bool) or not isinstance(cash_delta_cents, int):
-            raise ValueError("cash_delta_cents deve essere un intero")
+            raise ValueError(_storage_text('cash_delta_cents deve essere un intero', 'cash_delta_cents must be an integer'))
         with self._conn() as conn:
             conn.execute("BEGIN IMMEDIATE")
             state = _cash_state_from_conn(conn)
             if state["cash_source"] is None:
                 raise CashNotInitialized(state["cash_source_note"])
             old_cents = _cash_balance_cents_from_conn(conn)
+            trade["ticker"] = trade["ticker"].strip().upper()
+            trade["action"] = trade["action"].upper()
+            trade["valuta"] = trade.get("valuta", "EUR").strip().upper()
+            trade["data"], conventional = normalizza_data_trade(trade.get("data"))
+            trade.setdefault("ora_convenzionale", conventional)
+            context = self.trade_context(trade["ticker"], trade.get("linked_decision_id"), _conn=conn)
+            if expected_context is not None and context["fingerprint"] != expected_context:
+                raise RicalcoloImpossibile(_storage_text('anteprima cambiata: cassa, posizione, trade o decisione modificati; ripeti la conferma', 'Preview changed: cash, position, trade or decision changed; preview and confirm again'))
+            decision = self._validate_trade_decision(trade, context)
+            plan = self._trade_replay_plan(trade, context, realized_fx)
             trade_id = self.log_trade(_conn=conn, **trade)
+            if plan:
+                self._apply_position_replay(conn, trade["ticker"], trade_id, plan)
+                plan.pop("updates")
             new_cents = old_cents + cash_delta_cents
             n = conn.execute(
                 "UPDATE cash_state SET balance_cents=?, updated_at=?, version=version+1 "
@@ -1313,8 +1721,9 @@ class MemoryDB:
                 (new_cents, datetime.now().isoformat(timespec="seconds"), old_cents),
             ).rowcount
             if n != 1:
-                raise RuntimeError("saldo cassa cambiato durante il trade: rollback")
-            return {"trade_id": trade_id, "cash_eur": new_cents / 100.0}
+                raise RuntimeError(_storage_text('saldo cassa cambiato durante il trade: rollback', 'Cash balance changed during the trade: rolled back'))
+            return {"trade_id": trade_id, "cash_eur": new_cents / 100.0,
+                    "ricalcolo": plan, "decisione": decision}
 
     # Soglia di conferma sui movimenti cassa (delega PM 13/08 "come meglio
     # credi", finding 5 review): sopra questo importo serve conferma=True.
@@ -1353,20 +1762,19 @@ class MemoryDB:
         """
         tipo = (tipo or "").strip().upper()
         if tipo not in ("DEPOSIT", "WITHDRAWAL"):
-            raise ValueError(f"tipo deve essere DEPOSIT o WITHDRAWAL, non {tipo!r}")
+            raise ValueError(_storage_text(f'tipo deve essere DEPOSIT o WITHDRAWAL, non {tipo!r}', f'tipo must be DEPOSIT or WITHDRAWAL, not {tipo!r}'))
         try:
             importo = float(importo_eur)
         except (TypeError, ValueError):
-            raise ValueError(f"importo_eur non numerico: {importo_eur!r}")
+            raise ValueError(_storage_text(f'importo_eur non numerico: {importo_eur!r}', f'importo_eur is not numeric: {importo_eur!r}'))
         # isfinite: json.loads accetta Infinity/NaN (lenienza python) e un inf
         # passerebbe il CHECK > 0 fino a corrompere portfolio.json a valle
         if not math.isfinite(importo) or not importo > 0:
-            raise ValueError(f"importo_eur deve essere positivo e finito: {importo}")
+            raise ValueError(_storage_text(f'importo_eur deve essere positivo e finito: {importo}', f'importo_eur must be positive and finite: {importo}'))
         if (tipo == "WITHDRAWAL" and cassa_disponibile is not None
                 and importo > float(cassa_disponibile)):
             raise ValueError(
-                f"GUARDIA CASSA: prelievo {importo:.2f} EUR oltre la cassa "
-                f"disponibile {float(cassa_disponibile):.2f} EUR: rifiutato.")
+                _storage_text(f'GUARDIA CASSA: prelievo {importo:.2f} EUR oltre la cassa disponibile {float(cassa_disponibile):.2f} EUR: rifiutato.', f'CASH GUARD: withdrawal {importo:.2f} EUR exceeds available cash of {float(cassa_disponibile):.2f} EUR: refused.'))
         if data is not None:
             try:
                 # si salva il PARSATO, non il raw (review 12/08): "…T23:59:59"
@@ -1374,7 +1782,7 @@ class MemoryDB:
                 # nel raggruppamento lessicografico del TWR e l'IRR lo droppa
                 data = datetime.fromisoformat(str(data)).date().isoformat()
             except ValueError:
-                raise ValueError(f"data non ISO (YYYY-MM-DD): {data!r}")
+                raise ValueError(_storage_text(f'data non ISO (YYYY-MM-DD): {data!r}', f'Date is not ISO (YYYY-MM-DD): {data!r}'))
         data = data or datetime.now().strftime("%Y-%m-%d")
         # 2 decimali all'INSERT: la somma del registro e la cassa (round a 2
         # nel chiamante) non devono divergere di sub-cent
@@ -1384,11 +1792,8 @@ class MemoryDB:
         # «CONFERMO, E' VOLUTO» di F7 sul letterale `conferma=true` — in
         # «conferma_soglia=true» dopo «conferma» c'e' un underscore e NON matcha
         if importo > self.CASH_SOGLIA_CONFERMA_EUR and not (conferma or conferma_soglia):
-            raise ValueError(
-                f"GUARDIA IMPORTO: {importo:.2f} EUR sopra la soglia di "
-                f"{self.CASH_SOGLIA_CONFERMA_EUR} EUR — possibile errore di "
-                "battitura. Se e' voluto, ripeti con conferma_soglia=true "
-                "(conferma=true vale per ENTRAMBE le guardie).")
+            raise CashConfirmationRequired("cash_threshold",
+                _storage_text(f"GUARDIA IMPORTO: {importo:.2f} EUR sopra la soglia di {self.CASH_SOGLIA_CONFERMA_EUR} EUR — possibile errore di battitura. Se e' voluto, ripeti con conferma_soglia=true (conferma=true vale per ENTRAMBE le guardie).", f'AMOUNT GUARD: {importo:.2f} EUR above the threshold of {self.CASH_SOGLIA_CONFERMA_EUR} EUR — possible typo. If intended, repeat with conferma_soglia=true (conferma=true applies to BOTH guards).'))
         from contextlib import nullcontext
         with (nullcontext(_conn) if _conn is not None else self._conn()) as conn:
             if not (conferma or conferma_duplicato):
@@ -1396,12 +1801,8 @@ class MemoryDB:
                     "SELECT id FROM cash_movements WHERE date=? AND type=? "
                     "AND amount_eur=?", (data, tipo, importo)).fetchone()
                 if dup:
-                    raise ValueError(
-                        f"GUARDIA DUPLICATO: esiste gia' un {tipo} di "
-                        f"{importo:.2f} EUR in data {data} (id={dup[0]}) — "
-                        "doppio click? Se e' un secondo movimento vero, "
-                        "ripeti con conferma_duplicato=true (conferma=true "
-                        "vale per ENTRAMBE le guardie).")
+                    raise CashConfirmationRequired("cash_duplicate",
+                        _storage_text(f"GUARDIA DUPLICATO: esiste gia' un {tipo} di {importo:.2f} EUR in data {data} (id={dup[0]}) — doppio click? Se e' un secondo movimento vero, ripeti con conferma_duplicato=true (conferma=true vale per ENTRAMBE le guardie).", f'DUPLICATE GUARD: an existing {tipo} of {importo:.2f} EUR on date {data} (id={dup[0]}) — double click? If this is a separate actual movement, repeat with conferma_duplicato=true (conferma=true applies to BOTH guards).'))
             cur = conn.execute(
                 "INSERT INTO cash_movements (date, type, amount_eur, note) "
                 "VALUES (?,?,?,?)", (data, tipo, importo, nota))
@@ -1418,14 +1819,14 @@ class MemoryDB:
         from decimal import Decimal, InvalidOperation
         tipo_norm = (tipo or "").strip().upper()
         if isinstance(importo_eur, bool):
-            raise ValueError("importo_eur non numerico")
+            raise ValueError(_storage_text('importo_eur non numerico', 'importo_eur is not numeric'))
         try:
             amount_dec = Decimal(str(importo_eur))
         except InvalidOperation as exc:
-            raise ValueError("importo_eur non numerico") from exc
+            raise ValueError(_storage_text('importo_eur non numerico', 'importo_eur is not numeric')) from exc
         if (not amount_dec.is_finite() or amount_dec <= 0
                 or amount_dec.as_tuple().exponent < -2):
-            raise ValueError("importo_eur deve essere positivo, finito e avere massimo 2 decimali")
+            raise ValueError(_storage_text('importo_eur deve essere positivo, finito e avere massimo 2 decimali', 'importo_eur must be positive, finite and have at most 2 decimal places'))
         amount_cents = int(amount_dec * 100)
         with self._conn() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -1453,7 +1854,7 @@ class MemoryDB:
                     (new_cents, now, old_cents),
                 ).rowcount
                 if n != 1:
-                    raise RuntimeError("saldo cassa cambiato durante il movimento: rollback")
+                    raise RuntimeError(_storage_text('saldo cassa cambiato durante il movimento: rollback', 'Cash balance changed during the movement: rolled back'))
             return {"movement_id": mov_id, "cash_eur": new_cents / 100.0}
 
     def get_cash_movements(self, limit=100):
@@ -1575,7 +1976,7 @@ class MemoryDB:
                         prev_close_ts = r["data_apertura"]
                         prev_close_source = "carico"
                 val_mercato = (r["quantita"] or 0) * (last_price or r["prezzo_medio"] or 0)
-                pl_eur = ((last_price - r["prezzo_medio"]) * r["quantita"]) if (last_price and r["prezzo_medio"]) else None
+                pl_eur = ((last_price - r["prezzo_medio"]) * r["quantita"]) if (last_price is not None and r["prezzo_medio"] is not None) else None
                 pl_pct = ((last_price - r["prezzo_medio"]) / r["prezzo_medio"] * 100) if (last_price and r["prezzo_medio"]) else None
                 positions.append({
                     "ticker": r["ticker"],
@@ -1607,12 +2008,9 @@ class MemoryDB:
                     "price_age_minutes": price_age_min,
                     "mercato_aperto": _mkt_aperto,
                     "price_source": (
-                        "prezzo_medio (fallback DICHIARATO: P&L n.d.)" if last_price is None
-                        else f"snapshot VECCHIO ({price_age_min} min, soglia "
-                             f"{self.PRICE_STALE_AFTER_MIN}, mercato APERTO)" if _vecchio
-                        else f"snapshot di {price_age_min} min fa, oltre la soglia "
-                             f"{self.PRICE_STALE_AFTER_MIN} ma a mercato CHIUSO: "
-                             "e' l'ultimo prezzo valido, non un buco"
+                        _message('prezzo_medio (fallback DICHIARATO: P&L n.d.)', 'prezzo_medio (DECLARED fallback: P&L n/a)') if last_price is None
+                        else _message('snapshot VECCHIO ({v0} min, soglia {v1}, mercato APERTO)', 'STALE snapshot ({v0} min, threshold {v1}, market OPEN)', v0=price_age_min, v1=self.PRICE_STALE_AFTER_MIN) if _vecchio
+                        else _message("snapshot di {v0} min fa, oltre la soglia {v1} ma a mercato CHIUSO: e' l'ultimo prezzo valido, non un buco", 'snapshot {v0} min ago, beyond threshold {v1} but market CLOSED: the latest valid price, not a data gap', v0=price_age_min, v1=self.PRICE_STALE_AFTER_MIN)
                         if (price_age_min is not None
                             and price_age_min > self.PRICE_STALE_AFTER_MIN
                             and _mkt_aperto is False)
@@ -1667,17 +2065,21 @@ class MemoryDB:
         # pl_eur_fx (28/08, decisione PM): il P&L col cambio STORICO del costo,
         # chiavi ADDITIVE per posizione + totali SOLO a copertura piena (mai un
         # parziale spacciato per completo); ogni n.d. porta il suo motivo.
+        _openings = []
         try:
             from bellomberg.portfolio.portfolio_analytics import pl_fx_per_posizione
             with self._conn() as conn:
                 _trades = [dict(r) for r in conn.execute(
                     "SELECT id, ticker, action, quantita, prezzo, valuta, data "
                     "FROM trade_history ORDER BY data ASC, id ASC")]
-            _st = pl_fx_per_posizione(_trades, datetime.now().strftime("%Y-%m-%d"))
+            _openings = self.get_opening_positions()
+            _st = pl_fx_per_posizione(_trades, datetime.now().strftime("%Y-%m-%d"),
+                                     **({"openings": _openings} if _openings else {}))
         except Exception as _e:
-            _st = {"error": f"costo storico n.d. ({type(_e).__name__}: {_e})"}
+            _st = {"error": _message('costo storico n.d. ({v0}: {v1})', 'historical cost n/a ({v0}: {v1})', v0=type(_e).__name__, v1=_e)}
         pl_fx_nd = []
         for p in positions:
+            p["position_opening"] = next((row for row in _openings if row["ticker"] == p["ticker"]), None)
             p["costo_eur_storico"] = None
             p["pl_eur_fx"] = None
             p["pl_pct_fx"] = None
@@ -1692,20 +2094,18 @@ class MemoryDB:
             else:
                 h = _st["per_ticker"].get(p["ticker"])
                 if h is None:
-                    p["fx_pl_note"] = "nessun trade in trade_history: costo storico n.d."
+                    p["fx_pl_note"] = _message('nessun trade in trade_history: costo storico n.d.', 'no trade in trade_history: historical cost n/a')
                 elif h["costo_eur_storico"] is None:
-                    p["fx_pl_note"] = "; ".join(h["note"]) or "FX storico n.d."
+                    p["fx_pl_note"] = join_messages("; ", h["note"]) or _message('FX storico n.d.', 'Historical FX n/a')
                 elif abs(h["qty"] - float(p.get("quantita") or 0)) > 1e-6:
-                    p["fx_pl_note"] = (f"replay dei trade {h['qty']:g} vs posizione "
-                                       f"{float(p.get('quantita') or 0):g}: costo storico n.d.")
+                    p["fx_pl_note"] = (_message('replay dei trade {v0:g} vs posizione {v1:g}: costo storico n.d.', 'trade replay {v0:g} vs position {v1:g}: historical cost n/a', v0=h['qty'], v1=float(p.get('quantita') or 0)))
                 elif _cur != "EUR" and p.get("fx_to_eur") is None:
                     # review 28/08 (ALTO): senza FX di oggi valore_mercato e pl_eur
                     # sono rimasti in valuta NATIVA (fx_incomplete): un numero in
                     # valuta mista spacciato per EUR e' la classe vietata il 14/07
-                    p["fx_pl_note"] = (f"FX di oggi per {_cur} n.d.: valore di mercato in "
-                                       f"valuta nativa, pl_eur_fx n.d.")
+                    p["fx_pl_note"] = (_message('FX di oggi per {v0} n.d.: valore di mercato in valuta nativa, pl_eur_fx n.d.', 'Current FX for {v0} n/a: market value in native currency, pl_eur_fx n/a', v0=_cur))
                 elif p.get("pl_eur") is None or not p.get("valore_mercato"):
-                    p["fx_pl_note"] = "prezzo live o valore di mercato n.d."
+                    p["fx_pl_note"] = _message('prezzo live o valore di mercato n.d.', 'Live price or market value n/a')
                 else:
                     # review 28/08 (MEDIO): la componente cambio e' PURA — pool in
                     # valuta x FX di oggi meno pool in EUR — cosi' e' zero per
@@ -1722,10 +2122,10 @@ class MemoryDB:
                     if p["costo_eur_storico"]:
                         p["pl_pct_fx"] = round(p["pl_eur_fx"] / p["costo_eur_storico"] * 100, 2)
                     else:
-                        p["fx_pl_note"] = "costo storico 0: pl_pct_fx n.d."
+                        p["fx_pl_note"] = _message('costo storico 0: pl_pct_fx n.d.', 'Historical cost 0: pl_pct_fx n/a')
                     if h["note"]:
-                        p["fx_pl_note"] = "; ".join(h["note"]) if not p["fx_pl_note"] \
-                            else p["fx_pl_note"] + "; " + "; ".join(h["note"])
+                        p["fx_pl_note"] = join_messages("; ", h["note"]) if not p["fx_pl_note"] \
+                            else join_messages('; ', [p['fx_pl_note'], join_messages('; ', h['note'])])
             if p["pl_eur_fx"] is None:
                 pl_fx_nd.append(p["ticker"])
         fx_pl_basis = (_st.get("fx_basis") if "error" not in _st else None)
@@ -1758,6 +2158,8 @@ class MemoryDB:
         # del broker i dividendi li ESCLUDE (misura 31/08): la nota dice come
         # tornare al suo numero.
         _note_tot = []
+        if _openings:
+            _note_tot.append(_message("Saldi iniziali: realizzato e dividendi coprono solo i trade registrati; gli incassi precedenti ai saldi documentati sono ignoti. Nessun totale dell'intera storia del broker.", 'Opening balances: realized P&L and dividends cover recorded trades only; receipts before documented balances are unknown. No total for the entire broker history.'))
         try:
             with self._conn() as conn:
                 _vn, _vnull, _vsum = conn.execute(
@@ -1771,12 +2173,11 @@ class MemoryDB:
             # lettura fallita = n.d. DICHIARATO (regola 14/07), mai un crash del
             # summary intero ne' uno zero spacciato per misura
             _vn = realizzato_vendite = dividendi_eur = None
-            _note_tot.append(f"lettura trade_history fallita ({type(_e).__name__}: {_e}): "
-                             "realizzato e dividendi n.d.")
+            _note_tot.append(_message('lettura trade_history fallita ({v0}: {v1}): realizzato e dividendi n.d.', 'trade_history read failed ({v0}: {v1}): realized P&L and dividends n/a', v0=type(_e).__name__, v1=_e))
         else:
             if _vnull:
                 realizzato_vendite = None
-                _note_tot.append(f"{_vnull} vendite su {_vn} senza realized_eur: realizzato n.d.")
+                _note_tot.append(_message('{v0} vendite su {v1} senza realized_eur: realizzato n.d.', '{v0} sales out of {v1} without realized_eur: realized P&L n/a', v0=_vnull, v1=_vn))
             else:
                 realizzato_vendite = round(_vsum, 2)
             _div_sum, _div_nd = 0.0, []
@@ -1789,8 +2190,8 @@ class MemoryDB:
                     _div_nd.append(f"{_r['ticker']} in {_r['valuta']}")
             if _div_nd:
                 dividendi_eur = None
-                _note_tot.append("dividendi senza conversione storica ("
-                                 + ", ".join(dict.fromkeys(_div_nd)) + "): dividendi_eur n.d.")
+                _note_tot.append(_message('dividendi senza conversione storica ({tickers}): dividendi_eur n.d.', 'Dividends lack historical conversion ({tickers}): dividendi_eur n/a', tickers=', '.join(dict.fromkeys(_div_nd))
+))
             else:
                 dividendi_eur = round(_div_sum, 2)
         # aperto: 0 e' una MISURA solo a book vuoto; con posizioni scoperte
@@ -1798,21 +2199,21 @@ class MemoryDB:
         _aperto = (0.0 if not positions else
                    (round(sum(p["pl_eur_fx"] for p in positions), 2) if not pl_fx_nd else None))
         if positions and _aperto is None:
-            _note_tot.append("aperto n.d. (v. pl_fx_nd): totale n.d.")
+            _note_tot.append(_message('aperto n.d. (v. pl_fx_nd): totale n.d.', 'open P&L n/a (see pl_fx_nd): total n/a'))
         totale_broker = (round(_aperto + realizzato_vendite + dividendi_eur, 2)
                          if None not in (_aperto, realizzato_vendite, dividendi_eur) else None)
-        _nota_broker = ("aperto (totale_pl_eur_fx; 0 a book vuoto) + realizzato vendite "
-                        "SELL/TRIM (realized_eur) + dividendi (quantita' x prezzo, EUR). "
-                        "Il P&L del sito del broker ESCLUDE i dividendi (misura 31/08): "
-                        "per quel confronto sottrarre dividendi_eur."
-                        + (" ATTENZIONE: " + "; ".join(_note_tot) if _note_tot else ""))
+        _nota_broker = (_message("aperto (totale_pl_eur_fx; 0 a book vuoto) + realizzato vendite SELL/TRIM (realized_eur) + dividendi (quantita' x prezzo, EUR). Il P&L del sito del broker ESCLUDE i dividendi (misura 31/08): per quel confronto sottrarre dividendi_eur.{warning}", 'open P&L (totale_pl_eur_fx; 0 for an empty book) + realized SELL/TRIM P&L (realized_eur) + dividends (quantity x price, EUR). The broker website P&L EXCLUDES dividends (measured 31/08): subtract dividendi_eur for that comparison.{warning}', warning=_message(' ATTENZIONE: {notes}', ' WARNING: {notes}', notes=join_messages('; ', _note_tot)) if _note_tot else ''
+
+
+
+))
 
         return {
-            "source": ("SQLite database (live, multi-currency normalized to EUR)"
+            "source": (_message('Database SQLite (live, multivaluta normalizzata in EUR)', 'SQLite database (live, multi-currency normalized to EUR)')
                        if not fx_incomplete else
-                       "SQLite database (live) — ATTENZIONE: FX non disponibile per "
-                       + ", ".join(fx_incomplete)
-                       + ": totali EUR e NAV n.d.; valori per posizione restano in valuta nativa"),
+                       _message('SQLite database (live) — ATTENZIONE: FX non disponibile per {currencies}: totali EUR e NAV n.d.; valori per posizione restano in valuta nativa', 'SQLite database (live) — WARNING: FX unavailable for {currencies}: EUR totals and NAV n/a; position values remain in native currency', currencies=', '.join(fx_incomplete)
+
+)),
             "fx_incomplete": fx_incomplete or None,
             "fx_sources": fx_sources or None,
             # F-CONT-4: ticker valorizzati al COSTO per assenza di snapshot prezzo
@@ -1839,7 +2240,7 @@ class MemoryDB:
             # il metodo, dichiarato in testa (review 28/08): FX di oggi = fx_to_eur
             # per riga (price_updater.get_fx_to_eur), costo storico = pool al FX
             # daily del giorno di ogni acquisto, e la divergenza da nav_history
-            "fx_pl_basis": (fx_pl_basis + "; FX di oggi = fx_to_eur per riga (price_updater)"
+            "fx_pl_basis": (_message('{basis}; FX di oggi = fx_to_eur per riga (price_updater)', '{basis}; current FX = fx_to_eur per row (price_updater)', basis=fx_pl_basis)
                             if fx_pl_basis else None),
             # totale «come il broker» (31/08): componenti sempre dichiarate,
             # totale SOLO a componenti piene (il buco sta nella nota)
@@ -1938,18 +2339,20 @@ class MemoryDB:
 
     def save_memo(self, full_markdown, pdf_path=None, appendix_path=None,
                   dcf_files=None, capo_tokens_in=0, capo_tokens_out=0,
-                  portfolio_nav_eur=None, title=None):
+                  portfolio_nav_eur=None, title=None, output_language=None):
         """Salva memo + chunks in ChromaDB. Ritorna memo_id."""
+        from bellomberg.core.language import capture_language
+        selected = capture_language(output_language)
         ts = datetime.now().isoformat(timespec="seconds")
-        title = title or "Weekly Research Note - " + datetime.now().strftime("%d/%m/%Y")
+        title = title or _storage_text("Nota di ricerca settimanale - ", "Weekly Research Note - ", language=selected) + datetime.now().strftime("%d/%m/%Y")
         with self._conn() as conn:
             cur = conn.execute("""INSERT INTO memos (timestamp, title, full_markdown, pdf_path,
                                                      appendix_path, dcf_files, capo_tokens_in,
-                                                     capo_tokens_out, portfolio_nav_eur)
-                                  VALUES (?,?,?,?,?,?,?,?,?)""",
+                                                     capo_tokens_out, portfolio_nav_eur, output_language)
+                                  VALUES (?,?,?,?,?,?,?,?,?,?)""",
                                 (ts, title, full_markdown, pdf_path, appendix_path,
                                  json.dumps(dcf_files or []), capo_tokens_in, capo_tokens_out,
-                                 portfolio_nav_eur))
+                                 portfolio_nav_eur, selected))
             memo_id = cur.lastrowid
 
         # Chunk + embed in ChromaDB
@@ -2051,12 +2454,14 @@ class MemoryDB:
             rows = conn.execute("SELECT * FROM memos ORDER BY id DESC LIMIT ?", (n,)).fetchall()
             return [dict(r) for r in rows]
 
-    def save_specialist_report(self, memo_id, specialist, round_n, content):
+    def save_specialist_report(self, memo_id, specialist, round_n, content, output_language=None):
+        from bellomberg.core.language import capture_language
+        selected = capture_language(output_language)
         with self._conn() as conn:
-            conn.execute("INSERT INTO specialist_reports (memo_id, specialist, round_n, content) VALUES (?,?,?,?)",
-                          (memo_id, specialist, round_n, content))
+            conn.execute("INSERT INTO specialist_reports (memo_id, specialist, round_n, content, output_language) VALUES (?,?,?,?,?)",
+                          (memo_id, specialist, round_n, content, selected))
 
-    def save_llm_usage(self, memo_id, usage_log):
+    def save_llm_usage(self, memo_id, usage_log, output_language=None):
         """Persiste il consumo LLM della run (una riga per agente+round).
         usage_log = lista di dict prodotta da Blackboard.record_usage.
         Ritorna quante righe ha inserito.
@@ -2064,6 +2469,8 @@ class MemoryDB:
         o FX assente): il buco si dichiara con cost_status, non si azzera."""
         if not usage_log:
             return 0
+        from bellomberg.core.language import capture_language
+        selected = capture_language(output_language)
         rows = []
         for e in usage_log:
             rows.append((
@@ -2082,13 +2489,14 @@ class MemoryDB:
                 e.get("fx_source"),
                 e.get("status"),
                 e.get("cache_ttl"),
+                selected,
             ))
         with self._conn() as conn:
             conn.executemany("""INSERT INTO llm_usage
                                 (memo_id, agent, round_n, model, tokens_in, tokens_out,
                                  cache_read, cache_write, api_calls, duration_s, cost_eur,
-                                 fx_rate, fx_source, cost_status, cache_ttl)
-                                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", rows)
+                                 fx_rate, fx_source, cost_status, cache_ttl, output_language)
+                                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", rows)
         return len(rows)
 
     # Fusione 15/07/2026: eventdesk EREDITA a lettura la storia firmata da
@@ -2163,7 +2571,8 @@ class MemoryDB:
                 if not line.startswith("|"): continue
                 cells = [c.strip() for c in line.strip().strip("|").split("|")]
                 # Skip header e separator
-                if not cells or "---" in cells[0] or cells[0].lower() in ("action",):
+                from bellomberg.core.language import ACTION_TABLE_HEADERS
+                if not cells or "---" in cells[0] or cells[0].lower() in ACTION_TABLE_HEADERS:
                     continue
                 if len(cells) < 5:
                     continue
@@ -2252,33 +2661,32 @@ class MemoryDB:
     def _require_valuation_snapshot_schema(conn):
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not {"valuation_snapshots", "valuation_snapshot_links"}.issubset(tables):
-            raise RuntimeError("valuation snapshot schema assente: eseguire prima il dry-run di "
-                               "tools/migrations/migra_valuation_metadata.py")
+            raise RuntimeError(_storage_text('valuation snapshot schema assente: eseguire prima il dry-run di tools/migrations/migra_valuation_metadata.py', 'Valuation snapshot schema missing: first run the dry-run of tools/migrations/migra_valuation_metadata.py'))
 
     def _save_valuation_snapshot(self, conn, ticker, payload):
         import hashlib
         import uuid
         self._require_valuation_snapshot_schema(conn)
         if not isinstance(payload, dict):
-            raise ValueError("valuation payload deve essere un oggetto")
+            raise ValueError(_storage_text('valuation payload deve essere un oggetto', 'Valuation payload must be an object'))
         ticker = str(ticker).strip().upper()
         if not re.fullmatch(r"[A-Z0-9^][A-Z0-9.^=_/-]*", ticker):
-            raise ValueError("snapshot ticker mancante o invalido")
+            raise ValueError(_storage_text('snapshot ticker mancante o invalido', 'Snapshot ticker missing or invalid'))
         if str(payload.get("ticker", "")).strip().upper() != ticker:
-            raise ValueError("snapshot ticker discordante")
+            raise ValueError(_storage_text('snapshot ticker discordante', 'Snapshot ticker mismatch'))
         snapshot_id, generation_id = payload.get("snapshot_id"), payload.get("generation_id")
         if not isinstance(snapshot_id, str) or not re.fullmatch(r"[0-9a-f]{64}", snapshot_id):
-            raise ValueError("snapshot_id SHA256 mancante o invalido")
+            raise ValueError(_storage_text('snapshot_id SHA256 mancante o invalido', 'snapshot_id SHA256 missing or invalid'))
         try:
             uuid.UUID(str(generation_id))
         except (ValueError, AttributeError):
-            raise ValueError("generation_id UUID mancante o invalido") from None
+            raise ValueError(_storage_text('generation_id UUID mancante o invalido', 'generation_id UUID missing or invalid')) from None
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
         existing = conn.execute("SELECT payload_json FROM valuation_snapshots WHERE snapshot_id=? AND generation_id=?",
                                 (snapshot_id, generation_id)).fetchone()
         if existing:
             if existing[0] != encoded:
-                raise ValueError("snapshot immutabile: la generazione esiste con contenuto diverso")
+                raise ValueError(_storage_text('snapshot immutabile: la generazione esiste con contenuto diverso', 'Immutable snapshot: the generation exists with different content'))
             return snapshot_id
         conn.execute("INSERT INTO valuation_snapshots VALUES (?,?,?,?,?,?,?)",
                      (snapshot_id, generation_id, ticker, 1, encoded,
@@ -2288,13 +2696,13 @@ class MemoryDB:
     def _link_valuation_snapshot(self, conn, snapshot_id, generation_id, thesis_id=None, decision_id=None):
         self._require_valuation_snapshot_schema(conn)
         if (thesis_id is None) == (decision_id is None):
-            raise ValueError("specificare thesis_id oppure decision_id")
+            raise ValueError(_storage_text('specificare thesis_id oppure decision_id', 'Specify thesis_id or decision_id'))
         snapshot = conn.execute("SELECT ticker FROM valuation_snapshots WHERE snapshot_id=? AND generation_id=?",
                                 (snapshot_id, generation_id)).fetchone()
         column, table, row_id = ("thesis_id", "valuation_theses", thesis_id) if thesis_id is not None else ("decision_id", "decisions", decision_id)
         row = conn.execute(f"SELECT ticker FROM {table} WHERE id=?", (row_id,)).fetchone()
         if snapshot is None or row is None or str(snapshot[0]).upper() != str(row[0]).upper():
-            raise ValueError("snapshot/riferimento assente o ticker discordante")
+            raise ValueError(_storage_text('snapshot/riferimento assente o ticker discordante', 'Snapshot/reference missing or ticker mismatch'))
         if conn.execute(f"SELECT 1 FROM valuation_snapshot_links WHERE snapshot_id=? AND generation_id=? AND {column}=?",
                         (snapshot_id, generation_id, row_id)).fetchone():
             return
@@ -2328,10 +2736,10 @@ class MemoryDB:
         if not rows:
             return None
         if len(rows) != 1:
-            raise ValueError("snapshot ambiguo: specificare generation_id")
+            raise ValueError(_storage_text('snapshot ambiguo: specificare generation_id', 'Ambiguous snapshot: specify generation_id'))
         encoded, digest = rows[0]
         if hashlib.sha256(encoded.encode("utf-8")).hexdigest() != digest:
-            raise ValueError("snapshot integrity SHA256 discordante")
+            raise ValueError(_storage_text('snapshot integrity SHA256 discordante', 'Snapshot integrity SHA256 mismatch'))
         return normalize_valuation_payload(json.loads(encoded))
 
     def get_latest_valuation_snapshots(self):
@@ -2668,9 +3076,129 @@ class MemoryDB:
         """Ultimi N trade ESEGUITI dal PM con note e rationale (per la memoria del consigliere)."""
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT ticker, action, quantita, prezzo, valuta, data, note, pm_rationale, "
-                "linked_decision_id FROM trade_history ORDER BY id DESC LIMIT ?", (n,)).fetchall()
+                "SELECT id, ticker, action, quantita, prezzo, valuta, data, note, pm_rationale, "
+                "linked_decision_id, created_at, ora_convenzionale, link_origin, fx_fonte, "
+                "realized_local, realized_eur FROM trade_history ORDER BY data DESC, id DESC LIMIT ?", (n,)).fetchall()
             return [dict(r) for r in rows]
+
+    # verso di una decisione/trade: BUY e ADD comprano, TRIM e SELL vendono
+    _VERSO = {"BUY": "LONG", "ADD": "LONG", "TRIM": "SHORT", "SELL": "SHORT"}
+
+    def esecuzioni_delle_decisioni(self, decisioni, giorni=7):
+        """{decision_id: {trades, trade_ids, eur, pct, inferito, data}} per le decisioni
+        EXECUTED: i trade che le hanno eseguite. Legame ESPLICITO (linked_decision_id)
+        oppure INFERITO: stesso ticker, stesso verso, trade nei `giorni` DOPO la decisione,
+        trade non legato ad altro. `eur` = somma quantita' x prezzo SOLO se tutti i trade
+        sono in EUR (altrimenti None: niente cambio inventato); `pct` = eur / proposto.
+
+        Audit 11/09 (Fable 5.1, run 10/09): il blotter non invia mai linked_decision_id
+        (nessun trade legato), quindi «esegue decisione #N» non compariva MAI e il Capo
+        leggeva di una decisione eseguita il solo importo PROPOSTO, non quello ESEGUITO.
+        Da qui una decisione gia' eseguita tornava in tavola come ancora da completare."""
+        out = {}
+        requested = [d for d in (decisioni or [])
+               if str(d.get("status") or "").upper() in ("PENDING", "EXECUTED", "PARTIAL")
+               and d.get("ticker") and d.get("id") is not None]
+        if not requested:
+            return out
+        with self._conn() as conn:
+            righe = conn.execute(
+                "SELECT id, ticker, action, quantita, prezzo, valuta, data, linked_decision_id, link_origin, ora_convenzionale "
+                "FROM trade_history WHERE action != 'DIVIDEND' ORDER BY data,id").fetchall()
+            # Candidate assignment is global: asking for one decision must not
+            # steal a trade from a closer decision omitted from that view.
+            exe = [dict(r) for r in conn.execute(
+                "SELECT id,ticker,action,timestamp,status FROM decisions WHERE status IN ('EXECUTED','PARTIAL')")]
+        trades = [dict(r) for r in righe]
+        explicit_ids = {t["linked_decision_id"] for t in trades if t.get("linked_decision_id") is not None}
+        assignments = {}
+        for trade in trades:
+            if (trade.get("linked_decision_id") is not None or trade.get("link_origin") == "none"
+                    or trade.get("ora_convenzionale") == 1):
+                continue
+            eligible = []
+            for d in exe:
+                if d["id"] in explicit_ids:
+                    continue  # explicit execution remains authoritative for that decision
+                if (str(d["ticker"]).strip().upper() != str(trade["ticker"]).strip().upper()
+                        or self._VERSO.get(d["action"]) is None
+                        or self._VERSO.get(d["action"]) != self._VERSO.get(trade["action"])):
+                    continue
+                try:
+                    at, start = datetime.fromisoformat(trade["data"]), datetime.fromisoformat(d["timestamp"])
+                    if start <= at <= start + timedelta(days=int(giorni)):
+                        eligible.append((start, d["id"]))
+                except (ValueError, TypeError):
+                    continue
+            if eligible:
+                latest = max(start for start, _ in eligible)
+                nearest = [did for start, did in eligible if start == latest]
+                if len(nearest) == 1:
+                    assignments[trade["id"]] = nearest[0]
+        for d in requested:
+            did = d["id"]
+            espliciti = [t for t in trades if t.get("linked_decision_id") == did]
+            if espliciti:
+                scelti, inferito = espliciti, False
+            else:
+                scelti = [t for t in trades if assignments.get(t["id"]) == did]
+                inferito = True
+            if not scelti:
+                continue
+            in_eur = all((t.get("valuta") or "EUR").upper() == "EUR" for t in scelti)
+            eur = (sum(float(t["quantita"]) * float(t["prezzo"]) for t in scelti)
+                   if in_eur else None)
+            prop = d.get("eur_amount")
+            pct = None
+            if eur is not None and isinstance(prop, (int, float)) and prop:
+                pct = int(round(eur / float(prop) * 100))
+            out[did] = {"trades": scelti, "trade_ids": [t["id"] for t in scelti], "eur": eur,
+                        "pct": pct, "inferito": inferito,
+                        "data": max(str(t.get("data") or "")[:10] for t in scelti)}
+        return out
+
+    def stato_decisione(self, d, esecuzioni=None):
+        """Lo STATO di una decisione come fatto del DB, in una frase: 'ESEGUITA il GG/MM per X
+        EUR (...)' / 'ESEGUITA (trade non identificato nel registro)' / 'SKIPPED (non eseguita
+        questa volta)' / 'EXPIRED (decaduta senza esecuzione)' / 'PARTIAL' / 'PENDING'.
+        Audit 11/09 (Fable 5.1): il feedback del PM era reso in tre punti (blocco BINDING dei
+        desk, PAROLE DIRETTE del Capo, piede del validator) e in NESSUNO c'era lo stato: il
+        Capo ha letto un commento su una decisione SKIPPED come una richiesta da soddisfare.
+        Un formatter solo per i tre punti."""
+        st = str(d.get("status") or "?").upper()
+        esecuzioni = esecuzioni or {}
+        if d.get("id") in esecuzioni:
+            return self._frase_esecuzione(esecuzioni[d["id"]], d.get("eur_amount"))
+        if st == "EXECUTED":
+            return "ESEGUITA (trade non identificato nel registro)"
+        if st == "PARTIAL":
+            return "PARTIAL (eseguita in parte, trade non identificato nel registro)"
+        if st == "SKIPPED":
+            return "SKIPPED (non eseguita questa volta)"
+        if st == "EXPIRED":
+            return "EXPIRED (decaduta senza esecuzione)"
+        return st
+
+    @staticmethod
+    def _frase_esecuzione(info, proposto):
+        """'ESEGUITA il GG/MM per X EUR (Y% dei Z proposti; legame inferito)'."""
+        dt = str(info.get("data") or "")
+        ddmm = (dt[8:10] + "/" + dt[5:7]) if len(dt) >= 10 else "?"
+        s = "ESEGUITA il " + ddmm
+        if info.get("eur") is not None:
+            s += " per {:,.0f} EUR".format(info["eur"])
+            dett = []
+            if info.get("pct") is not None and isinstance(proposto, (int, float)) and proposto:
+                dett.append("{}% dei {:,.0f} proposti".format(info["pct"], float(proposto)))
+            if info.get("inferito"):
+                dett.append("legame inferito")
+            if dett:
+                s += " (" + "; ".join(dett) + ")"
+        else:
+            q = ", ".join("%s x %s %s" % (t.get("quantita"), t.get("prezzo"), t.get("valuta") or "?")
+                          for t in (info.get("trades") or [])[:3])
+            s += " (" + q + ("; legame inferito" if info.get("inferito") else "") + ")"
+        return s
 
     def get_decisions_with_pm_feedback(self, n=10):
         """Decisioni con feedback testuale del PM, le piu' rilevanti per i prompt.
@@ -2974,6 +3502,15 @@ class MemoryDB:
         """
         fb_dec = self.get_decisions_with_pm_feedback(n=MAX_RIGHE_FEEDBACK_PM)
         _pm_resi = {d.get("id") for d in fb_dec if not d.get("veto")}
+        # Audit 11/09 (Fable 5.1, run 10/09): la riga «#N ADD TICKER | PM: eseguito...»
+        # arrivava ai desk SENZA stato ne' importo eseguito e tre desk l'hanno letta come un
+        # ordine da eseguire («ADD TICKER per soddisfare #N»). Lo stato entra nella riga:
+        # ESEGUITA (con quanto) / SKIPPED / EXPIRED / PENDING.
+        try:
+            _esec = self.esecuzioni_delle_decisioni(fb_dec)
+        except Exception as _ee:
+            print("[MEMORY_DB] esecuzioni delle decisioni non lette (dichiarato): " + str(_ee))
+            _esec = {}
         parts = []
         if fb_dec:
             parts.append("\n--- PM feedback on past decisions (BINDING) ---"
@@ -2987,13 +3524,19 @@ class MemoryDB:
                                  + pm_verbatim(d.get("veto_reason"), d.get("id")))
                 else:
                     parts.append("#" + str(d.get("id")) + " " + str(d.get("action")) + " "
-                                 + str(d.get("ticker")) + " | PM: "
-                                 + pm_verbatim(d.get("pm_feedback"), d.get("id")))
+                                 + str(d.get("ticker")) + " | " + self.stato_decisione(d, _esec)
+                                 + " | PM: " + pm_verbatim(d.get("pm_feedback"), d.get("id")))
             parts.append("Le righe '| PM:' sono la voce DIRETTA del PM e sono VINCOLANTI: un "
                          "rifiuto (es. 'basta proporla') vieta di riproporre quell'idea in ogni "
                          "variante senza fatti NUOVI dichiarati che citino il rifiuto. Le righe "
                          "⛔ VETO sono divieti PERMANENTI: mai riproporre (nemmeno varianti) "
-                         "senza fatti nuovi dichiarati CHE CITINO il veto per numero.")
+                         "senza fatti nuovi dichiarati CHE CITINO il veto per numero. "
+                         "Lo STATO fra le barre e' un fatto del registro: una riga ESEGUITA e' "
+                         "un'operazione GIA' FATTA dal PM (il commento non e' un ordine da "
+                         "rieseguire); una riga SKIPPED/EXPIRED commenta una NON-esecuzione "
+                         "(leggila come motivo o condizione del mancato via, mai come richiesta "
+                         "di eseguire quella stessa idea; se il PM indica un'alternativa, quella "
+                         "e' la richiesta).")
         return parts, _pm_resi
 
     def build_pm_binding_block(self):
@@ -3302,10 +3845,13 @@ class MemoryDB:
         parts = ["=== CAPO MEMORY (from previous weekly runs) ==="]
 
         # Last memo summary (per continuity)
-        memos = self.get_recent_memos(n=2)
+        # audit 11/09: il memo precedente e' l'ultimo NON marcato DUPLICATO (memos[0] e' il
+        # segnaposto della run in corso); senza duplicati il comportamento e' quello di sempre
+        memos = self.get_recent_memos(n=6)
         if memos:
             fingerprint_corrente = _fingerprint_mandato_corrente()
-            last = memos[1] if len(memos) > 1 else memos[0]
+            _precedenti = [m for m in memos[1:] if not e_duplicato(m)]
+            last = _precedenti[0] if _precedenti else memos[0]
             title = last.get("title", "")
             ts = last.get("timestamp", "")
             parts.append(f"[{ts}] {title}")
@@ -3319,6 +3865,15 @@ class MemoryDB:
         # (timing/liquidita'/priorita'), NON un rifiuto definitivo; PENDING = ancora aperta).
         try:
             decisions = self.get_recent_decisions(n=20)
+            # audit 11/09: le decisioni di una run marcata DUPLICATO non sono pendenti ne'
+            # decadute — il PM non le ha mai valutate — e non entrano nella memoria
+            decisions = [d for d in decisions if not e_duplicato(d)]
+            # audit 11/09: quanto e' stato eseguito DAVVERO (legame esplicito o inferito)
+            try:
+                _esec = self.esecuzioni_delle_decisioni(decisions)
+            except Exception as _ee:
+                print("[MEMORY_DB] esecuzioni delle decisioni non lette (dichiarato): " + str(_ee))
+                _esec = {}
             if decisions:
                 ex = [d for d in decisions if (d.get("status") or "").upper() == "EXECUTED"]
                 sk = [d for d in decisions if (d.get("status") or "").upper() == "SKIPPED"]
@@ -3337,12 +3892,21 @@ class MemoryDB:
                     # 21/07 (memo #46): il feedback del PM vive nel blocco dedicato
                     # "PAROLE DIRETTE DEL PM" qui sotto (non inline: il cap 6800/8500
                     # del contesto non tollera doppioni — review 21/07).
+                    # audit 11/09: l'importo qui era SOLO quello proposto; l'eseguito
+                    # (quantita' x prezzo dei trade, e la sua quota del proposto) non
+                    # arrivava mai al Capo
+                    _es = (" | " + self._frase_esecuzione(_esec[d["id"]], d.get("eur_amount"))
+                           if d.get("id") in _esec else "")
                     return ("#" + str(d.get("id")) + " " + str(d.get("action")) + " " +
-                            str(d.get("ticker")) + " " + amt_s +
+                            str(d.get("ticker")) + " " + amt_s + _es +
                             (" | outcome=" + str(out) if out is not None else "") +
                             ((" | " + note[:100]) if note else ""))
                 if ex:
                     parts.append("ESEGUITE dal PM: " + "; ".join(_fmt(d) for d in ex[:10]))
+                # audit 11/09: lo status PARTIAL non aveva un bucket (8 righe invisibili al Capo)
+                pa = [d for d in decisions if (d.get("status") or "").upper() == "PARTIAL"]
+                if pa:
+                    parts.append("ESEGUITE IN PARTE dal PM (PARTIAL): " + "; ".join(_fmt(d) for d in pa[:10]))
                 if sk:
                     parts.append("NON eseguite questa volta (SKIPPED, non rifiutate per sempre): "
                                  + "; ".join(_fmt(d) for d in sk[:10]))
@@ -3365,8 +3929,11 @@ class MemoryDB:
                                         prefisso="⛔ VETO dal "
                                                  + str(d.get("veto_at") or "")[:10]
                                                  + " (eterno finche' non revocato): "))
+                        # audit 11/09: lo stato accanto alle parole — un commento su una
+                        # decisione SKIPPED non e' un ordine, e su una ESEGUITA e' cosa fatta
                         return ("#" + str(d.get("id")) + " " + str(d.get("action")) + " "
-                                + str(d.get("ticker")) + " -> "
+                                + str(d.get("ticker")) + " [" + self.stato_decisione(d, _esec)
+                                + "] -> "
                                 + pm_verbatim(d.get("pm_feedback"), d.get("id"),
                                               virgolette=True))
                     # niente slice [:10]: la parte feedback e' gia' limitata dalla query,
@@ -3386,7 +3953,15 @@ class MemoryDB:
                              "questo elenco), la non-esecuzione ripetuta e' un segnale del PM — dichiara apertamente il disaccordo nella sezione della "
                              "decisione, chiedi una decisione esplicita, e presentala DECLASSATA (size "
                              "ridotta o RESEARCH a 0), mai maggiorata. Se la tesi e' decaduta, lasciala "
-                             "cadere e spiega perche'. Dai continuita' anche alle ESEGUITE.")
+                             "cadere e spiega perche'. Dai continuita' anche alle ESEGUITE. "
+                             "REGOLA (audit 11/09): una decisione ESEGUITA di recente (riga "
+                             "'ESEGUITA il GG/MM', entro 7 giorni) NON va riproposta nello stesso "
+                             "verso come se fosse nuova — il PM l'ha gia' fatta. La si ripropone SOLO "
+                             "con un fatto NUOVO verificabile, scritto nella colonna Timing della "
+                             "ACTION TABLE col tag 'NOVITA':' (come 'SOPRA POLICY'); altrimenti la "
+                             "posizione si tiene (HOLD) e si aggiornano fair value o ricerca. Non e' "
+                             "un divieto sul titolo: e' il divieto di ricomprare cio' che il PM ha "
+                             "appena comprato senza dirgli perche'.")
         except Exception:
             pass
 
@@ -3415,6 +3990,15 @@ class MemoryDB:
         try:
             trades = self.get_recent_trades(n=12)
             if trades:
+                # audit 11/09: il legame trade->decisione INFERITO (v. esecuzioni_delle_decisioni)
+                _link_inf = {}
+                try:
+                    for _did, _info in (_esec or {}).items():
+                        if _info.get("inferito"):
+                            for _tid in _info.get("trade_ids") or []:
+                                _link_inf[_tid] = _did
+                except Exception:
+                    _link_inf = {}
                 parts.append("\n--- Trade ESEGUITI dal PM questa/e settimana/e (con i tuoi commenti) ---")
                 for tr in trades:
                     cm = (tr.get("pm_rationale") or tr.get("note") or "").strip()
@@ -3424,6 +4008,11 @@ class MemoryDB:
                             str(tr.get("prezzo")) + " " + str(tr.get("valuta")))
                     if tr.get("linked_decision_id"):
                         line += " (esegue decisione #" + str(tr.get("linked_decision_id")) + ")"
+                    elif tr.get("link_origin") == "none":
+                        line += " (senza decisione, dichiarato dal PM)"
+                    elif tr.get("id") in _link_inf:
+                        line += (" (esegue decisione #" + str(_link_inf[tr["id"]])
+                                 + ", legame inferito: stesso titolo e verso entro 7 giorni)")
                     if cm:
                         line += " | COMMENTO PM: " + cm[:200]
                     parts.append(line)

@@ -29,20 +29,21 @@ USO:
         print(t["label"], t["query"])
 """
 from typing import Dict, List, Any
+from bellomberg.core.presentation import message, render_payload
 
 
 # ============================================================
 # CATEGORY DEFINITIONS
 # ============================================================
 CATEGORIES = {
-    "rates":        "Banche Centrali & Tassi",
-    "inflation":    "Inflazione & Macro Data",
-    "geopolitics":  "Geopolitica & Conflitti",
-    "politics":     "Politica IT/UE/USA",
-    "em":           "Emerging Markets",
-    "commodities":  "Energia & Commodity",
-    "crypto":       "Crypto Macro & Regolamentazione",
-    "corporate":    "Eventi Societari High-Impact",
+    "rates":        message("Banche Centrali & Tassi", "Central Banks & Rates"),
+    "inflation":    message("Inflazione & Dati Macro", "Inflation & Macro Data"),
+    "geopolitics":  message("Geopolitica & Conflitti", "Geopolitics & Conflicts"),
+    "politics":     message("Politica IT/UE/USA", "IT/EU/US Politics"),
+    "em":           message("Mercati Emergenti", "Emerging Markets"),
+    "commodities":  message("Energia & Materie Prime", "Energy & Commodities"),
+    "crypto":       message("Cripto: Macro & Regolamentazione", "Crypto Macro & Regulation"),
+    "corporate":    message("Eventi Societari di Forte Impatto", "High-Impact Corporate Events"),
 }
 
 
@@ -52,177 +53,177 @@ CATEGORIES = {
 TOPICS: List[Dict[str, Any]] = [
     # ---------- RATES & CENTRAL BANKS ----------
     {
-        "id": "fed", "label": "Federal Reserve", "category": "rates",
+        "id": "fed", "label": message("Federal Reserve", "Federal Reserve"), "category": "rates",
         "query": "Federal Reserve Powell OR FOMC OR \"Fed rate\"",
         "importance": 5,
     },
     {
-        "id": "ecb", "label": "ECB Lagarde", "category": "rates",
+        "id": "ecb", "label": message("BCE Lagarde", "ECB Lagarde"), "category": "rates",
         "query": "ECB OR \"European Central Bank\" OR Lagarde OR \"euro area rates\"",
         "importance": 5,
     },
     {
-        "id": "boe", "label": "Bank of England", "category": "rates",
+        "id": "boe", "label": message("Banca d'Inghilterra", "Bank of England"), "category": "rates",
         "query": "\"Bank of England\" OR \"BoE rate\" OR Bailey BOE",
         "importance": 3,
     },
     {
-        "id": "boj", "label": "Bank of Japan", "category": "rates",
+        "id": "boj", "label": message("Banca del Giappone", "Bank of Japan"), "category": "rates",
         "query": "\"Bank of Japan\" OR BoJ OR Ueda OR \"yen carry\"",
         "importance": 4,
     },
     {
-        "id": "pboc", "label": "PBoC & China rates", "category": "rates",
+        "id": "pboc", "label": message("PBoC & Tassi Cina", "PBoC & China Rates"), "category": "rates",
         "query": "PBoC OR \"China central bank\" OR \"LPR rate\" OR yuan",
         "importance": 3,
     },
 
     # ---------- INFLATION & MACRO DATA ----------
     {
-        "id": "cpi_us", "label": "US CPI / PCE", "category": "inflation",
+        "id": "cpi_us", "label": message("CPI / PCE USA", "US CPI / PCE"), "category": "inflation",
         "query": "\"US CPI\" OR \"core PCE\" OR \"US inflation\"",
         "importance": 5,
     },
     {
-        "id": "nfp", "label": "US Jobs / NFP", "category": "inflation",
+        "id": "nfp", "label": message("Occupazione USA / NFP", "US Jobs / NFP"), "category": "inflation",
         "query": "\"nonfarm payrolls\" OR \"US unemployment\" OR NFP report",
         "importance": 4,
     },
     {
-        "id": "gdp_us", "label": "US GDP & ISM", "category": "inflation",
+        "id": "gdp_us", "label": message("PIL USA & ISM", "US GDP & ISM"), "category": "inflation",
         "query": "\"US GDP\" OR \"ISM manufacturing\" OR \"ISM services\"",
         "importance": 3,
     },
     {
-        "id": "cpi_eu", "label": "Eurozone CPI", "category": "inflation",
+        "id": "cpi_eu", "label": message("CPI Eurozona", "Eurozone CPI"), "category": "inflation",
         "query": "\"eurozone inflation\" OR \"HICP\" OR \"euro area CPI\"",
         "importance": 4,
     },
     {
-        "id": "pmi_global", "label": "PMI Globali", "category": "inflation",
+        "id": "pmi_global", "label": message("PMI Globali", "Global PMIs"), "category": "inflation",
         "query": "\"PMI manufacturing\" OR \"PMI services\" OR \"global PMI\"",
         "importance": 2,
     },
 
     # ---------- GEOPOLITICS ----------
     {
-        "id": "ukraine", "label": "Russia / Ucraina", "category": "geopolitics",
+        "id": "ukraine", "label": message("Russia / Ucraina", "Russia / Ukraine"), "category": "geopolitics",
         "query": "Ukraine OR Russia war OR Putin OR Zelensky OR sanctions Russia",
         "importance": 4,
     },
     {
-        "id": "middle_east", "label": "Israele / Iran / Medio Oriente", "category": "geopolitics",
+        "id": "middle_east", "label": message("Israele / Iran / Medio Oriente", "Israel / Iran / Middle East"), "category": "geopolitics",
         "query": "Israel Iran OR Hamas OR Gaza OR Hezbollah OR Houthi",
         "importance": 5,
     },
     {
-        "id": "taiwan_china", "label": "Taiwan & Cina USA", "category": "geopolitics",
+        "id": "taiwan_china", "label": message("Taiwan & Cina USA", "Taiwan & US-China"), "category": "geopolitics",
         "query": "Taiwan China OR \"chip war\" OR \"US China tariffs\"",
         "importance": 5,
     },
     {
-        "id": "korea", "label": "Corea del Nord", "category": "geopolitics",
+        "id": "korea", "label": message("Corea del Nord", "North Korea"), "category": "geopolitics",
         "query": "\"North Korea\" OR Pyongyang OR Kim Jong Un",
         "importance": 2,
     },
 
     # ---------- POLITICS ----------
     {
-        "id": "italy_politics", "label": "Politica Italia / BTP spread", "category": "politics",
+        "id": "italy_politics", "label": message("Politica Italia / Differenziale BTP", "Italian Politics / BTP Spread"), "category": "politics",
         "query": "Meloni OR \"Italy budget\" OR \"BTP spread\" OR \"Italy deficit\"",
         "importance": 4,
     },
     {
-        "id": "eu_politics", "label": "UE / Macron / Merz", "category": "politics",
+        "id": "eu_politics", "label": message("UE / Macron / Merz", "EU / Macron / Merz"), "category": "politics",
         "query": "\"European Union\" OR Macron OR Merz Germany OR \"EU Commission\"",
         "importance": 3,
     },
     {
-        "id": "us_politics", "label": "USA Politics / Trump / Congress", "category": "politics",
+        "id": "us_politics", "label": message("Politica USA / Trump / Congresso", "US Politics / Trump / Congress"), "category": "politics",
         "query": "Trump OR Congress OR \"US Senate\" OR \"White House\"",
         "importance": 4,
     },
     {
-        "id": "trade_wars", "label": "Tariffe & Trade", "category": "politics",
+        "id": "trade_wars", "label": message("Dazi & Commercio", "Tariffs & Trade"), "category": "politics",
         "query": "tariffs OR \"trade war\" OR \"export controls\" OR \"chip export\"",
         "importance": 4,
     },
 
     # ---------- EMERGING MARKETS ----------
     {
-        "id": "china_econ", "label": "Cina Economia & Real Estate", "category": "em",
+        "id": "china_econ", "label": message("Cina: Economia & Immobiliare", "China: Economy & Real Estate"), "category": "em",
         "query": "China economy OR \"China real estate\" OR Evergrande OR Country Garden",
         "importance": 4,
     },
     {
-        "id": "india", "label": "India Modi & Macro", "category": "em",
+        "id": "india", "label": message("India Modi & Macro", "India Modi & Macro"), "category": "em",
         "query": "India Modi OR \"India economy\" OR RBI India",
         "importance": 2,
     },
     {
-        "id": "em_currencies", "label": "EM Currencies (TRY, BRL, ARS)", "category": "em",
+        "id": "em_currencies", "label": message("Valute Emergenti (TRY, BRL, ARS)", "EM Currencies (TRY, BRL, ARS)"), "category": "em",
         "query": "\"emerging markets\" OR Turkey lira OR Brazil real OR Argentina peso",
         "importance": 2,
     },
 
     # ---------- COMMODITIES ----------
     {
-        "id": "oil", "label": "Oil & OPEC+", "category": "commodities",
+        "id": "oil", "label": message("Petrolio & OPEC+", "Oil & OPEC+"), "category": "commodities",
         "query": "OPEC OR \"oil price\" OR Brent crude OR WTI",
         "importance": 4,
     },
     {
-        "id": "gas", "label": "Gas Naturale EU", "category": "commodities",
+        "id": "gas", "label": message("Gas Naturale UE", "EU Natural Gas"), "category": "commodities",
         "query": "\"natural gas\" OR TTF gas OR \"EU energy\"",
         "importance": 3,
     },
     {
-        "id": "gold", "label": "Gold & Precious Metals", "category": "commodities",
+        "id": "gold", "label": message("Oro & Metalli Preziosi", "Gold & Precious Metals"), "category": "commodities",
         "query": "gold price OR \"central bank gold\" OR \"real rates gold\"",
         "importance": 3,
     },
     {
-        "id": "uranium", "label": "Uranium & Nuclear", "category": "commodities",
+        "id": "uranium", "label": message("Uranio & Nucleare", "Uranium & Nuclear"), "category": "commodities",
         "query": "uranium OR Cameco OR \"nuclear power\"",
         "importance": 2,
     },
 
     # ---------- CRYPTO MACRO ----------
     {
-        "id": "btc_macro", "label": "Bitcoin Macro & ETF Flows", "category": "crypto",
+        "id": "btc_macro", "label": message("Bitcoin: Macro & Flussi ETF", "Bitcoin Macro & ETF Flows"), "category": "crypto",
         "query": "Bitcoin OR \"BTC ETF\" OR IBIT OR \"spot Bitcoin\"",
         "importance": 5,
     },
     {
-        "id": "crypto_regulation", "label": "Crypto Regolamentazione SEC", "category": "crypto",
+        "id": "crypto_regulation", "label": message("Cripto: Regolamentazione SEC", "Crypto SEC Regulation"), "category": "crypto",
         "query": "SEC crypto OR \"crypto regulation\" OR \"Gary Gensler\" OR \"stablecoin bill\"",
         "importance": 4,
     },
     {
         # ID storico conservato per filtri e notizie gia' archiviate.
-        "id": "mstr_saylor", "label": "Tesorerie quotate Bitcoin", "category": "crypto",
+        "id": "mstr_saylor", "label": message("Tesorerie quotate Bitcoin", "Listed Bitcoin treasuries"), "category": "crypto",
         "query": "\"Bitcoin treasury\" OR \"corporate Bitcoin holdings\" OR \"BTC acquisition\"",
         "importance": 5,
     },
     {
-        "id": "ethereum", "label": "Ethereum & DeFi", "category": "crypto",
+        "id": "ethereum", "label": message("Ethereum & DeFi", "Ethereum & DeFi"), "category": "crypto",
         "query": "Ethereum OR ETH ETF OR DeFi OR L2 rollup",
         "importance": 3,
     },
 
     # ---------- CORPORATE EVENTS HIGH-IMPACT ----------
     {
-        "id": "earnings_megacap", "label": "Earnings Megacap (MAG7)", "category": "corporate",
+        "id": "earnings_megacap", "label": message("Risultati Mega Capitalizzazioni (MAG7)", "Megacap Earnings (MAG7)"), "category": "corporate",
         "query": "Apple earnings OR Microsoft earnings OR Nvidia earnings OR Tesla earnings",
         "importance": 4,
     },
     {
-        "id": "ma_deals", "label": "M&A Deals Major", "category": "corporate",
+        "id": "ma_deals", "label": message("Grandi Operazioni M&A", "Major M&A Deals"), "category": "corporate",
         "query": "merger OR acquisition OR \"takeover bid\" OR \"private equity buyout\"",
         "importance": 3,
     },
     {
-        "id": "downgrades", "label": "Downgrade / Upgrade Major", "category": "corporate",
+        "id": "downgrades", "label": message("Principali Ribassi / Rialzi del Rating", "Major Downgrades / Upgrades"), "category": "corporate",
         "query": "\"credit downgrade\" OR \"sovereign rating\" OR Moody's OR \"S&P downgrade\"",
         "importance": 3,
     },
@@ -242,15 +243,15 @@ def get_topic_query(topic_id: str) -> str:
 
 def get_category_topics(category: str) -> List[Dict[str, Any]]:
     """Ritorna tutti i topic di una categoria."""
-    return [t for t in TOPICS if t["category"] == category]
+    return render_payload([t for t in TOPICS if t["category"] == category])
 
 
 def get_all_topics_by_importance(min_importance: int = 1) -> List[Dict[str, Any]]:
     """Ritorna topic ordinati per importanza decrescente, filtrati min."""
-    return sorted(
+    return render_payload(sorted(
         [t for t in TOPICS if t.get("importance", 3) >= min_importance],
         key=lambda t: -t.get("importance", 3),
-    )
+    ))
 
 
 def titoli_per_tema() -> Dict[str, Any]:
@@ -285,7 +286,7 @@ def get_topics_affecting_ticker(ticker: str) -> List[Dict[str, Any]]:
     A negozio assente o illeggibile torna vuoto: nessun legame e' noto, e nessuno viene
     inventato. Il buco e' dichiarato da `news_aggregator.providers_blocked()`."""
     mappa = titoli_per_tema()["temi"]
-    return [t for t in TOPICS if ticker in mappa.get(t["id"], ())]
+    return render_payload([t for t in TOPICS if ticker in mappa.get(t["id"], ())])
 
 
 # RSS extra dedicati a topic specifici (sempre attivi)

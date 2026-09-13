@@ -60,6 +60,7 @@ except Exception as _e:
 PDR_OK = REQ_OK  # alias retro-compat
 
 from bellomberg.storage.memory_db import MemoryDB, DB_DIR
+from bellomberg.core.presentation import message as _message, render_payload, error_text
 
 
 CACHE_DIR = os.path.join(DB_DIR, "cache")
@@ -221,6 +222,17 @@ _GLOBAL_SUFFIXES = (".TW", ".KS", ".KQ", ".SS", ".SZ", ".NS", ".BO",
                     ".SA", ".MX", ".TO", ".V")
 
 
+def _region_label(region):
+    labels = {
+        "us": ("US (NYSE/Nasdaq/Amex)", "US (NYSE/Nasdaq/Amex)"),
+        "europe": ("Europa (mercati sviluppati)", "Europe (developed)"),
+        "japan": ("Giappone", "Japan"),
+        "asia_pacific": ("Asia-Pacifico escluso Giappone (mercati sviluppati)", "Asia-Pacific ex Japan (developed)"),
+        "global": ("Developed/Global (proxy per EM: FF Emerging daily non esiste)", "Developed/Global (EM proxy: daily FF Emerging does not exist)"),
+    }
+    return _message(*labels[region]) if region in labels else region
+
+
 def _region_for_ticker(ticker: str, fattori: Optional[Dict[str, Any]] = None) -> str:
     """Regione fattoriale per un ticker (#166): override economici (dal negozio privato dei
     fattori, `fattori` gia' caricato o riletto), poi suffisso di quotazione."""
@@ -255,7 +267,7 @@ def _fetch_ff_zip_csv(url: str, expected_cols: list) -> pd.DataFrame:
             header_idx = i
             break
     if header_idx is None:
-        raise RuntimeError(f"K. French CSV header not found for {expected_cols}")
+        raise RuntimeError(_message('Intestazione CSV K. French assente per {v0}', 'K. French CSV header not found for {v0}', v0=expected_cols))
 
     data_rows = []
     for ln in lines[header_idx + 1:]:
@@ -267,7 +279,7 @@ def _fetch_ff_zip_csv(url: str, expected_cols: list) -> pd.DataFrame:
         data_rows.append(ln)
 
     if not data_rows:
-        raise RuntimeError(f"No data rows parsed from {url}")
+        raise RuntimeError(_message('Nessuna riga di dati letta da {v0}', 'No data rows parsed from {v0}', v0=url))
 
     df = pd.read_csv(io.StringIO(lines[header_idx] + "\n" + "\n".join(data_rows)))
     df.columns = [c.strip() for c in df.columns]
@@ -288,9 +300,9 @@ def download_ff5_returns(force: bool = False, region: str = "us") -> pd.DataFram
     Cache su disco PER REGIONE per FF5_REFRESH_DAYS giorni.
     """
     if not NUMPY_OK:
-        raise RuntimeError("numpy/pandas non installati")
+        raise RuntimeError(_message('numpy/pandas non installati', 'numpy/pandas not installed'))
     if not REQ_OK:
-        raise RuntimeError("requests/zipfile non disponibili")
+        raise RuntimeError(_message('requests/zipfile non disponibili', 'requests/zipfile unavailable'))
 
     _ensure_cache_dir()
     region = (region or "us").lower()
@@ -325,7 +337,7 @@ def download_ff5_returns(force: bool = False, region: str = "us") -> pd.DataFram
         except Exception as e:
             last_err = e
     if ff5 is None:
-        raise RuntimeError(f"FF5 [{region}] download failed: {last_err}")
+        raise RuntimeError(_message('Download FF5 [{v0}] fallito: {v1}', 'FF5 [{v0}] download failed: {v1}', v0=region, v1=error_text(last_err)))
 
     mom_raw = None
     for url in spec["mom"]:
@@ -340,7 +352,7 @@ def download_ff5_returns(force: bool = False, region: str = "us") -> pd.DataFram
         if mom_raw is not None:
             break
     if mom_raw is None:
-        raise RuntimeError(f"Momentum [{region}] download failed: {last_err}")
+        raise RuntimeError(_message('Download Momentum [{v0}] fallito: {v1}', 'Momentum [{v0}] download failed: {v1}', v0=region, v1=error_text(last_err)))
     if "Mom" not in mom_raw.columns and len(mom_raw.columns) == 1:
         mom_raw.columns = ["Mom"]
     mom = mom_raw[["Mom"]] if "Mom" in mom_raw.columns else mom_raw
@@ -409,7 +421,7 @@ def compute_holding_exposure(ticker: str, period: str = "3y",
     Se add_btc_factor=True, include anche beta_btc + beta_btc_tstat.
     """
     if not (NUMPY_OK and YF_OK and SM_OK):
-        raise RuntimeError("numpy/yfinance/statsmodels non installati")
+        raise RuntimeError(_message('numpy/yfinance/statsmodels non installati', 'numpy/yfinance/statsmodels not installed'))
 
     # `salta` arriva dal chiamante quando c'e' un giro in corso (compute_portfolio_factors
     # legge il negozio UNA volta): cosi' la lettura dichiarata nel payload e quella usata per
@@ -492,12 +504,11 @@ def compute_holding_exposure(ticker: str, period: str = "3y",
         "n_obs": int(n),
         "period": period,
         "factor_region": factor_region,
-        "factor_set": (REGIONAL_FF.get(factor_region) or {}).get("label", factor_region),
+        "factor_set": _region_label(factor_region),
         # audit/11 §5: i fattori K.French regionali sono denominati in USD, i rendimenti
         # dell'asset in valuta di quotazione: per i non-USD il beta/alpha include il
         # rumore del cambio. Dichiarato finche' non si converte in USD.
-        "fx_caveat": ("rendimenti asset in valuta locale vs fattori USD: beta/alpha "
-                      "contaminati dal cambio" if "." in (ticker or "") else None),
+        "fx_caveat": (_message('rendimenti asset in valuta locale vs fattori USD: beta/alpha contaminati dal cambio', 'Asset returns in local currency vs USD factors: beta/alpha affected by FX') if "." in (ticker or "") else None),
         "alpha_daily_pct": round(float(params["const"]) * 100, 4),
         "alpha_annualized_pct": round(float(params["const"]) * 252 * 100, 2),
         "alpha_tstat": round(float(tvals["const"]), 2),
@@ -529,7 +540,7 @@ def compute_holding_exposure(ticker: str, period: str = "3y",
         result["beta_btc"] = round(float(params["BTC_exc"]), 3)
         result["beta_btc_tstat"] = round(float(tvals["BTC_exc"]), 2)
 
-    return result
+    return render_payload(result)
 
 
 def compute_portfolio_factors(period: str = "3y", force: bool = False) -> Dict[str, Any]:
@@ -549,7 +560,7 @@ def compute_portfolio_factors(period: str = "3y", force: bool = False) -> Dict[s
         if not YF_OK: missing.append("yfinance")
         if not SM_OK: missing.append("statsmodels")
         if not REQ_OK: missing.append("requests/zipfile")
-        return {"error": f"libraries with failed import: {', '.join(missing)}",
+        return {"error": _message('Import fallito per le librerie: {v0}', 'libraries with failed import: {v0}', v0=', '.join(missing)),
                 "import_errors": _IMPORT_ERRORS,
                 "timestamp": datetime.now().isoformat()}
 
@@ -557,22 +568,21 @@ def compute_portfolio_factors(period: str = "3y", force: bool = False) -> Dict[s
         db = MemoryDB()
         snap = db.get_portfolio_summary()
     except Exception as e:
-        return {"error": f"portfolio fetch failed: {e}", "timestamp": datetime.now().isoformat()}
+        return {"error": _message('Lettura portafoglio fallita: {v0}', 'portfolio fetch failed: {v0}', v0=e), "timestamp": datetime.now().isoformat()}
     if snap.get("fx_incomplete"):
-        return {"error": "FX incompleto: pesi fattori EUR n.d. (" +
-                         ", ".join(snap["fx_incomplete"]) + ")",
+        return {"error": _message("FX incompleto: pesi fattori EUR n.d. ({currencies})", "Incomplete FX: EUR factor weights unavailable ({currencies})", currencies=", ".join(snap["fx_incomplete"])),
                 "timestamp": datetime.now().isoformat()}
     if not force and FACTORS_RESULT_CACHE["key"] == cache_key and \
        FACTORS_RESULT_CACHE["data"] and (time.time() - FACTORS_RESULT_CACHE["ts"] < CACHE_TTL_SEC):
-        return FACTORS_RESULT_CACHE["data"]
+        return render_payload(FACTORS_RESULT_CACHE["data"])
 
     positions = snap.get("positions", [])
     if not positions:
-        return {"error": "no positions", "timestamp": datetime.now().isoformat()}
+        return {"error": _message('nessuna posizione', 'no positions'), "timestamp": datetime.now().isoformat()}
 
     total_eur = sum((p.get("valore_mercato") or 0) for p in positions)
     if total_eur <= 0:
-        return {"error": "zero portfolio value", "timestamp": datetime.now().isoformat()}
+        return {"error": _message('valore di portafoglio nullo', 'zero portfolio value'), "timestamp": datetime.now().isoformat()}
 
     # il negozio dei fattori si legge UNA volta per giro: il payload (filters.negozio_fattori)
     # descrive lo stesso stato usato per ogni titolo (review 05/09: il nome era usato e mai
@@ -596,11 +606,11 @@ def compute_portfolio_factors(period: str = "3y", force: bool = False) -> Dict[s
         try:
             ff_by_region[reg] = download_ff5_returns(force=False, region=reg)
         except Exception as e:
-            region_errors[reg] = str(e)
+            region_errors[reg] = error_text(e)
             _log(f"[{reg}] FF download failed: {e}")
 
     if not ff_by_region:
-        return {"error": "FF download failed per tutte le regioni",
+        return {"error": _message('FF download failed per tutte le regioni', 'FF download failed for all regions'),
                 "region_errors": region_errors,
                 "timestamp": datetime.now().isoformat()}
 
@@ -615,7 +625,7 @@ def compute_portfolio_factors(period: str = "3y", force: bool = False) -> Dict[s
 
         if _yf_ticker(ticker, _salta) is None:
             skipped.append({"ticker": ticker, "weight_pct": round(weight*100, 2),
-                            "reason": "ticker in SKIP list (e.g. crypto custom)"})
+                            "reason": _message('ticker nella lista SKIP (es. crypto personalizzata)', 'ticker in SKIP list (e.g. crypto custom)')})
             continue
 
         # #166: ogni holding regredisce sui fattori della PROPRIA regione
@@ -623,8 +633,7 @@ def compute_portfolio_factors(period: str = "3y", force: bool = False) -> Dict[s
         ff_reg = ff_by_region.get(region)
         if ff_reg is None:
             skipped.append({"ticker": ticker, "weight_pct": round(weight*100, 2),
-                            "reason": f"dataset FF '{region}' non scaricabile: "
-                                      f"{region_errors.get(region, 'unknown')}"})
+                            "reason": _message("dataset FF '{v0}' non scaricabile: {v1}", "FF dataset '{v0}' could not be downloaded: {v1}", v0=region, v1=region_errors.get(region, 'unknown'))})
             continue
 
         # BTC factor per crypto-correlated
@@ -636,20 +645,20 @@ def compute_portfolio_factors(period: str = "3y", force: bool = False) -> Dict[s
                                              factor_region=region)
         if exposure is None:
             skipped.append({"ticker": ticker, "weight_pct": round(weight*100, 2),
-                            "reason": "insufficient yfinance history or OLS failed"})
+                            "reason": _message('storico yfinance insufficiente o OLS fallita', 'insufficient yfinance history or OLS failed')})
             continue
         exposure["weight"] = round(weight, 4)
         exposure["weight_pct"] = round(weight * 100, 2)
         # review 22/07 (E7): dichiarare se la regione e' una scelta economica
         # (override) o solo dedotta dal suffisso di quotazione
         exposure["region_source"] = ("override" if ticker.strip().upper() in _fatt["fattori"]["regioni"]
-                                     else "suffisso di quotazione (euristica)")
+                                     else _message('suffisso di quotazione (euristica)', 'Listing suffix (heuristic)'))
         per_holding[ticker] = exposure
         if exposure.get("has_btc_factor"):
             n_with_btc += 1
 
     if not per_holding:
-        return {"error": "no holdings could be analyzed",
+        return {"error": _message('nessuna posizione analizzabile', 'no holdings could be analyzed'),
                 "skipped_detail": skipped,
                 "timestamp": datetime.now().isoformat()}
 
@@ -675,8 +684,8 @@ def compute_portfolio_factors(period: str = "3y", force: bool = False) -> Dict[s
     result = {
         "timestamp": datetime.now().isoformat(),
         "version": "v3-regional",
-        "model": "Fama-French 5-factor + Momentum (Carhart) REGIONALE + optional BTC factor",
-        "method": "OLS with Newey-West HAC standard errors",
+        "model": _message('Fama-French 5-factor + Momentum (Carhart) REGIONALE + optional BTC factor', 'REGIONAL Fama-French 5-factor + Momentum (Carhart) + optional BTC factor'),
+        "method": _message('OLS con errori standard Newey-West HAC', 'OLS with Newey-West HAC standard errors'),
         "data_source": "Kenneth French Data Library (US/Europe/Japan/Asia-Pacific/Global daily) + yfinance BTC-USD",
         "period": period,
         "filters": {
@@ -689,12 +698,11 @@ def compute_portfolio_factors(period: str = "3y", force: bool = False) -> Dict[s
             # idem per i prezzi speciali: negozio assente = nessun simbolo saltato, e in
             # `skipped` comparirebbe un motivo diverso da quello vero
             "negozio_prezzi": {"origine": _prezzi["origine"], "motivo": _prezzi["motivo"]},
-            "note_aggregate": "betas aggregati cross-region (composite): ogni holding "
-                              "regredisce sui fattori della propria regione",
+            "note_aggregate": _message('betas aggregati cross-region (composite): ogni holding regredisce sui fattori della propria regione', 'Cross-region aggregate betas (composite): each holding is regressed on its own regional factors'),
         },
         "regions": {
             reg: {
-                "label": (REGIONAL_FF.get(reg) or {}).get("label", reg),
+                "label": _region_label(reg),
                 "n_holdings": sum(1 for h in per_holding.values()
                                   if h.get("factor_region") == reg),
                 "weight_pct": round(sum(h["weight"] for h in per_holding.values()
@@ -732,7 +740,7 @@ def compute_portfolio_factors(period: str = "3y", force: bool = False) -> Dict[s
          f"alpha_ann={agg['alpha_annualized_pct']:.2f}%, "
          f"beta_mkt={agg['beta_market']:.2f}, R2={weighted_r2:.2f}, "
          f"alpha_signif={n_alpha_significant}/{len(per_holding)}")
-    return result
+    return render_payload(result)
 
 
 def invalidate_cache():

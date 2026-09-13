@@ -1,10 +1,13 @@
 """Explicit option data requests and an offline strategy calculator."""
+from bellomberg.core.language import text as _ui_text
+from bellomberg.core.api_presentation import PresentationJSONResponse
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from typing import Literal
 
 
 def create_options_router(require_session):
-    router = APIRouter(prefix="/options", tags=["options-lab"], dependencies=[Depends(require_session)])
+    router = APIRouter(prefix="/options", tags=["options-lab"], dependencies=[Depends(require_session)],
+                       default_response_class=PresentationJSONResponse)
 
     @router.get("/expiry_catalog/{ticker}")
     def expiry_catalog(ticker: str, after: str | None = None,
@@ -38,7 +41,7 @@ def create_options_router(require_session):
     def start_download(ticker: str, body: dict | None = Body(None)):
         body = body or {}
         if set(body) - {"expiries"}:
-            raise HTTPException(422, "campi download non riconosciuti")
+            raise HTTPException(422, _ui_text('campi download non riconosciuti', 'Unrecognized download fields'))
         return download_call("start", ticker, body.get("expiries"))
 
     @router.get("/download/{job_id}/status")

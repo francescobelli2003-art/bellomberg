@@ -1,9 +1,13 @@
+import { useT } from '@/i18n/provider';
 import { useEffect, useState } from 'react';
 import ConfirmDialog, { ConfirmRow } from './ConfirmDialog';
 import { Bellomberg } from '../lib/api';
 import { fmtEUR } from '../lib/format';
 
 type Props = { open: boolean; onConfirm: () => void; onCancel: () => void };
+type CostReading = { kind: 'loading' } | { kind: 'missing' }
+  | { kind: 'measured'; value: number; partial: boolean }
+  | { kind: 'aggregation' | 'heartbeat'; detail: string | null };
 
 /**
  * Conferma UNICA per i 3 punti d'ingresso della run del consigliere — F1 Dashboard,
@@ -19,51 +23,58 @@ type Props = { open: boolean; onConfirm: () => void; onCancel: () => void };
  * una seconda spende due volte.
  */
 export default function RunConfirmDialog({ open, onConfirm, onCancel }: Props) {
-  const [cost, setCost] = useState('misura in corso...');
+  const tr = useT();
+  const [cost, setCost] = useState<CostReading>({ kind: 'loading' });
   const [costTone, setCostTone] = useState<ConfirmRow['tone']>(undefined);
   const [running, setRunning] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    setCost('misura in corso...'); setCostTone(undefined); setRunning(false);
+    setCost({ kind: 'loading' }); setCostTone(undefined); setRunning(false);
     Bellomberg.agentsLive().then(s => {
       if (!alive) return;
       setRunning(!!s?.running);
       const u = s?.usage_total;
       if (u?.error) {
-        setCost('n.d. — aggregazione costi in errore: ' + u.error); setCostTone('crimson');
+        setCost({ kind: 'aggregation', detail: String(u.error) }); setCostTone('crimson');
       } else if (u && u.cost_eur != null) {
-        setCost(fmtEUR(u.cost_eur) + (u.partial ? ' (MINIMO: round non prezzabili)' : ''));
+        setCost({ kind: 'measured', value: u.cost_eur, partial: !!u.partial });
         setCostTone('amber');
       } else {
-        setCost('n.d. — nessun costo misurato nell’heartbeat');
+        setCost({ kind: 'missing' });
       }
     }).catch(e => {
       if (!alive) return;
-      setCost('n.d. — heartbeat non raggiungibile (' + (e?.message || 'errore') + ')');
+      setCost({ kind: 'heartbeat', detail: e?.message ? String(e.message) : null });
       setCostTone('crimson');
     });
     return () => { alive = false; };
   }, [open]);
 
+  const costText = cost.kind === 'loading' ? tr('communications.costLoading')
+    : cost.kind === 'missing' ? tr('communications.costMissing')
+    : cost.kind === 'measured' ? fmtEUR(cost.value) + (cost.partial ? tr('communications.costMinimum') : '')
+    : tr(cost.kind === 'aggregation' ? 'communications.costError' : 'communications.heartbeatError',
+      { a: cost.detail ?? tr('communications.unknownError') });
   const rows: ConfirmRow[] = [
-    { k: running ? 'Costo run in corso' : 'Costo ultima run', v: cost, tone: costTone },
-    { k: 'Ordine di grandezza', v: '~10-15 $ di API per run (stima storica, non una misura)' },
-    { k: 'Durata', v: '25-40 min · email a fine run · avanzamento in F4' },
+    { k: running ? tr('communications.costRunning') : tr('communications.costLast'), v: costText, tone: costTone },
+    { k: tr('communications.costMagnitude'), v: tr('communications.costEstimate') },
+    { k: tr('communications.duration'), v: tr('communications.runDuration') },
   ];
 
   return (
     <ConfirmDialog
       open={open}
       tone={running ? 'crimson' : 'amber'}
-      title={running ? "Una run e' gia' in corso" : 'Lanciare la run del consigliere?'}
-      intro="Avvia il comitato multi-agente sul portafoglio. Spende API a ogni lancio e fermarla a meta' da F4 perde i risultati parziali."
+      title={running ? tr('communications.runAlreadyActive') : tr('communications.runLaunchQuestion')}
+      intro={tr('communications.runIntro')}
       rows={rows}
       warn={running
-        ? "L'heartbeat dice che una run e' ATTIVA adesso: lanciarne un'altra spende una seconda volta. Controlla F4 prima di confermare."
+        ? tr('communications.runActiveWarning')
         : undefined}
-      confirmLabel={running ? 'LANCIA COMUNQUE' : 'LANCIA LA RUN'}
+      confirmLabel={running ? tr('communications.launchAnyway') : tr('communications.launchRun')}
+      cancelLabel={tr('communications.cancel')}
       onConfirm={onConfirm}
       onCancel={onCancel}
     />

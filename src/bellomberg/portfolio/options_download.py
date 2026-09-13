@@ -1,4 +1,6 @@
 """Resumable in-memory option downloads. No portfolio/DB access or trading."""
+from bellomberg.core.presentation import message as _ui_text, render_payload
+from bellomberg.core.language import capture_language, scoped_language
 from copy import deepcopy
 from datetime import datetime, timezone
 from threading import RLock, Semaphore, Thread
@@ -35,7 +37,7 @@ class OptionsDownloadManager:
             del self._jobs[job_id]
             job = None
         if job is None:
-            raise KeyError("download assente o scaduto: avvia un nuovo download")
+            raise KeyError(_ui_text('download assente o scaduto: avvia un nuovo download', 'Download missing or expired: start a new download'))
         job["_access"] = monotonic()
         return job
 
@@ -74,11 +76,11 @@ class OptionsDownloadManager:
         ticker = vol._symbol(ticker)
         if expiries is not None:
             if not isinstance(expiries, list) or not expiries:
-                raise ValueError("expiries deve contenere almeno una scadenza")
+                raise ValueError(_ui_text('expiries deve contenere almeno una scadenza', 'expiries must contain at least one expiry'))
             for expiry in expiries:
                 vol._expiry(expiry)
             if len(set(expiries)) != len(expiries):
-                raise ValueError("le scadenze devono essere distinte")
+                raise ValueError(_ui_text('le scadenze devono essere distinte', 'Expiries must be distinct'))
             expiries = sorted(expiries)
         key = (ticker, tuple(expiries) if expiries is not None else None)
         with self._lock:
@@ -92,8 +94,9 @@ class OptionsDownloadManager:
                     job["_access"] = now
                     return {**self._status(job), "cached": True}
             if len(self._jobs) >= self._max_jobs:
-                raise RuntimeError("troppi download conservati: riprendi un download esistente o attendi la scadenza")
+                raise RuntimeError(_ui_text('troppi download conservati: riprendi un download esistente o attendi la scadenza', 'Too many retained downloads: resume an existing download or wait for expiry'))
             job = {"id": uuid4().hex, "ticker": ticker, "scope": "all" if expiries is None else "selected",
+                   "output_language": capture_language(),
                    "state": "queued", "phase": "catalog" if expiries is None else "chain",
                    "expirations": [], "catalog_complete": expiries is not None,
                    "current_expiry": None, "download_complete": False, "error": None, "retryable": False,
@@ -113,7 +116,8 @@ class OptionsDownloadManager:
             return
         job.update(state="queued", error=None, retryable=False, updated_at=_now())
         job["_worker"] = True
-        Thread(target=self._run, args=(job,), daemon=True, name=f"options-{job['id'][:8]}").start()
+        Thread(target=self._run, args=(job,), kwargs={"language": job["output_language"]},
+               daemon=True, name=f"options-{job['id'][:8]}").start()
 
     def pause(self, job_id):
         with self._lock:
@@ -139,12 +143,13 @@ class OptionsDownloadManager:
             return self._status(job)
 
     def _fail(self, job, error):
-        job.update(state="error", error=str(error), retryable=True, updated_at=_now(), download_complete=False)
+        job.update(state="error", error=error if isinstance(error, str) else str(error), retryable=True, updated_at=_now(), download_complete=False)
         if job["current_expiry"] is not None:
             row = job["_rows"][job["current_expiry"]]
             if row["error"] is None:
-                row["error"] = str(error)
+                row["error"] = error if isinstance(error, str) else str(error)
 
+    @scoped_language
     def _run(self, job):
         acquired = False
         try:
@@ -192,12 +197,14 @@ class OptionsDownloadManager:
                 with self._lock:
                     self._accept_page(job, row, cursor, page)
                     if row["error"]:
-                        self._fail(job, f"{expiry}: {row['error']}")
+                        # An f-string would flatten the bilingual error: compose an authored message.
+                        self._fail(job, _ui_text('{expiry}: {error}', '{expiry}: {error}',
+                                                 expiry=expiry, error=row["error"]))
                         return
         except Exception as exc:
             with self._lock:
                 # Avoid exposing provider exception URLs/credentials in status.
-                self._fail(job, f"download interrotto ({type(exc).__name__}); riprendi per ritentare")
+                self._fail(job, _ui_text(f'download interrotto ({type(exc).__name__}); riprendi per ritentare', f'Download interrupted ({type(exc).__name__}); resume to retry'))
         finally:
             if acquired:
                 self._slots.release()
@@ -243,7 +250,7 @@ class OptionsDownloadManager:
         error = page.get("error")
         nxt = page.get("next_cursor")
         if not error and not page.get("complete") and (not nxt or nxt == cursor or nxt in row["seen"]):
-            error = "ciclo o cursore chain non avanzante"
+            error = _ui_text('ciclo o cursore chain non avanzante', 'Chain cursor cycle or no progress')
             vol._forget_chain_page(job["ticker"], job["current_expiry"], cursor)
         row["error"] = error
         if not error:
@@ -262,33 +269,33 @@ class OptionsDownloadManager:
             observed = yf.Ticker(job["ticker"]).fast_info["lastPrice"]
             spot = vol._finite(observed, positive=True)
             if spot is None:
-                raise ValueError("prezzo assente o non finito")
+                raise ValueError(_ui_text('prezzo assente o non finito', 'Missing or non-finite price'))
             with self._lock:
                 job.update(spot=spot, spot_source="yfinance lastPrice", spot_timestamp=_now())
         except Exception as exc:
             with self._lock:
-                job["spot_error"] = f"spot yfinance assente ({type(exc).__name__}); serve un prezzo osservato nelle pagine Polygon"
+                job["spot_error"] = _ui_text(f'spot yfinance assente ({type(exc).__name__}); serve un prezzo osservato nelle pagine Polygon', f'Missing yfinance spot ({type(exc).__name__}); an observed price in the Polygon pages is required')
 
     def chain(self, job_id, expiry, offset=0, limit=250, side="all", strike=""):
         vol._expiry(expiry)
         if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
-            raise ValueError("offset non valido")
+            raise ValueError(_ui_text('offset non valido', 'Invalid offset'))
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
-            raise ValueError("limit deve essere da 1 a 1000")
+            raise ValueError(_ui_text('limit deve essere da 1 a 1000', 'limit must be from 1 to 1000'))
         if side not in ("all", "call", "put") or not isinstance(strike, str) or len(strike) > 80:
-            raise ValueError("filtro chain non valido")
+            raise ValueError(_ui_text('filtro chain non valido', 'Invalid chain filter'))
         strike = strike.strip().replace(",", ".")
         with self._lock:
             job = self._job(job_id)
             row = job["_rows"].get(expiry)
             if row is None:
-                raise ValueError("scadenza non presente nel download")
+                raise ValueError(_ui_text('scadenza non presente nel download', 'Expiry not present in the download'))
             selected = [c for c in row["data"].values() if (side == "all" or c["type"] == side)
                         and (not strike or strike in str(c["strike"]))]
             selected.sort(key=lambda c: (c["strike"], c["type"], c["contract"]))
             end = offset + limit
             return {"id": job_id, "ticker": job["ticker"], "expiry": expiry,
-                    "chain": deepcopy(selected[offset:end]), "offset": offset, "limit": limit,
+                    "chain": render_payload(selected[offset:end]), "offset": offset, "limit": limit,
                     "n_contracts": len(row["data"]), "filtered_contracts": len(selected),
                     "chain_complete": row["complete"], "download_complete": job["download_complete"],
                     "has_more": end < len(selected), "next_offset": end if end < len(selected) else None,
@@ -299,17 +306,17 @@ class OptionsDownloadManager:
                     "duplicates": sum(p["duplicates"] for p in row["pages"].values()),
                     "malformed_contracts": sum(p["malformed"] for p in row["pages"].values()),
                     "superseded_contracts": row["superseded_contracts"], "page_revisions": len(row["revisions"]),
-                    "_timestamp": job["updated_at"], "_source": "Polygon option-chain snapshot (memoria)"}
+                    "_timestamp": job["updated_at"], "_source": _ui_text("Polygon option-chain snapshot (memoria)", "Polygon option-chain snapshot (in memory)")}
 
     def surface(self, job_id):
         with self._lock:
             job = self._job(job_id)
             if not job["expirations"]:
-                return {"error": "nessuna scadenza disponibile nel download", "ticker": job["ticker"],
+                return {"error": _ui_text('nessuna scadenza disponibile nel download', 'No expiry available in the download'), "ticker": job["ticker"],
                         "slices": [], "term_structure": [], "n_expiries": 0, "moneyness_grid": vol.MONEYNESS_GRID,
                         "coverage": {"complete": False, "download_complete": job["download_complete"], "rows": [],
                                      "requested": [], "loaded": [], "excluded": [], "errors": [],
-                                     "selection_mode": "explicit", "catalog_note": "Catalogo del download in memoria"}}
+                                     "selection_mode": "explicit", "catalog_note": _ui_text('Catalogo del download in memoria', 'In-memory download catalog')}}
             snapshot = {"spot": job["spot"], "spot_source": job["spot_source"],
                         "download_complete": job["download_complete"], "chains": {
                             expiry: {"chain": deepcopy(list(row["data"].values())), "complete": row["complete"],

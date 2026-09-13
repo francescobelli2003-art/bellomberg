@@ -97,6 +97,23 @@ def _stress_var_budget(invested, cash, risk_data, stress_data, p):
         loss_nav_pct = loss_pct * invested / nav if nav > 0 else loss_pct
         out["gfc_replay_book_pct"] = loss_pct
         out["gfc_replay_nav_pct"] = round(loss_nav_pct, 2)
+        # Audit 11/09 (Fable 5.1): il replay era presentato al Capo come il numero che
+        # vincola tutto senza dire quanti nomi del book sono PROXY beta x SPY (storia
+        # assente nella finestra 2008) e quanti giorni della finestra sono stati replicati.
+        # Le misure esistono in stress_meta: si propagano, dichiarate.
+        _meta = sd.get("stress_meta") or {}
+        _real = _meta.get("real_history")
+        _prox = _meta.get("proxied")
+        try:
+            out["gfc_n_real"] = len(_real) if _real is not None else None
+            out["gfc_n_proxy"] = len(_prox) if _prox is not None else None
+        except TypeError:
+            out["gfc_n_real"], out["gfc_n_proxy"] = None, None
+        _win = _meta.get("window") if isinstance(_meta.get("window"), dict) else {}
+        out["gfc_window_days"] = _win.get("trading_days")
+        out["gfc_replaced_days"] = _meta.get("replaced_days")
+        _zf = _meta.get("zero_filled_days")
+        out["gfc_zero_filled_names"] = len(_zf) if isinstance(_zf, dict) else None
         # review 14/07: il replay MC e' in base valuta LOCALE (dichiarato); per la
         # finestra GFC (USD in apprezzamento) sovrastima la perdita EUR = conservativo
         out["gfc_basis_note"] = "replay in valuta locale per-asset (dichiarato, direzione conservativa per GFC)"
@@ -545,11 +562,22 @@ def format_for_capo(sizing: dict) -> str:
     b = s.get("stress_var_budget") or {}
     if b:
         if b.get("gfc_replay_nav_pct") is not None:
+            # audit 11/09: la base del replay (nomi veri vs proxy, giorni replicati) va detta
+            # accanto al numero, altrimenti la perdita sembra misurata su storie tutte vere
+            _base = ""
+            if b.get("gfc_n_proxy") is not None and b.get("gfc_n_real") is not None:
+                _base = " — base: {} nomi con storia 2008 vera, {} PROXY beta x SPY".format(
+                    b["gfc_n_real"], b["gfc_n_proxy"])
+                if b.get("gfc_replaced_days") is not None and b.get("gfc_window_days") is not None:
+                    _base += ", finestra replicata {}/{} giorni".format(
+                        b["gfc_replaced_days"], b["gfc_window_days"])
+                if b.get("gfc_zero_filled_names"):
+                    _base += ", {} nomi con buchi riempiti a 0".format(b["gfc_zero_filled_names"])
             L.append("BUDGET STRESS (#187, sul NAV): replay GFC 2008 = {:.1f}% del NAV "
-                     "(budget {:.0f}%, {}; base valuta locale dichiarata, conservativa) "
+                     "(budget {:.0f}%, {}; base valuta locale dichiarata, conservativa){} "
                      "[src: get_portfolio_montecarlo replay]".format(
                          b["gfc_replay_nav_pct"], b["budget_gfc_replay_nav_pct"],
-                         b.get("gfc_status", "?")))
+                         b.get("gfc_status", "?"), _base))
         else:
             L.append("BUDGET STRESS: " + str(b.get("gfc_replay", "n.d.")))
         if b.get("var99_1d_nav_pct") is not None:

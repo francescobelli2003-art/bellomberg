@@ -1,0 +1,424 @@
+{
+  "id": "documentation-demo",
+  "version": 1,
+  "description": "Entirely invented documentation data. No account, provider, recommendation or production portfolio is represented.",
+  "scenes": [
+    {
+      "id": "dashboard",
+      "route": "/dashboard",
+      "selector": ".f1c",
+      "required": [
+        "/portfolio",
+        "/decisions",
+        "/portfolio/risk",
+        "/portfolio/analytics/twr",
+        "/portfolio/analytics/nav_history",
+        "/market/overview",
+        "/market/ohlc"
+      ]
+    },
+    {
+      "id": "trade-entry",
+      "route": "/trades",
+      "selector": "#f7-tk",
+      "required": [
+        "/portfolio",
+        "/decisions",
+        "/trades",
+        "/cash/movements"
+      ],
+      "fields": {
+        "f7-tk": "DEMO.A",
+        "f7-qt": "2",
+        "f7-pz": "50",
+        "f7-vl": "EUR",
+        "f7-data": "2024-02-01",
+        "f7-decisione": "none"
+      }
+    }
+  ],
+  "responses": {
+    "/health": {
+      "status": "ok",
+      "brand": "Synthetic documentation service",
+      "version": "fixture-v1"
+    },
+    "/auth/status": {
+      "configured": true,
+      "default_pin": false
+    },
+    "/mandato": {
+      "dichiarato": true,
+      "causa": null
+    },
+    "/agents/list": {
+      "agents": [
+        {
+          "id": "quant",
+          "name": "Synthetic Quant",
+          "role": "Demonstration only",
+          "color": "#FFA51E",
+          "model": "synthetic"
+        },
+        {
+          "id": "fundamentals",
+          "name": "Synthetic Fundamentals",
+          "role": "Demonstration only",
+          "color": "#29D3F2",
+          "model": "synthetic"
+        }
+      ],
+      "engines": {
+        "committee_r1_r2": "synthetic-demo"
+      }
+    },
+    "/agents/live": {
+      "running": false,
+      "specialist_status": {}
+    },
+    "/tasks/scheduled": {
+      "tasks": []
+    },
+    "/fx": {
+      "rates": {
+        "EUR": 1,
+        "USD": 0.9,
+        "GBP": 1.2,
+        "CHF": 1.05,
+        "JPY": 0.006
+      }
+    },
+    "/news/alerts/unnotified": {
+      "count": 0,
+      "items": []
+    },
+    "/portfolio": {
+      "source": "synthetic-fixture",
+      "timestamp": "2024-02-20T09:00:00",
+      "n_positions": 2,
+      "cash_disponibile_eur": 4000,
+      "cash_source": "synthetic-fixture",
+      "nav_total_eur": 10000,
+      "totale_valore_mercato_eur": 6000,
+      "totale_costo_eur": 5500,
+      "totale_pl_eur": 500,
+      "stale_positions": [],
+      "positions": [
+        {
+          "ticker": "DEMO.A",
+          "nome": "Synthetic Company A",
+          "quantita": 80,
+          "prezzo_medio": 45,
+          "prezzo_live": 50,
+          "prezzo_precedente": 49,
+          "valuta": "EUR",
+          "valore_mercato": 4000,
+          "valore_mercato_eur": 4000,
+          "costo_eur": 3600,
+          "pl_eur": 400,
+          "pl_pct": 11.111111,
+          "peso_pct": 66.666667,
+          "fx_to_eur": 1,
+          "daily_change_pct": 2.040816,
+          "daily_change_eur": 80
+        },
+        {
+          "ticker": "DEMO.B",
+          "nome": "Synthetic Company B",
+          "quantita": 40,
+          "prezzo_medio": 47.5,
+          "prezzo_live": 50,
+          "prezzo_precedente": 51,
+          "valuta": "EUR",
+          "valore_mercato": 2000,
+          "valore_mercato_eur": 2000,
+          "costo_eur": 1900,
+          "pl_eur": 100,
+          "pl_pct": 5.263158,
+          "peso_pct": 33.333333,
+          "fx_to_eur": 1,
+          "daily_change_pct": -1.960784,
+          "daily_change_eur": -40
+        }
+      ]
+    },
+    "/decisions": {
+      "decisions": [
+        {
+          "id": 31,
+          "ticker": "DEMO.A",
+          "action": "ADD",
+          "size_eur": 100,
+          "status": "PENDING",
+          "timestamp": "2024-02-20T09:00:00",
+          "eur_amount": 100,
+          "rationale": "Synthetic decision for documentation; no investment recommendation.",
+          "reasoning": "Synthetic decision for documentation; no investment recommendation.",
+          "date": "2024-02-20",
+          "memo_date": "2024-02-20",
+          "executed_eur": 0,
+          "executed_pct": 0,
+          "remaining_eur": 100,
+          "execution_status": "NONE",
+          "linked_trade_ids": []
+        }
+      ]
+    },
+    "/trades": {
+      "count": 2,
+      "trades": [
+        { "id": 1, "ticker": "DEMO.A", "action": "BUY", "data": "2024-02-16T12:00:00", "created_at": "2024-02-16T12:00:00", "quantita": 80, "prezzo": 45, "valuta": "EUR", "ora_convenzionale": true, "link_origin": "none", "linked_decision_id": null, "realized_eur": null, "note": "DEMO" },
+        { "id": 2, "ticker": "DEMO.B", "action": "BUY", "data": "2024-02-16T12:00:00", "created_at": "2024-02-16T12:00:00", "quantita": 40, "prezzo": 47.5, "valuta": "EUR", "ora_convenzionale": true, "link_origin": "none", "linked_decision_id": null, "realized_eur": null, "note": "DEMO" }
+      ]
+    },
+    "/cash/movements": {
+      "count": 1,
+      "movements": [{ "id": 1, "type": "DEPOSIT", "amount_eur": 9500, "date": "2024-02-16", "note": "DEMO" }]
+    },
+    "/portfolio/risk": {
+      "timestamp": "2024-02-20T09:00:00",
+      "nav_eur": 6000,
+      "portfolio": {
+        "vol_annual_pct": 12,
+        "sharpe": 0.8,
+        "var_95_1d_pct": 1.2,
+        "var_99_1d_pct": 1.8,
+        "var_95_1d_eur": 72,
+        "var_99_1d_eur": 108,
+        "beta_vs_spy": 0.7,
+        "max_dd_1y_pct": -4
+      },
+      "per_asset": {},
+      "correlation": {
+        "tickers": [],
+        "matrix": []
+      },
+      "alerts": [],
+      "n_assets_analyzed": 2,
+      "skipped_tickers": [],
+      "lookback_days": 252
+    },
+    "/portfolio/analytics/nav_history": {
+      "dates": [
+        "2024-02-16",
+        "2024-02-19",
+        "2024-02-20"
+      ],
+      "nav_eur": [
+        5500,
+        5800,
+        6000
+      ],
+      "cost_basis_eur": [
+        5500,
+        5500,
+        5500
+      ],
+      "pnl_eur": [
+        0,
+        300,
+        500
+      ],
+      "cash_eur": 4000,
+      "nav_total_eur": [
+        9500,
+        9800,
+        10000
+      ],
+      "first_trade_date": "2024-02-16",
+      "tickers": [
+        "DEMO.A",
+        "DEMO.B"
+      ],
+      "n_days": 3,
+      "final_total_return_eur": 500,
+      "final_total_return_pct": 9.090909
+    },
+    "/portfolio/analytics/twr": {
+      "dates": [
+        "2024-02-16",
+        "2024-02-19",
+        "2024-02-20"
+      ],
+      "twr_index": [
+        100,
+        103.157895,
+        105.263158
+      ],
+      "regimes": [
+        "official",
+        "official",
+        "official"
+      ],
+      "values_eur": [
+        9500,
+        9800,
+        10000
+      ],
+      "flows_eur": [
+        9500,
+        0,
+        0
+      ],
+      "external_flows": [{ "date": "2024-02-16", "type": "DEPOSIT", "amount_eur": 9500 }],
+      "regime_summary": {
+        "official_since": "2024-02-16",
+        "n_official_days": 3,
+        "n_reconstructed_days": 0,
+        "seamless_transition": true
+      },
+      "metrics": {
+        "twr_total_pct": 5.263158,
+        "twr_annualized_pct": null,
+        "max_drawdown_pct": 0,
+        "current_drawdown_pct": 0,
+        "vol_annual_pct": null,
+        "sharpe": null,
+        "risk_free_used": 0,
+        "irr_annual_pct": null,
+        "irr_basis": "Synthetic documentation example"
+      },
+      "notes": [
+        "Synthetic documentation series; not an actual performance record."
+      ],
+      "n_days": 3
+    },
+    "/market/overview": {
+      "country": "US",
+      "countries": [
+        "US"
+      ],
+      "indici": [
+        {
+          "ticker": "DEMO.INDEX",
+          "name": "S&P 500 DEMO",
+          "price": 100,
+          "change_pct": 0.4
+        }
+      ],
+      "azioni": [],
+      "obbligazioni": [],
+      "commodities": [],
+      "valute": []
+    },
+    "/market/ohlc": {
+      "ticker": "DEMO.A",
+      "period": "1y",
+      "interval": "1d",
+      "bars": [
+        {
+          "t": "2024-02-16",
+          "o": 45,
+          "h": 47,
+          "l": 44,
+          "c": 46,
+          "v": 1000
+        },
+        {
+          "t": "2024-02-19",
+          "o": 46,
+          "h": 50,
+          "l": 45,
+          "c": 49,
+          "v": 1200
+        },
+        {
+          "t": "2024-02-20",
+          "o": 49,
+          "h": 51,
+          "l": 48,
+          "c": 50,
+          "v": 1100
+        }
+      ]
+    }
+  },
+  "fonts": {
+    "assets": [
+      {
+        "url": "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap",
+        "filename": "fonts.css",
+        "sha256": "830e19548cfa78c462537b08f95a8b7fc55189573df9592a667f1f0aa17878e8",
+        "content_type": "text/css"
+      },
+      {
+        "url": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7SUc.woff2",
+        "filename": "font-0.woff2",
+        "sha256": "ca157063339ac4ad418f214f3abfed119b0798ab4d377386ce5c9e5a7a435ebd",
+        "content_type": "font/woff2"
+      },
+      {
+        "url": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa0ZL7SUc.woff2",
+        "filename": "font-1.woff2",
+        "sha256": "71d5ee93cc1e9f1d520a3a8b66456de18c7879d8df09d57fcd2eaff75fef0075",
+        "content_type": "font/woff2"
+      },
+      {
+        "url": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2ZL7SUc.woff2",
+        "filename": "font-2.woff2",
+        "sha256": "6e9e020a25f9b56d418f2c085b1d3c09725a4da23fe693a5b463064606732190",
+        "content_type": "font/woff2"
+      },
+      {
+        "url": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1pL7SUc.woff2",
+        "filename": "font-3.woff2",
+        "sha256": "1be3448e292fbf05ffe176fe1e43f135013d50b1e7d324ad1a558f623d3bb6f6",
+        "content_type": "font/woff2"
+      },
+      {
+        "url": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2pL7SUc.woff2",
+        "filename": "font-4.woff2",
+        "sha256": "5c66f9e07e90c6d4ac4922cc68d60de26c17b1858e677fb5e603fce3952b3ff2",
+        "content_type": "font/woff2"
+      },
+      {
+        "url": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa25L7SUc.woff2",
+        "filename": "font-5.woff2",
+        "sha256": "34b9c504cab7a73e37b746343a449132e56cf7b5481af2cb81dc74dcff25c956",
+        "content_type": "font/woff2"
+      },
+      {
+        "url": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2",
+        "filename": "font-6.woff2",
+        "sha256": "3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62",
+        "content_type": "font/woff2"
+      },
+      {
+        "url": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPx3cwhsk.woff2",
+        "filename": "font-7.woff2",
+        "sha256": "62213be8a78b42f1e29d1452d91e2f8b3e745572a9dd98d3941e39fa00b37d76",
+        "content_type": "font/woff2"
+      },
+      {
+        "url": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxTcwhsk.woff2",
+        "filename": "font-8.woff2",
+        "sha256": "e17cfd15fb96909d64095015f958207063a0c07191da3512df7d560a781aebdf",
+        "content_type": "font/woff2"
+      },
+      {
+        "url": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxPcwhsk.woff2",
+        "filename": "font-9.woff2",
+        "sha256": "0a557721b1f8b36d3f3f84442689a71ca4a744300abcb46a1953f51bfc663b66",
+        "content_type": "font/woff2"
+      },
+      {
+        "url": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPx_cwhsk.woff2",
+        "filename": "font-10.woff2",
+        "sha256": "c89b9cc0bc6262bd4f8d8494b6961601f3aefa829d08c2e3635f4d501d3a47c2",
+        "content_type": "font/woff2"
+      },
+      {
+        "url": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPx7cwhsk.woff2",
+        "filename": "font-11.woff2",
+        "sha256": "db5ff4db83e580426280e9337a58dc57d3a83784a1b03ad80914651594441d52",
+        "content_type": "font/woff2"
+      },
+      {
+        "url": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxDcwg.woff2",
+        "filename": "font-12.woff2",
+        "sha256": "83c005d49d8a6a50474c73a5a36ac0468076e9c4a29da7bdb14995d80560a5be",
+        "content_type": "font/woff2"
+      }
+    ]
+  }
+}

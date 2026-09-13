@@ -26,15 +26,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHAT_ENGINE_PATH = os.path.join(
     ROOT, "src", "bellomberg", "agents", "chat_engine.py")
 
-# Solo le verifiche del corpus storico richiedono entrambi i negozi reali. I test
-# del comportamento costruiscono invece un piano sintetico in ``tmp_path``.
-_FILE_CORPUS_TITOLI = (
-    os.path.join(ROOT, "archive", "prototypes", "mockup_f3_chat", "titles_haiku.json"),
-    os.path.join(ROOT, "data", "retro_title_correzioni.json"),
-)
-_SENZA_CORPUS_TITOLI = pytest.mark.skipif(
-    not all(os.path.exists(p) for p in _FILE_CORPUS_TITOLI),
-    reason="corpus storico privato dei titoli incompleto")
+# Le prove dei contratti di correzione usano un corpus sintetico completo.
+# Non dipendono dalla presenza del profilo privato del PM o dalla cwd.
 
 
 @pytest.fixture(autouse=True)
@@ -480,8 +473,7 @@ def test_rinominare_non_e_attivita_last_activity_intatta(db):
 # n.2 — retro-titolatura
 # ============================================================
 
-@_SENZA_CORPUS_TITOLI
-def test_le_6_correzioni_combaciano_ancora_col_json():
+def test_le_6_correzioni_combaciano_ancora_col_json(corpus_correzioni_sintetico):
     """Le correzioni sono ancorate al titolo che ho AUDITATO a mano.
 
     Se il frontend rigenera `titles_haiku.json`, questo test diventa rosso
@@ -498,6 +490,34 @@ def test_le_6_correzioni_combaciano_ancora_col_json():
         assert sid in per_id, f"la sessione {sid} non e' piu' nel JSON"
         assert per_id[sid] == atteso.strip(), (
             f"#{sid}: il JSON e' cambiato, la correzione va ri-auditata")
+
+
+@pytest.fixture
+def corpus_correzioni_sintetico(tmp_path, monkeypatch):
+    """Sei errori distinti e un'espansione valida: stessi vincoli, nessun dato PM."""
+    import bellomberg.cli.retro_title_chats as rt
+    from bellomberg.storage import negozi_privati
+    errors = {34: "AVXL", 35: "AVXL", 55: "BPMBK", 61: "PSTH", 84: "MSBH"}
+    sessions, corrections = [], {}
+    for sid, wrong in errors.items():
+        original = f"Titolo sintetico con {wrong}"
+        sessions.append({"id": sid, "q": f"Domanda sintetica {sid}?", "haiku": original})
+        corrections[str(sid)] = {"titolo": f"Verifica sintetica {sid}: simbolo corretto",
+            "cosa_c_era": original, "perche": "Refuso sintetico", "deve_contenere": ["simbolo corretto"]}
+    sessions.extend([
+        {"id": 63, "q": "La relazione sintetica è confermata?", "haiku": "Esito negativo con variabile X"},
+        {"id": 90, "q": "Cosa indica il prodotto interno lordo?", "haiku": "PIL: prodotto interno lordo"},
+    ])
+    corrections["63"] = {"titolo": "La relazione sintetica è confermata?",
+        "cosa_c_era": "Esito negativo con variabile X", "perche": "Mantieni la domanda sintetica", "deve_contenere": ["?"]}
+    titles = tmp_path / "synthetic_titles.json"
+    titles.write_text(json.dumps({"sessions": sessions}), encoding="utf-8")
+    shop = tmp_path / "synthetic_corrections.json"
+    shop.write_text(json.dumps({"correzioni": corrections, "intatti": {"90": ["PIL", "prodotto interno lordo"]}}), encoding="utf-8")
+    monkeypatch.setattr(rt, "JSON_TITOLI", str(titles))
+    monkeypatch.setattr(rt, "ATTESI", len(sessions))
+    monkeypatch.setattr(negozi_privati, "PERCORSO_CORREZIONI_TITOLI", str(shop))
+    return titles, shop
 
 
 @pytest.fixture
@@ -549,8 +569,7 @@ def test_nessun_titolo_pianificato_viola_il_contratto_endpoint(
         assert len(titolo) <= chat_engine.MAX_TITLE_CHARS
 
 
-@_SENZA_CORPUS_TITOLI
-def test_nessun_titolo_pianificato_contiene_i_ticker_inventati():
+def test_nessun_titolo_pianificato_contiene_i_ticker_inventati(corpus_correzioni_sintetico):
     """I ticker che il PM non ha mai scritto, e che NON esistono o sono
     sbagliati, non devono tornare. Muta cosi' e diventa rosso: togli una voce
     da CORREZIONI."""
@@ -564,8 +583,7 @@ def test_nessun_titolo_pianificato_contiene_i_ticker_inventati():
             f"#{sid}: il ticker inventato {vietato} e' tornato nel piano")
 
 
-@_SENZA_CORPUS_TITOLI
-def test_il_titolo_63_non_afferma_cio_che_la_chat_ha_smentito():
+def test_il_titolo_63_non_afferma_cio_che_la_chat_ha_smentito(corpus_correzioni_sintetico):
     """Il caso piu' grave del lotto: la sessione 63 chiedeva una VERIFICA
     ('...giusto?') e il desk ha risposto 'No, la logica e' invertita'.
 
@@ -579,8 +597,7 @@ def test_il_titolo_63_non_afferma_cio_che_la_chat_ha_smentito():
     assert "negativo con" not in t.lower(), "e' tornata l'affermazione smentita"
 
 
-@_SENZA_CORPUS_TITOLI
-def test_ogni_correzione_contiene_le_parole_che_il_pm_ha_chiesto():
+def test_ogni_correzione_contiene_le_parole_che_il_pm_ha_chiesto(corpus_correzioni_sintetico):
     """Il caso #47 del 26/07: il PM scrive un simbolo sbagliato e due messaggi dopo si
     corregge; la prima stesura della correzione cristallizzava il refuso. Oggi ogni
     correzione dichiara nel negozio privato le parole che il titolo corretto DEVE avere
@@ -595,8 +612,7 @@ def test_ogni_correzione_contiene_le_parole_che_il_pm_ha_chiesto():
             assert parola in t[sid], f"#{sid} non contiene {parola!r}: {t[sid]!r}"
 
 
-@_SENZA_CORPUS_TITOLI
-def test_le_espansioni_corrette_restano_intatte():
+def test_le_espansioni_corrette_restano_intatte(corpus_correzioni_sintetico):
     """Decisione PM 26/07 sera-6 (opzione B): si correggono i ticker SBAGLIATI
     o inventati, non le abbreviazioni giuste verso ticker veri. Gli id `intatti` del
     negozio portano le parole che il titolo generato deve conservare.

@@ -1,3 +1,4 @@
+import { t as tr } from '@/i18n/t';
 /* ════════════════════════════════════════════════════════════
    LA CURVA DI F1 — UN SOLO GIUDIZIO SU COSA SI DISEGNA
    ────────────────────────────────────────────────────────────
@@ -156,12 +157,12 @@ export type EsitoCurva = CurvaViva | CurvaAttesa | CurvaAssente;
  *  `CurvaViva` la pagina non potrebbe usarlo negli altri tre stati, quindi
  *  resterebbe morto mentre la batteria lo certifica. */
 export function titoloVista(v: VistaCurva): string {
-  return v === 'quota' ? 'VALORE QUOTA // DAILY' : 'PATRIMONIO // DAILY';
+  return v === 'quota' ? tr('dashboard.curve_title_quota') : tr('dashboard.curve_title_wealth');
 }
 
 /** La parola dell'interruttore. Stessa ragione: le disegna la pagina in ogni stato. */
 export function etichettaVista(v: VistaCurva): string {
-  return v === 'quota' ? 'QUOTA' : 'PATRIMONIO';
+  return v === 'quota' ? tr('dashboard.unit') : tr('dashboard.wealth');
 }
 
 /* ⚠️ QUESTI TRE NON FORMATTANO NIENTE DA SOLI: delegano a `lib/format.ts`, che
@@ -200,13 +201,13 @@ export function leggiCurva(
   inCorso: boolean,
   motivoErrore: string | null,
 ): EsitoCurva {
-  if (inCorso) return { stato: 'attesa', frase: 'lettura della serie…' };
-  if (motivoErrore) return { stato: 'assente', frase: 'serie non disponibile', motivo: motivoErrore };
+  if (inCorso) return { stato: 'attesa', frase: tr('dashboard.curve_loading') };
+  if (motivoErrore) return { stato: 'assente', frase: tr('dashboard.curve_missing'), motivo: motivoErrore };
   if (!twr || twr.error) {
     return {
       stato: 'assente',
-      frase: 'serie non disponibile',
-      motivo: twr?.error || 'il motore contabile non ha risposto',
+      frase: tr('dashboard.curve_missing'),
+      motivo: twr?.error || tr('dashboard.curve_no_response'),
     };
   }
 
@@ -225,16 +226,16 @@ export function leggiCurva(
   if (n !== Math.max(...lung)) {
     return {
       stato: 'assente',
-      frase: 'serie incoerente',
-      motivo: `il motore ha mandato liste di lunghezza diversa: ${date.length} date, `
-        + `${idx.length} valori quota, ${val.length} valori in euro, ${reg.length} regimi`,
+      frase: tr('dashboard.curve_inconsistent'),
+      motivo: tr('dashboard.curve_lengths_one', {a: date.length})
+        + tr('dashboard.curve_lengths_two', {a: idx.length, b: val.length, c: reg.length}),
     };
   }
   if (n < 2) {
     return {
       stato: 'assente',
-      frase: 'serie troppo corta',
-      motivo: `servono almeno 2 punti allineati, ne sono arrivati ${n}`,
+      frase: tr('dashboard.curve_short'),
+      motivo: tr('dashboard.curve_minimum', {a: n}),
     };
   }
 
@@ -252,8 +253,8 @@ export function leggiCurva(
   // di un punto per fare una linea
   const patrimonioSpento = nUfficiali >= 2 ? null
     : nUfficiali === 0
-      ? 'nessuno snapshot NAV: il patrimonio vero non esiste per nessun giorno'
-      : 'un solo snapshot NAV: serve più di un punto per disegnare una linea';
+      ? tr('dashboard.curve_no_snapshot')
+      : tr('dashboard.curve_one_snapshot');
 
   const taglia = (da: number) => {
     const d = date.slice(da, n);
@@ -268,7 +269,7 @@ export function leggiCurva(
       // backend (FEE, TRANSFER…) sarebbe finito nel netto col segno sbagliato, in
       // silenzio. I tipi che non sappiamo leggere si contano a parte e si dicono.
       if (f.type !== 'DEPOSIT' && f.type !== 'WITHDRAWAL') {
-        ignoti[f.date] = String(f.type || 'senza tipo');
+        ignoti[f.date] = String(f.type || tr('dashboard.flow_untyped'));
         continue;
       }
       const importo = (f.type === 'DEPOSIT' ? 1 : -1) * Number(f.amount_eur || 0);
@@ -285,7 +286,7 @@ export function leggiCurva(
 
   if (vista === 'patrimonio') {
     if (patrimonioSpento) {
-      return { stato: 'assente', frase: 'patrimonio non disponibile', motivo: patrimonioSpento };
+      return { stato: 'assente', frase: tr('dashboard.curve_wealth_missing'), motivo: patrimonioSpento };
     }
     const t = taglia(primoUff);
     // ⚠️ `nUfficiali` è POSIZIONALE (n − primoUff): presuppone che i regimi siano
@@ -297,17 +298,17 @@ export function leggiCurva(
     if (intrusi) {
       return {
         stato: 'assente',
-        frase: 'perimetro non contiguo',
-        motivo: `${intrusi} ${intrusi === 1 ? 'punto' : 'punti'} del tratto non ${intrusi === 1 ? 'è' : 'sono'} `
-          + 'a regime ufficiale: il patrimonio vero non è disegnabile su un perimetro che si alterna',
+        frase: tr('dashboard.curve_noncontiguous'),
+        motivo: tr('dashboard.curve_unofficial_points', {a: intrusi, b: intrusi === 1 ? tr('dashboard.point') : tr('dashboard.points'), c: intrusi === 1 ? tr('dashboard.is') : tr('dashboard.are')})
+          + tr('dashboard.curve_unofficial_reason'),
       };
     }
     const bucati = t.euro.filter(x => !Number.isFinite(x)).length;
     if (bucati) {
       return {
         stato: 'assente',
-        frase: 'patrimonio non disegnabile',
-        motivo: `${bucati} ${bucati === 1 ? 'punto' : 'punti'} su ${t.euro.length} non ${bucati === 1 ? 'e’ un numero' : 'sono numeri'}: la linea del patrimonio avrebbe dei buchi disegnati come zeri`,
+        frase: tr('dashboard.curve_wealth_bad'),
+        motivo: tr(bucati === 1 ? 'dashboard.wealth_bad_one' : 'dashboard.wealth_bad_many', { count: bucati, total: t.euro.length }),
       };
     }
     const delta = t.euro[t.euro.length - 1] - t.euro[0];
@@ -338,22 +339,22 @@ export function leggiCurva(
       // dell'11/06 (misurato: 58 righe in `nav_snapshots`, min 2026-06-11), ma
       // quel giorno la serie del motore tiene il valore RICOSTRUITO, quindi il
       // primo punto disegnabile è il successivo. La nota dice cosa si vede.
-      nota: `· SNAPSHOT NAV · DA ${dataIt(t.date[0], true)}`,
+      nota: tr('dashboard.curve_snapshot_since', {a: dataIt(t.date[0], true)}),
       // ⚠️ in EURO e non in percentuale, apposta: una percentuale su una linea
       // che i versamenti la muovono è esattamente la confusione che il (F40)
       // ha tolto dalla cima. Qui non si rimette.
       // ⚠️ si decide sul CONTEGGIO dei movimenti, non sul netto: due versamenti
       // che si elidono (+12.500 e −12.500) davano «NESSUN VERSAMENTO NEL TRATTO»
       // su un tratto che ne aveva due.
-      piede: `${segno}${eur0(Math.abs(delta))} · ${t.euro.length} PUNTI · `
+      piede: tr('dashboard.curve_wealth_change', {a: segno, b: eur0(Math.abs(delta)), c: t.euro.length})
         + (movimenti === 0 && nIgnoti === 0
-          ? 'NESSUN MOVIMENTO NEL TRATTO'
+          ? tr('dashboard.curve_no_flows')
           : versati !== 0
-            ? `INCL. ${eur0(Math.abs(versati))} ${versati > 0 ? 'VERSATI' : 'PRELEVATI'}`
+            ? tr('dashboard.curve_including_flow', { amount: eur0(Math.abs(versati)), direction: versati > 0 ? tr('dashboard.deposit') : tr('dashboard.withdrawal') })
             : movimenti > 0
-              ? `${movimenti} MOVIMENTI, NETTO ZERO`
+              ? tr('dashboard.curve_flow_net', {a: movimenti})
               : '')
-        + (nIgnoti > 0 ? `${movimenti > 0 || versati !== 0 ? ' · ' : ''}${nIgnoti} DI TIPO IGNOTO` : ''),
+        + (nIgnoti > 0 ? tr('dashboard.curve_unknown_flows', {a: movimenti > 0 || versati !== 0 ? ' · ' : '', b: nIgnoti}) : ''),
       piedeVerde: null,
       altra: { vista: 'quota', motivoSpento: null },
     };
@@ -365,8 +366,8 @@ export function leggiCurva(
   if (bucati) {
     return {
       stato: 'assente',
-      frase: 'quota non disegnabile',
-      motivo: `${bucati} ${bucati === 1 ? 'punto' : 'punti'} su ${v.length} non ${bucati === 1 ? 'e’ un numero' : 'sono numeri'}: la linea della quota avrebbe dei buchi disegnati come zeri`,
+      frase: tr('dashboard.curve_unit_bad'),
+      motivo: tr(bucati === 1 ? 'dashboard.unit_bad_one' : 'dashboard.unit_bad_many', { count: bucati, total: v.length }),
     };
   }
   // ⚠️ LA BASE SI MISURA. La prima stesura scriveva «· BASE 100» come letterale e
@@ -377,8 +378,8 @@ export function leggiCurva(
   if (!Number.isFinite(base) || Math.abs(base) < 1e-6) {
     return {
       stato: 'assente',
-      frase: 'base non utilizzabile',
-      motivo: `il primo punto della serie vale ${base}: senza una base non si può dire di quanto è variata`,
+      frase: tr('dashboard.curve_base_bad'),
+      motivo: tr('dashboard.curve_base_reason', {a: base}),
     };
   }
   const variazione = (v[v.length - 1] / base - 1) * 100;
@@ -403,8 +404,8 @@ export function leggiCurva(
     // della cima (`quota.ts:319-320`), che sullo stesso numero diceva «BASE 101»
     // arrotondando una base da 100,5
     nota: `· BASE ${fmtNum(base, Number.isInteger(base) ? 0 : 2)}`
-      + (confineData ? ` · UFFICIALE DAL ${dataIt(confineData, true)}` : ''),
-    piede: `${pct2(variazione)} · ${v.length} PUNTI · AL NETTO DEI VERSAMENTI`,
+      + (confineData ? tr('dashboard.curve_official_since', {a: dataIt(confineData, true)}) : ''),
+    piede: tr('dashboard.curve_return', {a: pct2(variazione), b: v.length}),
     // ⚠️ lo zero non è un guadagno: niente verde su una variazione nulla (era
     // `>= 0`, e nessun caso lo guardava — mutazione cieca trovata il 22/08)
     piedeVerde: variazione === 0 ? null : variazione > 0,
@@ -444,14 +445,14 @@ export function letturaCurva(c: CurvaViva, i: number): LetturaCurva | null {
     primaria: c.vista === 'quota' ? quota2(c.valori[i]) : eur0(c.valori[i]),
     secondaria: c.vista === 'quota'
       ? (e == null || !isFinite(e)
-        ? 'euro n.d.'
-        : `${eur0(e)} · ${uff ? 'patrimonio ufficiale' : 'ricostruito, senza cassa'}`)
-      : (uff ? 'snapshot ufficiale' : 'ricostruito, senza cassa'),
+        ? tr('dashboard.euro_na')
+        : `${eur0(e)} · ${uff ? tr('dashboard.official_assets') : tr('dashboard.reconstructed_without_cash')}`)
+      : (uff ? tr('dashboard.official_snapshot') : tr('dashboard.reconstructed_without_cash')),
     versamento: v != null && v !== 0
-      ? `${v > 0 ? '+' : '−'}${eur0(Math.abs(v))} ${v > 0 ? 'versati' : 'prelevati'}`
+      ? `${v > 0 ? '+' : '−'}${eur0(Math.abs(v))} ${v > 0 ? tr('dashboard.deposit_lower') : tr('dashboard.withdrawal_lower')}`
       : c.ignoti[c.date[i]]
         // il movimento c'è ma non sappiamo di che segno: dirlo è meglio che tacerlo
-        ? `movimento «${c.ignoti[c.date[i]]}»: non conteggiato`
+        ? tr('dashboard.flow_unrecognized', {a: c.ignoti[c.date[i]]})
         : null,
   };
 }
@@ -462,14 +463,14 @@ export function letturaCurva(c: CurvaViva, i: number): LetturaCurva | null {
  * può dire da solo.
  */
 export function spiegaCurva(c: EsitoCurva): string {
-  if (c.stato === 'attesa') return 'la serie è in arrivo dal motore contabile';
+  if (c.stato === 'attesa') return tr('dashboard.curve_pending');
   if (c.stato === 'assente') return c.motivo;
   const righe = [
     c.vista === 'quota'
-      ? 'Valore quota (indice TWR base 100): il rendimento al netto dei versamenti. '
-        + 'È la stessa serie del numero grande in cima, e l’ultimo punto è quel numero.'
-      : 'Patrimonio vero preso dagli snapshot NAV: posizioni più la cassa di QUEL giorno. '
-        + 'Nessuna ricostruzione, nessun proxy.',
+      ? tr('dashboard.curve_explain_unit')
+        + tr('dashboard.curve_explain_same')
+      : tr('dashboard.curve_explain_assets')
+        + tr('dashboard.curve_no_proxy'),
   ];
   // ⚠️ IL GATE È SUL TRATTEGGIO DISEGNATO (`confine`), NON SUL DATO (`confineData`).
   // Con il gate sul dato, la vista patrimonio — che il tratteggio non ce l'ha —
@@ -477,10 +478,10 @@ export function spiegaCurva(c: EsitoCurva): string {
   // tre frasi false raggiungibili con un clic, trovate dai confutatori il 22/08.
   if (c.confine != null && c.confineData && c.nRicostruiti > 0) {
     righe.push(
-      `Il tratteggio è il ${dataIt(c.confineData, true)}: da lì gli snapshot sono ufficiali `
-      + `(${c.nUfficiali} giorni), prima la serie è ricostruita da chiusure `
-      + `(${c.nRicostruiti} giorni) e la cassa dell’epoca restava fuori perimetro — `
-      + 'quindi i due tratti non sono omogenei.',
+      tr('dashboard.curve_boundary_one', {a: dataIt(c.confineData, true)})
+      + tr('dashboard.curve_boundary_two', {a: c.nUfficiali})
+      + tr('dashboard.curve_boundary_three', {a: c.nRicostruiti})
+      + tr('dashboard.curve_boundary_four'),
     );
     // ⚠️ il backend dichiara `official_since` sul giorno del PRIMO SNAPSHOT, ma
     // quel giorno resta il punto della ricostruzione: il primo punto disegnato
@@ -488,21 +489,21 @@ export function spiegaCurva(c: EsitoCurva): string {
     // l'etichetta col payload lo vedrebbe senza spiegazione.
     if (c.officialSince && c.officialSince !== c.confineData) {
       righe.push(
-        `Il primo snapshot è del ${dataIt(c.officialSince, true)}, ma quel giorno resta `
-        + 'il punto della ricostruzione: il tratteggio sta sul primo punto disegnato '
-        + 'come ufficiale.',
+        tr('dashboard.curve_first_snapshot', {a: dataIt(c.officialSince, true)})
+        + tr('dashboard.curve_first_reconstructed')
+        + tr('dashboard.curve_as_official'),
       );
     }
   }
   if (c.vista === 'patrimonio' && c.esclusi > 0) {
     righe.push(
-      `I ${c.esclusi} giorni prima del ${dataIt(c.date[0], true)} non hanno uno snapshot NAV: `
-      + 'qui non ci sono, e il vuoto è quello — non una linea piatta.',
+      tr('dashboard.curve_excluded_days', {a: c.esclusi, b: dataIt(c.date[0], true)})
+      + tr('dashboard.curve_excluded_gap'),
     );
   }
   righe.push(
-    'L’ultimo punto NON è una chiusura: lo snapshot di oggi è riscritto a ogni giro '
-    + 'prezzi, ogni 15 minuti. Passando il mouse sul grafico si legge il giorno.',
+    tr('dashboard.curve_latest_live')
+    + tr('dashboard.curve_latest_frequency'),
   );
   return righe.join(' ');
 }

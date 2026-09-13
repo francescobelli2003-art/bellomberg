@@ -1,3 +1,4 @@
+import { t as tr } from '@/i18n/t';
 /* ============================================================
    F4 PLANCIA ORBITALE — strato DATI (Opus 5, 26/07)
 
@@ -118,12 +119,12 @@ export function derivePlancia(
     durDeclared: 0, agentsKnown: 0, parStato: 'nd', sovrapposte: false,
     nCallsTot: null, logTappato: false,
   };
-  if (!st) return { ...empty, reason: 'heartbeat non disponibile: /agents/live non risponde' };
+  if (!st) return { ...empty, reason: tr('dashboard.heartbeat_missing') };
 
   const live = st.running === true;
   const startMs = st.start_time ? new Date(st.start_time).getTime() : NaN;
   if (!isFinite(startMs)) {
-    return { ...empty, live, reason: "il payload non porta start_time: senza l'origine del tempo il quadrante non e' disegnabile" };
+    return { ...empty, live, reason: tr('dashboard.dial_no_start') };
   }
   const start0 = clockSec(new Date(startMs).toTimeString().slice(0, 8));
   const endMs = st.completed_at ? new Date(st.completed_at).getTime() : NaN;
@@ -308,15 +309,15 @@ export function derivePlancia(
   const scaleSec = live ? Math.max(3600, Math.ceil(runSec / 3600) * 3600) : Math.max(1, runSec);
   const giri = live ? Math.max(1, Math.ceil(runSec / 3600)) : 1;
   const scaleNote = live
-    ? `un giro = 60' · run in corso da ${fmtDurShort(runSec)}${giri > 1 ? ` · ${giri}° giro` : ''}`
-    : `un giro = ${fmtDurShort(runSec)} · la durata vera della run`;
+    ? tr('dashboard.dial_scale_live', {a: fmtDurShort(runSec), b: giri > 1 ? tr('dashboard.dial_revolution', {a: giri}) : ''})
+    : tr('dashboard.dial_scale_done', {a: fmtDurShort(runSec)});
 
   const ok = calls.length > 0 && runSec > 0;
   return {
     ok,
     reason: ok ? undefined
-      : (!calls.length ? 'nessuna chiamata a strumento nel heartbeat: non c\'e\' ancora niente da collocare sul quadrante'
-                       : 'durata della run non ricavabile dal payload'),
+      : (!calls.length ? tr('dashboard.dial_no_calls')
+                       : tr('dashboard.dial_no_duration')),
     runSec, scaleSec, scaleNote, live,
     startISO: st.start_time, endISO: st.completed_at,
     calls, windows, phases, desks, stages, pending, tools, tickers,
@@ -334,7 +335,7 @@ export function derivePlancia(
 
 /** mm'ss" — la lettura naturale di una run da qualche decina di minuti */
 export function fmtDurShort(s: number | null | undefined): string {
-  if (s == null || !isFinite(s)) return 'n.d.';
+  if (s == null || !isFinite(s)) return tr('dashboard.na');
   return Math.floor(s / 60) + "'" + String(Math.round(s % 60)).padStart(2, '0') + '"';
 }
 
@@ -369,9 +370,9 @@ export function engineOf(id: string, e: EnginesInfo | undefined, round?: number)
 /** forma corta per le targhe strette: `claude-opus-5` -> `opus-5` */
 export function engineShort(id: string, e: EnginesInfo | undefined, rounds: number[] = []): string {
   const cut = (m: string | null) => (m ? m.replace(/^claude-/, '') : null);
-  if (id in ENGINE_KEY) return cut(engineOf(id, e)) || 'n.d.';
+  if (id in ENGINE_KEY) return cut(engineOf(id, e)) || tr('dashboard.na');
   const r0 = cut(engineOf(id, e, 0)), r12 = cut(engineOf(id, e, 1));
-  if (!r0 && !r12) return 'n.d.';
+  if (!r0 && !r12) return tr('dashboard.na');
   if (r0 === r12) return r0 as string;
-  return rounds.some(r => r > 0) ? `${r12 ?? 'n.d.'} (R1/R2)` : `${r0 ?? 'n.d.'} (R0)`;
+  return rounds.some(r => r > 0) ? `${r12 ?? tr('dashboard.na')} (R1/R2)` : `${r0 ?? tr('dashboard.na')} (R0)`;
 }

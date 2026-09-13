@@ -37,6 +37,7 @@ from bellomberg.agents.capo import run_capo
 from bellomberg.reporting.email_sender import email_configurata
 from bellomberg.agents.agent_tools import tool_get_macro_dashboard, tool_quant_compute
 from bellomberg.core.paths import MODELS_DIR, REPORT_DIR
+from bellomberg.core.language import capture_language, language_context, scoped_language
 from bellomberg.storage.memory_db import MemoryDB, RESEARCH_NOTES_DIR
 
 
@@ -121,6 +122,7 @@ def _parallel_workers():
 
 
 def run_round(blackboard, round_n):
+    selected_language = capture_language(getattr(blackboard, "language", None))
     _log("=" * 60)
     _log("ROUND " + str(round_n))
     _log("=" * 60)
@@ -132,8 +134,9 @@ def run_round(blackboard, round_n):
     def _run_one(SpClass):
         name = getattr(SpClass, "name", SpClass.__name__)
         try:
-            sp = SpClass(blackboard)
-            sp.run(round_n)
+            with language_context(selected_language):
+                sp = SpClass(blackboard)
+                sp.run(round_n)
         except Exception as e:
             _log("[!] " + name + " round " + str(round_n) + " failed: " + str(e))
             try:
@@ -326,8 +329,9 @@ def _portfolio_priming_log(portfolio):
     return f"  Portfolio: {n} positions, EUR {totale:,.0f}"
 
 
-def _send_weekly_email(attachments):
-    """Il booleano del mittente e' l'esito: False non e' un invio riuscito."""
+def _send_weekly_email(attachments, body_extra=""):
+    """Il booleano del mittente e' l'esito: False non e' un invio riuscito.
+    body_extra: HTML con l'esito delle valutazioni e i modelli allegati (audit 11/09)."""
     if not email_configurata():
         _log("[!] Email not configured")
         return False
@@ -337,6 +341,7 @@ def _send_weekly_email(attachments):
         sent = invia_email_multi_allegati(
             pdf_paths=attachments,
             oggetto="[BELLOMBERG] Weekly Research - " + datetime.now().strftime("%d/%m/%Y"),
+            body_extra=body_extra,
         )
         if sent is True:
             _log("Email sent (" + str(len(attachments)) + " files)")
@@ -347,6 +352,7 @@ def _send_weekly_email(attachments):
     return False
 
 
+@scoped_language
 def run_multi_agent():
     start_time = datetime.now()
     print_banner()
@@ -359,6 +365,21 @@ def run_multi_agent():
         from bellomberg.core.llm_client import modello_o_buco as _mob
         _log(f"Starting weekly run | R1/R2 {_mob('consigliere')} | R0 {_mob('consigliere', round_n=0)}"
              f" | Capo {_mob('capo')} | memory-aware")
+        # audit 11/09 (Fable 5.1): l'intestazione diceva il modello BASE (glm-5.3-flash) mentre
+        # tre desk giravano su un override per desk (glm-5.3), proprio quelli usciti a 0 char.
+        # Gli override si dichiarano qui, una volta, cosi' il log non mente sul modello.
+        _base = {r: _mob("consigliere", round_n=r) for r in (0, 1, 2)}
+        _override = []
+        for _sp in SPECIALIST_ORDER:
+            for _r in (0, 1, 2):
+                try:
+                    _m = _mob("consigliere", getattr(_sp, "name", None), _r)
+                except Exception:
+                    continue
+                if _m != _base.get(_r):
+                    _override.append(f"{getattr(_sp, 'name', '?')} R{_r}={_m}")
+        if _override:
+            _log("  Override modelli per desk: " + ", ".join(_override))
     except Exception:
         _log("Starting weekly run | memory-aware (model strings non importabili)")
 
@@ -476,6 +497,23 @@ def run_multi_agent():
         _probe("news_feed", lambda: get_feed(limit=5))
     except Exception as e:
         tool_health["ko"].append("news_feed -> import: " + str(e)[:120])
+    # Audit 11/09 (Fable 5.1, run 10/09 memo #53): Polymarket era irraggiungibile (TLS) per
+    # tutta la run e `_tool_health.ko` restava vuoto — il tool rende un dict con count 0 e
+    # `fetch_warnings`, che `_probe` legge come risposta sana. Una sonda dedicata: KO con la
+    # causa quando ogni endpoint ha fallito, cosi' il Capo lo legge nell'HEALTH-CHECK.
+    try:
+        from bellomberg.agents.agent_tools import tool_get_polymarket_events
+        _pm = tool_get_polymarket_events("fed", max_results=1)
+        _pm = _pm if isinstance(_pm, dict) else {}
+        _fw = [str(w) for w in (_pm.get("fetch_warnings") or [])]
+        if _pm.get("error"):
+            tool_health["ko"].append("polymarket -> " + str(_pm["error"])[:160])
+        elif _fw and not (_pm.get("results") or []):
+            tool_health["ko"].append("polymarket -> " + "; ".join(_fw)[:200])
+        else:
+            tool_health["ok"].append("polymarket (%d risultati)" % len(_pm.get("results") or []))
+    except Exception as e:
+        tool_health["ko"].append("polymarket -> " + type(e).__name__ + ": " + str(e)[:120])
     # F5 (riallineamento 23/07, audit/20): riconciliazione NAV come allarme di
     # PRIMA CLASSE — una run che parte con NAV live lontano dallo snapshot
     # ufficiale lo DICHIARA al Capo (stesso canale dei tool KO), mai zitta.
@@ -505,6 +543,36 @@ def run_multi_agent():
         _log("  [OK] " + _l)
     for _l in tool_health["ko"]:
         _log("  [KO] " + _l)
+    # SONDA DEI MODELLI (audit 11/09, Fable 5.1, run 10/09 memo #53): il modello del red
+    # team era respinto da OpenRouter (HTTP 403, gate 18+) e lo si e' scoperto alle 16:15,
+    # 45 minuti dopo lo start, a R0 e R1 gia' pagati. Una call da pochi token per ogni slug
+    # distinto del .env PRIMA del Round 0: l'esito e' dichiarato (log + `_tool_health` ->
+    # prompt del Capo + heartbeat) e la run NON si ferma — i desk hanno il loro modello,
+    # il red team resta best-effort. Model string mai cambiate qui.
+    try:
+        from bellomberg.core.llm_client import sonda_modelli, righe_log_sonda, modello_o_buco as _mob2
+        _richieste = [("consigliere", None, 0), ("consigliere", None, 1), ("capo", None, None),
+                      ("red_team", None, None), ("reflection", None, None),
+                      ("action_extractor", None, None)]
+        _richieste += [("consigliere", getattr(_sp, "name", None), _rn)
+                       for _sp in SPECIALIST_ORDER for _rn in (0, 1, 2)]
+        _slugs = []
+        for _f, _a, _r in _richieste:
+            try:
+                _s = _mob2(_f, _a, _r)
+            except Exception:
+                continue
+            if _s and not str(_s).startswith("n.d."):
+                _slugs.append(str(_s))
+        _log("SONDA modelli configurati (%d slug distinti)" % len(dict.fromkeys(_slugs)))
+        _esiti = sonda_modelli(_slugs)
+        for _l in righe_log_sonda(_esiti):
+            _log("  " + _l)
+        for _s, _e in _esiti.items():
+            if not _e.get("ok"):
+                tool_health["ko"].append("modello " + _s + " -> " + str(_e.get("motivo"))[:160])
+    except Exception as e:
+        _log("  [!] sonda modelli non eseguita (proseguo): " + type(e).__name__ + ": " + str(e)[:120])
     bb.data["_tool_health"] = tool_health
 
     # FRESHNESS CHECK (audit/07 §2-3, P1 + regola PM "mai fallback, precisione"):
@@ -787,7 +855,8 @@ def run_multi_agent():
     debug_path = md_path.replace(".md", "_blackboard.json")
     try:
         with open(debug_path, "w", encoding="utf-8") as f:
-            json.dump({"data": bb.data, "tool_log": bb.tool_log}, f, indent=2, default=str)
+            json.dump({"data": bb.data, "tool_log": bb.tool_log, "language": bb.language},
+                      f, indent=2, default=str)
     except Exception:
         pass
 
@@ -926,7 +995,17 @@ def run_multi_agent():
     if pdf_memo_path: all_attachments.append(pdf_memo_path)
     if pdf_appendix_path: all_attachments.append(pdf_appendix_path)
     all_attachments.extend(dcf_files)
-    _send_weekly_email(all_attachments)
+    # Audit 11/09 (Fable 5.1): il corpo dell'email dichiara OGNI valutazione chiesta dai desk
+    # (FV o n.d. col motivo) e se manca l'Excel lo dice — prima il piede prometteva "DCF
+    # Excel models" anche con zero .xlsx e il FV n.d. restava solo dentro il PDF.
+    try:
+        from bellomberg.reporting.email_sender import corpo_valutazioni
+        _corpo_email = corpo_valutazioni(getattr(bb, "valuation_results", None) or {}, dcf_files)
+    except Exception as _ce:
+        _corpo_email = ("<p>[esito valutazioni non costruito: %s: %s]</p>"
+                        % (type(_ce).__name__, str(_ce)[:120]))
+        _log("[!] corpo email valutazioni non costruito: " + type(_ce).__name__ + ": " + str(_ce)[:120])
+    _send_weekly_email(all_attachments, body_extra=_corpo_email)
 
     bb.mark_run_complete()
     # Progressi: conserva la misura già acquisita nella run. Nessun ricalcolo,

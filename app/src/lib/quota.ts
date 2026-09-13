@@ -1,3 +1,4 @@
+import { t as tr } from '@/i18n/t';
 /* ════════════════════════════════════════════════════════════
    IL VALORE QUOTA IN CIMA A F1 — UN SOLO GIUDIZIO SULLA CIMA
    ────────────────────────────────────────────────────────────
@@ -139,23 +140,23 @@ export function leggiQuota(
   if (!p) {
     return inCorso
       ? { stato: 'attesa' }
-      : { stato: 'assente', motivo: 'motore contabile: nessuna risposta' };
+      : { stato: 'assente', motivo: tr('dashboard.accounting_none') };
   }
   // ⚠️ `p.error` non e' garantito stringa: `'…' + {}` dava «[object Object]».
   const errPayload = leggiDetail(p.error);
-  if (errPayload) return { stato: 'assente', motivo: 'motore contabile: ' + errPayload };
+  if (errPayload) return { stato: 'assente', motivo: tr('dashboard.accounting_prefix') + errPayload };
 
   const dates = p.dates || [];
   const idx = p.twr_index || [];
   if (!dates.length || !idx.length) {
-    return { stato: 'assente', motivo: 'il motore ha risposto senza la serie della quota' };
+    return { stato: 'assente', motivo: tr('dashboard.quota_no_series') };
   }
   // Se non so DI CHE GIORNO è il numero, non lo mostro: il timbro della data
   // è metà del punto di questo lotto (v. stato 2 in testa al file).
   if (dates.length !== idx.length) {
     return {
       stato: 'assente',
-      motivo: `serie incoerente: ${idx.length} valori su ${dates.length} date`,
+      motivo: tr('dashboard.quota_length', {a: idx.length, b: dates.length}),
     };
   }
 
@@ -166,10 +167,10 @@ export function leggiQuota(
   // che la guardia esiste per impedire) sopra una percentuale di venti cifre.
   // Un indice base 100 non parte da un milionesimo.
   if (!isFinite(base) || base < 1e-6) {
-    return { stato: 'assente', motivo: 'la base della serie non è un numero utilizzabile' };
+    return { stato: 'assente', motivo: tr('dashboard.quota_base_bad') };
   }
   if (!isFinite(valore)) {
-    return { stato: 'assente', motivo: 'l’ultimo valore della serie non è un numero' };
+    return { stato: 'assente', motivo: tr('dashboard.quota_last_bad') };
   }
 
   const al = soloData(dates[dates.length - 1]);
@@ -289,13 +290,13 @@ export function cimaF1(q: EsitoQuota, patrimonioEur: number, oggiISO = ''): Cima
     // Si dice cosa sta arrivando, e NON si suona l'allarme per un'attesa.
     return {
       tipo: 'attesa',
-      occhiello: 'PATRIMONIO',
+      occhiello: tr('dashboard.wealth'),
       timbro: '',
       unita: 'eur',
       contaDa: 0,
       contaA: isFinite(patrimonioEur) ? patrimonioEur : 0,
       numerabile: isFinite(patrimonioEur),
-      sotto: 'VALORE QUOTA IN ARRIVO DAL MOTORE CONTABILE…',
+      sotto: tr('dashboard.quota_pending'),
       nota: '',
       allarme: false,
     };
@@ -303,13 +304,13 @@ export function cimaF1(q: EsitoQuota, patrimonioEur: number, oggiISO = ''): Cima
   if (q.stato === 'assente') {
     return {
       tipo: 'rimpiazzo',
-      occhiello: 'PATRIMONIO — RIMPIAZZO: VALORE QUOTA NON DISPONIBILE',
+      occhiello: tr('dashboard.quota_replacement'),
       timbro: '',
       unita: 'eur',
       contaDa: 0,
       contaA: isFinite(patrimonioEur) ? patrimonioEur : 0,
       numerabile: isFinite(patrimonioEur),
-      sotto: q.motivo + ' · LA CIFRA GRANDE È IL PATRIMONIO, NON IL RENDIMENTO',
+      sotto: q.motivo + tr('dashboard.quota_assets_warning'),
       nota: '',
       allarme: true,
     };
@@ -320,15 +321,15 @@ export function cimaF1(q: EsitoQuota, patrimonioEur: number, oggiISO = ''): Cima
     // la base si scrive con i decimali SOLO se ne ha: `fmtNum(100.5, 0)` diceva
     // «BASE 101», cioè una base che non è quella con cui è calcolato niente
     // altro nella cima.
-    occhiello: `VALORE QUOTA · BASE ${fmtNum(q.base, Number.isInteger(q.base) ? 0 : 2)}`
-      + ` DAL ${dataIt(q.dal)}`,
+    occhiello: tr('dashboard.quota_base', {a: fmtNum(q.base, Number.isInteger(q.base) ? 0 : 2)})
+      + tr('dashboard.since_caps', {a: dataIt(q.dal)}),
     timbro: timbroDi(q, oggiISO),
     unita: 'quota',
     contaDa: q.base,
     contaA: q.valore,
     numerabile: true,
-    sotto: `${segno}${fmtNum(Math.abs(q.variazionePct), 2)}% DALL’INIZIO`
-      + ' · TWR GIPS · I VERSAMENTI NON LO MUOVONO',
+    sotto: tr('dashboard.quota_return', {a: segno, b: fmtNum(Math.abs(q.variazionePct), 2)})
+      + tr('dashboard.quota_flow_adjusted'),
     nota: notaCima(q),
     allarme: false,
   };
@@ -354,20 +355,20 @@ export function cimaF1(q: EsitoQuota, patrimonioEur: number, oggiISO = ''): Cima
 function notaCima(q: QuotaViva): string {
   const p: string[] = [];
   if (q.ufficialeDal && q.ufficialeDal > q.dal) {
-    p.push(`serie mista: ufficiale dal ${dataIt(q.ufficialeDal)}, `
-      + `ricostruita dal ${dataIt(q.dal)}`);
+    p.push(tr('dashboard.quota_mixed', {a: dataIt(q.ufficialeDal)})
+      + tr('dashboard.quota_reconstructed', {a: dataIt(q.dal)}));
   }
-  p.push(...q.note);
+  p.push(...q.note.map(note => tr('dashboard.source_original') + ': ' + note));
   return p.join(' · ');
 }
 
 function timbroDi(q: QuotaViva, oggiISO: string): string {
   const stessoAnno = oggiISO.slice(0, 4) === q.al.slice(0, 4);
   const quando = dataIt(q.al, stessoAnno);
-  const parola = q.al === oggiISO ? 'IN CORSO'
-    : q.regime === 'official' ? 'CHIUSURA'
-      : q.regime === 'reconstructed' ? 'RICOSTRUITA'
-        : 'REGIME N.D.';
+  const parola = q.al === oggiISO ? tr('dashboard.progress')
+    : q.regime === 'official' ? tr('dashboard.close')
+      : q.regime === 'reconstructed' ? tr('dashboard.reconstructed')
+        : tr('dashboard.regime_na');
   // ⚠️ il confine dei regimi NON sta qui, e non e' una dimenticanza: misurato,
   // «· UFFICIALE DAL 11/06» porta l'occhiello da DUE capi a TRE nella colonna
   // da 237px, cioe' costa una riga intera dell'hero in una pagina che a
@@ -386,20 +387,21 @@ function timbroDi(q: QuotaViva, oggiISO: string): string {
 export function notaFlusso(q: EsitoQuota, oggiISO: string): string {
   if (q.stato !== 'viva' || !q.flusso) return '';
   const f = q.flusso;
+  const parole = { VERSATI: tr('dashboard.deposit'), PRELEVATI: tr('dashboard.withdrawal'), MOVIMENTI: tr('dashboard.flows') };
   // tre frasi, tutte vere: il totale quando lo so, il conteggio quando i tipi
   // non concordano, e il verso col buco DICHIARATO quando so cosa è successo
   // ma non quanto.
   const quanto = f.importo != null
-    ? `${f.parola} ${fmtEUR(f.importo, false, 0)}`
+    ? `${parole[f.parola]} ${fmtEUR(f.importo, false, 0)}`
     : f.parola === 'MOVIMENTI'
-      ? `${f.quanti} MOVIMENTI`
-      : `${f.parola}, IMPORTO ILLEGGIBILE`;
-  if (q.al === oggiISO) return `OGGI ${quanto}`;
+      ? tr('dashboard.flow_count', {a: f.quanti})
+      : tr('dashboard.flow_unknown_amount', {a: parole[f.parola]});
+  if (q.al === oggiISO) return tr('dashboard.flow_today', {a: quanto});
   // forma breve solo nell'anno corrente: «VERSATI 12.500 € IL 21/08» senza
   // anno, su un movimento dell'anno scorso, e' un'affermazione sui SOLDI a cui
   // manca il pezzo che la rende vera.
   const stessoAnno = String(oggiISO).slice(0, 4) === q.al.slice(0, 4);
-  return `${quanto} IL ${dataIt(q.al, stessoAnno)}`;
+  return tr('dashboard.flow_date', {a: quanto, b: dataIt(q.al, stessoAnno)});
 }
 
 /** IL MOTIVO, in una riga, da un errore di trasporto.
@@ -416,10 +418,10 @@ export function motivoChiamata(err: unknown): string {
   const stato = e?.response?.status;
   if (stato) {
     const det = leggiDetail(e?.response?.data?.detail);
-    return 'motore contabile: HTTP ' + stato + (det ? ' — ' + taglia(det) : '');
+    return tr('dashboard.accounting_http') + stato + (det ? ' — ' + taglia(det) : '');
   }
   const m = String(e?.message || '').trim();
-  return 'motore contabile: ' + (m ? taglia(m) : 'chiamata fallita senza motivo');
+  return tr('dashboard.accounting_prefix') + (m ? taglia(m) : tr('dashboard.accounting_no_reason'));
 }
 
 /** ⚠️ `String(detail)` dava «[object Object]» sulla forma d'errore più comune
@@ -453,13 +455,13 @@ export function leggiDetail(det: unknown): string {
 export function taglia(s: string, max = 120): string {
   const car = Array.from(s);
   if (car.length <= max) return s;
-  return `${car.slice(0, max).join('')} […${car.length - max} caratteri in più]`;
+  return tr('dashboard.truncated', {a: car.slice(0, max).join(''), b: car.length - max});
 }
 
 /** `2026-02-02` → `02/02/2026` (o `02/02` con `breve`). Non `toLocaleDateString`:
  *  quella stringa passa da un fuso, e queste sono date di calendario. */
 export function dataIt(iso: string, breve = false): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
-  if (!m) return String(iso || 'n.d.');
+  if (!m) return String(iso || tr('dashboard.na'));
   return breve ? `${m[3]}/${m[2]}` : `${m[3]}/${m[2]}/${m[1]}`;
 }

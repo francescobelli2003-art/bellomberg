@@ -1,6 +1,6 @@
 {
   "name": "bellomberg",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Bellomberg - Personal AI Hedge Fund Terminal",
   "main": "dist-electron/main.js",
   "type": "module",
@@ -11,10 +11,11 @@
     "dev": "vite",
     "build": "npm run build:bundles && electron-builder",
     "build:bundles": "tsc && vite build",
-    "test:release": "node tests/desktop/contratti.cjs && npm run test:product",
-    "test:product": "node --test tests/product/navigation-chat.cjs tests/product/vol-download.cjs",
+    "test:release": "node tests/desktop/contratti.cjs && node --test tests/desktop/darwin.cjs && npm run test:product && npm run test:i18n",
+    "test:i18n": "node --test tests/i18n/*.test.cjs",
+    "test:product": "node --test tests/product/navigation-chat.cjs tests/product/vol-download.cjs tests/product/trade-entry.cjs tests/product/vol-atlas.cjs",
     "desktop:install": "install-electron",
-    "test:desktop": "node tests/desktop/desktop.cjs",
+    "test:desktop": "node tests/desktop/desktop.cjs && node tests/desktop/trade.cjs && node tests/desktop/f18.cjs && node tests/desktop/f13.cjs",
     "electron:dev": "vite",
     "preview": "vite preview"
   },

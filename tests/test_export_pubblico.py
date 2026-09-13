@@ -492,6 +492,98 @@ def test_la_suite_dichiara_se_l_indice_non_copre_il_perimetro(tmp_path):
     assert rc != 0 and "indice" in riga
 
 
+def _tree_suite(tmp_path, test_codice, lockfile=False):
+    tree = tmp_path / "tree"
+    (tree / "tests").mkdir(parents=True)
+    (tree / "tests" / "test_x.py").write_text(test_codice, encoding="utf-8")
+    if lockfile:
+        (tree / "app").mkdir()
+        (tree / "app" / "package-lock.json").write_text("{}\n", encoding="utf-8")
+    return tree
+
+
+def test_la_suite_non_eredita_le_variabili_del_env_privato(tmp_path, monkeypatch):
+    """13/09 (Claude Opus 5): nel dry-run il payload legacy importava i moduli nel processo e
+    `config.py` caricava il `.env` del PM; la suite dell'export ereditava 44 variabili, chiavi
+    comprese (misurato sui NOMI, due rossi in piu' rispetto a una suite pulita). Qualunque via le
+    porti nel processo, la suite non le vede e il verdetto dice QUALI nomi ha tolto."""
+    privato = tmp_path / "privato"
+    privato.mkdir()
+    (privato / ".env").write_text("OPENROUTER_API_KEY=sk-finto-0000\n", encoding="utf-8")
+    monkeypatch.setattr(ep, "REPO", str(privato))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-finto-0000")
+    tree = _tree_suite(tmp_path, "import os\n\n\ndef test_env():\n"
+                                 "    assert 'OPENROUTER_API_KEY' not in os.environ\n")
+    rc, riga = ep.esegui_suite(str(tree))
+    assert rc == 0 and "1 passed" in riga
+    assert "OPENROUTER_API_KEY" in riga and "sk-finto" not in riga
+
+
+def test_la_suite_gira_su_una_copia_e_non_scrive_nell_artefatto(tmp_path):
+    """Il cancello certifica i byte dell'artefatto: la suite (e le dipendenze Node che installa)
+    lavora su una copia verificata, e dopo non resta nulla ne' dentro ne' accanto."""
+    tree = _tree_suite(tmp_path, "import pathlib\n\n\ndef test_scrive():\n"
+                                 "    pathlib.Path('generato.txt').write_text('x')\n")
+    rc, riga = ep.esegui_suite(str(tree))
+    assert rc == 0 and "1 passed" in riga
+    assert sorted(p.name for p in tree.rglob("*") if p.is_file()) == ["test_x.py"]
+    assert not os.path.exists(str(tree) + ".suite")
+
+
+def test_la_suite_installa_le_dipendenze_node_dal_lockfile_esportato(tmp_path):
+    """La CI pubblica fa `npm ci` prima di pytest (ci.yml): senza, 18 rossi del cancello erano
+    moduli Node assenti e non difetti (misurato 13/09: 23 rossi, 5 con le dipendenze)."""
+    tree = _tree_suite(tmp_path, "import pathlib\n\n\ndef test_node():\n"
+                                 "    assert pathlib.Path('app/node_modules/.installato').is_file()\n",
+                       lockfile=True)
+    viste = []
+
+    def installa(app_dir, env):
+        viste.append(app_dir)
+        os.makedirs(os.path.join(app_dir, "node_modules"))
+        open(os.path.join(app_dir, "node_modules", ".installato"), "w").close()
+        return 0, "installato"
+
+    rc, riga = ep.esegui_suite(str(tree), installa_node=installa)
+    assert rc == 0 and "1 passed" in riga
+    assert len(viste) == 1 and not viste[0].startswith(str(tree) + os.sep)
+    assert not (tree / "app" / "node_modules").exists()
+
+
+def test_un_npm_ci_fallito_e_un_ko_dichiarato_non_una_suite_senza_dipendenze(tmp_path):
+    tree = _tree_suite(tmp_path, "def test_ok():\n    assert 1\n", lockfile=True)
+    rc, riga = ep.esegui_suite(str(tree), installa_node=lambda app_dir, env: (1, "rete assente"))
+    assert rc != 0 and "npm ci" in riga and "rete assente" in riga and "passed" not in riga
+
+
+def test_senza_npm_nel_path_la_suite_con_lockfile_e_un_ko_dichiarato(tmp_path, monkeypatch):
+    """Cablaggio dell'installatore VERO: senza npm non si fa finta di aver installato."""
+    monkeypatch.setattr(ep.shutil, "which", lambda *a, **k: None)
+    tree = _tree_suite(tmp_path, "def test_ok():\n    assert 1\n", lockfile=True)
+    rc, riga = ep.esegui_suite(str(tree))
+    assert rc != 0 and "npm" in riga and "passed" not in riga
+
+
+def test_senza_lockfile_la_suite_dichiara_che_non_ha_installato_node(tmp_path):
+    tree = _tree_suite(tmp_path, "def test_ok():\n    assert 1\n")
+
+    def installa(*_a):
+        raise AssertionError("senza lockfile non si installa")
+
+    rc, riga = ep.esegui_suite(str(tree), installa_node=installa)
+    assert rc == 0 and "1 passed" in riga and "package-lock.json" in riga
+
+
+def test_la_suite_nomina_i_rossi_e_salva_l_output_completo(tmp_path):
+    """Il 12/09 il tool restituiva solo l'ultima riga: i 23 rossi si sono dovuti rincorrere da
+    fuori, e la rincorsa ha misurato una condizione diversa (senza .git)."""
+    tree = _tree_suite(tmp_path, "def test_rosso():\n    assert 0\n")
+    rc, riga = ep.esegui_suite(str(tree))
+    assert rc != 0 and "1 failed" in riga and "tests/test_x.py::test_rosso" in riga
+    log = str(tree) + ".pytest.log"
+    assert os.path.isfile(log) and "test_rosso" in open(log, encoding="utf-8").read()
+
+
 def test_main_ferma_anche_sporco_insieme_a_commit(repo_finto, clone_pubblico, allowlist_finta, vietate_finte,
                                                   monkeypatch, capsys):
     """Il messaggio del commit pubblico dichiara un commit privato: con --anche-sporco quel

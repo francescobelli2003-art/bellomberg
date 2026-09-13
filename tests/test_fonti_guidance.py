@@ -466,7 +466,8 @@ def test_percorso_fonti_punta_al_negozio_dentro_data(monkeypatch):
         importlib.reload(fg)
         assert os.path.isabs(fg.PERCORSO_FONTI), "mai un percorso relativo alla cwd"
         assert os.path.basename(fg.PERCORSO_FONTI) == "fonti_guidance.json"
-        assert os.path.basename(os.path.dirname(fg.PERCORSO_FONTI)) == "data"
+        assert os.path.normcase(os.path.realpath(os.path.dirname(fg.PERCORSO_FONTI))) == os.path.normcase(
+            os.path.realpath(paths.PROJECT_ROOT / "data"))
     finally:
         monkeypatch.undo()
         importlib.reload(paths)

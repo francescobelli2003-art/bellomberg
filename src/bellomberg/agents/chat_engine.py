@@ -35,6 +35,7 @@ from bellomberg.core.llm_client import (AsyncOpenRouterClient, modello as _model
                         chat_max_tokens as _chat_max_tokens, somma_costo as _somma_costo,
                         ConfigurazioneLLMMancante)
 from bellomberg.core.config import OPENROUTER_API_KEY, PM_DESC
+from bellomberg.core.language import capture_language, prompt_for_language, scoped_language, text
 from bellomberg.storage.memory_db import MemoryDB
 from bellomberg.agents.chat_tools import get_tools_for_agent, dispatch
 
@@ -441,7 +442,7 @@ def _leggi_mandato_chat():
 
 def _build_system(agent_id: str, *, mandato=_MANDATO_DA_LEGGERE, errore_mandato=None) -> str:
     """System prompt finale: framework specifico + regole anti-hallucination + linguaggio."""
-    base = SYSTEM_PROMPTS_BASE.get(agent_id, "")
+    base = prompt_for_language(SYSTEM_PROMPTS_BASE.get(agent_id, ""))
     if mandato is _MANDATO_DA_LEGGERE:
         mandato, errore_mandato = _leggi_mandato_chat()
     from bellomberg.core import mandato_pm
@@ -457,11 +458,12 @@ def _build_system(agent_id: str, *, mandato=_MANDATO_DA_LEGGERE, errore_mandato=
         facts = "[CONTESTO n.d.] current_facts: " + type(e).__name__ + ": " + str(e)
     return (
         f"Sei un membro del team Bellomberg, hedge fund AI. Il tuo interlocutore e' {PM_DESC}.\n"
-        f"Rispondi in italiano (jargon EN OK per termini tecnici). Sii diretto, conciso, no fluff.\n\n"
-        f"{facts}\n\n"
+        + text("Rispondi in italiano (jargon EN OK per termini tecnici). Sii diretto, conciso, no fluff.\n\n",
+               "Answer in English. Be direct, concise, and precise.\n\n")
+        + f"{facts}\n\n"
         f"{base}\n\n"
         f"{politica}\n\n"
-        f"{_ANTI_HALLUCINATION}"
+        f"{prompt_for_language(_ANTI_HALLUCINATION)}"
     )
 
 
@@ -489,7 +491,7 @@ def list_sessions(agent_id: str, limit: int = 30) -> list[dict]:
     db = MemoryDB()
     with db._conn() as conn:
         rows = conn.execute(
-            """SELECT s.id, s.specialist, s.title, s.started_at, s.last_activity,
+            """SELECT s.id, s.specialist, s.title, s.started_at, s.last_activity, s.output_language,
                       (SELECT COUNT(*) FROM chat_messages m WHERE m.session_id=s.id) as msg_count,
                       (SELECT substr(m.content, 1, ?) FROM chat_messages m
                          WHERE m.session_id=s.id AND m.role='user'
@@ -507,15 +509,18 @@ def list_sessions(agent_id: str, limit: int = 30) -> list[dict]:
 
 
 def create_session(agent_id: str, title: Optional[str] = None) -> int:
+    from bellomberg.core.language import capture_language
+    selected = capture_language()
     if agent_id not in SYSTEM_PROMPTS_BASE:
         raise ValueError(f"Unknown agent: {agent_id}")
     db = MemoryDB()
-    title = title or f"Chat con {AGENT_DISPLAY_NAMES.get(agent_id, agent_id)}"
+    title = title or text(f"Chat con {AGENT_DISPLAY_NAMES.get(agent_id, agent_id)}",
+                          f"Chat with {AGENT_DISPLAY_NAMES.get(agent_id, agent_id)}", language=selected)
     with db._conn() as conn:
         cur = conn.execute(
-            "INSERT INTO chat_sessions(specialist, title, started_at, last_activity) "
-            "VALUES (?, ?, datetime('now'), datetime('now'))",
-            (agent_id, title)
+            "INSERT INTO chat_sessions(specialist, title, started_at, last_activity, output_language) "
+            "VALUES (?, ?, datetime('now'), datetime('now'), ?)",
+            (agent_id, title, selected)
         )
         return cur.lastrowid
 
@@ -532,10 +537,12 @@ def normalizza_titolo(title: str) -> str:
     """
     t = " ".join((title or "").split())
     if not t:
-        raise ValueError("title vuoto: serve un titolo con almeno un carattere non-spazio")
+        raise ValueError(text("title vuoto: serve un titolo con almeno un carattere non-spazio",
+                              "Empty title: at least one non-space character is required"))
     if len(t) > MAX_TITLE_CHARS:
         raise ValueError(
-            f"title troppo lungo: {len(t)} caratteri, massimo {MAX_TITLE_CHARS}")
+            text(f"title troppo lungo: {len(t)} caratteri, massimo {MAX_TITLE_CHARS}",
+                 f"Title too long: {len(t)} characters, maximum {MAX_TITLE_CHARS}"))
     return t
 
 
@@ -593,7 +600,7 @@ def get_messages(session_id: int) -> list[dict]:
     db = MemoryDB()
     with db._conn() as conn:
         rows = conn.execute(
-            "SELECT id, role, content, tokens_in, tokens_out, timestamp FROM chat_messages "
+            "SELECT id, role, content, tokens_in, tokens_out, timestamp, output_language FROM chat_messages "
             "WHERE session_id=? ORDER BY id ASC",
             (session_id,)
         ).fetchall()
@@ -611,7 +618,7 @@ def get_session_info(session_id: int) -> Optional[dict]:
     db = MemoryDB()
     with db._conn() as conn:
         r = conn.execute(
-            "SELECT id, specialist, title, started_at, last_activity FROM chat_sessions WHERE id=?",
+            "SELECT id, specialist, title, started_at, last_activity, output_language FROM chat_sessions WHERE id=?",
             (session_id,)
         ).fetchone()
         return dict(r) if r else None
@@ -619,12 +626,14 @@ def get_session_info(session_id: int) -> Optional[dict]:
 
 def _save_message(session_id: int, role: str, content: str,
                    tokens_in: Optional[int] = None, tokens_out: Optional[int] = None) -> None:
+    from bellomberg.core.language import capture_language
+    selected = capture_language() if role == "assistant" else None
     db = MemoryDB()
     with db._conn() as conn:
         conn.execute(
-            "INSERT INTO chat_messages(session_id, role, content, tokens_in, tokens_out, timestamp) "
-            "VALUES (?, ?, ?, ?, ?, datetime('now'))",
-            (session_id, role, content, tokens_in, tokens_out)
+            "INSERT INTO chat_messages(session_id, role, content, tokens_in, tokens_out, timestamp, output_language) "
+            "VALUES (?, ?, ?, ?, ?, datetime('now'), ?)",
+            (session_id, role, content, tokens_in, tokens_out, selected)
         )
         conn.execute(
             "UPDATE chat_sessions SET last_activity=datetime('now') WHERE id=?",
@@ -798,6 +807,7 @@ def _format_sse(event: str, data) -> str:
 # STREAMING CHAT con tool_use loop
 # ============================================================
 
+@scoped_language
 async def stream_chat(session_id: int, agent_id: str, user_message: str) -> AsyncGenerator[str, None]:
     """Stream chat con tool_use loop nativo Anthropic.
 
@@ -809,13 +819,13 @@ async def stream_chat(session_id: int, agent_id: str, user_message: str) -> Asyn
     yield ":" + (" " * 2048) + "\n\n"
 
     if agent_id not in SYSTEM_PROMPTS_BASE:
-        yield _format_sse("error", {"message": f"Unknown agent {agent_id}"})
+        yield _format_sse("error", {"message": text(f"Agente sconosciuto {agent_id}", f"Unknown agent {agent_id}")})
         yield _format_sse("done", _done_payload(session_id, ok=False))
         return
 
     if not OPENROUTER_API_KEY:
         _log("OPENROUTER_API_KEY missing")
-        yield _format_sse("error", {"message": "OPENROUTER_API_KEY mancante nel .env"})
+        yield _format_sse("error", {"message": text("OPENROUTER_API_KEY mancante nel .env", "OPENROUTER_API_KEY missing in .env")})
         yield _format_sse("done", _done_payload(session_id, ok=False))
         return
 
@@ -855,6 +865,7 @@ async def stream_chat(session_id: int, agent_id: str, user_message: str) -> Asyn
 
     # Meta
     yield _format_sse("meta", {
+        "output_language": capture_language(),
         "agent_id": agent_id,
         "session_id": session_id,
         "model": model_name,
@@ -1016,8 +1027,8 @@ async def stream_chat(session_id: int, agent_id: str, user_message: str) -> Asyn
                 if stop_reason != "end_turn":
                     from bellomberg.core.llm_refusal import refusal_reason
                     reason = refusal_reason(final, "CHAT") or (
-                        "RISPOSTA TRONCATA: raggiunto il limite token" if stop_reason == "max_tokens"
-                        else "RISPOSTA INCOMPLETA: stop_reason=" + str(stop_reason))
+                        text("RISPOSTA TRONCATA: raggiunto il limite token", "TRUNCATED RESPONSE: token limit reached") if stop_reason == "max_tokens"
+                        else text("RISPOSTA INCOMPLETA: stop_reason=", "INCOMPLETE RESPONSE: stop_reason=") + str(stop_reason))
                     response_incomplete = True
                     marker = "\n\n[" + reason + "]"
                     final_text_parts.append(marker)
@@ -1026,7 +1037,8 @@ async def stream_chat(session_id: int, agent_id: str, user_message: str) -> Asyn
                 break
             if final_iteration:
                 response_incomplete = True
-                reason = "Limite iterazioni raggiunto senza risposta finale; ulteriori tool non eseguiti"
+                reason = text("Limite iterazioni raggiunto senza risposta finale; ulteriori tool non eseguiti",
+                              "Iteration limit reached without a final response; no further tools executed")
                 marker = "\n\n[" + reason + "]"
                 final_text_parts.append(marker)
                 yield _format_sse("delta", {"text": marker})
@@ -1092,12 +1104,21 @@ async def stream_chat(session_id: int, agent_id: str, user_message: str) -> Asyn
                         "preview": result_str[:8000],
                         "note": f"Output truncated from {len(result_str)} bytes.",
                     }
+                llm_content = json.dumps(result_for_llm, default=str, ensure_ascii=False)
+                if tname == "get_valuation" and isinstance(result, dict):
+                    # Come nel comitato: il dossier non deve nascondere FV, gate
+                    # e buchi al modello. Preview SSE e payload persistito invariati.
+                    from bellomberg.valuation.sector_analysis import valuation_results_block
+                    payload = result.get("data") if isinstance(result.get("data"), dict) else result
+                    llm_content = (valuation_results_block({str(tinput.get("ticker") or "n.d."): payload})
+                        + "\n\nDettaglio sotto, soggetto al tetto tool_result; "
+                          "snapshot integrale nel sidecar se generato:\n" + llm_content)
                 tool_results_blocks.append({
                     "type": "tool_result",
                     "tool_use_id": tid,
                     # audit/11 §5: stessi parametri della misura (ensure_ascii=False) —
                     # prima gli accenti diventavano \uXXXX e il taglio era incoerente
-                    "content": json.dumps(result_for_llm, default=str, ensure_ascii=False)[:12000],
+                    "content": llm_content[:12000],
                 })
             api_messages.append({"role": "user", "content": tool_results_blocks})
 
@@ -1111,7 +1132,8 @@ async def stream_chat(session_id: int, agent_id: str, user_message: str) -> Asyn
     full_text = "".join(final_text_parts)
     if stream_failed and full_text.strip():
         # audit/11 §4: il testo parziale non deve entrare in history come analisi completa
-        full_text += "\n\n[RISPOSTA INTERROTTA DA ERRORE — analisi potenzialmente incompleta]"
+        full_text += text("\n\n[RISPOSTA INTERROTTA DA ERRORE — analisi potenzialmente incompleta]",
+                          "\n\n[RESPONSE INTERRUPTED BY ERROR — analysis may be incomplete]")
     if full_text.strip():
         try:
             # se l'usage non e' mai arrivato — o e' PARZIALE per stream morto

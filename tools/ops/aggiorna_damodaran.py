@@ -139,7 +139,13 @@ def _probe_ctryprem():
     return found[:1]  # la prima trovata = la piu' recente per costruzione
 
 
+def _require_excel_com():
+    if sys.platform != "win32":
+        raise SystemExit(f"Conversione Excel COM disponibile solo Windows (sistema: {sys.platform}).")
+
+
 def convert():
+    _require_excel_com()
     ps1 = os.path.join(ROOT, "tools", "ops", "xls_to_csv.ps1")
     r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
                         "-File", ps1, "-SrcDir", DATA],
@@ -403,6 +409,7 @@ def validate(snap):
 
 
 def main():
+    _require_excel_com()
     skip_dl = "--skip-download" in sys.argv
     if not skip_dl:
         download()

@@ -1,11 +1,14 @@
+import { useT } from '@/i18n/provider';
 import { useEffect, useRef, useState } from 'react';
 import { Bellomberg } from '../lib/api';
 import { AGENT_QUESTIONS, portfolioTickers, tickerPrompt } from '../lib/chat-prompts';
+import { leggiDetail } from '../lib/quota';
 import './chat-suggestions.css';
 
 export default function ChatSuggestions({ agent, name, disabled, onPrompt }: {
   agent: string; name: string; disabled: boolean; onPrompt: (prompt: string) => void;
 }) {
+  const tr = useT();
   const [tickers, setTickers] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
@@ -18,7 +21,7 @@ export default function ChatSuggestions({ agent, name, disabled, onPrompt }: {
       const current = portfolioTickers(result.positions);
       if (id === request.current) setTickers(current);
     } catch (e: any) {
-      if (id === request.current) setError(e?.response?.data?.detail || e?.message || 'Portafoglio non leggibile');
+      if (id === request.current) setError(leggiDetail(e?.response?.data?.detail || e?.message || String(e)));
     }
   };
   useEffect(() => {
@@ -32,22 +35,22 @@ export default function ChatSuggestions({ agent, name, disabled, onPrompt }: {
         <button key={prompt} disabled={disabled} onClick={() => onPrompt(prompt)}>{prompt}</button>)}
     </div>
     <div className="portfolio-question-header">
-      <span>Analizza una posizione con <strong>{name}</strong></span>
-      <button onClick={() => void refresh()} disabled={tickers === null && !error}>Aggiorna elenco</button>
+      <span>{tr('communications.analysePosition')} <strong>{name}</strong></span>
+      <button onClick={() => void refresh()} disabled={tickers === null && !error}>{tr('communications.refreshList')}</button>
     </div>
-    {error ? <p role="alert" className="portfolio-question-error">Portafoglio non disponibile: {error}</p>
-      : tickers === null ? <p role="status">Caricamento delle posizioni…</p>
-      : tickers.length === 0 ? <p>Il portafoglio è vuoto. Registra le tue posizioni per analizzarle da qui.</p>
+    {error ? <p role="alert" className="portfolio-question-error">{tr('communications.portfolioUnavailable')} {error}</p>
+      : tickers === null ? <p role="status">{tr('communications.portfolioLoading')}</p>
+      : tickers.length === 0 ? <p>{tr('communications.portfolioEmpty')}</p>
       : <>
-        <input aria-label="Filtra ticker del portafoglio" placeholder="Filtra le tue posizioni…"
+        <input aria-label={tr('communications.filterTicker')} placeholder={tr('communications.filterPositions')}
           value={filter} onChange={e => setFilter(e.target.value)} />
-        <div className="portfolio-question-tickers" aria-label="Ticker dal portafoglio">
+        <div className="portfolio-question-tickers" aria-label={tr('communications.portfolioTickers')}>
           {visible.map(ticker => <button key={ticker} disabled={disabled}
-            title={`Avvia un'analisi di ${ticker} con ${name}`}
+            title={tr('communications.startTicker', {a: ticker, b: name})}
             onClick={() => onPrompt(tickerPrompt(agent, ticker))}>{ticker}</button>)}
-          {!visible.length && <span>Nessuna posizione corrisponde al filtro.</span>}
+          {!visible.length && <span>{tr('communications.noPositionsMatch')}</span>}
         </div>
-        <small>{tickers.length} ticker dal portafoglio corrente. Il clic invia la domanda al desk selezionato.</small>
+        <small>{tr('communications.suggestionsCount', { a: tickers.length })}</small>
       </>}
   </div>;
 }

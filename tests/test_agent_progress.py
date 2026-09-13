@@ -52,6 +52,68 @@ def test_duplicate_run_is_immutable(db):
             conn.execute("UPDATE agent_score_history SET payload_json = '{}' WHERE run_id='memo:1'")
 
 
+def test_current_measure_is_separate_even_with_history(db):
+    save(db)
+    rows = history.read_history(db)
+    current = {**score(100), 'available': True, 'maturation_days': 7}
+    before = copy.deepcopy((rows, current))
+    result = history.progress_payload(rows, current_scorecard=current)
+    agent = next(a for a in result['agents'] if a['id'] == 'quant')
+    assert agent['current']['hit_rate_pct'] == 100
+    assert agent['current']['run_id'] is None
+    assert agent['latest']['hit_rate_pct'] == 50
+    assert len(agent['series']) == 1
+    assert (rows, current) == before
+
+
+def test_progress_http_exposes_authored_variants_without_rewriting_saved_lesson(db, tmp_path):
+    from bellomberg.core.language import language_context
+    save(db, lesson='Lezione originale 158,50', reflection_status='generated')
+    app = FastAPI()
+    app.include_router(create_agent_progress_router(lambda: None, db_path=db,
+        scorecard_path=str(tmp_path / 'missing-score.json')))
+    with TestClient(app) as client, language_context('it'):
+        payload = client.get('/agents/progress').json()
+    variants = payload['_presentation_v1']['texts']
+    score_text = next(v for v in variants if v['path'] == ['method', 'score'])
+    assert score_text['it'] != score_text['en']
+    assert 'account P&L' in score_text['en']
+    assert payload['runs'][0]['reflection']['text'] == 'Lezione originale 158,50'
+    assert not any(v['path'][:3] == ['runs', 0, 'reflection'] for v in variants)
+    assert payload['agents'][0]['latest']['hit_rate_pct'] == 50
+
+
+def test_stored_score_breakdowns_are_exposed_without_recomputation_or_aliasing(db):
+    sc = score()
+    sc['by_action'] = {'BUY': {'n': 2, 'hits': 1, 'hit_rate_pct': 50}}
+    sc['by_confidence'] = {'ALTA': {'n': 2, 'hits': 1, 'hit_rate_pct': 50}}
+    save(db, sc=sc)
+    rows = history.read_history(db)
+    result = history.progress_payload(rows)
+    exposed = result['runs'][0]['scorecard']
+    assert exposed['by_action'] == sc['by_action']
+    assert exposed['by_confidence'] == sc['by_confidence']
+    assert exposed['details'] == sc['details']
+    exposed['details'].clear()
+    assert rows[0]['scorecard']['details'] == sc['details']
+
+
+def test_duplicate_memo_marker_is_read_only_and_missing_marker_source_is_unknown(db):
+    save(db)
+    assert history.read_history(db)[0]['review_status'] == 'unavailable'
+    with sqlite3.connect(db) as conn:
+        conn.execute('CREATE TABLE memos (id INTEGER PRIMARY KEY, notes TEXT)')
+        conn.execute('INSERT INTO memos VALUES (?, ?)', (1, '[DUPLICATO] synthetic review'))
+    before = db.read_bytes()
+    rows = history.read_history(db)
+    assert db.read_bytes() == before
+    result = history.progress_payload(rows)
+    assert result['runs'][0]['review_status'] == 'duplicate'
+    assert result['runs'][0]['review_note'] == '[DUPLICATO] synthetic review'
+    assert result['agents'][0]['latest']['hit_rate_pct'] == 50
+    assert result['history']['count'] == 1
+
+
 def test_absent_schema_get_does_not_create_it(tmp_path):
     path = tmp_path / "empty.sqlite"
     with sqlite3.connect(path) as conn:

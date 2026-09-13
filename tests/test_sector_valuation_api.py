@@ -12,6 +12,7 @@ from copy import deepcopy
 import pytest
 
 from test_sector_usability import payload_for
+from bellomberg.core.language import language_context, text
 
 
 def endpoint(tmp_path, snapshots=None):
@@ -20,6 +21,7 @@ def endpoint(tmp_path, snapshots=None):
     node.decorator_list = []
     db = SimpleNamespace(get_latest_valuation_snapshots=lambda: snapshots or {})
     namespace = {"os": os, "json": json, "datetime": datetime,
+                 "_api_text": text,
                  "get_db": lambda: db, "_known_tickers": lambda db: set(),
                  "_val_dirs": lambda: [str(tmp_path)],
                  "_VAL_NAME": re.compile(r"^(VAL|DCF)_(.+?)(?:_(\d{8}(?:_\d{4})?))?(_FLAGGED)?\.xlsx$")}
@@ -60,13 +62,33 @@ def test_legacy_numbers_and_blocked_nav_sotp_never_reappear_in_f17(tmp_path):
     assert model["valuation_usability"]["usable"] is False
 
 
-def test_changed_workbook_cannot_reuse_sidecar_number(tmp_path):
+@pytest.mark.parametrize("language,warning", [("it", "generazione"), ("en", "generation")])
+def test_changed_workbook_cannot_reuse_sidecar_number(tmp_path, language, warning):
     workbook = write_model(tmp_path, payload_for())
     workbook.write_bytes(b"different generation")
-    model = endpoint(tmp_path)["models"][0]
+    with language_context(language):
+        model = endpoint(tmp_path)["models"][0]
     assert model["fair_value"] is None
     assert model["valuation_usability"]["usable"] is False
-    assert "generaz" in " ".join(model["detail"]["warnings"]).lower()
+    assert warning in " ".join(model["detail"]["warnings"]).lower()
+
+
+@pytest.mark.parametrize("language,warning", [
+    ("it", "Identita' del sidecar discordante dal nome del modello."),
+    ("en", "Sidecar identity does not match the model filename."),
+])
+def test_mismatched_sidecar_identity_remains_blocked_in_both_languages(tmp_path, language, warning):
+    payload = payload_for()
+    payload["ticker"] = "OTHER_SYNTH"
+    write_model(tmp_path, payload)
+    before = deepcopy(payload)
+    with language_context(language):
+        model = endpoint(tmp_path)["models"][0]
+    assert model["fair_value"] is None and model["upside_pct"] is None
+    assert model["valuation_usability"]["usable"] is False
+    assert model["sanity_severity"] == "BLOCK"
+    assert warning in model["detail"]["warnings"]
+    assert payload == before
 
 
 def test_incomplete_snapshot_is_visible_without_any_workbook_or_holding(tmp_path):
@@ -127,7 +149,8 @@ def test_current_matching_sidecar_keeps_its_value_and_uses_snapshot_revision_tim
 @pytest.mark.parametrize("artifact_error,with_path", [
     ("workbook_changed", True), ("workbook_changed", False),
     ("sidecar_corrupt", True), ("sidecar_missing", True)])
-def test_unverifiable_artifact_cannot_revive_same_generation_from_db(tmp_path, artifact_error, with_path):
+@pytest.mark.parametrize("language,warning", [("it", "artefatto"), ("en", "artifact")])
+def test_unverifiable_artifact_cannot_revive_same_generation_from_db(tmp_path, artifact_error, with_path, language, warning):
     current = payload_for()
     workbook = write_model(tmp_path, current)
     if with_path:
@@ -139,26 +162,29 @@ def test_unverifiable_artifact_cannot_revive_same_generation_from_db(tmp_path, a
         workbook.with_suffix(".payload.json").write_text("{broken", encoding="utf-8")
     else:
         workbook.with_suffix(".payload.json").unlink()
-    data = endpoint(tmp_path, {"SYNTH": {"created_at": "2026-09-10T10:00:00", "payload": current}})
+    with language_context(language):
+        data = endpoint(tmp_path, {"SYNTH": {"created_at": "2026-09-10T10:00:00", "payload": current}})
     assert data["models"]
     assert all(model["fair_value"] is None and model["upside_pct"] is None for model in data["models"])
     assert all(model["valuation_usability"]["usable"] is False for model in data["models"])
     same_generation = [model for model in data["models"] if model["generation_id"] == current["generation_id"]]
     assert same_generation
     assert all(model["sanity_severity"] == "BLOCK" for model in same_generation)
-    assert any("artefatto" in " ".join(model["detail"].get("warnings", [])).lower()
+    assert any(warning in " ".join(model["detail"].get("warnings", [])).lower()
                for model in same_generation)
     assert current == before
 
 
-def test_corrupt_historical_artifact_does_not_block_new_generation_without_workbook(tmp_path):
+@pytest.mark.parametrize("language", ["it", "en"])
+def test_corrupt_historical_artifact_does_not_block_new_generation_without_workbook(tmp_path, language):
     historical = payload_for()
     workbook = write_model(tmp_path, historical)
     workbook.with_suffix(".payload.json").write_text("{broken", encoding="utf-8")
     current = payload_for("bank")
     current.update(generation_id="8011949f-a0e4-44f4-b883-c2ec59b16113",
                    fair_value_weighted=240)
-    data = endpoint(tmp_path, {"SYNTH": {"created_at": "2026-09-10T10:00:00", "payload": current}})
+    with language_context(language):
+        data = endpoint(tmp_path, {"SYNTH": {"created_at": "2026-09-10T10:00:00", "payload": current}})
     model = data["models"][0]
     assert model["file"] == "" and model["generation_id"] == current["generation_id"]
     assert model["fair_value"] == 240 and model["valuation_usability"]["usable"] is True

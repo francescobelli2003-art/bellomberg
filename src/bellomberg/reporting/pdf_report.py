@@ -13,6 +13,7 @@ Uso:
 import os
 import re
 from datetime import datetime
+from bellomberg.reporting.i18n import label as _t, number as _n, localized, date_label
 
 from bellomberg.core.paths import REPORT_DIR as _REPORT_DIR
 
@@ -227,6 +228,7 @@ def _add_chart(flowables, path, caption, styles_, max_width=16 * cm):
         pass
 
 
+@localized
 def build_pdf_report(
     memo_markdown,
     portfolio_data=None,
@@ -256,7 +258,7 @@ def build_pdf_report(
         output_path, pagesize=A4,
         leftMargin=2 * cm, rightMargin=2 * cm,
         topMargin=2.4 * cm, bottomMargin=2.0 * cm,  # spazio per masthead/footer (#178)
-        title="Weekly Research Note - " + datetime.now().strftime("%d %B %Y"),
+        title=_t("Weekly Research Note - ") + date_label(),
         author="AI Portfolio Consigliere",
     )
 
@@ -264,12 +266,12 @@ def build_pdf_report(
 
     # === COVER PAGE (#178: research style) ===
     story.append(Spacer(1, 0.9 * cm))
-    story.append(Paragraph("PORTFOLIO STRATEGY · COMITATO MULTI-AGENT · SINTESI DEL CAPO",
+    story.append(Paragraph(_t("PORTFOLIO STRATEGY · COMITATO MULTI-AGENT · SINTESI DEL CAPO"),
                            styles_["kicker"]))
-    story.append(Paragraph("Weekly Research Note", styles_["title"]))
+    story.append(Paragraph(_t("Weekly Research Note"), styles_["title"]))
     story.append(Paragraph(
-        datetime.now().strftime("%A %d %B %Y · run %H:%M CET")
-        + " · 6 specialist + Capo · memoria attiva", styles_["subtitle"]))
+        date_label(weekday=True) + datetime.now().strftime(" · run %H:%M CET")
+        + _t(" · 6 specialist + Capo · memoria attiva"), styles_["subtitle"]))
 
     # At a Glance
     if portfolio_data and portfolio_data.get("positions"):
@@ -279,13 +281,13 @@ def build_pdf_report(
         cash = (portfolio_data.get("cash_disponibile_eur")
                 or portfolio_data.get("available_capital_eur") or 0)
         glance = [
-            ["AT A GLANCE", ""],
-            ["Net Asset Value", "EUR {:,.0f}".format(total)],
-            ["P/L totale (su investito)", "EUR {:+,.0f}   ({:+.2f}%)".format(
-                pl, pl / (total - pl) * 100 if (total - pl) > 0 else 0)],  # audit/11: % su cost basis, non su NAV che include il P/L
-            ["Posizioni attive", str(n)],
-            ["Cash disponibile", "EUR {:,.0f}".format(cash)],
-            ["Generato", datetime.now().strftime("%Y-%m-%d %H:%M")],
+            [_t("AT A GLANCE"), ""],
+            [_t("Net Asset Value"), "EUR " + _n(total)],
+            [_t("P/L totale (su investito)"), "EUR " + _n(pl, '+,.0f') + "   (" + _n(
+                pl / (total - pl) * 100 if (total - pl) > 0 else 0, '+.2f') + "%)"],  # audit/11: % su cost basis, non su NAV che include il P/L
+            [_t("Posizioni attive"), str(n)],
+            [_t("Cash disponibile"), "EUR " + _n(cash)],
+            [_t("Generato"), datetime.now().strftime("%Y-%m-%d %H:%M")],
         ]
         gt = Table(glance, colWidths=[8.2 * cm, 8.8 * cm])
         gt.setStyle(TableStyle([
@@ -316,7 +318,7 @@ def build_pdf_report(
         _bluf = _md_inline_to_rl(_m.group(1).strip()[:1200])
         _bluf = _bluf.replace("\n\n", "<br/><br/>").replace("\n", " ")
         _box = Table([
-            [Paragraph("EXECUTIVE SUMMARY", styles_["kicker"])],
+            [Paragraph(_t("EXECUTIVE SUMMARY"), styles_["kicker"])],
             [Paragraph(_bluf, styles_["body"])],
         ], colWidths=[17 * cm])
         _box.setStyle(TableStyle([
@@ -336,7 +338,7 @@ def build_pdf_report(
     story.append(PageBreak())
 
     # === APPENDIX: CHARTS ===
-    story.append(Paragraph("Appendix: Visual Data", styles_["h1"]))
+    story.append(Paragraph(_t("Appendix: Visual Data"), styles_["h1"]))
     story.append(Spacer(1, 8))
 
     if CHARTS_AVAILABLE:
@@ -344,13 +346,13 @@ def build_pdf_report(
         if portfolio_data and portfolio_data.get("positions"):
             try:
                 p = charts_agent.chart_portfolio_treemap(portfolio_data["positions"])
-                _add_chart(story, p, "Figura 1. Allocazione di portafoglio per peso (treemap).", styles_)
+                _add_chart(story, p, _t("Figura 1. Allocazione di portafoglio per peso (treemap)."), styles_)
             except Exception as e:
                 story.append(Paragraph("[Chart treemap skipped: " + str(e) + "]", styles_["caption"]))
 
             try:
                 p = charts_agent.chart_pl_bar(portfolio_data["positions"])
-                _add_chart(story, p, "Figura 2. P/L per posizione (EUR).", styles_)
+                _add_chart(story, p, _t("Figura 2. P/L per posizione (EUR)."), styles_)
             except Exception as e:
                 story.append(Paragraph("[Chart P/L skipped: " + str(e) + "]", styles_["caption"]))
 
@@ -358,13 +360,13 @@ def build_pdf_report(
         if macro_data:
             try:
                 p = charts_agent.chart_yield_curve(macro_data)
-                _add_chart(story, p, "Figura 3. Curva dei rendimenti USA (Fed Funds, 2Y, 10Y).", styles_)
+                _add_chart(story, p, _t("Figura 3. Curva dei rendimenti USA (Fed Funds, 2Y, 10Y)."), styles_)
             except Exception as e:
                 story.append(Paragraph("[Chart yield curve skipped: " + str(e) + "]", styles_["caption"]))
 
             try:
                 p = charts_agent.chart_macro_dashboard_bars(macro_data)
-                _add_chart(story, p, "Figura 4. Indicatori macro chiave (ultimi valori).", styles_)
+                _add_chart(story, p, _t("Figura 4. Indicatori macro chiave (ultimi valori)."), styles_)
             except Exception as e:
                 story.append(Paragraph("[Chart macro skipped: " + str(e) + "]", styles_["caption"]))
 
@@ -389,9 +391,9 @@ def build_pdf_report(
         canvas.setFillColor(GREY)
         canvas.setFont("Helvetica", 7.5)
         canvas.drawRightString(w - 2 * cm, h - 1.42 * cm,
-                               "WEEKLY RESEARCH NOTE  ·  "
-                               + datetime.now().strftime("%d %B %Y").upper()
-                               + "  ·  MULTI-AGENT COMMITTEE")
+                               _t("WEEKLY RESEARCH NOTE  ·  ")
+                               + date_label().upper()
+                               + _t("  ·  MULTI-AGENT COMMITTEE"))
         canvas.setStrokeColor(NAVY)
         canvas.setLineWidth(0.8)
         canvas.line(2 * cm, h - 1.78 * cm, w - 2 * cm, h - 1.78 * cm)
@@ -401,8 +403,8 @@ def build_pdf_report(
         canvas.setFont("Helvetica", 7)
         canvas.setFillColor(GREY)
         canvas.drawString(2 * cm, 1.2 * cm,
-                          "Bellomberg Research · Documento interno — non costituisce consulenza finanziaria")
-        canvas.drawRightString(w - 2 * cm, 1.2 * cm, "Pagina " + str(doc_.page))
+                          _t("Bellomberg Research · Documento interno — non costituisce consulenza finanziaria"))
+        canvas.drawRightString(w - 2 * cm, 1.2 * cm, _t("Pagina ") + str(doc_.page))
         canvas.restoreState()
 
     doc.build(story, onFirstPage=add_furniture, onLaterPages=add_furniture)

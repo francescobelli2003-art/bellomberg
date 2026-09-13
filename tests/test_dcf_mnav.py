@@ -393,12 +393,16 @@ def test_workbook_btc_senza_target_e_campi_assenti(tmp_path, NEG):
     assert any("n.d. DICHIARATO" in k for k in lbl_s)
 
 
-def test_workbook_hype_offline(tmp_path, NEG):
+@pytest.mark.parametrize("language,anav_label,mnav_prefix,target_label", [
+    ("it", "NAV rettificato ($M)", "mNAV = prezzo", "Target premio/sconto (ANALISTA)"),
+    ("en", "Adjusted NAV ($M)", "mNAV = share price", "Target premium/discount (ANALYST)"),
+])
+def test_workbook_hype_offline(tmp_path, NEG, language, anav_label, mnav_prefix, target_label):
     from openpyxl import load_workbook
     s = build_mnav_spec("HYPEX", INFO_USD, nav_target=1.0, variant_view="test",
                         tool_payload=HYPE_PAYLOAD, today=OGGI, negozio=NEG)
     out = str(tmp_path / "VAL_HYPEX.xlsx")
-    r = build_mnav_model(s, out)
+    r = build_mnav_model(s, out, language=language)
     assert r["ok"] is True
     assert r["mnav"] == pytest.approx(1.061, abs=0.001)
     assert r["fair_value_nav"] == pytest.approx(11.31, abs=0.01)
@@ -406,9 +410,9 @@ def test_workbook_hype_offline(tmp_path, NEG):
     ws = wb["Thesis & Assumptions"]
     lbl = _labels_col_a(ws)
     # formula del sito in celle VIVE: mNAV e Adjusted NAV sono formule
-    mnav_row = next(r for k, r in lbl.items() if k.startswith("mNAV = prezzo"))
+    mnav_row = next(r for k, r in lbl.items() if k.startswith(mnav_prefix))
     assert str(ws[f"B{mnav_row}"].value).startswith("=")
-    anav_row = lbl["Adjusted NAV ($M)"]
+    anav_row = lbl[anav_label]
     assert str(ws[f"B{anav_row}"].value).startswith("=")
     # warrant a treasury method: formula IF ITM (mai stringhe vuote nei rami)
     w_rows = [row for lbl_, row in lbl.items() if lbl_.startswith("warrant ")]
@@ -417,7 +421,7 @@ def test_workbook_hype_offline(tmp_path, NEG):
     sen = wb["Sensitivity"]
     assert str(sen["C4"].value).startswith("='Thesis & Assumptions'!")
     # FV in sensitivity: riferimento VIVO alla cella target del Thesis
-    t_row = lbl["Target premio/sconto (ANALISTA)"]
+    t_row = lbl[target_label]
     assert f"B{t_row}" in str(sen["C10"].value)
 
 

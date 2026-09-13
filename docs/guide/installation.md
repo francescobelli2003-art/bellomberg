@@ -10,7 +10,7 @@ Python runtime. The source workflow is the clearest starting point.
 
 | Component | Requirement | Check |
 | --- | --- | --- |
-| Python | 3.10 or later; CI uses 3.12 | `python --version` |
+| Python | Package minimum 3.10; 3.12 recommended for the documented CI environment; Linux CI also checks 3.14 | `python --version` |
 | Node.js | 22.12 or later | `node --version` |
 | npm | Included with Node.js | `npm --version` |
 | Git | A working Git installation | `git --version` |
@@ -66,8 +66,11 @@ npm run dev
 ```
 
 Expected result: Vite remains running, Electron opens the login screen, and a
-compatible Python backend is started or reused. Enter your PIN. The empty
-portfolio is expected on a new installation. Keep the terminal open.
+compatible Python backend is started or reused. Enter your PIN, choose English
+or Italian and save the language. A new profile then opens the mandate page.
+The empty portfolio is expected on a new installation. Keep the terminal open.
+Do not create `portfolio.json` or copy a sample book: a new installation creates
+its SQLite storage and takes its initial entries through F16.
 
 ## Run the backend separately
 
@@ -106,24 +109,53 @@ release checksums before deciding to run them.
 
 ## macOS and Linux
 
-Python packaging and the frontend source can be developed on other operating
-systems. This release does not certify a macOS application bundle, DMG,
-notarization, Linux installer or Windows scheduled tasks on those platforms.
-No separate macOS launcher is included in this distribution.
+The repository contains a `macos-source` CI job for Python 3.12, dependency
+consistency, the offline suite, frontend bundles and a hidden Electron test with
+a synthetic HTTP backend. It runs on the public repository and on explicit
+workflow dispatch in a private repository. Check the result for the exact commit;
+the presence of the job does not establish that a run succeeded.
+
+A source installation on a **physical Mac has not been verified** by this local
+Windows check. The synthetic Electron test does not certify the real Python
+backend launch, Dock lifecycle or window rendering on macOS. Intel Macs and other
+interpreter/architecture combinations require their own dependency checks.
+Native packages must provide compatible wheels or build successfully.
+
+There is no certified macOS application bundle, DMG, signature or notarization,
+and no certified Linux installer. No separate macOS launcher is included.
 
 For source development, the shell equivalents of the Python setup are:
 
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -e . pytest
+.venv/bin/python -m pip check
 cp .env.example .env
 export BELLOMBERG_BACKEND_DIR="$PWD"
 export BELLOMBERG_PYTHON="$PWD/.venv/bin/python"
 ```
 
-Then configure `.env`, install the `app/` dependencies and Electron as on
-Windows. Host-specific native dependencies and desktop behavior need their own
-validation. Do not interpret these equivalent commands as a tested platform claim.
+Configure `.env`, then run these commands in the same terminal:
+
+```bash
+cd app
+npm ci
+npm run desktop:install
+npm run dev
+```
+
+A Finder/Dock launch does not inherit temporary variables from an unrelated
+terminal. Keep the explicit backend directory and virtual-environment interpreter
+in the launch environment. Do not interpret these commands as a tested platform
+claim.
+
+The Windows Task Scheduler scripts are not portable: no `launchd` or cron setup
+is provided. Prices, news, briefings and backups need explicit invocation there;
+the Windows automatic backup retention is absent. F19 declares scheduler errors
+instead of treating an unavailable scheduler as an empty task list. Excel/COM
+recalculation and the operator's Excel conversion tools remain Windows-specific;
+inspect a generated workbook's `values_baked` and `bake_error` instead of assuming
+cached formula results exist.
 
 [Continue with your first session](first-session.md) or
 [troubleshoot a failed launch](troubleshooting.md).

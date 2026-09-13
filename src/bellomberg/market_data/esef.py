@@ -152,22 +152,40 @@ def resolve_lei(ticker: str, company_name: Optional[str] = None) -> Tuple[Option
     except Exception:
         def _norm(x):
             return str(x or "").lower().strip()
+    # Audit 11/09 (Fable 5.1, run 10/09 memo #54): la sola query sulle prime tre parole del
+    # nome Yahoo ("Beispiel AG") tornava 0 entita' mentre il repository registra la forma
+    # giuridica lunga ("Beispiel Aktiengesellschaft"): storico ESEF n.d. per un emittente
+    # che c'era, e il DCF chiesto dal PM finiva in "filings: Fonte senza dati". Ricerca
+    # PROGRESSIVA: nome pieno, poi il nome SENZA forma giuridica (_norm: la stessa
+    # normalizzazione del confronto esatto qui sotto). La guardia di ambiguita' resta.
+    q_pieno = " ".join(str(name).split()[:3])
+    q_core = " ".join(_norm(name).split()[:2])
+    query = []
+    for q in (q_pieno, q_core):
+        if q and q.lower() not in [x.lower() for x in query]:
+            query.append(q)
+    ents = []
+    usata = None
     try:
         import requests
-        q = " ".join(str(name).split()[:3])
-        r = requests.get(BASE + "/entities", params={
-            "page[size]": 10,
-            "filter": json.dumps([{"name": "name", "op": "ilike", "val": f"%{q}%"}]),
-        }, headers=_headers(), timeout=30)
-        if not r.ok:
-            return None, f"ricerca entita' ESEF fallita (HTTP {r.status_code})"
-        ents = r.json().get("data", [])
+        for q in query:
+            r = requests.get(BASE + "/entities", params={
+                "page[size]": 10,
+                "filter": json.dumps([{"name": "name", "op": "ilike", "val": f"%{q}%"}]),
+            }, headers=_headers(), timeout=30)
+            if not r.ok:
+                return None, f"ricerca entita' ESEF fallita (HTTP {r.status_code})"
+            ents = r.json().get("data", [])
+            if ents:
+                usata = q
+                break
     except ContattoMancante as e:
         return None, str(e)   # review 02/09: il nome della classe non dice cosa fare
     except Exception as e:
         return None, f"ricerca entita' ESEF fallita ({type(e).__name__})"
     if not ents:
-        return None, f"'{name}': nessuna entita' sul repository ESEF (societa' non-UE o non quotata UE?)"
+        return None, (f"'{name}': nessuna entita' sul repository ESEF (cercato: "
+                      + ", ".join(query) + "; societa' non-UE o non quotata UE?)")
     target = _norm(name)
     exact = [e for e in ents
              if _norm((e.get("attributes") or {}).get("name")) == target]
@@ -178,7 +196,8 @@ def resolve_lei(ticker: str, company_name: Optional[str] = None) -> Tuple[Option
     e = pick[0]
     lei = (e.get("attributes") or {}).get("identifier") or e.get("id")
     ename = (e.get("attributes") or {}).get("name")
-    return lei, f"LEI risolto per NOME su filings.xbrl.org: {ename} (fallback dichiarato)"
+    return lei, (f"LEI risolto per NOME su filings.xbrl.org: {ename} "
+                 f"(query '{usata}', fallback dichiarato)")
 
 
 def _list_filings(lei: str, max_pages: int = 20) -> List[Dict[str, Any]]:

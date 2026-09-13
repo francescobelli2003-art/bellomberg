@@ -31,6 +31,7 @@ import json
 import os
 
 import pytest
+from bellomberg.core.language import language_context
 
 from bellomberg.agents.specialists.base import Blackboard
 
@@ -257,23 +258,28 @@ def test_lettore_file_a_meta_transitorio_viene_riletto(tmp_path, monkeypatch):
     assert r["running"] is True, r
 
 
-def test_lettore_illeggibile_tre_volte_lo_dice_col_suo_nome(tmp_path, monkeypatch):
+@pytest.mark.parametrize('language,prefix', [('it', 'errore lettura'), ('en', 'Read error')])
+def test_lettore_illeggibile_tre_volte_lo_dice_col_suo_nome(tmp_path, monkeypatch, language, prefix):
     api, p = _api_su(tmp_path, monkeypatch, VIVO % _adesso())
     colpi = _open_che_inciampa(monkeypatch, p, 99,
                                lambda: PermissionError(13, "Permission denied"))
-    r = api.get_agents_live()
+    with language_context(language):
+        r = api.get_agents_live()
     assert r["running"] is False
     assert r["heartbeat"] == "illeggibile", r
-    assert r["message"].startswith("read error") and "PermissionError" in r["message"], r
+    assert r["message"].startswith(prefix) and "PermissionError" in r["message"], r
     assert colpi["n"] == 3, "tre letture, non una e non infinite"
 
 
-def test_lettore_senza_file_resta_nessuna_run(tmp_path, monkeypatch):
+@pytest.mark.parametrize('language,message', [('it', 'Nessuna run attiva.'), ('en', 'No active run.')])
+def test_lettore_senza_file_resta_nessuna_run(tmp_path, monkeypatch, language, message):
     api, p = _api_su(tmp_path, monkeypatch, None)
-    assert api.get_agents_live() == {"running": False, "message": "No active run."}
+    with language_context(language):
+        assert api.get_agents_live() == {"running": False, "message": message}
 
 
-def test_lettore_file_sparito_dopo_un_reset_e_nessuna_run_non_un_guasto(tmp_path, monkeypatch):
+@pytest.mark.parametrize('language,message', [('it', 'Nessuna run attiva.'), ('en', 'No active run.')])
+def test_lettore_file_sparito_dopo_un_reset_e_nessuna_run_non_un_guasto(tmp_path, monkeypatch, language, message):
     """`POST /agents/live/reset` cancella il file: se arriva fra exists() e
     open(), tre riletture e poi «illeggibile» direbbero un guasto che non c'e'
     (review 27/08, seconda passata)."""
@@ -288,28 +294,33 @@ def test_lettore_file_sparito_dopo_un_reset_e_nessuna_run_non_un_guasto(tmp_path
         return vero(path, mode, *a, **k)
 
     monkeypatch.setattr(builtins, "open", finto)
-    assert api.get_agents_live() == {"running": False, "message": "No active run."}
+    with language_context(language):
+        assert api.get_agents_live() == {"running": False, "message": message}
 
 
-def test_lettore_heartbeat_che_non_e_un_oggetto_e_illeggibile_dichiarato(tmp_path, monkeypatch):
+@pytest.mark.parametrize('language,prefix,object_word', [('it', 'errore lettura', 'oggetto'), ('en', 'Read error', 'object')])
+def test_lettore_heartbeat_che_non_e_un_oggetto_e_illeggibile_dichiarato(tmp_path, monkeypatch, language, prefix, object_word):
     """JSON valido ma non un oggetto: prima l'endpoint lo RESTITUIVA com'era
     (il try interno inghiottiva l'AttributeError) e il frontend riceveva una
     lista al posto dello stato."""
     api, p = _api_su(tmp_path, monkeypatch, "[1, 2, 3]")
-    r = api.get_agents_live()
+    with language_context(language):
+        r = api.get_agents_live()
     assert isinstance(r, dict), r
     assert r["running"] is False and r["heartbeat"] == "illeggibile", r
-    assert r["message"].startswith("read error") and "oggetto" in r["message"], r
+    assert r["message"].startswith(prefix) and object_word in r["message"], r
 
 
-def test_lettore_altro_errore_di_lettura_e_illeggibile_dichiarato(tmp_path, monkeypatch):
+@pytest.mark.parametrize('language,prefix', [('it', 'Errore lettura'), ('en', 'read error')])
+def test_lettore_altro_errore_di_lettura_e_illeggibile_dichiarato(tmp_path, monkeypatch, language, prefix):
     """Il ramo esterno (un OSError fuori dalla tupla del retry) porta la stessa
     chiave: il frontend distingue SEMPRE «illeggibile» da «nessuna run»."""
     api, p = _api_su(tmp_path, monkeypatch, VIVO % _adesso())
     _open_che_inciampa(monkeypatch, p, 99, lambda: OSError(22, "Invalid argument (finto)"))
-    r = api.get_agents_live()
+    with language_context(language):
+        r = api.get_agents_live()
     assert r["running"] is False and r["heartbeat"] == "illeggibile", r
-    assert "read error" in r["message"] and "Invalid argument" in r["message"], r
+    assert prefix in r["message"] and "Invalid argument" in r["message"], r
 
 
 def test_lettore_stale_warning_intatto(tmp_path, monkeypatch):

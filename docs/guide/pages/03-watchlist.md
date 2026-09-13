@@ -29,6 +29,7 @@ A provider failure is not evidence that the instrument was deleted or that the
 price is zero. Confirm the symbol and venue in Global Markets before changing
 your saved entry.
 
-The mock below deliberately uses invented instrument names. It illustrates a
-research queue; it is not a suggested watchlist and none of its values are
-loaded into a new installation.
+Your note text and saved instrument identities remain unchanged when switching
+the interface language. Save notes deliberately before reloading the list.
+Documentation examples use synthetic instruments; they are not a suggested
+watchlist and none of their values are loaded into a new installation.

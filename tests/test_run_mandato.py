@@ -82,12 +82,13 @@ def test_run_ammette_un_profilo_di_esempio_valido(ambiente):
     assert len(chiamate) == 1
 
 
-def test_run_gia_attiva_resta_409(ambiente):
+@pytest.mark.parametrize('language,detail', [('it', 'e gia in corso'), ('en', 'already in progress')])
+def test_run_gia_attiva_resta_409(ambiente, language, detail):
     c, _p, chiamate, api = ambiente
     api.run_state.runs["run_esistente"] = {"status": "running"}
-    r = c.post("/consigliere/run")
+    r = c.post("/consigliere/run", headers={'X-BB-Language': language})
     assert r.status_code == 409
-    assert "already in progress" in r.json()["detail"]
+    assert detail in r.json()["detail"]
     assert chiamate == []
 
 

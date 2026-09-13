@@ -6,6 +6,10 @@
 # normalizza entrambi a LF nell'index). Il guardiano vero e' il test
 # tests/test_bat_crlf.py, che misura i byte dei .bat schedulati su disco.
 *.bat text eol=crlf
+# 12/09: il lanciatore senza finestra dei task (tools/ops/windows/run_hidden.vbs) ha gli
+# stessi vincoli dei .bat: CRLF, niente BOM, solo ASCII (WSH lo legge come ANSI). Anche qui
+# il guardiano vero e' tests/test_bat_crlf.py, che misura i byte su disco.
+*.vbs text eol=crlf
 # 05/09 (voce 7): gli hook di git sono script `sh` e un CR li rompe («\r: command not found»).
 tools/hooks/* text eol=lf
 # 05/09 (voce 8): il template dei segreti resta LF su ogni checkout. Misurato: con CRLF gitleaks

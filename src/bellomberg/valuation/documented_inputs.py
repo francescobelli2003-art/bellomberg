@@ -3,6 +3,8 @@
 Calculations belong to the existing family engines. Every accepted record is
 bound to one declared driver; schemas reject extra, stale and unconsumed data.
 """
+from bellomberg.core.language import scoped_language, text as _lt
+from bellomberg.reporting.i18n_excel import label as _xt
 from copy import deepcopy
 from datetime import timedelta
 from pathlib import Path
@@ -196,6 +198,7 @@ def finish_documented(bundle, bound, scenarios, *, metadata, output_dir, engine)
     return result
 
 
+@scoped_language
 def build_documented_workbook(payload, output_dir):
     """Immutable numeric snapshot, shared quality sheets; no second formula engine."""
     from openpyxl import Workbook
@@ -204,9 +207,9 @@ def build_documented_workbook(payload, output_dir):
     symbol=re.sub(r'[^A-Za-z0-9_-]','_',payload['ticker'])
     path=directory/('VAL_'+symbol+'_'+payload['generation_id']+'.xlsx')
     wb=Workbook(); ws=wb.active; ws.title='Valuation'
-    for row in [[payload['method'],payload['ticker']],['Fair value Base',payload.get('fair_value_base')],
-                ['Valuation date',payload.get('valuation_date')],['Basis',payload['valuation_basis']],
-                ['Assumptions','Regenerate the documented inputs; this workbook is a calculation snapshot.']]: ws.append(row)
+    for row in [[payload['method'],payload['ticker']],[_xt('Fair value Base'),payload.get('fair_value_base')],
+                [_xt('Valuation date'),payload.get('valuation_date')],[_xt('Basis'),payload['valuation_basis']],
+                [_xt('Assumptions'),_xt('Regenerate the documented inputs; this workbook is a calculation snapshot.')]]: ws.append(row)
     def flatten(value,prefix=''):
         if isinstance(value,dict):
             for key,child in value.items(): yield from flatten(child,prefix+'.'+str(key) if prefix else str(key))

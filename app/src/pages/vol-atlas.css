@@ -1,0 +1,53 @@
+/* F9 VolDeck C: approved diagnostic atlas. Shared dashboard CSS stays intact. */
+.obsx.vol-atlas { --va-bg:#0a0d12; --va-panel:#11161e; --va-line:#354052; --va-muted:#aeb9ca; --va-text:#eef2f7; --va-gold:#efbb66; --va-cyan:#83cfd2; color:var(--va-text); background:var(--va-bg); font:14px/1.48 Inter,'Segoe UI',sans-serif; display:flex; flex-direction:column; gap:22px; padding:12px 12px 28px; }
+.vol-atlas [hidden] { display:none!important; }
+.vol-atlas h1 { font-size:31px; line-height:1.2; letter-spacing:-.7px; font-weight:600; margin:4px 0 12px; }
+.vol-atlas h2 { font-size:18px; font-weight:600; margin:0; }
+.vol-atlas .va-heading { display:flex; align-items:center; justify-content:space-between; gap:24px; }
+.vol-atlas .va-heading p { color:var(--va-muted); max-width:75ch; margin:0; }
+.vol-atlas .va-heading .va-eyebrow { color:var(--va-gold); font:12px 'JetBrains Mono',monospace; }
+.vol-atlas .va-ticker { min-width:250px; }
+.vol-atlas .va-ticker label { display:block; font-size:13px; color:var(--va-muted); margin-bottom:6px; }
+.vol-atlas .va-ticker>div { display:flex; gap:8px; }
+.vol-atlas button { font:inherit; min-height:36px; border:1px solid var(--va-line); border-radius:3px; padding:7px 11px; color:var(--va-text); background:transparent; cursor:pointer; }
+.vol-atlas button:hover:enabled { background:#273141; }
+.vol-atlas button:disabled { opacity:.5; cursor:not-allowed; }
+.vol-atlas :is(button,input,select,summary):focus-visible { outline:2px solid var(--va-gold); outline-offset:3px; }
+.vol-atlas .va-ticker input { width:140px; min-width:0; font:14px 'JetBrains Mono',monospace; color:var(--va-text); border:1px solid #637088; padding:7px 10px; background:#0b1017; }
+.vol-atlas .va-tabs { display:flex; gap:12px; flex-wrap:wrap; border-bottom:1px solid var(--va-line); padding-bottom:18px; }
+.vol-atlas .va-tabs button[aria-pressed=true],.vol-atlas .va-expiries button[aria-pressed=true] { border-color:#7e6742; color:var(--va-gold); background:#242016; }
+.vol-atlas .va-provenance { display:flex; flex-wrap:wrap; align-items:center; gap:8px 18px; font-size:12px; color:var(--va-muted); overflow-wrap:anywhere; }
+.vol-atlas .va-provenance strong { font-size:18px; color:var(--va-text); }
+.vol-atlas .va-warning { color:#efbb66; }
+.vol-atlas .va-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border-block:1px solid var(--va-line); }
+.vol-atlas .va-metrics>div { border:0!important; border-right:1px solid var(--va-line)!important; padding:18px 22px!important; }
+.vol-atlas .va-metrics>div:last-child { border-right:0!important; }
+.vol-atlas .va-metrics>div>div { white-space:normal!important; text-transform:none!important; letter-spacing:normal!important; font-size:13px!important; color:var(--va-muted)!important; }
+.vol-atlas .va-metrics .num { font:24px/1.5 'JetBrains Mono',monospace!important; color:var(--va-text)!important; }
+.vol-atlas .va-display-selection>div:first-child { display:flex; justify-content:space-between; gap:16px; margin-bottom:10px; }
+.vol-atlas .va-display-selection p { color:var(--va-muted); font-size:13px; margin:10px 0 0; }
+.vol-atlas .va-expiries { display:flex; gap:7px; flex-wrap:wrap; max-height:190px; overflow:auto; padding:3px; }
+.vol-atlas .va-expiries button { font-size:12px; }
+.vol-atlas .va-empty { padding:28px; border:1px solid var(--va-line); background:var(--va-panel); }
+.vol-atlas .va-empty p { margin:14px 0; color:var(--va-muted); max-width:70ch; }
+.vol-atlas .p3 { background:var(--va-panel); border:1px solid var(--va-line); border-radius:4px; box-shadow:none; }
+.vol-atlas .p3 .tick,.vol-atlas .scanx::after { display:none; }
+.vol-atlas .p3h { font:600 14px/1.45 Inter,'Segoe UI',sans-serif; text-transform:none; letter-spacing:normal; color:var(--va-text); padding:16px 18px; min-height:0; flex-wrap:wrap; white-space:normal; gap:7px; border-bottom:1px solid var(--va-line); }
+.vol-atlas .p3h :is(.n,.side) { font-size:11px; color:var(--va-muted); font-weight:400; letter-spacing:normal; white-space:normal; }
+.vol-atlas .vsxleg { font:12px/1.6 Inter,'Segoe UI',sans-serif; text-transform:none; letter-spacing:normal; padding:14px 18px; color:var(--va-muted); }
+.vol-atlas .vsxgrid { grid-template-columns:minmax(0,1fr) 320px; gap:20px; }
+.vol-atlas .vsxrail { gap:20px; }
+.vol-atlas .vsxgrid>div:first-child { gap:20px!important; }
+.vol-atlas .vol-workbench { --vd-bg:var(--va-panel); --vd-panel:var(--va-panel); --vd-line:var(--va-line); --vd-text:var(--va-text); --vd-muted:var(--va-muted); --vd-gold:var(--va-gold); --vd-cyan:var(--va-cyan); font-size:14px; }
+.vol-atlas :is(.vd-catalog,.vd-chain,.vd-lab) { border-radius:4px; }
+.vol-atlas .vd-primary { color:#15120d; background:var(--va-gold); border-color:var(--va-gold); }
+.vol-atlas .vd-chain-scroll { max-height:560px; }
+.vol-atlas :is(.vd-chain th,.vd-chain td) { font-size:12px; padding:10px; }
+.vol-atlas .vd-field>span,.vol-atlas .vd-actions small,.vol-atlas .vd-section-head p { font-size:13px; }
+.vol-atlas .va-context-action { border-left:3px solid var(--va-gold); padding:10px 16px; background:#211e18; }
+.vol-atlas .va-instruments .tscroll { overflow:auto; }
+@media(max-width:1160px) { .vol-atlas .vsxgrid { grid-template-columns:1fr; }.vol-atlas .vsxrail { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:760px) { .obsx.vol-atlas { padding:6px; gap:16px; }.vol-atlas .va-heading { align-items:flex-start; flex-direction:column; }.vol-atlas .va-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }.vol-atlas .vsxrail { grid-template-columns:1fr; }.vol-atlas .va-display-selection>div:first-child { flex-wrap:wrap; } }
+@media(prefers-reduced-motion:reduce) { .vol-atlas * { animation:none!important; transition:none!important; } }
+
+.vol-atlas svg[tabindex]:focus-visible { outline:2px solid var(--va-gold); outline-offset:3px; }

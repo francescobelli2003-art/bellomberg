@@ -1,4 +1,6 @@
-import { API_BASE, getSessionToken } from './api';
+import { t as tr } from '../i18n/t';
+import { localizePayload } from './api-presentation';
+import { API_BASE, requestHeaders } from './api';
 
 export type JournalKind = 'thesis' | 'macro';
 export type JournalStatus = 'active' | 'archived' | 'all';
@@ -14,7 +16,15 @@ export interface JournalRevision extends JournalDraft {
 }
 export interface JournalPageResult<T> { items: T[]; total: number; limit: number; offset: number }
 export class JournalError extends Error {
-  constructor(message: string, public status: number, public code = '', public currentVersion?: number) { super(message); }
+  constructor(message: string, public status: number, public code = '', public currentVersion?: number, payload?: unknown) {
+    super(message);
+    Object.defineProperty(this, 'message', { configurable: true, get: () => {
+      if (status === 401 || status === 403) return tr('journal.expired');
+      if (code === 'timeout' || code === 'network') return tr(code === 'timeout' ? 'journal.timeout' : 'journal.network');
+      const detail = (localizePayload(payload) as any)?.detail;
+      return typeof detail === 'string' ? detail : detail?.message || message;
+    } });
+  }
 }
 
 async function request<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
@@ -24,25 +34,25 @@ async function request<T>(path: string, method = 'GET', body?: unknown, signal?:
   signal?.addEventListener('abort', abort, { once: true });
   const timer = window.setTimeout(abort, 30000);
   try {
-    const token = getSessionToken();
+    const headers = requestHeaders();
     const response = await fetch(`${API_BASE}/journal${path}`, {
       method, headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-        ...(token ? { 'X-BB-Token': token } : {}) },
+        ...headers },
       body: body === undefined ? undefined : JSON.stringify(body), signal: timeout.signal, cache: 'no-store',
     });
     const data = await response.json();
     if (!response.ok) {
       const detail = data?.detail;
       const message = response.status === 401 || response.status === 403
-        ? 'Sessione scaduta. Conserva la bozza prima di accedere di nuovo.'
-        : typeof detail === 'string' ? detail : detail?.message || `Diario non disponibile (HTTP ${response.status}).`;
-      throw new JournalError(message, response.status, detail?.code, detail?.current_version);
+        ? tr('journal.expired')
+        : typeof detail === 'string' ? detail : detail?.message || tr('journal.unavailable', {a: response.status});
+      throw new JournalError(message, response.status, detail?.code, detail?.current_version, data);
     }
     return data as T;
   } catch (error) {
     if (error instanceof JournalError || signal?.aborted) throw error;
-    if (timeout.signal.aborted) throw new JournalError('Richiesta scaduta. La bozza è conservata; verifica le note salvate prima di riprovare.', 0, 'timeout');
-    throw new JournalError('Collegamento al Diario non riuscito. La bozza resta nell’editor.', 0, 'network');
+    if (timeout.signal.aborted) throw new JournalError(tr('journal.timeout'), 0, 'timeout');
+    throw new JournalError(tr('journal.network'), 0, 'network');
   } finally {
     window.clearTimeout(timer);
     signal?.removeEventListener('abort', abort);

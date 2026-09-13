@@ -25,3 +25,12 @@ export function apiPort(value: string | undefined): number {
   }
   return n;
 }
+
+/** Source installs on POSIX keep their dependencies in the backend virtual environment. */
+export function defaultPython(platform: string, backendRoot: string, exists: (file: string) => boolean):
+  { python: string; source: string; tried: string[] } {
+  if (platform === 'win32') return { python: 'python', source: 'PATH', tried: [] };
+  const venv = backendRoot.replace(/\/+$/, '') + '/.venv/bin/python';
+  if (exists(venv)) return { python: venv, source: 'venv', tried: [] };
+  return { python: 'python3', source: 'PATH', tried: [venv] };
+}

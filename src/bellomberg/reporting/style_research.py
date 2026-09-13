@@ -5,6 +5,7 @@ sfondo bianco, gridline leggere, titoli left-aligned, source line.
 API IDENTICA a style_citadel: drop-in replacement per charts_agent & co.
 """
 import os as _os
+import sys as _sys
 try:
     import matplotlib
     matplotlib.use("Agg")
@@ -14,6 +15,8 @@ try:
     # Font Arial-like ROBUSTO: Arial (Windows), Liberation (Linux), DejaVu fallback
     _FONT_CANDS = [
         ("Arial", "C:/Windows/Fonts/arial.ttf"),
+        ("Arial", "/System/Library/Fonts/Supplemental/Arial.ttf"),
+        ("Arial", "/Library/Fonts/Arial.ttf"),
         ("Liberation Sans", "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"),
         ("Liberation Sans", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
         ("DejaVu Sans", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
@@ -25,6 +28,8 @@ try:
                 _fm.fontManager.addfont(_p); FONT = _nm; break
         except Exception:
             continue
+    if FONT == "DejaVu Sans":
+        print("[style_research] Font Arial/Liberation non disponibile: ripiego DejaVu Sans.", file=_sys.stderr)
 except ImportError:
     MPL_AVAILABLE = False
     FONT = "sans-serif"
@@ -128,10 +133,13 @@ def add_branding(fig, title, subtitle=None):
         pass
 
 
-def add_footer(fig, text="Source: Bellomberg Quant Engine"):
+def add_footer(fig, text=None):
     """Source line in basso a sinistra (standard research)."""
     if not MPL_AVAILABLE:
         return
+    if text is None:
+        from bellomberg.core.language import text as translated
+        text = translated("Fonte: motore quantitativo Bellomberg", "Source: Bellomberg Quant Engine")
     fig.text(0.02, 0.015, text, fontsize=6.5, color=COLORS["muted"], ha="left")
 
 

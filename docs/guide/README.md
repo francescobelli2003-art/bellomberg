@@ -1,8 +1,9 @@
 # The Bellomberg handbook
 
 This handbook explains the source distribution and its current interface. The
-app uses Italian labels; the guide is in English and includes the labels you
-will see on screen. Function numbers follow the shared navigation registry.
+app lets you choose English or Italian at first login and in Settings. Historical
+research keeps its original text. This guide is in English; the glossary also
+explains Italian labels. Function numbers follow the shared navigation registry.
 **F19 opens the settings panel; it is not a separate research page.**
 
 Every illustration is an original **DEMO mockup** made with invented instruments,
@@ -77,6 +78,13 @@ models or a committee run may consume your own provider quota or credits.
 | Archivia / Ripristina | Archive / restore |
 | n.d. | Not available; not a measured zero |
 
+## Reference
+
+- [Documented sector valuations](sector-valuations.md): the record contract behind
+  the methods shown in **F6 Fundamentals**, and why a recognized method still
+  yields `FV n.d.` when its records are missing.
+- [Changelog](../../CHANGELOG.md): what each published version contains.
+
 For contributors: [architecture](../ARCHITETTURA.md),
-[contribution guide](../../CONTRIBUTING.md) and
-[documentation assets](assets.md).
+[contribution guide](../../CONTRIBUTING.md), [support channels](../../SUPPORT.md)
+and [documentation assets](assets.md).

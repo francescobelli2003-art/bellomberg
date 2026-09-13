@@ -3,6 +3,7 @@ charts_institutional.py - Grafici research istituzionale TOP (#183).
 Font Liberation Sans (Arial-like), palette Office, valori finali, gridline impercettibili.
 """
 import os
+import sys
 from datetime import datetime
 
 from bellomberg.core.paths import REPORT_DIR
@@ -16,6 +17,8 @@ try:
     _FONT_CANDIDATES = [
         ("Arial", "C:/Windows/Fonts/arial.ttf"),
         ("Arial", "C:/Windows/Fonts/Arial.ttf"),
+        ("Arial", "/System/Library/Fonts/Supplemental/Arial.ttf"),
+        ("Arial", "/Library/Fonts/Arial.ttf"),
         ("Liberation Sans", "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"),
         ("Liberation Sans", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
         ("DejaVu Sans", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
@@ -27,6 +30,8 @@ try:
                 font_manager.fontManager.addfont(_p); FONT = _name; break
         except Exception:
             continue
+    if FONT == "DejaVu Sans":
+        print("[charts_institutional] Font Arial/Liberation non disponibile: ripiego DejaVu Sans.", file=sys.stderr)
 except ImportError:
     MPL = False; FONT = "sans-serif"
 
@@ -41,6 +46,7 @@ DIR=str(REPORT_DIR / "inst_charts")
 # identita' "terminale" del memo (fascetta obsidian + titolo ambra): stesso modulo
 # usato da charts_rates e charts_quant, cosi' memo e appendix parlano una lingua sola
 import bellomberg.reporting.style_terminal as _st
+from bellomberg.reporting.i18n import label as _t, number as _n, localized
 
 def _setup():
     plt.rcParams.update({"figure.facecolor":"white","axes.facecolor":"white",
@@ -59,7 +65,9 @@ def _title(fig,t,sub=None,source=None):
     I chiamanti lasciano l'area dati sotto ~0.80 di figura."""
     _st.titlebar(fig,t,sub,source,compact=True)
 
-def line_chart(series,x_labels,title,sub=None,source="Source: Bellomberg Quant Engine",fname="line",ylabel=None):
+@localized
+def line_chart(series,x_labels,title,sub=None,source=None,fname="line",ylabel=None):
+    source = _t("Source: Bellomberg Quant Engine") if source is None else source
     if not MPL: return None
     try:
         _setup(); fig,ax=plt.subplots(figsize=(5.2,2.7))
@@ -89,7 +97,9 @@ def line_chart(series,x_labels,title,sub=None,source="Source: Bellomberg Quant E
     except Exception as e:
         plt.close("all"); print("line err",e); return None
 
-def hbar_chart(items,title,sub=None,source="Source: Bellomberg Quant Engine",unit="%",fname="hbar",color_by_sign=False):
+@localized
+def hbar_chart(items,title,sub=None,source=None,unit="%",fname="hbar",color_by_sign=False):
+    source = _t("Source: Bellomberg Quant Engine") if source is None else source
     if not MPL: return None
     try:
         items=list(items); _setup()
@@ -120,7 +130,9 @@ def hbar_chart(items,title,sub=None,source="Source: Bellomberg Quant Engine",uni
     except Exception as e:
         plt.close("all"); print("hbar err",e); return None
 
-def donut_chart(items,center_label,title,sub=None,source="Source: Bellomberg Quant Engine",fname="donut",top_n=7):
+@localized
+def donut_chart(items,center_label,title,sub=None,source=None,fname="donut",top_n=7):
+    source = _t("Source: Bellomberg Quant Engine") if source is None else source
     if not MPL: return None
     try:
         # mai piu' spicchi che colori: la palette CAT validata ne ha 8, e con i%len(CAT)
@@ -129,7 +141,7 @@ def donut_chart(items,center_label,title,sub=None,source="Source: Bellomberg Qua
         # stesso colore la rendono ambigua (review 15/07).
         top_n=min(top_n,len(_st.CAT))
         items=sorted(items,key=lambda x:-x[1]); top=items[:top_n]; other=sum(v for _,v in items[top_n:])
-        labels=[k for k,_ in top]+(["Altri"] if other>0 else [])
+        labels=[k for k,_ in top]+([_t("Altri")] if other>0 else [])
         vals=[v for _,v in top]+([other] if other>0 else [])
         _setup(); fig,ax=plt.subplots(figsize=(5.2,2.7))
         # categorie SENZA ordine intrinseco -> palette CAT validata colorblind-safe,
@@ -150,7 +162,9 @@ def donut_chart(items,center_label,title,sub=None,source="Source: Bellomberg Qua
     except Exception as e:
         plt.close("all"); print("donut err",e); return None
 
-def grouped_bars(categories,series,title,sub=None,source="Source: Bellomberg Quant Engine",fname="grouped",unit=""):
+@localized
+def grouped_bars(categories,series,title,sub=None,source=None,fname="grouped",unit=""):
+    source = _t("Source: Bellomberg Quant Engine") if source is None else source
     if not MPL: return None
     try:
         _setup(); fig,ax=plt.subplots(figsize=(5.2,2.7))
@@ -171,11 +185,13 @@ def grouped_bars(categories,series,title,sub=None,source="Source: Bellomberg Qua
     except Exception as e:
         plt.close("all"); print("grp err",e); return None
 
-def sizing_headroom_chart(positions, title="Esposizione attuale vs limite di rischio",
-                          sub="Barra navy = peso attuale · marker arancio = size massima ammessa · fascia = capacita' residua",
-                          source="Source: Bellomberg Sizing Engine (limiti vol x correlazione)", fname="sizing"):
+@localized
+def sizing_headroom_chart(positions, title=None, sub=None, source=None, fname="sizing"):
     """Grafico esposizione vs limite per nome. positions: lista da sizing['positions']
     (ticker, current_pct, max_position_pct, trim_eur)."""
+    title = _t("Esposizione attuale vs limite di rischio") if title is None else title
+    sub = _t("Barra navy = peso attuale · marker arancio = size massima ammessa · fascia = capacita' residua") if sub is None else sub
+    source = _t("Source: Bellomberg Sizing Engine (limiti vol x correlazione)") if source is None else source
     if not MPL or not positions:
         return None
     try:
@@ -196,7 +212,7 @@ def sizing_headroom_chart(positions, title="Esposizione attuale vs limite di ris
             ax.annotate(f"max {m:.0f}%",xy=(m,yi),xytext=(5,0),textcoords="offset points",
                         va="center",fontsize=6.8,color=ORANGE,fontweight="bold")
         ax.set_yticks(list(ys)); ax.set_yticklabels(names,fontsize=8)
-        ax.set_xlabel("% del capitale investito (cash escluso)",fontsize=7.5)
+        ax.set_xlabel(_t("% del capitale investito (cash escluso)"),fontsize=7.5)
         ax.set_xlim(0,xmax)
         for s in ["top","right","left"]: ax.spines[s].set_visible(False)
         ax.spines["bottom"].set_color(RULE); ax.tick_params(length=2)

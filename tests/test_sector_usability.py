@@ -1,5 +1,6 @@
 """Synthetic cache/consumer contract tests; no provider, workbook or live DB."""
 from copy import deepcopy
+from datetime import date, timedelta
 
 import pytest
 
@@ -9,6 +10,40 @@ from bellomberg.valuation.valuation_profile import resolve_valuation_profile
 
 
 DAY = "2026-09-10"
+
+
+@pytest.mark.parametrize("days_after", [1, 30])
+def test_snapshot_read_uses_its_cutoff_but_explicit_requests_stay_strict(monkeypatch, days_after):
+    """Restoring the wall-clock default must fail this historical-read contract."""
+    original = payload_for()
+    before = deepcopy(original)
+
+    class ReadingDate(date):
+        @classmethod
+        def today(cls):
+            return cls.fromisoformat(DAY) + timedelta(days=days_after)
+
+    monkeypatch.setattr(dcf_quality, "date", ReadingDate)
+    assert dcf_quality.assess_valuation_usability(original)["usable"] is True
+    assert dcf_quality.normalize_valuation_payload(original)["fair_value_weighted"] == 120.0
+    assert original == before
+    assert dcf_quality.assess_valuation_usability(original, as_of=DAY)["usable"] is True
+    requested = ReadingDate.today().isoformat()
+    refused = dcf_quality.assess_valuation_usability(original, as_of=requested)
+    assert refused["usable"] is False
+    assert any("cutoff" in reason for reason in refused["reasons"])
+    expected = dict(original["valuation_decision"], as_of=requested)
+    assert not dcf_quality.assess_valuation_usability(original, expected_decision=expected)["usable"]
+
+
+@pytest.mark.parametrize("invalid_cutoff", [None, "", "invalid", "2026-02-30"])
+def test_historical_read_never_invents_a_missing_or_invalid_snapshot_cutoff(invalid_cutoff):
+    original = payload_for()
+    original["valuation_decision"]["as_of"] = invalid_cutoff
+    result = dcf_quality.normalize_valuation_payload(original)
+    assert result["valuation_usability"]["usable"] is False
+    assert result["fair_value_weighted"] is None
+    assert any("cutoff" in reason for reason in result["valuation_usability"]["reasons"])
 
 
 def payload_for(model="software"):

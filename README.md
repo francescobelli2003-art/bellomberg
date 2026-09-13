@@ -9,8 +9,9 @@ record what you decided. You remain the decision maker.
 
 ![Bellomberg Command Center — original DEMO illustration with entirely synthetic data](docs/assets/product/01-command-center.svg)
 
-*Illustration, not a screenshot. All instruments, values and research text in the
-documentation mockups are invented. Your installation starts with an empty book.*
+*Illustration, not a screenshot: a simplified layout with mostly Italian labels.
+All instruments, values and research text in the documentation mockups are
+invented. Your installation starts with an empty book.*
 
 [Install](#install-on-windows) · [First session](docs/guide/first-session.md) ·
 [Full handbook](docs/guide/README.md) · [Updates and privacy](docs/guide/updates.md)
@@ -30,16 +31,18 @@ documentation mockups are invented. Your installation starts with an empty book.
 - **Keep an accountable research record.** Read prior memos, record feedback,
   inspect saved score history and maintain a versioned investment journal.
 
-The interface currently uses **Italian labels**. The English handbook explains
-each label and workflow. Bellomberg is research software, not a broker or an
+Choose **English or Italian** after the first login and change it in Settings.
+Saved memos and source quotations retain their original language; switching the
+interface does not regenerate research. Bellomberg is research software, not a broker or an
 automated trading service. Valuations, simulations and AI responses are estimates
 or analysis. This is not financial advice and outcomes are not guaranteed.
 
 ## Install on Windows
 
 The validated desktop workflow is Windows with an external Python backend.
-You need **Git**, **Python 3.10+** and **Node.js 22.12+**. CI uses Python 3.12 and
-Node 22; those are sensible starting points for a new environment. Keep the
+You need **Git**, **Python 3.10+** and **Node.js 22.12+**. Python 3.12 and Node 22
+are the documented CI baseline; Linux CI also checks Python 3.14. A fresh Windows
+source installation has been exercised with Python 3.14 and Node 24. Keep the
 checkout and live database on a local disk, outside folders synchronized while
 the application is writing.
 
@@ -69,8 +72,10 @@ the application is writing.
 3. Open `.env` in a text editor. Set `BELLOMBERG_PIN` to **four ASCII digits**,
    different from the rejected default `1234`. For AI features, add your own
    `OPENROUTER_API_KEY` and review the per-function model settings. Add market-data
-   keys only for the features you want. Keep email fields empty unless you intend
-   to configure delivery. See [configuration](docs/guide/configuration.md).
+   keys only for the features you want; US filings and European reports also need
+   `SEC_CONTACT_EMAIL`. Keep the delivery fields `EMAIL_FROM`, `EMAIL_PASSWORD` and
+   `EMAIL_TO` empty unless you intend to configure delivery. See
+   [configuration](docs/guide/configuration.md).
 
 4. Install the desktop dependencies and Electron executable.
 
@@ -91,21 +96,28 @@ the application is writing.
    ```
 
    Keep this terminal open. Electron starts the backend if it is not already
-   running. Sign in with your PIN. When using a new terminal, set the environment
-   variables again before launching.
+   running. Sign in with your PIN, choose English or Italian and save the choice.
+   A new profile then opens **F18 Mandate and Journal**; the other pages remain
+   reachable. When using a new terminal, set the environment variables again
+   before launching.
 
 The [installation guide](docs/guide/installation.md) includes expected results,
 separate backend startup, installed-desktop configuration and troubleshooting.
 The Windows installer contains the interface; it **does not contain Python,
 backend dependencies or your data**. It is unsigned unless a release explicitly
-states otherwise. macOS/Linux source development is possible, but this release
-does not certify their installers or the Windows scheduler workflow there.
+states otherwise. Neither the macOS source CI job nor the platform-contract tests
+(which run without Electron or Python) establish a successful installation on a
+physical Mac. No macOS bundle, signature, notarization or Linux installer is
+certified; see the
+[exact platform limits](docs/guide/installation.md#macos-and-linux).
 
 ## Your first research session
 
-1. Open **F16 Trade Entry**. Record your initial deposit, then your trades
-   with the exact ticker, quantity, price and quote currency. This records your
-   ledger; it does not send an order to a broker.
+1. Open **F16 Trade Entry**. Record your initial deposit to initialize cash, then
+   enter actual trades with their execution date. Use **Opening position** to declare an existing
+   holding's quantity, unit cost, currency, balance date and source. An opening
+   balance creates no cash movement or invented purchase. Review each preview
+   before confirming. Neither workflow sends an order to a broker.
 2. Check **F1 Command Center** and **F17 Movements** against your own records.
    Missing prices or FX must be investigated before trusting dependent totals.
 3. Open **F18 Mandate**, define your own preferences, validate the preview and
@@ -113,12 +125,12 @@ does not certify their installers or the Windows scheduler workflow there.
 4. Try **F11 Agent Chat**. Select a desk and use a suggested question or one of
    your portfolio ticker buttons. Clicking a ticker sends a question tailored to
    the selected desk and can incur model charges.
-5. When ready, start **Run Consigliere**, review the confirmation and follow
-   **F12 Agents Live**. Read the result in **F14 Memo Archive** and record your
-   response in **F15 Decisions**.
+5. When ready, start a committee run from **F1**, **F12** or **Ctrl+K**, review
+   the confirmation and follow **F12 Agents Live**. Read the result in
+   **F14 Memo Archive** and record your response in **F15 Decisions**.
 6. Use **F13 Agent Progress** to inspect saved outcomes and limitations. Keep
-   your own evolving thesis in **F18 → Diario**; journal notes are not sent to
-   agents automatically.
+   your own evolving thesis in **F18 → Journal** (*Diario*); journal notes are
+   not sent to agents automatically.
 
 Follow the [complete walkthrough](docs/guide/first-session.md) for dependencies,
 empty states and what to inspect before progressing.
@@ -152,7 +164,8 @@ a keyboard that has no physical keys with those names.
 | F19 | [Settings](docs/guide/pages/19-settings.md) | Backups, scheduled tasks and system status panel |
 
 Each linked chapter includes an original synthetic mockup, the controls to use,
-the data it needs, and how to interpret missing or uncertain results.
+the data it needs, and how to interpret missing or uncertain results. Mockups
+use mostly Italian labels and simplified layouts that can differ from the app.
 
 ## Your data and your choices
 

@@ -1,3 +1,5 @@
+import { t as tr } from '@/i18n/t';
+import { linguaCorrente, localeDi } from '@/i18n/lingua';
 /* ============================================================
    F4 AGENTS LIVE v3 — "LA PLANCIA ORBITALE" (Opus 5, 26/07)
 
@@ -29,6 +31,8 @@
    e' quella di prima: non si tocca cio' che funziona.
    ============================================================ */
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { useT } from '@/i18n/provider';
+import { leggiDetail } from '@/lib/quota';
 import { useNavigate } from 'react-router-dom';
 import { Bellomberg, AgentInfo, AgentsLiveState, EnginesInfo, UsageBySpecialist, UsageTotal } from '@/lib/api';
 import RunConfirmDialog from '@/components/RunConfirmDialog';
@@ -44,19 +48,19 @@ import './agents-plancia.css';
 const ACTIVE_RUN_KEY = 'bellomberg_active_run';
 const POLL_INTERVAL_MS = 1500;
 
-/* ── formattatori: UNA sola convenzione in tutta la pagina (it-IT) ───────
+/* ── formattatori: convenzione della lingua corrente in tutta la pagina ─
    null/NaN => "n.d.": il dato NON e' calcolabile e va dichiarato. Uno
    "0,00 EUR" al posto di un buco e' il bug peggiore su un pannello costi
    (regola no-fallback-silenziosi): qui non deve MAI comparire. */
 const fmtEur = (v: number | null | undefined) =>
-  v == null || !isFinite(v) ? 'n.d.'
-    : new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR',
-        minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+  v == null || !isFinite(v) ? tr('activity.unavailable')
+    : new Intl.NumberFormat(localeDi(linguaCorrente()), { style: 'currency', currency: 'EUR',
+        minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true }).format(v);
 const fmtN = (v: number | null | undefined, d = 0) =>
-  v == null || !isFinite(v) ? 'n.d.'
-    : new Intl.NumberFormat('it-IT', { minimumFractionDigits: d, maximumFractionDigits: d }).format(v);
+  v == null || !isFinite(v) ? tr('activity.unavailable')
+    : new Intl.NumberFormat(localeDi(linguaCorrente()), { minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: true }).format(v);
 const fmtTok = (v: number | null | undefined) =>
-  v == null ? 'n.d.' : v >= 1000 ? fmtN(v / 1000, 1) + 'k' : fmtN(v);
+  v == null ? tr('activity.unavailable') : v >= 1000 ? fmtN(v / 1000, 1) + 'k' : fmtN(v);
 
 /* status !== 'ok' = BUCO, esattamente come cost_eur null. status assente =
    heartbeat di una run vecchia -> nessun giudizio, in nessuno dei due sensi. */
@@ -66,12 +70,12 @@ const isHoleStatus = (s?: string | null) => s != null && s !== 'ok';
    non calcolabili su una chiamata riuscita. Il marchio KO va solo ai primi. */
 const isErrorStatus = (s?: string | null) => s === 'api_error' || s === 'usage_unknown';
 
-const STATUS_DESC: Record<string, string> = {
-  api_error: "l'agente ha fallito la chiamata API",
-  usage_unknown: 'la risposta API non ha esposto usage: token IGNOTI (diverso da zero)',
-  model_unknown: 'modello non a listino: costo NON calcolabile',
-  pricing_unavailable: 'listino prezzi non disponibile: costo NON calcolabile',
-};
+function statusDescriptions(): Record<string, string> { return {
+  api_error: tr('activity.apiFailed'),
+  usage_unknown: tr('activity.usageMissing'),
+  model_unknown: tr('activity.modelUnpriced'),
+  pricing_unavailable: tr('activity.pricingMissing'),
+}; }
 
 /* ── UN SOLO VERDETTO PER AGENTE, e vince il peggiore ────────────────────
    Prima la stessa card mostrava un badge verde "ok" (da specialist_status,
@@ -79,22 +83,26 @@ const STATUS_DESC: Record<string, string> = {
    usage.status = api_error, che dice "ha sbattuto contro l'API"). Sono due
    domande diverse, ma a schermo deve arrivare una risposta sola. */
 type Verdict = { k: string; cls: string; t: string };
+type StopNotice = { issues: { source: string; detail: string | null }[]; running: boolean | null };
+const phaseText = (key: string) => key === 'SINTESI' ? tr('activity.synthesis')
+  : key === 'FRA ROUND' ? tr('activity.betweenRounds') : key;
 function verdictOf(d: Pick<Desk, 'statusRun' | 'statusUsage' | 'cost'>): Verdict {
+  const STATUS_DESC = statusDescriptions();
   if (isErrorStatus(d.statusUsage))
     /* «ha consegnato il report» solo se e' done: un desk KO in un round prima
        puo' essere in corsa ORA (review F45), e allora si dicono i due fatti */
     return { k: 'KO', cls: 'ko',
-      t: `${STATUS_DESC[d.statusUsage!] || 'errore dichiarato dal backend'}${
-        d.statusRun === 'running' ? ` in un round precedente — in corsa ora, speso finora ${fmtEur(d.cost)}`
-        : d.statusRun === 'done' ? ` — ha comunque consegnato il report e speso ${fmtEur(d.cost)}`
-        : ` — speso ${fmtEur(d.cost)}`}` };
+      t: `${STATUS_DESC[d.statusUsage!] || tr('activity.declaredError')}${
+        d.statusRun === 'running' ? tr('activity.earlierRound', {a: fmtEur(d.cost)})
+        : d.statusRun === 'done' ? tr('activity.deliveredDespite', {a: fmtEur(d.cost)})
+        : tr('activity.spent', {a: fmtEur(d.cost)})}` };
   if (isHoleStatus(d.statusUsage))
     return { k: 'n.d.', cls: 'amc',
-      t: STATUS_DESC[d.statusUsage!] || `anomalia dichiarata dal backend (status ${d.statusUsage})` };
-  if (d.statusRun === 'done') return { k: 'OK', cls: 'okc', t: 'report consegnato, nessun errore API dichiarato' };
-  if (d.statusRun === 'running') return { k: 'RUN', cls: 'amc', t: 'in esecuzione' };
-  if (d.statusRun === 'error') return { k: 'KO', cls: 'ko', t: 'errore dichiarato su specialist_status' };
-  return { k: '—', cls: 'nd', t: 'nessuno stato dichiarato dal payload per questo agente' };
+      t: STATUS_DESC[d.statusUsage!] || tr('activity.backendAnomaly', {a: d.statusUsage!}) };
+  if (d.statusRun === 'done') return { k: 'OK', cls: 'okc', t: tr('activity.reportDelivered') };
+  if (d.statusRun === 'running') return { k: 'RUN', cls: 'amc', t: tr('activity.executing') };
+  if (d.statusRun === 'error') return { k: 'KO', cls: 'ko', t: tr('activity.specialistError') };
+  return { k: '—', cls: 'nd', t: tr('activity.statusNotDeclared') };
 }
 
 /* buchi da dichiarare sul totale. NB: unpriced_agents del backend mescola DUE
@@ -104,17 +112,17 @@ function verdictOf(d: Pick<Desk, 'statusRun' | 'statusUsage' | 'cost'>): Verdict
 function costNotes(u?: UsageTotal | null, by?: Record<string, UsageBySpecialist> | null): string[] {
   if (!u) return [];
   const n: string[] = [];
-  if (u.error) n.push('aggregazione costi FALLITA: ' + u.error);
+  if (u.error) n.push(tr('activity.costAggregationError', { a: u.error }));
   const named = u.unpriced_agents || [];
   const noCost = named.filter(a => by?.[a] && by[a].cost_eur == null);
   const onlyPartial = named.filter(a => by?.[a] && by[a].cost_eur != null);
   const unknownKind = named.filter(a => !by?.[a]);
-  if (noCost.length) n.push('costo non calcolabile per: ' + noCost.join(', '));
-  if (onlyPartial.length) n.push("costo PARZIALE (e' un MINIMO) per: " + onlyPartial.join(', '));
-  if (unknownKind.length) n.push('costo mancante o parziale per: ' + unknownKind.join(', '));
-  if (!named.length && u.partial === true) n.push("totale PARZIALE: almeno una voce non e' prezzabile");
-  if (u.fx_source === 'fallback') n.push('FX USD/EUR da fallback, non live — costo indicativo');
-  if (u.fx_source === 'n.d.') n.push('FX USD/EUR non disponibile');
+  if (noCost.length) n.push(tr('activity.costCannotCalculate', { a: noCost.join(', ') }));
+  if (onlyPartial.length) n.push(tr('activity.partialCost', { a: onlyPartial.join(', ') }));
+  if (unknownKind.length) n.push(tr('activity.missingOrPartialCost', { a: unknownKind.join(', ') }));
+  if (!named.length && u.partial === true) n.push(tr('activity.partialTotal'));
+  if (u.fx_source === 'fallback') n.push(tr('activity.fxFallback'));
+  if (u.fx_source === 'n.d.') n.push(tr('activity.fxMissing'));
   return n;
 }
 const isPartial = (u?: UsageTotal | null) =>
@@ -122,6 +130,7 @@ const isPartial = (u?: UsageTotal | null) =>
 
 /* ══════════════════════════════════════════════════════════════════════ */
 export default function AgentsLive() {
+  const tr = useT();
   const navigate = useNavigate();
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [engines, setEngines] = useState<EnginesInfo | undefined>(undefined);
@@ -134,7 +143,7 @@ export default function AgentsLive() {
      resta l'ultimo stato buono e il buco si dichiara in vetrina CON LA SUA
      DURATA (da = primo poll illeggibile consecutivo, al = l'ultimo): senza,
      un buco di 15 minuti si leggeva come un glitch momentaneo (review 31/08). */
-  const [hbIll, setHbIll] = useState<{ msg: string; da: number; al: number } | null>(null);
+  const [hbIll, setHbIll] = useState<{ msg: string | null; da: number; al: number } | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const [cursor, setCursor] = useState<number | null>(null);
@@ -167,7 +176,7 @@ export default function AgentsLive() {
   useEffect(() => {
     Bellomberg.agentsList()
       .then(r => { setAgents(r?.agents || []); setEngines(r?.engines); setRosterErr(null); })
-      .catch(e => setRosterErr(e?.response?.data?.detail || e?.message || 'errore sconosciuto'));
+      .catch(e => setRosterErr(leggiDetail(e?.response?.data?.detail || e?.message || String(e))));
   }, []);
 
   useEffect(() => {
@@ -183,7 +192,7 @@ export default function AgentsLive() {
           const illeggibile = s.heartbeat === 'illeggibile'
             || (s.running === false && typeof s.message === 'string' && s.message.startsWith('read error'));
           if (illeggibile) {
-            const msg = s.message || 'heartbeat illeggibile';
+            const msg = s.message || null;
             setHbIll(prev => ({ msg, da: prev?.da ?? Date.now(), al: Date.now() }));
           }
           else { setState(s); setHbIll(null); }
@@ -193,7 +202,7 @@ export default function AgentsLive() {
       /* l'errore di RETE azzera hbIll: «l'ultimo poll ha risposto …» sarebbe
          falso sotto un poll che non ha risposto affatto (review 31/08); se al
          ritorno della rete il file e' ancora illeggibile, hbIll torna da solo */
-      catch (e: any) { if (mounted) { setLiveErr(e?.response?.data?.detail || e?.message || 'errore sconosciuto'); setHbIll(null); } }
+      catch (e: any) { if (mounted) { setLiveErr(leggiDetail(e?.response?.data?.detail || e?.message || String(e))); setHbIll(null); } }
       finally { inFlight = false; }
     };
     tick();
@@ -218,7 +227,7 @@ export default function AgentsLive() {
     return () => clearInterval(i);
   }, [state?.start_time, isRunning]);
 
-  const P = useMemo(() => derivePlancia(state, agents, engines, now), [state, agents, engines, now]);
+  const P = useMemo(() => derivePlancia(state, agents, engines, now), [state, agents, engines, now, tr]);
 
   /* Il cursore: su una run VIVA insegue il presente; su una run chiusa parte
      dal minuto di massima attivita', che e' l'istante piu' informativo da
@@ -241,61 +250,84 @@ export default function AgentsLive() {
     try { return localStorage.getItem(ACTIVE_RUN_KEY); } catch { return null; }
   });
   const [stopping, setStopping] = useState(false);
-  const [triggerMsg, setTriggerMsg] = useState<string | null>(null);
+  const [triggerMsg, setTriggerMsg] = useState<{ kind: 'starting' | 'active'; id?: string | null } | null>(null);
   const [askRun, setAskRun] = useState(false);   // Lotto D: la run costa, si conferma prima
+  const [stopNotice, setStopNotice] = useState<StopNotice | null>(null);
 
   const triggerRun = async () => {
-    setTriggerMsg('AVVIO PROCESSO CONSIGLIERE…');
+    setTriggerMsg({ kind: 'starting' }); setStopNotice(null);
     setState(prev => ({ ...(prev || {}), running: true,
-      start_time: new Date().toISOString(), message: 'Avvio…' } as AgentsLiveState));
+      start_time: new Date().toISOString(), message: tr('activity.startShort') } as AgentsLiveState));
     try {
       const r = await Bellomberg.runConsigliere();
       const tid = r?.task_id || null;
       if (tid) { try { localStorage.setItem(ACTIVE_RUN_KEY, tid); } catch {} setActiveTaskId(tid); }
-      setTriggerMsg(`RUN ${tid} ATTIVA — stimati 25-40 min — email a fine corsa`);
+      setTriggerMsg({ kind: 'active', id: tid });
     } catch (e: any) {
       const detail = dettaglioLeggibile(e);
       setState(prev => prev ? { ...prev, running: false } : prev);
       setTriggerMsg(null);
-      alert('Avvio fallito: ' + detail);
+      alert(tr('activity.startFailed', { a: detail }));
       if (statusHttp(e) === 428) { conservaDettaglioRun(detail); navigate('/mandato'); }
     }
   };
 
   const stopRun = async () => {
-    if (!confirm('FERMARE il consigliere in corso? I risultati parziali vanno persi.')) return;
+    if (!confirm(tr('activity.stopQuestion'))) return;
     setStopping(true);
+    setStopNotice(null);
+    const issues: StopNotice['issues'] = [];
     let tid = activeTaskId;
     if (!tid) {
       try { const a = await Bellomberg.consigliereActive(); if (a.active && a.task_id) tid = a.task_id; }
-      catch (e) { console.warn('consigliereActive lookup failed', e); }
+      catch (e: any) { issues.push({ source: '/consigliere/active', detail: leggiDetail(e?.response?.data?.detail || e?.message || String(e)) }); }
     }
-    let killed = false;
+    let terminal = false;
     try {
-      if (tid) { await Bellomberg.cancelConsigliere(tid); killed = true; }
-      else { const r = await Bellomberg.cancelAllConsigliere(); killed = (r.n_killed || 0) > 0; }
-    } catch (e) { console.error('cancel failed', e); }
-    try { await Bellomberg.resetAgentsLive(); } catch (e) { console.warn('reset live failed', e); }
-    try { localStorage.removeItem(ACTIVE_RUN_KEY); } catch {}
-    setActiveTaskId(null); setTriggerMsg(null);
-    /* lo stato che segue e' fabbricato QUI, non e' «l'ultimo stato buono» del
-       backend: il warn N7 sopra di esso direbbe il falso (review 31/08) */
-    setHbIll(null);
-    setState(prev => prev ? { ...prev, running: false, specialist_status: {},
-      /* col log azzerato anche il suo totale e il tappo (blocco D): un
-         n_tool_calls stantio sulla testata direbbe N con zero chiamate sotto */
-      current_specialist: null, tool_log: [], n_tool_calls: undefined, tool_log_tappato: undefined,
-      completed_at: prev.completed_at || new Date().toISOString(),
-      message: killed ? "Run annullata dall'operatore." : 'Annullamento inviato ma il backend non riportava nulla di attivo.' } : prev);
-    setElapsed(0); setStopping(false);
+      if (tid) {
+        const r = await Bellomberg.cancelConsigliere(tid);
+        terminal = ['cancelled', 'completed', 'failed'].includes(r?.status);
+        if (!terminal) issues.push({ source: '/consigliere/cancel/' + tid, detail: leggiDetail(r) || null });
+      } else {
+        const r = await Bellomberg.cancelAllConsigliere();
+        terminal = r?.n_killed > 0 && Array.isArray(r.errors) && r.errors.length === 0;
+        if (!terminal) issues.push({ source: '/consigliere/cancel_all', detail: leggiDetail(r?.errors?.length ? r.errors : r) || null });
+      }
+    } catch (e: any) {
+      issues.push({ source: tid ? '/consigliere/cancel/' + tid : '/consigliere/cancel_all', detail: leggiDetail(e?.response?.data?.detail || e?.message || String(e)) });
+    }
+    // A failed cancellation must not erase the heartbeat or the last observed log.
+    if (terminal && issues.length === 0) {
+      try {
+        const reset = await Bellomberg.resetAgentsLive();
+        if (reset?.ok !== true) issues.push({ source: '/agents/live/reset', detail: leggiDetail(reset?.error || reset) || null });
+      } catch (e: any) { issues.push({ source: '/agents/live/reset', detail: leggiDetail(e?.response?.data?.detail || e?.message || String(e)) }); }
+    }
+    let observedRunning: boolean | null = null;
+    try {
+      const observed = await Bellomberg.agentsLive();
+      const unreadable = observed?.heartbeat === 'illeggibile'
+        || (observed?.running === false && typeof observed.message === 'string' && observed.message.startsWith('read error'));
+      if (!observed || unreadable || typeof observed.running !== 'boolean') {
+        issues.push({ source: '/agents/live', detail: leggiDetail(observed?.message || observed) || null });
+      } else {
+        setState(observed); setHbIll(null); observedRunning = observed.running;
+        if (!observed.running && issues.length === 0) {
+          try { localStorage.removeItem(ACTIVE_RUN_KEY); } catch {}
+          setActiveTaskId(null); setTriggerMsg(null); setElapsed(0);
+        }
+      }
+    } catch (e: any) { issues.push({ source: '/agents/live', detail: leggiDetail(e?.response?.data?.detail || e?.message || String(e)) }); }
+    setStopNotice({ issues, running: observedRunning });
+    setStopping(false);
   };
 
   useEffect(() => {
-    if (state && state.running === false && activeTaskId) {
+    if (state && state.running === false && activeTaskId && !stopNotice?.issues.length) {
       try { localStorage.removeItem(ACTIVE_RUN_KEY); } catch {}
       setActiveTaskId(null);
     }
-  }, [state?.running, activeTaskId]);
+  }, [state?.running, activeTaskId, stopNotice]);
 
   /* ── costi e buchi ──────────────────────────────────────────────────── */
   const total = state?.usage_total;
@@ -350,9 +382,9 @@ export default function AgentsLive() {
     : capoScrive ? 'capo'
     : (righeDesk.some(r => r.ragiona) || senzaFinestra.length) ? 'ragionano'
     : nRighe ? 'chiamate' : 'attesa';
-  const faseLabel = capoScrive ? 'SINTESI · CAPO'
-    : fase ? fase.k + (fase.open ? ' · in corso' : '')
-    : (P.live && P.round != null ? `R${P.round}` : 'attesa');
+  const faseLabel = capoScrive ? tr('activity.synthesisHead')
+    : fase ? phaseText(fase.k) + (fase.open ? tr('activity.progressSuffix') : '')
+    : (P.live && P.round != null ? `R${P.round}` : tr('activity.waiting'));
   /* la piastra vuota dice cosa c'e', non una causa inventata: nella coda di una
      run chiusa e' la catena di sintesi; prima della prima chiamata e' l'avvio;
      fra due fasi misurate e' il buco fra le due; altrimenti solo il fatto */
@@ -360,11 +392,11 @@ export default function AgentsLive() {
   const faseprima = [...P.phases].reverse().find(p => p.t1 < cur);
   const fasedopo = P.phases.find(p => p.t0 > cur);
   const fraseVuota = fase?.k === 'SINTESI'
-    ? 'nessuna chiamata a strumento: gira la catena di sintesi — durata sì, orario no'
-    : cur < primaChiamata ? 'run avviata: nessuna chiamata a strumento ancora'
-    : faseprima && fasedopo ? `nessuna chiamata a strumento al minuto puntato — fra ${faseprima.k} e ${fasedopo.k}`
-    : P.live && alPresente ? 'nessuna chiamata a strumento e nessun desk dichiarato in corsa dal backend'
-    : 'nessuna chiamata a strumento al minuto puntato';
+    ? tr('activity.synthesisNoTools')
+    : cur < primaChiamata ? tr('activity.startingNoTools')
+    : faseprima && fasedopo ? tr('activity.betweenPhases', {a: phaseText(faseprima.k), b: phaseText(fasedopo.k)})
+    : P.live && alPresente ? tr('activity.noneRunning')
+    : tr('activity.noToolAtMinute');
   /* heartbeat fermo (>600 s, stale_warning del backend): «ragiona da X» e «scrive
      da X» sarebbero inferenze da uno stato che nessuno conferma piu' — si scrive
      il fatto: dichiarato, e fermo da quanto.
@@ -377,8 +409,8 @@ export default function AgentsLive() {
   const hbIllLungo = hbIllDur != null && hbIllDur > 600;
   const fermoDa = (P.stale || hbIllLungo) && state?.updated_at
     ? Math.max(0, (now - new Date(state.updated_at).getTime()) / 1000) : null;
-  const hhmm = (iso?: string) => iso ? new Date(iso).toLocaleTimeString('it-IT',
-    { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'n.d.';
+  const hhmm = (iso?: string) => iso ? new Date(iso).toLocaleTimeString(localeDi(linguaCorrente()),
+    { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : tr('activity.unavailable');
 
   /* le griglie dense ricevono il conteggio righe: con grid-auto-flow:column
      una riga in meno significa una COLONNA in piu' fuori dal box, cioe' un
@@ -408,90 +440,93 @@ export default function AgentsLive() {
 
         <div className="id">
           <Radio size={12} className={isRunning ? 'okc' : 'dim'} />
-          <span className="t">// AGENTS LIVE</span>
+          <span className="t">{tr('activity.pageTitle')}</span>
           <span className={'chip ' + (isRunning ? 'g' : 'n')}>
             {/* a state null con heartbeat illeggibile, «IDLE — NESSUNA RUN IN
                CORSO» sarebbe un'affermazione senza alcun payload fidato: una
                run puo' essere viva dietro il file illeggibile (review 31/08) */}
-            {!state && hbIll ? 'STATO N.D. — HEARTBEAT ILLEGGIBILE'
-              : isRunning ? 'RUN IN CORSO' : 'IDLE — NESSUNA RUN IN CORSO'}
+            {!state ? tr(hbIll ? 'activity.stateUnreadable' : 'activity.stateMissing')
+              : isRunning ? tr('activity.runInProgress') : tr('activity.idle')}
           </span>
         </div>
 
         {liveErr ? (
           <div className="cell"><span className="k">heartbeat</span>
-            <span className="v sm ko">/agents/live NON risponde</span>
+            <span className="v sm ko">{tr('activity.heartbeatNoResponse')}</span>
             <span className="s">{liveErr}</span></div>
         ) : !state ? (
           <div className="cell"><span className="k">heartbeat</span>
             {hbIll
-              ? <><span className="v sm ko">illeggibile dal primo poll</span>
-                  <span className="s">l'endpoint risponde, il file non si legge</span></>
-              : <span className="v sm nd">interrogazione in corso…</span>}</div>
+              ? <><span className="v sm ko">{tr('activity.unreadableFromFirstPoll')}</span>
+                  <span className="s">{tr('activity.endpointRespondsFileUnreadable')}</span></>
+              : <span className="v sm nd">{tr('activity.querying')}</span>}</div>
         ) : (
           <>
             <div className="cell">
-              <span className="k">{isRunning ? 'run in corso · comitato' : 'ultima run · comitato'}</span>
+              <span className="k">{isRunning ? tr('activity.currentCommitteeRun') : tr('activity.lastCommitteeRun')}</span>
               <span className="v sm">
                 {state.start_time
-                  ? new Date(state.start_time).toLocaleDateString('it-IT',
+                  ? new Date(state.start_time).toLocaleDateString(localeDi(linguaCorrente()),
                       { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()
-                  : <span className="nd">n.d.</span>}
+                  : <span className="nd">{tr('activity.unavailable')}</span>}
                 <span className="dim"> · </span>{hhmm(state.start_time)}
-                <span className="dim"> → </span>{isRunning ? 'in corso' : hhmm(state.completed_at)}
+                <span className="dim"> → </span>{isRunning ? tr('activity.inProgress') : hhmm(state.completed_at)}
               </span>
+              <span className="s">{tr(state.language === 'it' ? 'activity.originalRunIt'
+                : state.language === 'en' ? 'activity.originalRunEn' : 'activity.originalRunUnknown')}</span>
             </div>
             <div className="cell">
-              <span className="k">durata</span>
+              <span className="k">{tr('activity.duration')}</span>
               <span className="v num">{fmtDurShort(isRunning ? elapsed : P.runSec)}</span>
               <span className="s">
                 {lavoro > 0
-                  ? `${fmtDurShort(lavoro)} di lavoro agente in ${fmtDurShort(isRunning ? elapsed : P.runSec)} di orologio`
-                  : 'durate per agente non dichiarate dal payload'}
+                  ? tr('activity.workVsClock', {a: fmtDurShort(lavoro), b: fmtDurShort(isRunning ? elapsed : P.runSec)})
+                  : tr('activity.durationMissing')}
               </span>
             </div>
             <div className="cell">
-              <span className="k">strumenti</span>
+              <span className="k">{tr('activity.tools')}</span>
               {/* review 31/08: a tappato senza totale (o con un totale sotto le
                  righe del log: contratto violato, P.nCallsTot lo scarta) il
                  numero grande e' un n.d. dichiarato, non calls.length spacciato */}
               <span className="v num">{P.logTappato && P.nCallsTot == null
-                ? <span className="nd">n.d.</span>
+                ? <span className="nd">{tr('activity.unavailable')}</span>
                 : (P.nCallsTot ?? P.calls.length)}</span>
               {/* a log tappato la riga si RISCRIVE corta invece di allungarsi:
                   la versione lunga faceva collidere tre celle della testata
                   (misurato dal cancello: 3 sovrapposizioni a terzo) */}
               <span className="s">{P.logTappato
-                ? <>{P.nToolsDistinct} strumenti · {P.tickers.length} ticker nelle ultime {P.calls.length} ricevute</>
-                : <>{P.nToolsDistinct} strumenti distinti · {P.tickers.length} ticker toccati</>}</span>
+                ? <>{P.nToolsDistinct} {tr('activity.toolsRecentPrefix')} {P.tickers.length} {tr('activity.tickersRecentPrefix')} {P.calls.length} {tr('activity.received')}</>
+                : <>{P.nToolsDistinct} {tr('activity.distinctToolsPrefix')} {P.tickers.length} {tr('activity.tickersTouchedShort')}</>}</span>
             </div>
             <div className="cell">
-              <span className="k">token toccati</span>
+              <span className="k">{tr('activity.tokensTouched')}</span>
               <span className="v num">
                 {total ? fmtTok([total.in, total.out, total.cache_read, total.cache_write].every(v => v != null)
                   ? total.in! + total.out! + total.cache_read! + total.cache_write! : null)
-                       : <span className="nd">n.d.</span>}
+                       : <span className="nd">{tr('activity.unavailable')}</span>}
               </span>
               <span className="s">
                 {total?.cache_read && total?.in
-                  ? `${fmtTok(total.cache_read)} riletti da cache = ${fmtN(total.cache_read / total.in, 1)}× l'input fresco`
-                  : 'cache non dichiarata dal payload'}
+                  ? tr('activity.cacheMultiple', {a: fmtTok(total.cache_read), b: fmtN(total.cache_read / total.in, 1)})
+                  : tr('activity.cacheMissing')}
               </span>
             </div>
             <div className="cell">
-              <span className="k">costo run</span>
+              <span className="k">{tr('activity.runCost')}</span>
               <span className={'v num ' + (!hasTotal || partial || notes.length ? 'amc' : 'cyc')}>
                 {(partial ? '~' : '') + fmtEur(total?.cost_eur)}
               </span>
               <span className="s">
-                FX USD/EUR <b className={total?.fx_source === 'live' ? 'okc' : 'amc'}>{total?.fx_source ?? 'n.d.'}</b>
-                {' · '}{partial ? 'totale PARZIALE' : 'totale non parziale'}
+                {/* campo assente e 'n.d.' dichiarato dal backend sono lo STESSO buco (v. costNotes) */}
+                FX USD/EUR <b className={total?.fx_source === 'live' ? 'okc' : 'amc'}>{total?.fx_source == null || total.fx_source === 'n.d.' ? tr('activity.unavailable') : total.fx_source}</b>
+                {' · '}{!hasTotal ? tr('activity.totalCostMissing') : partial ? tr('activity.partialTotalShort') : tr('activity.notPartialTotal')}
               </span>
             </div>
             <div className="cell qcell">
-              <span className="k">memo prodotto</span>
-              <span className="v num">{state.memo_id != null ? '#' + state.memo_id : <span className="nd">n.d.</span>}</span>
-              <span className="s">{state.memo_id != null ? 'salvato in DB' : 'nessun memo dichiarato'}</span>
+              <span className="k">{tr('activity.memoProduced')}</span>
+              <span className="v num">{state.memo_id != null ? '#' + state.memo_id : <span className="nd">{tr('activity.unavailable')}</span>}</span>
+              <span className="s">{state.memo_id != null ? tr('activity.savedDb') : tr('activity.noMemo')}</span>
             </div>
           </>
         )}
@@ -499,11 +534,11 @@ export default function AgentsLive() {
         <div className="grow" />
         {isRunning ? (
           <button className="go stop" onClick={stopRun} disabled={stopping}
-            title={activeTaskId ? `Ferma il task ${activeTaskId}` : 'Nessun task_id tracciato'}>
-            <Square size={10} fill="currentColor" />{stopping ? 'FERMO…' : 'FERMA RUN'}
+            title={activeTaskId ? tr('activity.stopTask', {a: activeTaskId}) : tr('activity.noTrackedTask')}>
+            <Square size={10} fill="currentColor" />{stopping ? tr('activity.stopping') : tr('activity.stopRun')}
           </button>
         ) : (
-          <button className="go" onClick={() => setAskRun(true)}><Play size={11} /> LANCIA RUN</button>
+          <button className="go" onClick={() => setAskRun(true)}><Play size={11} /> {tr('activity.launchRun')}</button>
         )}
         <RunConfirmDialog open={askRun}
           onConfirm={() => { setAskRun(false); triggerRun(); }}
@@ -511,19 +546,23 @@ export default function AgentsLive() {
       </div>
 
       {/* ══ I BUCHI IN VETRINA, non nei tooltip (regola PM 14/07) ═════ */}
-      {triggerMsg && <div className="warn"><span>{triggerMsg}</span></div>}
+      {triggerMsg && <div className="warn"><span>{triggerMsg.kind === 'starting' ? tr('activity.starting')
+        : tr('activity.runActiveEstimate', { a: triggerMsg.id ?? tr('activity.unavailable') })}</span></div>}
+      {stopNotice && <div className="warn" role="status">
+        <b>{tr(stopNotice.running === false ? 'activity.stopObservedIdle' : 'activity.stopUnconfirmed')}</b>
+        {stopNotice.issues.map((issue, i) => <span key={i}>{issue.source} — {issue.detail || tr('activity.errorNotDescribed')}</span>)}
+      </div>}
       {isRunning && (state?.stale_warning || hbIllLungo) && (
         <div className="warn ko"><AlertCircle size={11} />
-          <b>RUN POSSIBILMENTE INCAGLIATA</b>
+          <b>{tr('activity.possiblyStuck')}</b>
           {/* review 31/08: a poll illeggibile `stale_seconds` resta CONGELATO
              all'ultimo payload buono mentre l'orologio avanza — vince la misura
              che cresce (now - updated_at), la stessa che il backend farebbe */}
-          <span>heartbeat fermo da {Math.max(1, Math.floor(Math.max(state?.stale_seconds || 0, fermoDa || 0) / 60))} min — valuta FERMA RUN + regenerate_memo</span>
+          <span>{tr('activity.heartbeatStaleFor')} {Math.max(1, Math.floor(Math.max(state?.stale_seconds || 0, fermoDa || 0) / 60))} {tr('activity.stuckAction')}</span>
           {/* mentre il Capo genera il memo nessuno scrive l'heartbeat: il 26/08 e' stato
               fermo 7'20" a run sana. Un consiglio di FERMARE senza dirlo costerebbe il memo. */}
           {P.capo === 'running' && (
-            <span>· il Capo è dichiarato in scrittura e mentre genera il memo l'heartbeat NON si aggiorna
-              (il 26/08: 7'20" di silenzio a run sana) — un memo lungo non è un incaglio</span>
+            <span>{tr('activity.capoHeartbeatNote')}</span>
           )}
         </div>
       )}
@@ -531,29 +570,29 @@ export default function AgentsLive() {
         /* N7: il buco in vetrina, con la DURATA, e senza affermare uno «stato
            buono» che a state null non e' mai esistito (review 31/08) */
         <div className="warn"><AlertCircle size={11} />
-          <b>HEARTBEAT ILLEGGIBILE{hbIllDur != null && hbIllDur >= 3 ? ` DA ${fmtDurShort(hbIllDur)}` : ' IN QUESTO ISTANTE'}</b>
-          <span>l'endpoint risponde ma il file heartbeat non si legge («{hbIll.msg}») — {state
-            ? <>resta in pagina l'ultimo stato buono{state.updated_at ? ` (heartbeat delle ${hhmm(state.updated_at)})` : ''}</>
-            : <>nessuno stato ricevuto dall'apertura della pagina</>} · si riprova ogni 1,5 s</span>
+          <b>{tr('activity.heartbeatUnreadableUpper')}{hbIllDur != null && hbIllDur >= 3 ? tr('activity.unreadableSince', {a: fmtDurShort(hbIllDur)}) : tr('activity.unreadableNow')}</b>
+          <span>{tr('activity.unreadableMessagePrefix')}{hbIll.msg ?? tr('activity.unreadableHeartbeat')}{tr('activity.unreadableMessageSuffix')}{state
+            ? <>{tr('activity.lastGoodState')}{state.updated_at ? tr('activity.heartbeatTime', {a: hhmm(state.updated_at)}) : ''}</>
+            : <>{tr('activity.noneSinceOpen')}</>} {tr('activity.retryCadence')}</span>
         </div>
       )}
       {koIds.length > 0 && (
         <div className="warn">
           <span className="ld r" />
-          <b>{koIds.length} DESK SU {nDesk} HANNO SBATTUTO CONTRO L'API</b>
+          <b>{koIds.length} {tr('activity.desksOf')} {nDesk} {tr('activity.desksApiFailed')}</b>
           <span className="dim">·</span>
-          <span>{koIds.join(' e ')} dichiarano <b>status api_error</b> e hanno comunque consegnato il report</span>
+          <span>{koIds.join(tr('movements.and'))} {tr('activity.declare')} <b>status api_error</b> {tr('activity.reportAnyway')}</span>
           <span className="dim">·</span>
-          <span>dentro i {fmtEur(total?.cost_eur)} ci sono <b>{fmtEur(koCost)}</b>
-            {total?.cost_eur ? ` (${fmtN(koCost / total.cost_eur * 100, 0)}%)` : ''} spesi da loro</span>
-          <span className="dim">· campo usage_total.error_agents</span>
+          <span>{tr('activity.withinTotalPrefix')} {fmtEur(total?.cost_eur)} {tr('activity.include')} <b>{fmtEur(koCost)}</b>
+            {total?.cost_eur ? ` (${fmtN(koCost / total.cost_eur * 100, 0)}%)` : ''} {tr('activity.spentByThem')}</span>
+          <span className="dim">{tr('activity.errorAgentsField')}</span>
         </div>
       )}
       {notes.length > 0 && <div className="warn"><AlertCircle size={11} /><span>{notes.join(' — ')}</span></div>}
       {rosterErr && (
         <div className="warn ko"><AlertCircle size={11} />
-          <b>ROSTER AGENTI N.D.</b>
-          <span>/agents/list non risponde ({rosterErr}): nomi, ruoli e colori dei desk non sono disponibili</span>
+          <b>{tr('activity.rosterMissing')}</b>
+          <span>{tr('activity.rosterErrorPrefix')}{rosterErr}{tr('activity.rosterErrorSuffix')}</span>
         </div>
       )}
 
@@ -565,15 +604,15 @@ export default function AgentsLive() {
             <span className="tick tl" /><span className="tick tr" />
             <span className="tick bl" /><span className="tick br" />
             <div className="p3h am">
-              <span>// PLANCIA ORBITALE</span>
+              <span>{tr('activity.orbitalDashboard')}</span>
               <span className="side">
-                {P.ok ? `${P.scaleNote} · mezzogiorno = lo start · senso orario · ${P.desks.length} orbite${P.logTappato ? ' dal log ricevuto' : ''}`
-                      : 'nessun quadrante da disegnare'}
+                {P.ok ? tr('activity.dialNote', {a: P.scaleNote, b: P.desks.length, c: P.logTappato ? tr('activity.fromLog') : ''})
+                      : tr('activity.noDial')}
               </span>
               <div className="instbar">
-                <span className="k">cursore</span>
+                <span className="k">{tr('activity.cursor')}</span>
                 <button className="tb" onClick={() => setPinned(v => !v)}>
-                  {pinned ? '◆ INCHIODATO' : '○ SEGUE IL MOUSE'}
+                  {pinned ? tr('activity.pinned') : tr('activity.followMouse')}
                 </button>
                 <span className="sep" />
                 <span className="k">{fmtClock(cur)}</span>
@@ -594,18 +633,17 @@ export default function AgentsLive() {
                        il fondo vero e' 2px piu' in basso, e l'aria di 10px sotto
                        li assorbe. 0 finche' non e' stata misurata. */
                     readBottom={readH ? 12 + readH : 0}
-                    memoLabel={state?.memo_id != null ? `memo #${state.memo_id}` : 'nessun memo dichiarato'} />
+                    memoLabel={state?.memo_id != null ? `memo #${state.memo_id}` : tr('activity.noMemo')} />
                 ) : (
                   <div className="buco ko">
-                    <span className="t">quadrante non disegnabile</span>
+                    <span className="t">{tr('activity.undrawableDial')}</span>
                     {/* review 31/08: con hbIll e state null, P.reason direbbe
                        «/agents/live non risponde» — ma l'endpoint HA risposto */}
                     <span className="s">{!state && hbIll
-                      ? "l'endpoint risponde ma l'heartbeat e' illeggibile (3 riletture fallite): nessuno stato ricevuto"
-                      : P.reason || 'dati insufficienti'}</span>
+                      ? tr('activity.noReadableState')
+                      : P.reason || tr('activity.insufficientData')}</span>
                     <span className="s dim">
-                      Non viene disegnato un quadrante finto: quando l'heartbeat porta l'origine
-                      del tempo e almeno una chiamata a strumento, la plancia si accende da sola.
+                      {tr('activity.noFakeDial')}
                     </span>
                   </div>
                 )}
@@ -620,7 +658,7 @@ export default function AgentsLive() {
                     data-zona="lettura" data-stato={statoLettura} data-capo={P.capo ?? 'assente'}
                     data-n={nRighe} data-heartbeat={P.stale ? 'fermo' : 'ok'}>
                     <div className="rh">
-                      <span>minuto {fmtClock(cur)}</span>
+                      <span>{tr('activity.minute')} {fmtClock(cur)}</span>
                       <span>{faseLabel}</span>
                       {/* ALLE ALTEZZE CORTE il piede della piastra sparisce (v. la
                           media query in agents-plancia.css), perche' altrimenti la
@@ -632,8 +670,8 @@ export default function AgentsLive() {
                           in forma compatta, e si vede SOLO quando il piede non
                           c'e': il css lo tiene nascosto sopra i 1000px, dove il
                           piede lo dice per esteso. Nessuna duplicazione a schermo. */}
-                      <span className="corta">{fatte}/{P.calls.length}{P.logTappato ? ' ric.' : ''}</span>
-                      <span className="pin">{pinned ? '◆ INCHIODATO' : 'CLICCA PER INCHIODARE'}</span>
+                      <span className="corta">{fatte}/{P.calls.length}{P.logTappato ? tr('activity.receivedAbbrev') : ''}</span>
+                      <span className="pin">{pinned ? tr('activity.pinned') : tr('activity.clickPin')}</span>
                     </div>
                     <div className="rb">
                       {nRighe === 0 ? (
@@ -645,11 +683,11 @@ export default function AgentsLive() {
                               <svg width={11} height={11} viewBox="-7 -7 14 14"><Sigil id={d.id} color={d.color} size={11} /></svg>
                               <span className="nm" style={{ color: d.color }}>{d.name.toUpperCase()}</span>
                               <span className={'st ' + (ragiona ? (P.stale ? 'ko' : 'amc') : 'cyc')}
-                                title={ragiona ? `dichiarato running dal backend: ragiona da ${fmtDurShort(da)} dopo l'ultima chiamata (${last ? last.tool : '—'})` : undefined}>
+                                title={ragiona ? tr('activity.thinkingAfterTool', {a: fmtDurShort(da), b: last ? last.tool : '—'}) : undefined}>
                                 {ragiona
                                   ? (fermoDa != null
-                                      ? `dichiarato running · heartbeat fermo da ${fmtDurShort(fermoDa)}`
-                                      : `ragiona da ${fmtDurShort(da)} · ultima ${last ? last.tool : '—'}`)
+                                      ? tr('activity.runningStale', {a: fmtDurShort(fermoDa)})
+                                      : tr('activity.thinkingLast', {a: fmtDurShort(da), b: last ? last.tool : '—'}))
                                   : (last ? last.tool : '—')}
                               </span>
                             </div>
@@ -663,10 +701,10 @@ export default function AgentsLive() {
                               {/* «nel log»: a run viva il log ricevuto sono le ultime 50 righe (N8),
                                   quindi lo zero non e' una misura e non si scrive come tale */}
                               <span className={'st ' + (P.stale ? 'ko' : 'amc')}
-                                title={`dichiarato running dal backend ORA; nessuna chiamata sua${P.round != null ? ` in R${P.round}` : ''} nel log ricevuto (a run viva: le ultime 50 righe)`}>
+                                title={tr('activity.runningNoLog', {a: P.round != null ? tr('activity.inRound', {a: P.round}) : ''})}>
                                 {fermoDa != null
-                                  ? `dichiarato running · heartbeat fermo da ${fmtDurShort(fermoDa)}`
-                                  : `${alPresente ? 'ragiona' : 'in corsa ora'} · nessuna chiamata${P.round != null ? ` in R${P.round}` : ''} nel log`}
+                                  ? tr('activity.runningStale', {a: fmtDurShort(fermoDa)})
+                                  : tr('activity.noCallsRound', {a: alPresente ? tr('activity.thinking') : tr('activity.runningNow'), b: P.round != null ? tr('activity.inRound', {a: P.round}) : ''})}
                               </span>
                             </div>
                           ))}
@@ -676,68 +714,66 @@ export default function AgentsLive() {
                               <span className="nm" style={{ color: capoCol }}>CAPO</span>
                               <span className={'st ' + (P.stale ? 'ko' : 'amc')}
                                 title={P.capoT != null
-                                  ? `in corsa dall'heartbeat delle ${hhmm(state?.updated_at)} (scritto quando il Capo e' partito)`
-                                  : "updated_at assente nel payload: da quando scrive non e' dichiarato"}>
+                                  ? tr('activity.capoStart', {a: hhmm(state?.updated_at)})
+                                  : tr('activity.capoStartMissing')}>
                                 {fermoDa != null
-                                  ? `dichiarato in scrittura · heartbeat fermo da ${fmtDurShort(fermoDa)}`
-                                  : `scrive il memo${state?.memo_id != null ? ` #${state.memo_id}` : ''} · da ${
-                                      P.capoT != null ? fmtDurShort(Math.max(0, Math.min(cur, P.runSec) - P.capoT)) : 'n.d. (updated_at assente)'}`}
+                                  ? tr('activity.writingStale', {a: fmtDurShort(fermoDa)})
+                                  : tr('activity.writingMemoSince', {a: state?.memo_id != null ? ` #${state.memo_id}` : '', b: P.capoT != null ? fmtDurShort(Math.max(0, Math.min(cur, P.runSec) - P.capoT)) : tr('activity.updatedAtMissing')})}
                               </span>
                             </div>
                           )}
                         </>
                       )}
                       <div className="ft">
-                        <b>{fatte}</b> chiamate fatte su {P.calls.length}
+                        <b>{fatte}</b> {tr('activity.callsDoneOutOf')} {P.calls.length}
                         {/* il tappo lo DICE il backend (tool_log_tappato); la
                             disuguaglianza copre un backend NUOVO col flag perso.
                             Il backend VECCHIO non dichiara nulla (review 31/08):
                             a run viva col log esattamente al tetto (50) il
                             totale e' ignoto e si dichiara il dubbio, non «100%» */}
                         {(P.logTappato || (P.nCallsTot != null && P.nCallsTot > P.calls.length))
-                          ? <> ricevute (le ultime{P.nCallsTot != null ? ` di ${P.nCallsTot}` : ' — totale n.d.'})</>
+                          ? <> {tr('activity.receivedLatest')}{P.nCallsTot != null ? tr('activity.ofTotal', {a: P.nCallsTot}) : tr('activity.unknownTotal')})</>
                           : P.live && P.nCallsTot == null && P.calls.length === 50
-                          ? <> ricevute (50 e' il tetto del log: totale non dichiarato dal backend)</>
+                          ? <> {tr('activity.logCapUnknown')}</>
                           : (P.calls.length > 0 ? ` (${fmtN(fatte / P.calls.length * 100, 0)}%)` : '')}
-                        {' · '}<b>{nDeskAlLavoro}</b> desk al lavoro
-                        {capoScrive && P.capoT != null && <> · il Capo dall'heartbeat delle {hhmm(state?.updated_at)}</>}
-                        {fase && <> · fase <b>{fase.k}</b> {fmtClock(fase.t0)}→{fase.open ? 'in corso' : fmtClock(fase.t1)}</>}
+                        {' · '}<b>{nDeskAlLavoro}</b> {tr('activity.desksWorking')}
+                        {capoScrive && P.capoT != null && <> {tr('activity.capoSinceHeartbeat')} {hhmm(state?.updated_at)}</>}
+                        {fase && <> {tr('activity.phasePrefix')} <b>{phaseText(fase.k)}</b> {fmtClock(fase.t0)}→{fase.open ? tr('activity.inProgress') : fmtClock(fase.t1)}</>}
                       </div>
                     </div>
                   </div>
 
                   {/* il fatto della run, in vetrina */}
                   <div className="par hudplate" data-zona="parallelismo" data-par={P.parStato}>
-                    <div className="k">il fatto della run · parallelismo</div>
+                    <div className="k">{tr('activity.parallelismFact')}</div>
                     {P.parStato === 'parziale' ? (
                       /* N2: a run viva la somma delle durate e' un minimo che cala con
                          l'orologio (0,68x -> 0,44x col solo passare del tempo): non e'
                          un parallelismo, e la piastra lo dice con i numeri */
                       <div className="s nd">
-                        non calcolabile: {P.durDeclared < P.agentsKnown
-                          ? <><b>{P.durDeclared} agenti su {P.agentsKnown}</b> hanno dichiarato la durata</>
-                          : <><b>{P.agentsKnown}</b> agenti con durata dichiarata, {P.running.length + (P.capo === 'running' ? 1 : 0)} ancora in corsa (durate parziali)</>}
+                        {tr('activity.notCalculable')} {P.durDeclared < P.agentsKnown
+                          ? <><b>{P.durDeclared} {tr('activity.agentsOutOf')} {P.agentsKnown}</b> {tr('activity.durationDeclared')}</>
+                          : <><b>{P.agentsKnown}</b> {tr('activity.agentsWithDuration')} {P.running.length + (P.capo === 'running' ? 1 : 0)} {tr('activity.stillRunningPartial')}</>}
                         {P.live
-                          ? <>{' — '}si calcola a run finita; finora almeno {fmtDurShort(lavoro)} di lavoro in {fmtDurShort(P.runSec)} di orologio</>
-                          : <>{' — '}run chiusa: chi manca non l'ha dichiarata ({fmtDurShort(lavoro)} di lavoro dichiarato in {fmtDurShort(P.runSec)})</>}
+                          ? <>{' — '}{tr('activity.calculateWhenFinished')} {fmtDurShort(lavoro)} {tr('activity.workIn')} {fmtDurShort(P.runSec)} {tr('activity.elapsedTime')}</>
+                          : <>{' — '}{tr('activity.closedMissingDuration')}{fmtDurShort(lavoro)} {tr('activity.declaredWorkIn')} {fmtDurShort(P.runSec)})</>}
                       </div>
                     ) : par == null ? (
-                      <div className="s nd">durate per agente non dichiarate: il parallelismo non è calcolabile</div>
+                      <div className="s nd">{tr('activity.durationMissingParallelism')}</div>
                     ) : (
                       <>
                         <div className="v"><b>{fmtN(par, 2)}×</b>
-                          <span>{fmtDurShort(lavoro)} di lavoro agente dentro {fmtDurShort(P.runSec)} di orologio</span></div>
+                          <span>{fmtDurShort(lavoro)} {tr('activity.agentWorkWithin')} {fmtDurShort(P.runSec)} {tr('activity.elapsedTime')}</span></div>
                         <div className="s">
                           {/* #1 (28/07): la frase era scritta senza condizione, e a 0,44x
                               diceva «supera l'orologio» — falso. Vera solo per par > 1. */}
                           {par > 1
-                            ? <>le orbite si <u>sovrappongono</u>: la somma delle durate dichiarate dai
-                                {' '}{P.agentsKnown} agenti supera l'orologio della run.</>
+                            ? <>{tr('activity.orbitsSubject')} <u>{tr('activity.overlap')}</u>{tr('activity.durationSumBy')}
+                                {' '}{P.agentsKnown} {tr('activity.exceedsClock')}</>
                             : P.sovrapposte
-                            ? <>la somma delle durate sta dentro l'orologio, ma le orbite si sovrappongono
-                                {' '}<u>a tratti</u>: i desk hanno lavorato in parte insieme.</>
-                            : <>la somma delle durate sta dentro l'orologio e le orbite <u>non</u> si
-                                sovrappongono: i desk hanno lavorato uno dopo l'altro.</>}
+                            ? <>{tr('activity.someOverlap')}
+                                {' '}<u>{tr('activity.atTimes')}</u>{tr('activity.partlyTogether')}</>
+                            : <>{tr('activity.noOverlapPrefix')} <u>{tr('activity.not')}</u> {tr('activity.sequential')}</>}
                         </div>
                       </>
                     )}
@@ -791,6 +827,7 @@ export default function AgentsLive() {
    ══════════════════════════════════════════════════════════════════════ */
 
 function PannelloParallelismo({ P, par, lavoro }: { P: Plancia; par: number | null; lavoro: number }) {
+  const tr = useT();
   const bins = useMemo(() => {
     const M = Math.max(1, Math.ceil(P.runSec / 60));
     return Array.from({ length: M }, (_, m) => {
@@ -804,45 +841,41 @@ function PannelloParallelismo({ P, par, lavoro }: { P: Plancia; par: number | nu
   return (
     <div className="p3 ppar">
       <span className="tick tl" /><span className="tick br" />
-      <div className="p3h"><span>// PARALLELISMO</span><span className="side">desk aperti per minuto</span></div>
+      <div className="p3h"><span>{tr('activity.parallelism')}</span><span className="side">{tr('activity.desksPerMinute')}</span></div>
       <div className="p3b parw">
         {par == null ? (
-          <div className="buco"><span className="t">n.d.</span>
+          <div className="buco"><span className="t">{tr('activity.unavailable')}</span>
             <span className="s">
               {P.parStato === 'parziale'
                 ? <>{P.durDeclared < P.agentsKnown
-                      ? <><b>{P.durDeclared} agenti su {P.agentsKnown}</b> hanno dichiarato la durata</>
-                      : <><b>{P.agentsKnown}</b> agenti con durata dichiarata, {P.running.length + (P.capo === 'running' ? 1 : 0)} ancora in corsa (durate parziali)</>}
+                      ? <><b>{P.durDeclared} {tr('activity.agentsOutOf')} {P.agentsKnown}</b> {tr('activity.durationDeclared')}</>
+                      : <><b>{P.agentsKnown}</b> {tr('activity.agentsWithDuration')} {P.running.length + (P.capo === 'running' ? 1 : 0)} {tr('activity.stillRunningPartial')}</>}
                     {P.live
-                      ? <>: il parallelismo si calcola a run finita — finora almeno <b>{fmtDurShort(lavoro)}</b> di
-                          lavoro in <b>{fmtDurShort(P.runSec)}</b> di orologio</>
-                      : <>: run chiusa, chi manca non l'ha dichiarata — <b>{fmtDurShort(lavoro)}</b> di lavoro
-                          dichiarato in <b>{fmtDurShort(P.runSec)}</b></>}</>
-                : <>il payload non porta <b>duration_s</b> per agente: il parallelismo non è calcolabile</>}
+                      ? <>{tr('activity.parallelismWhenFinished')} <b>{fmtDurShort(lavoro)}</b> {tr('activity.workIn')} <b>{fmtDurShort(P.runSec)}</b> {tr('activity.elapsedTime')}</>
+                      : <>{tr('activity.closedMissingDurations')} <b>{fmtDurShort(lavoro)}</b> {tr('activity.declaredWorkIn')} <b>{fmtDurShort(P.runSec)}</b></>}</>
+                : <>{tr('activity.payloadMissing')} <b>duration_s</b> {tr('activity.durationPerAgentMissing')}</>}
             </span></div>
         ) : (
           <>
             <div className="bignum num">{fmtN(par, 2)}×</div>
             <div className="bigsub">
-              <b>{fmtDurShort(lavoro)}</b> di lavoro dichiarato dai {P.agentsKnown} agenti
-              dentro <b>{fmtDurShort(P.runSec)}</b> di orologio.
+              <b>{fmtDurShort(lavoro)}</b> {tr('activity.workReportedBy')} {P.agentsKnown} {tr('activity.agentsWithin')} <b>{fmtDurShort(P.runSec)}</b> {tr('activity.elapsedTimeSentence')}
               {par > 1
-                ? <> Il quadrante lo mostra con le orbite che si sovrappongono sullo stesso spicchio di minuti.</>
+                ? <> {tr('activity.overlapDial')}</>
                 : P.sovrapposte
-                ? <> La somma sta dentro l'orologio, ma le orbite si sovrappongono a tratti.</>
-                : <> Le orbite non si sovrappongono: i desk hanno lavorato uno dopo l'altro.</>}
+                ? <> {tr('activity.partialOverlapSentence')}</>
+                : <> {tr('activity.sequentialSentence')}</>}
             </div>
             <div className="simplot">
               {bins.map((n, m) => (
-                <u key={m} title={`minuto ${m}' — ${n} desk al lavoro`}
+                <u key={m} title={tr('activity.minuteDesks', {a: m, b: n})}
                   style={{ height: `${(n / mx * 100).toFixed(1)}%`, background: n === mx ? '#FFA51E' : undefined }} />
               ))}
             </div>
             <div className="simax"><span>0'</span><span>{Math.round(P.runSec / 60)}'</span></div>
             <div className="simfoot">
-              punta: <b>{mx} desk insieme</b> al minuto {peak}'.
-              {P.phases.some(p => p.k === 'SINTESI') && <> Dal minuto {Math.round(P.lastCallT / 60)}' nessuna chiamata:
-                gira la catena di sintesi, che ha durata ma <b>nessun orario</b> nel payload.</>}
+              {tr('activity.peak')} <b>{mx} {tr('activity.desksTogether')}</b> {tr('activity.atMinute')} {peak}'.
+              {P.phases.some(p => p.k === 'SINTESI') && <> {tr('activity.fromMinute')} {Math.round(P.lastCallT / 60)}{tr('activity.synthesisFromMinute')} <b>{tr('activity.noTimestamps')}</b> {tr('activity.inPayload')}</>}
             </div>
           </>
         )}
@@ -854,11 +887,12 @@ function PannelloParallelismo({ P, par, lavoro }: { P: Plancia; par: number | nu
 function PannelloEconomia({ P, total, sumAgents, koCost, koIds }: {
   P: Plancia; total?: UsageTotal; sumAgents: number; koCost: number; koIds: string[];
 }) {
+  const tr = useT();
   const rows: [string, number | null | undefined, string][] = [
-    ['input fresco', total?.in, '#29D3F2'],
-    ['output', total?.out, '#21E0A0'],
-    ['letti da cache', total?.cache_read, '#FFA51E'],
-    ['scritti in cache', total?.cache_write, '#9B7BFF'],
+    [tr('activity.freshInput'), total?.in, '#29D3F2'],
+    [tr('activity.output'), total?.out, '#21E0A0'],
+    [tr('activity.cacheRead'), total?.cache_read, '#FFA51E'],
+    [tr('activity.cacheWrite'), total?.cache_write, '#9B7BFF'],
   ];
   const mx = Math.max(1, ...rows.map(r => r[1] || 0));
   const agenti = [...P.desks, ...P.pending, ...P.stages];
@@ -867,31 +901,31 @@ function PannelloEconomia({ P, total, sumAgents, koCost, koIds }: {
   return (
     <div className="p3 peco">
       <span className="tick tr" />
-      <div className="p3h vi"><span>// ECONOMIA DELLA RUN</span><span className="side">token · cache · fx</span></div>
+      <div className="p3h vi"><span>{tr('activity.economics')}</span><span className="side">token · cache · fx</span></div>
       <div className="p3b tokwrap">
         {!total ? (
-          <div className="buco"><span className="t">n.d.</span>
-            <span className="s">l'heartbeat non porta <b>usage_total</b>: i costi di questa run non sono dichiarati</span></div>
+          <div className="buco"><span className="t">{tr('activity.unavailable')}</span>
+            <span className="s">{tr('activity.heartbeatMissing')} <b>usage_total</b>{tr('activity.runCostsMissing')}</span></div>
         ) : (
           <>
             {rows.map(([k, v, c]) => (
               <div className="tokrow" key={k}>
                 <span className="k">{k}</span>
                 <span className="bar"><u style={{ width: `${((v || 0) / mx * 100).toFixed(1)}%`, background: c }} /></span>
-                <span className="v num" style={{ color: c }} title={v != null ? `${fmtN(v)} token` : 'non dichiarato'}>
+                <span className="v num" style={{ color: c }} title={v != null ? tr('communications.tokenCount', {a: fmtN(v)}) : tr('activity.notDeclared')}>
                   {fmtTok(v)}</span>
               </div>
             ))}
             {agenti.length > 0 && (
               <div className="tkag">
-                <div className="h"><span>token per agente</span><span>totale toccato</span></div>
+                <div className="h"><span>{tr('activity.tokensPerAgent')}</span><span>{tr('activity.totalTouched')}</span></div>
                 {agenti.map(a => {
                   const completo = [a.tin, a.tout, a.cacheR, a.cacheW].every(v => v != null);
                   const tot = completo ? a.tin! + a.tout! + a.cacheR! + a.cacheW! : null;
                   const seg: [number | null, string][] = [[a.tin, '#29D3F2'], [a.tout, '#21E0A0'],
                     [a.cacheR, '#FFA51E'], [a.cacheW, '#9B7BFF']];
                   return (
-                    <div className="r" key={a.id} title={`${a.name}: ${fmtTok(a.tin)} in · ${fmtTok(a.tout)} out · ${fmtTok(a.cacheR)} letti · ${fmtTok(a.cacheW)} scritti${completo ? '' : ' · token parziali'}`}>
+                    <div className="r" key={a.id} title={tr('activity.agentTokenBreakdown', {a: a.name, b: fmtTok(a.tin), c: fmtTok(a.tout), d: fmtTok(a.cacheR), e: fmtTok(a.cacheW), f: completo ? '' : tr('activity.partialTokens')})}>
                       <span className="k" style={{ color: a.color }}>{a.name.toUpperCase()}</span>
                       <span className="sb">
                         {seg.map(([v, c], i) => <u key={i} style={{ width: `${((v ?? 0) / mxA * 100).toFixed(1)}%`, background: c }} />)}
@@ -904,14 +938,13 @@ function PannelloEconomia({ P, total, sumAgents, koCost, koIds }: {
             )}
             <div className="tokfoot">
               {total.cache_read && total.in
-                ? <>Cache riletta <b>{fmtN(total.cache_read / total.in, 1)}×</b> l'input fresco: è l'economia vera della run.</>
-                : <>Cache non dichiarata dal payload.</>}
-              <br />Somma degli agenti <b>{fmtEur(sumAgents)}</b>
+                ? <>{tr('activity.cacheReread')} <b>{fmtN(total.cache_read / total.in, 1)}×</b> {tr('activity.cacheBenefit')}</>
+                : <>{tr('activity.cacheMissingSentence')}</>}
+              <br />{tr('activity.agentSumTitle')} <b>{fmtEur(sumAgents)}</b>
               {total.cost_eur != null && Math.abs(sumAgents - total.cost_eur) < 0.005
-                ? <>, identica al totale: nessun delta da spiegare.</>
-                : <>, contro un totale di <b>{fmtEur(total.cost_eur)}</b>: <span className="amc">il delta non è spiegato dal payload</span>.</>}
-              {koIds.length > 0 && <><br /><span className="ko">Dentro ci sono {fmtEur(koCost)} spesi
-                dai {koIds.length} desk in <b>api_error</b>.</span></>}
+                ? <>{tr('activity.sameAsTotal')}</>
+                : <>{tr('activity.againstTotal')} <b>{fmtEur(total.cost_eur)}</b>: <span className="amc">{tr('activity.unexplainedDelta')}</span>.</>}
+              {koIds.length > 0 && <><br /><span className="ko">{tr('activity.included')} {fmtEur(koCost)} {tr('activity.spentBy')} {koIds.length} {tr('activity.desksWithStatus')} <b>api_error</b>.</span></>}
             </div>
           </>
         )}
@@ -923,6 +956,7 @@ function PannelloEconomia({ P, total, sumAgents, koCost, koIds }: {
 function PannelloCifre({ P, engines, koIds, total }: {
   P: Plancia; engines?: EnginesInfo; koIds: string[]; total?: UsageTotal;
 }) {
+  const tr = useT();
   const riga = (d: Desk) => {
     const v = verdictOf(d);
     return (
@@ -936,7 +970,7 @@ function PannelloCifre({ P, engines, koIds, total }: {
         <i>{d.nTools || <span className="nd">—</span>}</i>
         <i>{d.apiCalls || <span className="nd">—</span>}</i>
         <i className={koIds.includes(d.id) ? 'amc' : 'c'}>{fmtEur(d.cost)}</i>
-        <span className={'v ' + v.cls}>{v.k}</span>
+        <span className={'v ' + v.cls}>{v.k === 'n.d.' ? tr('activity.unavailable') : v.k}</span>
       </div>
     );
   };
@@ -944,10 +978,12 @@ function PannelloCifre({ P, engines, koIds, total }: {
   return (
     <div className="p3 pcif">
       <span className="tick bl" />
-      <div className="p3h"><span>// GLI AGENTI IN CIFRE</span><span className="side">un solo verdetto</span></div>
+      <div className="p3h"><span>{tr('activity.agentsFigures')}</span><span className="side">{tr('activity.singleVerdict')}</span></div>
       <div className="p3b cif">
         <div className="hd">
-          <span>desk · orbita</span><i>durata</i><i>chiam.</i><i>tool</i><i>api</i><i>costo</i><i className="ce">esito</i>
+          {/* colonne fisse (agents-plancia.css §9): ogni etichetta, in ogni lingua, sta nella
+              sua colonna piu' lo spazio che la segue — la prova e' in activity.test.cjs */}
+          <span>{tr('activity.deskOrbit')}</span><i>{tr('activity.durationAbbrev')}</i><i>{tr('activity.callsAbbrev')}</i><i>{tr('activity.toolsAbbrev')}</i><i>api</i><i>{tr('activity.cost')}</i><i className="ce">{tr('activity.outcome')}</i>
         </div>
         {P.desks.map(d => riga(d))}
         {P.pending.length > 0 && (
@@ -955,7 +991,7 @@ function PannelloCifre({ P, engines, koIds, total }: {
             {/* un desk senza chiamate nel log NON e' uno stadio di sintesi (N8):
                 o non e' ancora partito in questo round, o le sue chiamate sono
                 uscite dalla finestra dell'heartbeat */}
-            <div className="sep">▾ desk senza chiamate nel log ricevuto — <b>non collocabili sul quadrante</b></div>
+            <div className="sep">{tr('activity.desksNoLog')} <b>{tr('activity.notOnDial')}</b></div>
             {P.pending.map(d => riga(d))}
           </>
         )}
@@ -963,19 +999,19 @@ function PannelloCifre({ P, engines, koIds, total }: {
             lettura) ma non ancora la durata: non sta sotto «durata sì, orario no» */}
         {P.live && P.capo === 'running' && P.stages.some(s => s.id === 'capo') && (
           <>
-            <div className="sep">▾ il Capo — <b>in corsa</b>, durata a fine memo (da quando: nella piastra di lettura)</div>
+            <div className="sep">{tr('activity.capoSection')} <b>{tr('activity.running')}</b>{tr('activity.capoDurationEnd')}</div>
             {P.stages.filter(s => s.id === 'capo').map(d => riga(d))}
           </>
         )}
         {P.stages.some(s => !(P.live && P.capo === 'running' && s.id === 'capo')) && (
           <>
-            <div className="sep">▾ stadi di sintesi — <b>durata sì, orario no</b>: non collocabili sul quadrante</div>
+            <div className="sep">{tr('activity.synthesisStages')} <b>{tr('activity.durationNoTime')}</b>{tr('activity.notOnDialSuffix')}</div>
             {P.stages.filter(s => !(P.live && P.capo === 'running' && s.id === 'capo')).map(d => riga(d))}
           </>
         )}
         {total?.cost_eur != null && (
           <div className="tot">
-            <span className="n">somma agenti</span>
+            <span className="n">{tr('activity.agentSum')}</span>
             <i>{fmtDurShort([...P.desks, ...P.pending, ...P.stages].reduce((s, d) => s + (d.dur || 0), 0))}</i>
             <i>{P.calls.length}</i><i>{P.nToolsDistinct}*</i>
             <i>{[...P.desks, ...P.pending, ...P.stages].reduce((s, d) => s + d.apiCalls, 0)}</i>
@@ -984,17 +1020,14 @@ function PannelloCifre({ P, engines, koIds, total }: {
           </div>
         )}
         <div className="note">
-          <b>chiam.</b> = chiamate a strumento · <b>tool</b> = strumenti <b>distinti</b> di quel desk.
-          {P.logTappato && <> I conteggi valgono sulle <b>ultime {P.calls.length}</b> chiamate
-            ricevute{P.nCallsTot != null && <> (la run ne ha fatte {P.nCallsTot})</>}: chi ha chiamate
-            piu' vecchie ne mostra meno del vero.</>}
-          {P.nToolsDistinct > 0 && <> * i {P.nToolsDistinct} strumenti della run non sono la somma
-            della colonna ({sommaTool}): gli stessi strumenti li usano desk diversi.</>}
-          <br />Motore del comitato da <b>engines</b>, non da agents[].model (quello è il modello della chat):
+          <b>{tr('activity.callsAbbrev')}</b> {tr('activity.callsDefinition')} <b>{tr('activity.toolsAbbrev')}</b> {tr('activity.toolsDefinition')} <b>{tr('activity.distinct')}</b> {tr('activity.ofDesk')}
+          {P.logTappato && <> {tr('activity.countsOnLatest')} <b>{tr('activity.latest')} {P.calls.length}</b> {tr('activity.callsReceived')}{P.nCallsTot != null && <> {tr('activity.runMadeCalls')} {P.nCallsTot})</>}{tr('activity.olderCallsUnderCount')}</>}
+          {P.nToolsDistinct > 0 && <> {tr(P.nToolsDistinct === 1 ? 'activity.toolsFootnoteOne' : 'activity.toolsFootnoteMany', {a: P.nToolsDistinct, b: sommaTool})}</>}
+          <br />{tr('activity.committeeEngineFrom')} <b>engines</b>{tr('activity.chatModelIsSeparate')}
           {P.desks.length > 0 && <> desk <b>{engineShort(P.desks[0].id, engines, P.desks[0].rounds)}</b></>}
-          {P.stages.some(s => s.id === 'capo') && <> · capo <b>{engineShort('capo', engines)}</b></>}
+          {P.stages.some(s => s.id === 'capo') && <> {tr('activity.capoInline')} <b>{engineShort('capo', engines)}</b></>}
           {P.stages.some(s => s.id === '_reflection' || s.id === '_action_table') &&
-            <> · reflection e action table: <b>n.d.</b>, non esposti</>}
+            <> {tr('activity.reflectionAction')} <b>{tr('activity.unavailable')}</b>{tr('activity.notExposed')}</>}
         </div>
       </div>
     </div>
@@ -1002,19 +1035,20 @@ function PannelloCifre({ P, engines, koIds, total }: {
 }
 
 function PannelloStrumenti({ P, fatte, cur }: { P: Plancia; fatte: number; cur: number }) {
+  const tr = useT();
   const mx = P.tools[0]?.n || 1;
   return (
     <div className="p3 patt">
       <span className="tick tl" />
-      <div className="p3h cy"><span>// DOVE HA GUARDATO IL COMITATO</span>
+      <div className="p3h cy"><span>{tr('activity.committeeLooked')}</span>
         {/* «tutti e N» solo quando il log e' INTERO: a run viva sono le ultime 50 (N8) */}
         <span className="side">{P.logTappato
-          ? `${P.nToolsDistinct} nelle ultime ${P.calls.length} chiamate`
-          : `tutti e ${P.nToolsDistinct}`}</span></div>
+          ? tr('activity.countInCalls', {a: P.nToolsDistinct, b: P.calls.length})
+          : tr('activity.allCount', {a: P.nToolsDistinct})}</span></div>
       <div className="p3b attwrap">
         {P.tools.length === 0 ? (
-          <div className="buco"><span className="t">nessuna chiamata</span>
-            <span className="s">il <b>tool_log</b> dell'heartbeat è vuoto</span></div>
+          <div className="buco"><span className="t">{tr('activity.noCalls')}</span>
+            <span className="s">{tr('activity.theLog')} <b>tool_log</b> {tr('activity.heartbeatLogEmpty')}</span></div>
         ) : (
           <>
             <div className="atl">
@@ -1024,9 +1058,7 @@ function PannelloStrumenti({ P, fatte, cur }: { P: Plancia; fatte: number; cur: 
                   {d.name.toUpperCase()}
                 </b>
               ))}
-              <span className="n">barra divisa per desk in ordine d'uso · il sigillo davanti alla barra è
-                il desk che l'ha usato di più: l'identità sta nella <b>forma</b>, non nel colore
-                (macro e crypto sono due ambre gemelle)</span>
+              <span className="n">{tr('activity.toolBarExplanation')} <b>{tr('activity.shape')}</b>{tr('activity.notColour')}</span>
             </div>
             <div className="att">
               {P.tools.map(t => {
@@ -1055,17 +1087,18 @@ function PannelloStrumenti({ P, fatte, cur }: { P: Plancia; fatte: number; cur: 
 }
 
 function PannelloTicker({ P }: { P: Plancia }) {
+  const tr = useT();
   return (
     <div className="p3 ptk">
       <span className="tick br" />
-      <div className="p3h"><span>// TICKER TOCCATI</span>
+      <div className="p3h"><span>{tr('activity.tickersTouched')}</span>
         <span className="side">{P.logTappato
-          ? `${P.tickers.length} nelle ultime ${P.calls.length} chiamate`
-          : `tutti e ${P.tickers.length}`}</span></div>
+          ? tr('activity.countInCalls', {a: P.tickers.length, b: P.calls.length})
+          : tr('activity.allCount', {a: P.tickers.length})}</span></div>
       <div className="p3b tkl">
         {P.tickers.length === 0 ? (
-          <div className="buco"><span className="t">nessun ticker</span>
-            <span className="s">gli <b>input</b> delle chiamate non nominano ticker espliciti</span></div>
+          <div className="buco"><span className="t">{tr('activity.noTicker')}</span>
+            <span className="s">{tr('activity.theInputs')} <b>input</b> {tr('activity.inputsNoTickers')}</span></div>
         ) : P.tickers.map(x => <span key={x.k}>{x.k}<b>{x.n}</b></span>)}
       </div>
     </div>
@@ -1073,23 +1106,24 @@ function PannelloTicker({ P }: { P: Plancia }) {
 }
 
 function PannelloNastro({ P, cur }: { P: Plancia; cur: number }) {
+  const tr = useT();
   return (
     <div className="p3 plog">
       <span className="tick tr" />
-      <div className="p3h cy"><span>// NASTRO DELLE CHIAMATE</span>
+      <div className="p3h cy"><span>{tr('activity.callsTape')}</span>
         <span className="side">{P.logTappato
-          ? `le ultime ${P.calls.length}${P.nCallsTot != null ? ` di ${P.nCallsTot}` : ''} ricevute`
-          : `tutte e ${P.calls.length}`}, in ordine di tempo · T+ dallo start</span></div>
+          ? tr('activity.lastReceived', {a: P.calls.length, b: P.nCallsTot != null ? tr('activity.ofTotal', {a: P.nCallsTot}) : ''})
+          : tr('activity.allCalls', {a: P.calls.length})}{tr('activity.chronological')}</span></div>
       <div className="p3b logwrap">
         {P.calls.length === 0 ? (
-          <div className="buco"><span className="t">nastro vuoto</span>
-            <span className="s">nessuna chiamata a strumento nel heartbeat</span></div>
+          <div className="buco"><span className="t">{tr('activity.emptyTape')}</span>
+            <span className="s">{tr('activity.heartbeatNoCalls')}</span></div>
         ) : (
           <>
             <div className="lhd">
               {[0, 1, 2].map(i => (
                 <div className="lr" key={i}>
-                  <span>T+</span><span>desk</span><span>rd</span><span>strumento</span><span>input</span>
+                  <span>T+</span><span>desk</span><span>{tr('activity.roundAbbrev')}</span><span>{tr('activity.tool')}</span><span>input</span>
                 </div>
               ))}
             </div>
@@ -1098,12 +1132,13 @@ function PannelloNastro({ P, cur }: { P: Plancia; cur: number }) {
                 const d = P.desks.find(x => x.id === c.a);
                 return (
                   <div className={'lr' + (Math.abs(c.t - cur) < 20 ? ' hot' : '')} key={i}
-                    title={`orologio di parete ${c.hhmm} · ${c.input}`}>
+                    title={tr('activity.wallClock', {a: c.hhmm, b: c.input})}>
                     <span className="tm num">{fmtClock(c.t)}</span>
                     <span className="ag" style={{ color: d?.color }}>{c.a.toUpperCase()}</span>
+                    {/* la classe CSS non viene mai da un catalogo: .rd e' la regola di agents-plancia.css §12 */}
                     <span className="rd">R{c.r}</span>
                     <span className="tl">{c.tool}</span>
-                    <span className="in">{c.input === '{}' ? '—' : c.input.replace(/[{}']/g, '')}</span>
+                    <span className="in" title={tr('activity.originalSource')}>{c.input === '{}' ? '—' : c.input.replace(/[{}']/g, '')}</span>
                   </div>
                 );
               })}

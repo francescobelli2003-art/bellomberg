@@ -19,14 +19,20 @@ current merely because you opened it today.
 5. Download or open the PDF and valuation appendix when that output exists.
 
 ## Availability and counts
-The readable archive can omit very short or failed memo bodies while the
-database still counts their run records. A count difference does not necessarily
-mean a successful memo disappeared.
+The page reports records with neither readable content nor an available PDF in
+the returned sample, up to 200 records. That is a row-level observation, not a
+count of failed runs. The readable memo list has its own limit, so subtracting
+the two list lengths would not establish how many memos are missing.
 
 A PDF, appendix and saved text can have different availability after an
 interrupted run. Do not assume all attachments exist because the memo text is
 present. Inspect the run state in [Agents Live](12-agents-live.md) before retrying
 an expensive generation.
+
+The original-language badge describes the saved output when known. A legacy
+record without language metadata remains unknown. Changing interface language
+updates labels and tooltips while preserving the selected memo, search text and
+original document; it does not request a fresh generation or translate the PDF.
 
 ## Use the archive as evidence
 Read a source tag in its context and date. An old model output is not a live

@@ -1,3 +1,4 @@
+import { useT } from '@/i18n/provider';
 /* ============================================================
    F4 — IL QUADRANTE (Opus 5, 26/07)
 
@@ -139,6 +140,7 @@ const ARIA_SOTTO_LETTURA = 10;
 
 export default function Quadrante({ p, w, h, cursor, pinned, onCursor, onPin, koIds, fmtEur,
   costoRun, koCost, memoLabel, readBottom = 0 }: QuadranteProps) {
+  const tr = useT();
   const g = useMemo(() => {
     const pad = 14;
     /* la fascia laterale porta la telemetria FUORI dal quadrante: larga
@@ -175,13 +177,13 @@ export default function Quadrante({ p, w, h, cursor, pinned, onCursor, onPin, ko
          N8): si dice «nel log ricevuto», mai «finora» come fosse il totale */
       const lines: LabLine[] = [
         { t: d.name.toUpperCase(), col: d.color, size: 10.5, ls: 1.1 },
-        { t: `${fmtDurShort(d.dur)} · ${d.nCalls} chiamate${p.logTappato ? ' nel log' : ''} · ${d.nTools} strumenti`, col: '#8D9FC4', size: 8.5, ls: 0.2 },
-        { t: `${fmtEur(d.cost)} · ${d.apiCalls} chiamate API`, col: ko ? '#FFA51E' : '#D4AF37', size: 9, ls: 0.2 },
-        { t: ko && run ? 'KO api in un round prima · in corsa ora'
-             : ko ? 'KO · api_error dichiarato'
-             : run ? `RUN · in corsa · ${d.nCalls} chiamate nel log ricevuto`
-             : err ? 'KO · errore dichiarato su specialist_status'
-             : d.statusRun === 'done' ? 'OK · nessun errore API' : 'esito non dichiarato dal payload',
+        { t: tr('dashboard.dial_calls', {a: fmtDurShort(d.dur), b: d.nCalls, c: p.logTappato ? tr('dashboard.dial_log') : '', d: d.nTools}), col: '#8D9FC4', size: 8.5, ls: 0.2 },
+        { t: tr('dashboard.dial_api_calls', {a: fmtEur(d.cost), b: d.apiCalls}), col: ko ? '#FFA51E' : '#D4AF37', size: 9, ls: 0.2 },
+        { t: ko && run ? tr('dashboard.dial_previous_ko')
+             : ko ? tr('dashboard.dial_api_ko')
+             : run ? tr('dashboard.dial_running_calls', {a: d.nCalls})
+             : err ? tr('dashboard.dial_specialist_ko')
+             : d.statusRun === 'done' ? tr('dashboard.dial_no_api_error') : tr('dashboard.dial_result_missing'),
           col: (ko || err) ? '#FF3D60' : run ? '#FFA51E' : d.statusRun === 'done' ? '#21E0A0' : '#8D9FC4',
           size: 8, ls: 0.3 },
       ];
@@ -195,7 +197,7 @@ export default function Quadrante({ p, w, h, cursor, pinned, onCursor, onPin, ko
     const cima = readBottom > 0 ? readBottom + ARIA_SOTTO_LETTURA : BAND_L[0];
     const L = layoutLabels(all.filter(x => !x.right), cima, h - BAND_L[1], 8);
     return [...R, ...L];
-  }, [p.desks, g, h, S, koIds, fmtEur, readBottom]);
+  }, [p.desks, g, h, S, koIds, fmtEur, readBottom, tr]);
 
   /* L'uscita anticipata sta DOPO tutti gli hook, mai in mezzo: al primo
      render useBox non ha ancora misurato (w=h=0) e con il return prima di
@@ -429,18 +431,18 @@ export default function Quadrante({ p, w, h, cursor, pinned, onCursor, onPin, ko
         <line x1={g.cx} y1={g.cy - g.R - 4} x2={g.cx} y2={g.cy - g.R + 16}
           stroke="#FFA51E" strokeOpacity={0.85} strokeWidth={1.6} />
         <text x={g.cx} y={g.cy - g.R + 27} fill="#FFA51E" fillOpacity={0.8} fontSize={8}
-          letterSpacing={1.2} textAnchor="middle" fontFamily={MONO}>START</text>
+          letterSpacing={1.2} textAnchor="middle" fontFamily={MONO}>{tr('dashboard.start')}</text>
       </g>
 
       {/* ── il nucleo: il verdetto della run, dove nient'altro puo' finire ── */}
       <g>
         <text x={g.cx} y={g.cy - 34} fill="#4E5C82" fontSize={8} letterSpacing={2.2}
-          textAnchor="middle" fontFamily={MONO}>COSTO DELLA RUN</text>
+          textAnchor="middle" fontFamily={MONO}>{tr('dashboard.run_cost')}</text>
         <text x={g.cx} y={g.cy - 6} fill="#ECF1FA" fontSize={26} fontWeight={300}
           textAnchor="middle" fontFamily={MONO}>{fmtEur(costoRun)}</text>
         {koCost != null && koCost > 0 && (
           <text x={g.cx} y={g.cy + 12} fill="#FFA51E" fontSize={9} textAnchor="middle" fontFamily={MONO}>
-            di cui {fmtEur(koCost)} da desk in errore
+            {tr('dashboard.of_which')} {fmtEur(koCost)} {tr('dashboard.from_failed_desks')}
           </text>
         )}
         <line x1={g.cx - 58} y1={g.cy + 24} x2={g.cx + 58} y2={g.cy + 24} stroke="#1E2740" />
@@ -453,7 +455,7 @@ export default function Quadrante({ p, w, h, cursor, pinned, onCursor, onPin, ko
             calls.length: «totale n.d.» dichiarato (review 31/08) */}
         <text x={g.cx} y={g.cy + 54} fill="#8D9FC4" fontSize={8} textAnchor="middle" fontFamily={MONO}>
           {fmtDurShort(p.runSec)} · {p.logTappato && p.nCallsTot == null
-            ? 'chiamate: totale n.d.' : `${p.nCallsTot ?? p.calls.length} chiamate`}{p.logTappato ? ` · ultime ${p.calls.length} nel log` : ''}
+            ? tr('dashboard.calls_total_missing') : tr('dashboard.calls_count', {a: p.nCallsTot ?? p.calls.length})}{p.logTappato ? tr('dashboard.calls_recent', {a: p.calls.length}) : ''}
         </text>
         {/* quante ne sono state fatte fino al cursore: cambia col mouse.
             La forma tappata «N del log fino a MM:SS» e' corta APPOSTA: col
@@ -461,9 +463,9 @@ export default function Quadrante({ p, w, h, cursor, pinned, onCursor, onPin, ko
             l'anello a s150 (review 31/08, metrica svg-kit 0,6 em) */}
         <text x={g.cx} y={g.cy + 70} fontWeight={600} fill="#73829F" fontSize={9} textAnchor="middle" fontFamily={MONO}>
           {p.logTappato
-            ? `${p.calls.filter(c => c.t <= cursor).length} del log fino a ${fmtClock(cursor)}`
-            : `${p.calls.filter(c => c.t <= cursor).length} fino al minuto ${fmtClock(cursor)}`}
-          {activeNow.length > 0 && ` · ${activeNow.length} al lavoro`}
+            ? tr('dashboard.calls_until', {a: p.calls.filter(c => c.t <= cursor).length, b: fmtClock(cursor)})
+            : tr('dashboard.calls_at_minute', {a: p.calls.filter(c => c.t <= cursor).length, b: fmtClock(cursor)})}
+          {activeNow.length > 0 && tr('dashboard.working_count', {a: activeNow.length})}
         </text>
       </g>
 
@@ -483,9 +485,9 @@ export default function Quadrante({ p, w, h, cursor, pinned, onCursor, onPin, ko
           const dashed = !ph.measured;
           const [lx, ly] = PT(g.R - 66, (ph.t0 + ph.t1) / 2);
           const lines: LabLine[] = [
-            { t: ph.k, col: dashed ? '#8D9FC4' : '#FFA51E', size: 9, ls: 1.1 },
+            { t: ph.k === 'SINTESI' ? tr('dashboard.synthesis') : ph.k === 'FRA ROUND' ? tr('dashboard.between_rounds') : ph.k, col: dashed ? '#8D9FC4' : '#FFA51E', size: 9, ls: 1.1 },
             /* round APERTO: la fine non c'e' ancora, e non si scrive l'orologio come se fosse un estremo */
-            { t: `${fmtClock(ph.t0)}→${ph.open ? 'in corso' : fmtClock(ph.t1)}`, col: '#8D9FC4', size: 7.5, ls: 0.2 },
+            { t: `${fmtClock(ph.t0)}→${ph.open ? tr('dashboard.progress_lower') : fmtClock(ph.t1)}`, col: '#8D9FC4', size: 7.5, ls: 0.2 },
           ];
           /* 11 e non 9,5: con l'interlinea stretta la riga da 9px e la riga
              degli orari si toccavano dentro la loro stessa piastra (misurato

@@ -1,3 +1,5 @@
+import { t as tr } from '@/i18n/t';
+import { linguaCorrente, localeDi } from '@/i18n/lingua';
 // ============================================================================
 // F6 FACTOR LAB — "RICONCILIAZIONE" · le derivazioni, FUORI dai componenti
 // (Opus 5, 27/07. Spec: docs/superpowers/specs/2026-07-27-f6-factor-lab-riconciliazione-design.md)
@@ -36,11 +38,11 @@ export const FATTORI = [
 export type Fattore = typeof FATTORI[number];
 
 export const NOME_FATTORE: Record<Fattore, { corto: string; lungo: string }> = {
-  beta_market: { corto: 'MKT', lungo: 'Mercato' },
-  beta_smb: { corto: 'SMB', lungo: 'Dimensione' },
-  beta_hml: { corto: 'HML', lungo: 'Valore' },
-  beta_rmw: { corto: 'RMW', lungo: 'Qualità' },
-  beta_cma: { corto: 'CMA', lungo: 'Investimento' },
+  beta_market: { corto: 'MKT', get lungo() { return tr('factors.f092'); } },
+  beta_smb: { corto: 'SMB', get lungo() { return tr('factors.f093'); } },
+  beta_hml: { corto: 'HML', get lungo() { return tr('factors.f094'); } },
+  beta_rmw: { corto: 'RMW', get lungo() { return tr('factors.f095'); } },
+  beta_cma: { corto: 'CMA', get lungo() { return tr('factors.f096'); } },
   beta_mom: { corto: 'MOM', lungo: 'Momentum' },
 };
 
@@ -179,13 +181,13 @@ export type Muto =
 
 export function perche(m: Muto): string {
   switch (m) {
-    case 'coefficiente-assente': return 'coefficiente assente dal payload';
-    case 't-assente': return 't assente: intervallo non calcolabile';
-    case 'riconciliazione-assente': return 'riconciliazione non disponibile';
-    case 'portafoglio-assente': return 'portafoglio non caricato: base di calcolo ignota';
-    case 'finestra-assente': return 'una delle due finestre non è disponibile';
-    case 'altra-unita': return 'altra unità: fuori scala';
-    case 'non-fornita': return 'definizione non fornita dal backend';
+    case 'coefficiente-assente': return tr('factors.f097');
+    case 't-assente': return tr('factors.f098');
+    case 'riconciliazione-assente': return tr('factors.f099');
+    case 'portafoglio-assente': return tr('factors.f100');
+    case 'finestra-assente': return tr('factors.f101');
+    case 'altra-unita': return tr('factors.f102');
+    case 'non-fornita': return tr('factors.f103');
     default: return '';
   }
 }
@@ -267,8 +269,8 @@ export interface Lancetta {
 const ETICHETTA_BETA: Record<string, string> = {
   advanced_metrics_twr: 'TWR vs BENCHMARK',
   portfolio_risk_spy: 'BOOK vs SPY',
-  factor_model_mkt: 'MODELLO FATTORIALE 3Y',
-  factor_model_mkt_1y: 'MODELLO FATTORIALE 1Y',
+  get factor_model_mkt() { return tr('factors.f104'); },
+  get factor_model_mkt_1y() { return tr('factors.f105'); },
 };
 
 export interface Calibro {
@@ -314,10 +316,10 @@ export function calibro(
     const p = (fac && fac.period ? fac.period : '1y').toUpperCase();
     lancette.push({
       chiave: 'factor_model_mkt_1y',
-      etichetta: 'MODELLO FATTORIALE ' + p,
+      etichetta: tr('factors.f106') + p,
       valore: mio,
-      definizione: 'loading Mkt-RF composito FF regionale, finestra ' + p.toLowerCase() +
-        ' — stima resa in questa pagina, non inclusa nella riconciliazione del guardrail',
+      definizione: tr('factors.f107') + p.toLowerCase() +
+        tr('factors.f108'),
       definizioneMuta: null,
       riconciliato: false,
     });
@@ -419,8 +421,8 @@ export function copertura(
   const avvisi: string[] = [];
   const fxIn = snap && Array.isArray(snap.fx_incomplete) ? snap.fx_incomplete : [];
   const stale = snap && Array.isArray(snap.stale_positions) ? snap.stale_positions : [];
-  if (fxIn.length) avvisi.push(`cambio mancante su ${fxIn.length}: ${fxIn.join(' ')}`);
-  if (stale.length) avvisi.push(`prezzo fermo su ${stale.length}: ${stale.join(' ')}`);
+  if (fxIn.length) avvisi.push(tr('factors.f109', {a: fxIn.length, b: fxIn.join(' ')}));
+  if (stale.length) avvisi.push(tr('factors.f110', {a: stale.length, b: stale.join(' ')}));
 
   return {
     dichiarata, effettiva, investitoSuNav: quota === null ? null : quota * 100,
@@ -678,10 +680,7 @@ export function scartati(fac: PayloadFattori | null): { n: number; righe: Scarta
 }
 
 // ── FORMATTAZIONE ───────────────────────────────────────────────────────────
-// ⚠ `fmtNum` di lib/format.ts NON forza il raggruppamento e la locale it-IT
-//   usa "min2": 39265 -> 39.265 ma 8053 -> 8053. In una colonna di numeri e'
-//   una scala che cambia regola a meta' tabella. Qui, come su F7, si forza.
-//   (Il difetto di format.ts riguarda tutte le altre pagine e non e' toccato.)
+// Raggruppamento esplicito con lingua corrente, come in lib/format.ts.
 
 // stessa forma di TradeEntryPage.tsx:55 (F7): `useGrouping:'always'` non e' nel
 // tipo NumberFormatOptions del lib di TS in uso, e il cast e' dichiarato invece
@@ -696,13 +695,13 @@ const opz = (dec: number): Intl.NumberFormatOptions => {
 export function n(v: unknown, dec = 2): string | null {
   const x = num(v);
   if (x === null) return null;
-  return x.toLocaleString('it-IT', opz(dec));
+  return x.toLocaleString(localeDi(linguaCorrente()), opz(dec));
 }
 
 /** un numero che non c'e' non e' un trattino: e' una frase */
 export function dato(v: unknown, dec = 2, m?: Muto): string {
   const s = n(v, dec);
-  return s === null ? (m ? perche(m) : 'non misurato') : s;
+  return s === null ? (m ? perche(m) : tr('factors.f001')) : s;
 }
 
 // ── ATTREZZO ────────────────────────────────────────────────────────────────

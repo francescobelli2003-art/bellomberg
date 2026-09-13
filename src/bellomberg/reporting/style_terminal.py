@@ -16,6 +16,7 @@ per non triplicare palette/font/testata.
 Palette categorica CAT: validata colorblind-safe (metodo skill dataviz, 15/07).
 """
 import os
+import sys
 from datetime import datetime
 
 try:
@@ -28,11 +29,13 @@ try:
 except Exception:
     MPL = False
 
-# --- font Arial-like ROBUSTO (Windows -> Linux -> fallback) ---
+# --- font Arial-like ROBUSTO (Windows -> macOS -> Linux -> ripiego dichiarato) ---
 FONT = "DejaVu Sans"
 if MPL:
     for _n, _p in [("Arial", "C:/Windows/Fonts/arial.ttf"),
                    ("Arial", "C:/Windows/Fonts/Arial.ttf"),
+                   ("Arial", "/System/Library/Fonts/Supplemental/Arial.ttf"),
+                   ("Arial", "/Library/Fonts/Arial.ttf"),
                    ("Liberation Sans", "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"),
                    ("Liberation Sans", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
                    ("DejaVu Sans", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")]:
@@ -43,6 +46,8 @@ if MPL:
                 break
         except Exception:
             continue
+    if FONT == "DejaVu Sans":
+        print("[style_terminal] Font Arial/Liberation non disponibile: ripiego DejaVu Sans.", file=sys.stderr)
 
 # --- identita' (coerente col tema OBSIDIAN dell'app e del memo) ---
 OBS = "#050608"        # nero canvas del terminale
@@ -86,6 +91,7 @@ def titlebar(fig, title, subtitle=None, source=None, asof=None, compact=False):
     compact=True per figure basse (memo, ~2.7"): testo piu' piccolo, stessa fascia.
     L'`asof` va passato SOLO se noto (mai una data inventata: se manca, non si stampa).
     """
+    from bellomberg.core.language import text
     if not MPL:
         return
     fig.patches.append(Rectangle((0, BAR_BOTTOM), 1.0, 1.0 - BAR_BOTTOM, transform=fig.transFigure,
@@ -98,11 +104,11 @@ def titlebar(fig, title, subtitle=None, source=None, asof=None, compact=False):
         fig.text(0.017, 0.892, str(subtitle), fontsize=6.8 if compact else 7.9, color=SUBTLE,
                  va="center", ha="left")
     if asof:
-        fig.text(0.983, 0.952, "as of " + str(asof), fontsize=6.6 if compact else 7.2,
+        fig.text(0.983, 0.952, text("al ", "as of ") + str(asof), fontsize=6.6 if compact else 7.2,
                  color=AMBER_D, va="center", ha="right", family=FONT)
     if source:
-        fig.text(0.017, 0.02, source if str(source).lower().startswith("source")
-                 else "Source: " + str(source),
+        fig.text(0.017, 0.02, source if str(source).lower().startswith(("source", "fonte"))
+                 else text("Fonte: ", "Source: ") + str(source),
                  fontsize=6.4, color=MUTED, style="italic", va="bottom")
 
 

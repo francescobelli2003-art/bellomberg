@@ -15,6 +15,8 @@ scenarios = dict bear/base/bull con driver paths + commentary (dall'agente via g
 Fallback: NESSUNO dal 16/07 (audit/13 §4 n.1): v3 KO = rifiuto dichiarato da dcf_engine;
 il v2 dcf_buyside.py sta in attic/morti_20260902 dal 02/09 (0 importer misurati).
 """
+from bellomberg.core.language import scoped_language, text as _lt
+from bellomberg.reporting.i18n_excel import label as _xt
 from datetime import datetime
 
 try:
@@ -794,17 +796,17 @@ def _sheet_thesis(wb, spec, fv, scenarios, history_ok, dcf_cells=None, comps_cel
     parametrico. B14: banner quando TUTTI gli scenari sono _auto."""
     ws = wb.create_sheet("Thesis & Output", 0)
     dc = dcf_cells or {}
-    TITLE(ws, "A1", f"{spec.get('company_name', spec.get('ticker'))} ({spec.get('ticker')}) - Modello buy-side v3", ncols=4)
-    L(ws, "A2", f"Generato {datetime.now():%d/%m/%Y %H:%M} - valuta {spec.get('currency', 'USD')} - storico XBRL: {'SI' if history_ok else 'NO (fallback yfinance)'}", italic=True, color=GREYTX)
+    TITLE(ws, "A1", _lt(f"{spec.get('company_name', spec.get('ticker'))} ({spec.get('ticker')}) - Modello buy-side v3",f"{spec.get('company_name', spec.get('ticker'))} ({spec.get('ticker')}) - Buy-side model v3"), ncols=4)
+    L(ws, "A2", _lt(f"Generato {datetime.now():%d/%m/%Y %H:%M} - valuta {spec.get('currency', 'USD')} - storico XBRL: {('SI' if history_ok else 'NO (fallback yfinance)')}",f"Generated {datetime.now():%d/%m/%Y %H:%M} - currency {spec.get('currency', 'USD')} - XBRL history: {('SI' if history_ok else 'NO (fallback yfinance)')}"), italic=True, color=GREYTX)
     # B14: banner ben visibile quando NESSUNO scenario e' dell'analista
     if all((scenarios[s].get("commentary") or {}).get("_auto") for s in ("bear", "base", "bull")):
-        ws["A3"] = "ATTENZIONE: driver generati AUTOMATICAMENTE dai dati, non validati dall'analista (passa scenarios= in get_valuation)"
+        ws["A3"] = _xt("ATTENZIONE: driver generati AUTOMATICAMENTE dai dati, non validati dall'analista (passa scenarios= in get_valuation)")
         ws["A3"].font = Font(bold=True, color="9C6500", size=9)
         for i in range(1, 5):
             ws.cell(row=3, column=i).fill = PatternFill("solid", fgColor="FFF2CC")
-    H(ws, "A4", "VARIANT VIEW DELL'ANALISTA")
-    L(ws, "A5", spec.get("_variant_view") or spec.get("variant_view") or "(non fornita)")
-    H(ws, "A7", "FOOTBALL FIELD (fair value per azione, link vivi al foglio DCF)"); H(ws, "B7", "VALORE"); H(ws, "C7", "PESO")
+    H(ws, "A4", _xt("VARIANT VIEW DELL'ANALISTA"))
+    L(ws, "A5", spec.get("_variant_view") or spec.get("variant_view") or _xt("(non fornita)"))
+    H(ws, "A7", _xt("FOOTBALL FIELD (fair value per azione, link vivi al foglio DCF)")); H(ws, "B7", _xt("VALORE")); H(ws, "C7", _xt("PESO"))
     r = 8
     for sc, w in (("bear", "25%"), ("base", "50%"), ("bull", "25%")):
         L(ws, f"A{r}", f"DCF scenario {sc.upper()}")
@@ -814,26 +816,26 @@ def _sheet_thesis(wb, spec, fv, scenarios, history_ok, dcf_cells=None, comps_cel
             N(ws, f"B{r}", fv.get(f"fair_value_{sc}"), "#,##0.00", bold=(sc == "base"))
         L(ws, f"C{r}", w, color=GREYTX); r += 1
     w_row = r
-    L(ws, f"A{r}", "PONDERATO (25/50/25)", bold=True)
+    L(ws, f"A{r}", _xt("PONDERATO (25/50/25)"), bold=True)
     if dc.get("weighted"):
         F(ws, f"B{r}", f"=DCF!{dc['weighted']}", "#,##0.00", bold=True, link=True)
     else:
         N(ws, f"B{r}", fv.get("fair_value_weighted"), "#,##0.00", bold=True, color=GOLD)
     r += 1
     if dc.get("exit_base"):
-        L(ws, f"A{r}", "DCF TV exit multiple (base)")
+        L(ws, f"A{r}", _xt("DCF TV exit multiple (base)"))
         F(ws, f"B{r}", f"=DCF!{dc['exit_base']}", "#,##0.00", link=True)
         L(ws, f"C{r}", "cross-check", color=GREYTX); r += 1
     # B8: barra Comps nel football field (link vivo) + blend metodi parametrico;
     # default senza method_weights = 100% DCF, fair value INVARIATO
     mw = fv.get("method_weights_used") or {}
     if comps_cells and comps_cells.get("per_share"):
-        L(ws, f"A{r}", "Comps EV/EBITDA implicito (mediana)")
+        L(ws, f"A{r}", _xt("Comps EV/EBITDA implicito (mediana)"))
         F(ws, f"B{r}", f"=Comps!{comps_cells['per_share']}", "#,##0.00", link=True)
-        L(ws, f"C{r}", f"{mw.get('comps', 0):.0%}" if mw else "0% (informativo)", color=GREYTX)
+        L(ws, f"C{r}", f"{mw.get('comps', 0):.0%}" if mw else _xt("0% (informativo)"), color=GREYTX)
         comps_row = r; r += 1
         if mw and fv.get("fair_value_final") is not None:
-            L(ws, f"A{r}", f"FAIR VALUE FINALE (blend {mw['dcf']:.0%} DCF / {mw['comps']:.0%} comps)", bold=True)
+            L(ws, f"A{r}", _lt(f"FAIR VALUE FINALE (combinazione {mw['dcf']:.0%} DCF / {mw['comps']:.0%} comps)",f"FINAL FAIR VALUE (blend {mw['dcf']:.0%} DCF / {mw['comps']:.0%} comps)"), bold=True)
             F(ws, f"B{r}", f"={mw['dcf']}*B{w_row}+{mw['comps']}*B{comps_row}", "#,##0.00", bold=True, color=GOLD)
             w_row = r  # upside calcolato sul blend dichiarato
             r += 1
@@ -846,24 +848,23 @@ def _sheet_thesis(wb, spec, fv, scenarios, history_ok, dcf_cells=None, comps_cel
         # n.d. DICHIARATO, mai un numero a valute miste (regola 14/07).
         fxq = spec.get("fx_quote") or {}
         p_row = r
-        L(ws, f"A{r}", "Prezzo corrente" + (f" ({fxq['to']})" if fxq.get("to") else ""))
+        L(ws, f"A{r}", _xt("Prezzo corrente") + (f" ({fxq['to']})" if fxq.get("to") else ""))
         N(ws, f"B{r}", spec["price"], "#,##0.00"); r += 1
         if fv.get("fair_value_weighted"):
             u_row = w_row
             if fxq.get("rate"):
-                L(ws, f"A{r}", f"Fair value in {fxq['to']} (convertito @{fxq['rate']:.6g}, "
-                               f"src {fxq.get('src', 'yfinance')})")
+                L(ws, f"A{r}", _lt(f"Fair value in {fxq['to']} (convertito @{fxq['rate']:.6g}, src {fxq.get('src', 'yfinance')})",f"Fair value in {fxq['to']} (convertito @{fxq['rate']:.6g}, src {fxq.get('src', 'yfinance')})"))
                 F(ws, f"B{r}", f"=B{w_row}*{fxq['rate']}", "#,##0.00", bold=True)
                 L(ws, f"C{r}", "cross-valuta", color=GREYTX)
                 u_row = r; r += 1
             L(ws, f"A{r}", "Upside/Downside")
             if fxq.get("error"):
-                L(ws, f"B{r}", "n.d. — " + fxq["error"], color=GREYTX); r += 1
+                L(ws, f"B{r}", _xt("n.d. — ") + fxq["error"], color=GREYTX); r += 1
             else:
                 F(ws, f"B{r}", f"=B{u_row}/B{p_row}-1", "+0.0%;-0.0%", bold=True, color=GOLD); r += 1
     # G5 audit/14: delta tra metodi IN RIGA (stile "Delta vs top down" Kairos)
     if fv.get("methods_delta") is not None:
-        L(ws, f"A{r}", "Delta metodi: comps implicito vs DCF ponderato")
+        L(ws, f"A{r}", _xt("Delta metodi: comps implicito vs DCF ponderato"))
         N(ws, f"B{r}", fv["methods_delta"], "+0.0%;-0.0%")
         L(ws, f"C{r}", "G5 audit/14", color=GREYTX); r += 1
     # G4 audit/14 (Kairos, principio n.4): IRR di holding period per scenario,
@@ -872,45 +873,44 @@ def _sheet_thesis(wb, spec, fv, scenarios, history_ok, dcf_cells=None, comps_cel
     _bs = _hi.get("by_scenario") or {}
     if _bs:
         r += 1
-        H(ws, f"A{r}", f"IRR DI HOLDING PERIOD ({_hi.get('years', 3)} ANNI) PER SCENARIO — G4 audit/14"); r += 1
+        H(ws, f"A{r}", _lt(f"IRR DI HOLDING PERIOD ({_hi.get('years', 3)} ANNI) PER SCENARIO — G4 audit/14",f"HOLDING PERIOD IRR ({_hi.get('years', 3)} YEARS) BY SCENARIO — G4 audit/14")); r += 1
         for _sc in ("bear", "base", "bull"):
             if _sc not in _bs:
                 continue
-            L(ws, f"A{r}", f"IRR annuo {_sc.upper()} (exit {_hi.get('exit_multiple')}x EV/EBITDA su Y3)")
+            L(ws, f"A{r}", _lt(f"IRR annuo {_sc.upper()} (exit {_hi.get('exit_multiple')}x EV/EBITDA su Y3)",f"Annual IRR {_sc.upper()} (exit {_hi.get('exit_multiple')}x EV/EBITDA su Y3)"))
             if _bs[_sc] is None:
-                L(ws, f"B{r}", "n.d. (IRR fuori range [-95%,+1000%] o flussi senza cambio di segno)", color=GREYTX)
+                L(ws, f"B{r}", _xt("n.d. (IRR fuori range [-95%,+1000%] o flussi senza cambio di segno)"), color=GREYTX)
             else:
                 N(ws, f"B{r}", _bs[_sc], "+0.0%;-0.0%", bold=(_sc == "base"),
                   color=GOLD if _sc == "base" else INK)
             r += 1
-        L(ws, f"A{r}", f"  entry {_hi.get('entry_price')} + div/az flat {_hi.get('dividend_ps_flat')} | "
-                       f"exit: {_hi.get('exit_multiple_source')}", italic=True, color=GREYTX); r += 1
+        L(ws, f"A{r}", _lt(f"  entry {_hi.get('entry_price')} + div/az flat {_hi.get('dividend_ps_flat')} | exit: {_hi.get('exit_multiple_source')}",f"  entry {_hi.get('entry_price')} + flat dividend/share {_hi.get('dividend_ps_flat')} | exit: {_hi.get('exit_multiple_source')}"), italic=True, color=GREYTX); r += 1
         if _hi.get("gordon_check"):
             # review F3 finanza (G5): la strada comps-vs-DCF dichiarata in riga
-            _gc_warn = "ATTENZIONE" in _hi["gordon_check"]
+            _gc_warn = _xt("ATTENZIONE") in _hi["gordon_check"]
             L(ws, f"A{r}", "  " + _hi["gordon_check"], italic=not _gc_warn, bold=_gc_warn,
               color="C00000" if _gc_warn else GREYTX); r += 1
         L(ws, f"A{r}", "  " + str(_hi.get("note") or ""), italic=True, color=GREYTX); r += 1
     elif _hi.get("note"):
         _nt = str(_hi["note"])
-        L(ws, f"A{r}", _nt if _nt.startswith("IRR") else "IRR holding n.d.: " + _nt,
+        L(ws, f"A{r}", _nt if _nt.startswith("IRR") else _xt("IRR holding n.d.: ") + _nt,
           italic=True, color=GREYTX); r += 1
     if fv.get("equity_adjustments_total") is not None:
         # il numero mostrato sono i SOLI adjustments: il totale bridge col net debt
         # sta nella riga TOTALE del foglio DCF (etichetta coerente, mai fuorviante)
-        L(ws, f"A{r}", f"Bridge: {len(fv.get('equity_adjustments_used') or [])} adjustments oltre il net debt = {fv['equity_adjustments_total']:+,.1f}m"
-          + (f" - stance {fv['stance'].upper()}" if fv.get("stance") else "") + " (v. blocco BRIDGE nel foglio DCF)", italic=True, color=GREYTX); r += 1
+        L(ws, f"A{r}", _lt(f"Ponte: {len(fv.get('equity_adjustments_used') or [])} adjustments oltre il net debt = {fv['equity_adjustments_total']:+,.1f}m",f"Bridge: {len(fv.get('equity_adjustments_used') or [])} adjustments beyond net debt = {fv['equity_adjustments_total']:+,.1f}m")
+          + (f" - stance {fv['stance'].upper()}" if fv.get("stance") else "") + _xt(" (v. blocco BRIDGE nel foglio DCF)"), italic=True, color=GREYTX); r += 1
     elif fv.get("stance"):
-        L(ws, f"A{r}", f"Stance {fv['stance'].upper()}: nessuna voce discrezionale inclusa nel bridge (solo net debt)", italic=True, color=GREYTX); r += 1
+        L(ws, f"A{r}", _lt(f"Stance {fv['stance'].upper()}: nessuna voce discrezionale inclusa nel bridge (solo net debt)",f"Stance {fv['stance'].upper()}: no discretionary items included in the bridge (net debt only)"), italic=True, color=GREYTX); r += 1
     r += 1
-    H(ws, f"A{r}", "PARAMETRI"); r += 1
+    H(ws, f"A{r}", _xt("PARAMETRI")); r += 1
     L(ws, f"A{r}", "WACC")
     if dc:
         F(ws, f"B{r}", "=DCF!B4", "0.00%", link=True)
     else:
         N(ws, f"B{r}", fv.get("wacc_used"), "0.00%")
     r += 1
-    L(ws, f"A{r}", "g terminale")
+    L(ws, f"A{r}", _xt("g terminale"))
     if dc:
         F(ws, f"B{r}", "=DCF!B5", "0.00%", link=True)
     else:
@@ -922,7 +922,7 @@ def _sheet_thesis(wb, spec, fv, scenarios, history_ok, dcf_cells=None, comps_cel
         L(ws, f"B{r}", " / ".join(f"{k} {v:+.0f}bp" for k, v in _d.items()), color=GREYTX)
         r += 1
     r += 1
-    H(ws, f"A{r}", "COMMENTARY DELL'ANALISTA (per scenario)"); r += 1
+    H(ws, f"A{r}", _xt("COMMENTARY DELL'ANALISTA (per scenario)")); r += 1
     for sc in ("bear", "base", "bull"):
         cm = scenarios[sc].get("commentary") or {}
         L(ws, f"A{r}", sc.upper(), bold=True); r += 1
@@ -940,9 +940,9 @@ def _sheet_historical(wb, spec, history):
     # V3 §9-sexies n.3: la FONTE del titolo e' quella vera (SEC o ESEF), mai hardcoded
     _src = str((history or {}).get("_source") or "SEC XBRL companyfacts")
     if not history or history.get("error"):
-        TITLE(ws, "A1", "Storico riga-per-riga (%s)" % _src, ncols=12)
-        L(ws, "A3", "Storico XBRL non disponibile per questo nome: " + str((history or {}).get("error", "n/d")), italic=True, color=GREYTX)
-        L(ws, "A4", "(nomi senza filing SEC/ESEF: usare i 4 anni yfinance nel foglio scenario)", italic=True, color=GREYTX)
+        TITLE(ws, "A1", _xt("Storico riga-per-riga (%s)") % _src, ncols=12)
+        L(ws, "A3", _xt("Storico XBRL non disponibile per questo nome: ") + str((history or {}).get("error", "n/d")), italic=True, color=GREYTX)
+        L(ws, "A4", _xt("(nomi senza filing SEC/ESEF: usare i 4 anni yfinance nel foglio scenario)"), italic=True, color=GREYTX)
         return []
     years = history.get("years") or []
     cols = [get_column_letter(2 + i) for i in range(len(years))]
@@ -954,40 +954,40 @@ def _sheet_historical(wb, spec, history):
         rev_vals = [abs(_safe(v, 0) or 0) for s in items.values() for v in s.values()]
     scale = 1e6 if (rev_vals and max(rev_vals) > 1e7) else 1.0
     unit = ",".join(set((history.get("units") or {}).values()))
-    TITLE(ws, "A1", f"Storico riga-per-riga ({_src}) - valori in {unit}{'m' if scale > 1 else ''}", ncols=12)
+    TITLE(ws, "A1", _lt(f"Storico riga-per-riga ({_src}) - valori in {unit}{('m' if scale > 1 else '')}",f"Line-by-line history ({_src}) - values in {unit}{('m' if scale > 1 else '')}"), ncols=12)
     # review 17/07: copertura + BUCHI del repository + indice stantio, tutto in riga
     # nota (una sola riga disponibile: la 3 e' l'header anni)
     _notes = []
     if history.get("coverage_note"):
         _notes.append(str(history["coverage_note"]))
     if history.get("gaps"):
-        _notes.append("BUCHI: " + "; ".join(str(x) for x in history["gaps"][:3]))
+        _notes.append(_xt("BUCHI: ") + "; ".join(str(x) for x in history["gaps"][:3]))
     if history.get("index_note"):
         _notes.append(str(history["index_note"]))
     if history.get("accounting_basis"):
         _notes.append(str(history["accounting_basis"]))
     if _notes:
         L(ws, "A2", " | ".join(_notes), italic=True, color=GREYTX)
-    YH(ws, "A3", f"VOCE ({unit}{'m' if scale > 1 else ''})")
+    YH(ws, "A3", _lt(f"VOCE ({unit}{('m' if scale > 1 else '')})",f"ITEM ({unit}{('m' if scale > 1 else '')})"))
     for i, y in enumerate(years):
         YH(ws, f"{cols[i]}3", str(y))
-    ROWS = [("revenue", "Net Revenues"), ("cost_of_revenue", "COGS"), ("gross_profit", "Gross Profit"),
-            ("rnd_expense", "R&D"), ("sga_expense", "SG&A"), ("operating_income", "EBIT (Operating Income)"),
-            ("interest_expense", "Interest Expense"), ("pretax_income", "Pre-tax Income"),
-            ("tax_expense", "Taxes"), ("net_income", "Net Income"), ("eps_diluted", "EPS diluted"),
-            ("total_assets", "Total Assets"), ("cash", "Cash"), ("total_liabilities", "Liabilities"),
-            ("lt_debt", "LT Debt"), ("equity", "Equity"), ("cfo", "CFO"), ("capex", "CapEx"),
-            ("dep_amort", "D&A"), ("dividends_paid", "Dividends Paid"), ("buyback", "Buyback"), ("sbc", "SBC")]
+    ROWS = [("revenue", _xt("Net Revenues")), ("cost_of_revenue", "COGS"), ("gross_profit", _xt("Gross Profit")),
+            ("rnd_expense", "R&D"), ("sga_expense", "SG&A"), ("operating_income", _xt("EBIT (Operating Income)")),
+            ("interest_expense", _xt("Interest Expense")), ("pretax_income", _xt("Pre-tax Income")),
+            ("tax_expense", _xt("Taxes")), ("net_income", _xt("Net Income")), ("eps_diluted", _xt("EPS diluted")),
+            ("total_assets", _xt("Total Assets")), ("cash", _xt("Cash")), ("total_liabilities", _xt("Liabilities")),
+            ("lt_debt", _xt("LT Debt")), ("equity", _xt("Equity")), ("cfo", "CFO"), ("capex", "CapEx"),
+            ("dep_amort", "D&A"), ("dividends_paid", _xt("Dividends Paid")), ("buyback", "Buyback"), ("sbc", "SBC")]
     # review 17/07 (ESEF F4): le righe BANCARIE arrivavano al payload ma non al foglio
-    for _bk, _bl in (("interest_revenue", "Interest revenue (lordo)"),
-                     ("fee_commission_net", "Net fee & commission"),
-                     ("fee_commission_income", "Fee & commission income"),
-                     ("impairment_ifrs9", "Impairments IFRS9 (costo del rischio)"),
-                     ("trading_income", "Trading income"),
-                     ("loans_to_customers", "Loans to customers"),
-                     ("loans_to_banks", "Loans to banks"),
-                     ("deposits_from_customers", "Deposits from customers"),
-                     ("deposits_from_banks", "Deposits from banks")):
+    for _bk, _bl in (("interest_revenue", _xt("Interest revenue (lordo)")),
+                     ("fee_commission_net", _xt("Net fee & commission")),
+                     ("fee_commission_income", _xt("Fee & commission income")),
+                     ("impairment_ifrs9", _xt("Impairments IFRS9 (costo del rischio)")),
+                     ("trading_income", _xt("Trading income")),
+                     ("loans_to_customers", _xt("Loans to customers")),
+                     ("loans_to_banks", _xt("Loans to banks")),
+                     ("deposits_from_customers", _xt("Deposits from customers")),
+                     ("deposits_from_banks", _xt("Deposits from banks"))):
         if _bk in items:
             ROWS.append((_bk, _bl))
     r = 4
@@ -1005,7 +1005,7 @@ def _sheet_historical(wb, spec, history):
         rowmap[key] = r
         r += 1
     r += 1
-    H(ws, f"A{r}", "MARGINI E DERIVATE (formule vive sulle righe sopra)")
+    H(ws, f"A{r}", _xt("MARGINI E DERIVATE (formule vive sulle righe sopra)"))
     r += 1
 
     def _has(key, i):
@@ -1018,17 +1018,17 @@ def _sheet_historical(wb, spec, history):
     written = set()
     rev_row = rowmap.get("revenue")
     if rev_row:
-        L(ws, f"A{r}", "Revenue YoY %")
+        L(ws, f"A{r}", _xt("Revenue YoY %"))
         for i in range(1, len(years)):
             # denominatore MAI zero: il vecchio codice ometteva, mai #DIV/0!
             if _has("revenue", i) and _nonzero("revenue", i - 1):
                 F(ws, f"{cols[i]}{r}", f"={cols[i]}{rev_row}/{cols[i-1]}{rev_row}-1", "0.0%")
         r += 1
     # margini a formula: (numeratore, label); payout = (div+bb)/NI con guardia perdite
-    for num_key, label, dkey in (("gross_profit", "Gross Margin %", "gross_margin"),
-                                 ("operating_income", "EBIT Margin %", "operating_margin"),
-                                 ("net_income", "Net Margin %", "net_margin"),
-                                 ("capex", "CapEx % Rev", "capex_pct_revenue")):
+    for num_key, label, dkey in (("gross_profit", _xt("Gross Margin %"), "gross_margin"),
+                                 ("operating_income", _xt("EBIT Margin %"), "operating_margin"),
+                                 ("net_income", _xt("Net Margin %"), "net_margin"),
+                                 ("capex", _xt("CapEx % Rev"), "capex_pct_revenue")):
         if num_key not in rowmap or not rev_row:
             continue
         L(ws, f"A{r}", label)
@@ -1039,7 +1039,7 @@ def _sheet_historical(wb, spec, history):
         r += 1
     payout_parts = [k for k in ("dividends_paid", "buyback") if k in rowmap]
     if payout_parts and "net_income" in rowmap:
-        L(ws, f"A{r}", "Payout totale (div+bb)")
+        L(ws, f"A{r}", _xt("Payout totale (div+bb)"))
         written.add("payout_total")
         ni = rowmap["net_income"]
         for i in range(len(years)):
@@ -1058,11 +1058,11 @@ def _sheet_historical(wb, spec, history):
     # fallback pre-B10: le derivate senza righe base nel foglio tornano dai valori
     # Python del payload XBRL (nessuna riga sparisce rispetto a prima)
     dd = history.get("derived") or {}
-    for dkey, label, fmt, do_scale in (("gross_margin", "Gross Margin %", "0.0%", False),
-                                       ("operating_margin", "EBIT Margin %", "0.0%", False),
-                                       ("net_margin", "Net Margin %", "0.0%", False),
-                                       ("capex_pct_revenue", "CapEx % Rev", "0.0%", False),
-                                       ("payout_total", "Payout totale (div+bb)", "0.0%", False),
+    for dkey, label, fmt, do_scale in (("gross_margin", _xt("Gross Margin %"), "0.0%", False),
+                                       ("operating_margin", _xt("EBIT Margin %"), "0.0%", False),
+                                       ("net_margin", _xt("Net Margin %"), "0.0%", False),
+                                       ("capex_pct_revenue", _xt("CapEx % Rev"), "0.0%", False),
+                                       ("payout_total", _xt("Payout totale (div+bb)"), "0.0%", False),
                                        ("fcf", "FCF (CFO-CapEx)", "#,##0", True)):
         if dkey in written or not (dd.get(dkey) or {}):
             continue
@@ -1100,10 +1100,10 @@ def _sheet_scenario(wb, spec, sc_name, sc, hist_rev, hist_years, hist_rows=None,
     CM = get_column_letter(2 + N_HIST + N_FWD + 1)  # colonna commentary
 
     # ===== ASSUMPTIONS =====
-    H(ws, "A3", "ASSUMPTIONS (driver dell'analista)", ncols=1)
+    H(ws, "A3", _xt("ASSUMPTIONS (driver dell'analista)"), ncols=1)
     for i, y in enumerate(hy + fy):
         YH(ws, f"{all_cols[i]}3", y)
-    YH(ws, f"{CM}3", "COMMENTARY")
+    YH(ws, f"{CM}3", _xt("COMMENTARY"))
     cm = sc.get("commentary") or {}
     fonti = sc.get("_driver_fonti") or {}
     arow = {}
@@ -1117,7 +1117,7 @@ def _sheet_scenario(wb, spec, sc_name, sc, hist_rev, hist_years, hist_rows=None,
         elif fonti.get(key):
             # M8 audit/13: la FONTE del driver in riga quando l'analista non ha
             # commentato (il suo commento, se c'e', E' la storia della fonte)
-            CMT(ws, f"{CM}{r}", "fonte: " + str(fonti[key]))
+            CMT(ws, f"{CM}{r}", _xt("fonte: ") + str(fonti[key]))
         arow[key] = r
         r += 1
     if cm.get("_auto"):
@@ -1136,7 +1136,7 @@ def _sheet_scenario(wb, spec, sc_name, sc, hist_rev, hist_years, hist_rows=None,
     r += 2
 
     # ===== PRO-FORMA P&L =====
-    H(ws, f"A{r}", "PRO-FORMA P&L"); pr = r + 1
+    H(ws, f"A{r}", _xt("PRO-FORMA P&L")); pr = r + 1
     rows = {}
     def row(label, bold=False):
         nonlocal pr
@@ -1144,23 +1144,23 @@ def _sheet_scenario(wb, spec, sc_name, sc, hist_rev, hist_years, hist_rows=None,
         rows[label] = pr
         pr += 1
         return pr - 1
-    rev_r = row("Net Revenues", bold=True)
-    yoy_r = row("YoY %")
+    rev_r = row(_xt("Net Revenues"), bold=True)
+    yoy_r = row(_xt("YoY %"))
     cogs_r = row("COGS")
-    row("  o/w Personnel (driver)")
-    gp_r = row("Gross Profit", bold=True)
-    gm_r = row("Gross Margin %")
+    row(_xt("  o/w Personnel (driver)"))
+    gp_r = row(_xt("Gross Profit"), bold=True)
+    gm_r = row(_xt("Gross Margin %"))
     rnd_r = row("R&D")
     sga_r = row("SG&A (S&M + G&A)")
-    row("  o/w Services (driver)")
-    opex_r = row("Total OpEx", bold=True)
-    capdev_r = row("Capitalized R&D/Dev")
+    row(_xt("  o/w Services (driver)"))
+    opex_r = row(_xt("Total OpEx"), bold=True)
+    capdev_r = row(_xt("Capitalized R&D/Dev"))
     ebitda_r = row("EBITDA", bold=True)
-    ebitdam_r = row("EBITDA Margin %")
-    datan_r = row("D&A tangibile (driver % rev)")
-    daint_r = row("D&A intangibile (roll 4y Cap R&D)")
+    ebitdam_r = row(_xt("EBITDA Margin %"))
+    datan_r = row(_xt("D&A tangibile (driver % rev)"))
+    daint_r = row(_xt("D&A intangibile (roll 4y Cap R&D)"))
     ebit_r = row("EBIT", bold=True)
-    ebitm_r = row("EBIT Margin %")
+    ebitm_r = row(_xt("EBIT Margin %"))
 
     # storici (valori) allineati a DESTRA + forward (formule)
     rev_vals = list(hist_rev)[-N_HIST:]
@@ -1182,7 +1182,7 @@ def _sheet_scenario(wb, spec, sc_name, sc, hist_rev, hist_years, hist_rows=None,
     # (lo stesso last_rev del mirror), altrimenti Y1 = 0 in silenzio
     if not hist_have["rev"][N_HIST - 1] and _safe(last_rev):
         N(ws, f"{hcols[-1]}{rev_r}", float(last_rev), "#,##0", is_input=True)
-        CMT(ws, f"{CM}{rev_r}", "ultimo ricavo noto (ancora della catena forecast: stesso valore del mirror)")
+        CMT(ws, f"{CM}{rev_r}", _xt("ultimo ricavo noto (ancora della catena forecast: stesso valore del mirror)"))
         hist_have["rev"][N_HIST - 1] = True
     # B13: storico completo dalle serie XBRL (gia' scalate in milioni dal builder);
     # COGS/R&D/SG&A col segno negativo di convenzione, EBIT/GP/EBITDA come sono
@@ -1242,10 +1242,10 @@ def _sheet_scenario(wb, spec, sc_name, sc, hist_rev, hist_years, hist_rows=None,
     pr += 1
 
     # ===== UFCF =====
-    H(ws, f"A{pr}", "UNLEVERED FREE CASH FLOW"); pr += 1
-    tax_r = pr; L(ws, f"A{pr}", "Taxes su EBIT"); pr += 1
-    nwc_r = pr; L(ws, f"A{pr}", "NWC (livello)"); pr += 1
-    dnwc_r = pr; L(ws, f"A{pr}", "Delta NWC"); pr += 1
+    H(ws, f"A{pr}", _xt("UNLEVERED FREE CASH FLOW")); pr += 1
+    tax_r = pr; L(ws, f"A{pr}", _xt("Taxes su EBIT")); pr += 1
+    nwc_r = pr; L(ws, f"A{pr}", _xt("NWC (livello)")); pr += 1
+    dnwc_r = pr; L(ws, f"A{pr}", _xt("Delta NWC")); pr += 1
     capex_r = pr; L(ws, f"A{pr}", "CapEx"); pr += 1
     ufcf_r = pr; L(ws, f"A{pr}", "UFCF", bold=True); pr += 1
     # B12: NWC di partenza dal bilancio XBRL (CA-CL) come input blu nell'ultima
@@ -1253,10 +1253,10 @@ def _sheet_scenario(wb, spec, sc_name, sc, hist_rev, hist_years, hist_rows=None,
     # senza storico resta l'hack -NWC*0.1, dichiarato '(stima)' in commentary
     if nwc0 is not None:
         N(ws, f"{hcols[-1]}{nwc_r}", nwc0, "#,##0", is_input=True)
-        CMT(ws, f"{CM}{dnwc_r}", "delta Y1 dal NWC OPERATIVO storico XBRL (CA - cassa - CL; "
-                                 "debito a breve non separabile dai tag: proxy dichiarato)")
+        CMT(ws, f"{CM}{dnwc_r}", _xt("delta Y1 dal NWC OPERATIVO storico XBRL (CA - cassa - CL; "
+                                 "debito a breve non separabile dai tag: proxy dichiarato)"))
     else:
-        CMT(ws, f"{CM}{dnwc_r}", "(stima) delta Y1 = -10% del NWC Y1: storico XBRL non disponibile")
+        CMT(ws, f"{CM}{dnwc_r}", _xt("(stima) delta Y1 = -10% del NWC Y1: storico XBRL non disponibile"))
     for i, c in enumerate(fcols):
         p = fcols[i - 1] if i > 0 else (hcols[-1] if nwc0 is not None else None)
         F(ws, f"{c}{tax_r}", f"=-MAX({c}{ebit_r},0)*{c}{arow['tax_rate']}")
@@ -1285,28 +1285,28 @@ def _sheet_dcf(wb, spec, fv, refs):
     diluted = _safe(spec.get("diluted_shares_m"))
     sh_ref = "$B$8" if diluted else "$B$7"
     ws = wb.create_sheet("DCF")
-    TITLE(ws, "A1", "DCF (formule vive): base + bridge to equity + mini-DCF per scenario", ncols=7)
-    H(ws, "A3", "PARAMETRI")
+    TITLE(ws, "A1", _xt("DCF (formule vive): base + bridge to equity + mini-DCF per scenario"), ncols=7)
+    H(ws, "A3", _xt("PARAMETRI"))
     L(ws, "A4", "WACC"); N(ws, "B4", fv.get("wacc_used"), "0.00%", is_input=True)
-    L(ws, "A5", "g terminale"); N(ws, "B5", fv.get("terminal_g_used"), "0.00%", is_input=True)
-    L(ws, "A6", "Net debt"); N(ws, "B6", _safe(spec.get("net_debt"), 0) or 0)
-    L(ws, "A7", "Shares (m)"); N(ws, "B7", _safe(spec.get("shares_m"), 0) or 0, "#,##0.0")
+    L(ws, "A5", _xt("g terminale")); N(ws, "B5", fv.get("terminal_g_used"), "0.00%", is_input=True)
+    L(ws, "A6", _xt("Net debt")); N(ws, "B6", _safe(spec.get("net_debt"), 0) or 0)
+    L(ws, "A7", _xt("Shares (m)")); N(ws, "B7", _safe(spec.get("shares_m"), 0) or 0, "#,##0.0")
     if diluted:
-        L(ws, "A8", "Shares fully diluted (m)")
+        L(ws, "A8", _xt("Shares fully diluted (m)"))
         N(ws, "B8", diluted, "#,##0.0", is_input=True)
-        CMT(ws, "C8", "diluizione opzioni/RSU/SBC passata dall'analista: usata al posto delle shares base")
+        CMT(ws, "C8", _xt("diluizione opzioni/RSU/SBC passata dall'analista: usata al posto delle shares base"))
     # parita' A3+A5 (13/07): parametri in colonna D per non slittare le righe
-    L(ws, "D4", "Mid-year offset (0,5=ON)"); N(ws, "E4", 0.5 if fv.get("mid_year", True) else 0.0, "0.0", is_input=True)
-    L(ws, "D5", "Exit multiple EV/EBITDA"); N(ws, "E5", _safe(fv.get("exit_multiple_used"), 0.0), "0.00", is_input=True)
+    L(ws, "D4", _xt("Mid-year offset (0,5=ON)")); N(ws, "E4", 0.5 if fv.get("mid_year", True) else 0.0, "0.0", is_input=True)
+    L(ws, "D5", _xt("Exit multiple EV/EBITDA")); N(ws, "E5", _safe(fv.get("exit_multiple_used"), 0.0), "0.00", is_input=True)
     CMT(ws, "F5", fv.get("exit_multiple_source") or "")
     # audit/13 V2.2.5: parametri del TV DISCIPLINATO (stessa formula del mirror)
     ronic_v = _safe(fv.get("ronic_used"))
     taxt_v = _safe(fv.get("tax_terminal_used"), 0.25)
     if ronic_v:
-        L(ws, "D6", "RONIC terminale"); N(ws, "E6", ronic_v, "0.00%", is_input=True)
-        L(ws, "D7", "Tax terminale"); N(ws, "E7", taxt_v, "0.00%", is_input=True)
-        CMT(ws, "F6", fv.get("terminal_method") or "TV disciplinato: FCFF = EBIT_Y5 x (1+g) x (1-tax) x (1-g/RONIC)")
-    H(ws, "A9", "ANNO");
+        L(ws, "D6", _xt("RONIC terminale")); N(ws, "E6", ronic_v, "0.00%", is_input=True)
+        L(ws, "D7", _xt("Tax terminale")); N(ws, "E7", taxt_v, "0.00%", is_input=True)
+        CMT(ws, "F6", fv.get("terminal_method") or _xt("TV disciplinato: FCFF = EBIT_Y5 x (1+g) x (1-tax) x (1-g/RONIC)"))
+    H(ws, "A9", _xt("ANNO"));
     cols = [get_column_letter(2 + i) for i in range(N_FWD)]
     sh = base_ref["sheet"]; ur = base_ref["ufcf_row"]
     for i, c in enumerate(cols):
@@ -1314,9 +1314,9 @@ def _sheet_dcf(wb, spec, fv, refs):
         F(ws, f"{c}10", f"='{sh}'!{base_ref['fcols'][i]}{ur}", link=True)
         F(ws, f"{c}11", f"=1/(1+$B$4)^({i + 1}-$E$4)", "0.000")
         F(ws, f"{c}12", f"={c}10*{c}11")
-    L(ws, "A10", "UFCF (da Scenario Base)")
-    L(ws, "A11", "Discount factor (mid-year)")
-    L(ws, "A12", "PV UFCF")
+    L(ws, "A10", _xt("UFCF (da Scenario Base)"))
+    L(ws, "A11", _xt("Discount factor (mid-year)"))
+    L(ws, "A12", _xt("PV UFCF"))
     last = cols[-1]
     # A7: geometria del bridge calcolata PRIMA delle formule che la referenziano.
     # Blocco sotto la sensitivity (righe 23-28): header 30, -net debt 31, adjustments,
@@ -1325,45 +1325,45 @@ def _sheet_dcf(wb, spec, fv, refs):
     br_total = br0 + 2 + len(adjs)
     bridge_ref = f"$B${br_total}" if adjs else None
     ms = (br_total + (3 if spec.get("stance") in ("buy", "sell", "neutral") else 2)) if adjs else br0
-    L(ws, "A14", "Sum PV UFCF"); F(ws, "B14", f"=SUM(B12:{last}12)", bold=True)
+    L(ws, "A14", _xt("Sum PV UFCF")); F(ws, "B14", f"=SUM(B12:{last}12)", bold=True)
     # audit/13 V2.2.5: TV disciplinato (FCFF da EBIT terminale, reinvestment=g/RONIC)
     # quando il mirror ha un RONIC; altrimenti Gordon storico su UFCF Y5. STESSA
     # formula del mirror _dcf_value: la parita' B20 == payload resta verificabile.
     _er_ebit = base_ref.get("ebit_row")
     if ronic_v and _er_ebit:
         _ebit5 = f"'{sh}'!{base_ref['fcols'][-1]}{_er_ebit}"
-        L(ws, "A15", "Terminal Value (FCFF disciplinato)")
+        L(ws, "A15", _xt("Terminal Value (FCFF disciplinato)"))
         F(ws, "B15", f"=IF(AND($B$4>$B$5,$E$6>$B$5),{_ebit5}*(1+$B$5)*(1-$E$7)*(1-$B$5/$E$6)/($B$4-$B$5),0)")
-        CMT(ws, "C15", "Damodaran: FCFF terminale = EBIT_Y5 x (1+g) x (1-tax) x (1-g/RONIC) — la crescita perpetua costa reinvestimento")
+        CMT(ws, "C15", _xt("Damodaran: FCFF terminale = EBIT_Y5 x (1+g) x (1-tax) x (1-g/RONIC) — la crescita perpetua costa reinvestimento"))
     else:
-        L(ws, "A15", "Terminal Value (Gordon)"); F(ws, "B15", f"=IF($B$4>$B$5,{last}10*(1+$B$5)/($B$4-$B$5),0)")
-    L(ws, "A16", "PV Terminal"); F(ws, "B16", f"=B15*{last}11")
-    L(ws, "A17", "Enterprise Value", bold=True); F(ws, "B17", "=B14+B16", bold=True)
+        L(ws, "A15", _xt("Terminal Value (Gordon)")); F(ws, "B15", f"=IF($B$4>$B$5,{last}10*(1+$B$5)/($B$4-$B$5),0)")
+    L(ws, "A16", _xt("PV Terminal")); F(ws, "B16", f"=B15*{last}11")
+    L(ws, "A17", _xt("Enterprise Value"), bold=True); F(ws, "B17", "=B14+B16", bold=True)
     if adjs:
-        L(ws, "A18", f"(-) Net Debt + {len(adjs)} adjustments (bridge, riga {br_total})")
+        L(ws, "A18", _lt(f'(-) Debito netto + {len(adjs)} adjustments (bridge, riga {br_total})',f'(-) Net Debt + {len(adjs)} adjustments (bridge, row {br_total})'))
         F(ws, "B18", f"={bridge_ref}")
     else:
-        L(ws, "A18", "(-) Net Debt"); F(ws, "B18", "=-B6")
+        L(ws, "A18", _xt("(-) Net Debt")); F(ws, "B18", "=-B6")
         if spec.get("stance") in ("buy", "sell", "neutral"):
             # stance dichiarata anche SENZA adjustments: il criterio "nessuna voce
             # discrezionale inclusa" e' esso stesso una scelta da documentare
-            CMT(ws, "C18", f"Stance dell'analista: {spec['stance'].upper()} — nessuna voce discrezionale inclusa nel bridge")
-    L(ws, "A19", "Equity Value", bold=True); F(ws, "B19", "=B17+B18", bold=True)
-    L(ws, "A20", "FAIR VALUE / SHARE (Gordon)", bold=True); F(ws, "B20", f"=B19/{sh_ref}", "#,##0.00", bold=True, color=GOLD)
+            CMT(ws, "C18", _lt(f"Stance dell'analista: {spec['stance'].upper()} — nessuna voce discrezionale inclusa nel bridge",f"Analyst stance: {spec['stance'].upper()} — no discretionary items included in the bridge"))
+    L(ws, "A19", _xt("Equity Value"), bold=True); F(ws, "B19", "=B17+B18", bold=True)
+    L(ws, "A20", _xt("FAIR VALUE / SHARE (Gordon)"), bold=True); F(ws, "B20", f"=B19/{sh_ref}", "#,##0.00", bold=True, color=GOLD)
     KEY(ws, 20, 1, 2)
     # A3: secondo TV a exit multiple + cross-check del multiplo implicito (colonne D/E)
     er = base_ref.get("ebitda_row")
     ebitda_y5 = f"'{sh}'!{base_ref['fcols'][-1]}{er}" if er else None
     if ebitda_y5:
         L(ws, "D15", "TV exit (=E5 x EBITDA Y5)"); F(ws, "E15", f"={ebitda_y5}*$E$5")
-        L(ws, "D16", "PV TV exit"); F(ws, "E16", f"=E15*{last}11")
-        L(ws, "D17", "EV (exit)"); F(ws, "E17", "=B14+E16")
-        L(ws, "D19", "Equity (exit)"); F(ws, "E19", f"=E17+{bridge_ref}" if adjs else "=E17-B6")
-        L(ws, "D20", "FAIR VALUE / SHARE (exit)", bold=True); F(ws, "E20", f"=E19/{sh_ref}", "#,##0.00", bold=True, color=GOLD)
-        L(ws, "D21", "Multiplo implicito TV Gordon"); F(ws, "E21", f"=IF({ebitda_y5}<>0,B15/{ebitda_y5},0)", "0.00")
-        CMT(ws, "F21", "cross-check: se lontano dal multiplo comps, il Gordon e' aggressivo o conservativo")
+        L(ws, "D16", _xt("PV TV exit")); F(ws, "E16", f"=E15*{last}11")
+        L(ws, "D17", _xt("EV (exit)")); F(ws, "E17", "=B14+E16")
+        L(ws, "D19", _xt("Equity (exit)")); F(ws, "E19", f"=E17+{bridge_ref}" if adjs else "=E17-B6")
+        L(ws, "D20", _xt("FAIR VALUE / SHARE (exit)"), bold=True); F(ws, "E20", f"=E19/{sh_ref}", "#,##0.00", bold=True, color=GOLD)
+        L(ws, "D21", _xt("Multiplo implicito TV Gordon")); F(ws, "E21", f"=IF({ebitda_y5}<>0,B15/{ebitda_y5},0)", "0.00")
+        CMT(ws, "F21", _xt("cross-check: se lontano dal multiplo comps, il Gordon e' aggressivo o conservativo"))
     # A4: sensitivity WACC x g a FORMULE VIVE (header numerici modificabili)
-    H(ws, "A23", "SENSITIVITY fair value Gordon (VIVA): WACC \\ g")
+    H(ws, "A23", _xt("SENSITIVITY fair value Gordon (VIVA): WACC \\ g"))
     base_w = fv.get("wacc_used") or 0.09; base_g = fv.get("terminal_g_used") or 0.02
     gs = [round(base_g + d, 4) for d in (-0.01, -0.005, 0, 0.005, 0.01)]
     wsz = [round(base_w + d, 4) for d in (-0.015, -0.0075, 0, 0.0075, 0.015)]
@@ -1391,37 +1391,37 @@ def _sheet_dcf(wb, spec, fv, refs):
 
     # ===== A7: BRIDGE TO EQUITY parametrico (solo se l'agente/engine passa voci) =====
     if adjs:
-        H(ws, f"A{br0}", "BRIDGE TO EQUITY (EV -> Equity): net debt + adjustments dichiarati", ncols=3)
-        L(ws, f"A{br0 + 1}", "(-) Net Debt"); F(ws, f"B{br0 + 1}", "=-$B$6")
+        H(ws, f"A{br0}", _xt("BRIDGE TO EQUITY (EV -> Equity): net debt + adjustments dichiarati"), ncols=3)
+        L(ws, f"A{br0 + 1}", _xt("(-) Net Debt")); F(ws, f"B{br0 + 1}", "=-$B$6")
         for k, a in enumerate(adjs):
             rr = br0 + 2 + k
             L(ws, f"A{rr}", a["label"])
             N(ws, f"B{rr}", a["value_m"], "#,##0.0", is_input=True)
             if a.get("commentary"):
                 CMT(ws, f"C{rr}", a["commentary"])
-        L(ws, f"A{br_total}", "TOTALE bridge (Net debt + adjustments)", bold=True)
+        L(ws, f"A{br_total}", _xt("TOTALE bridge (Net debt + adjustments)"), bold=True)
         F(ws, f"B{br_total}", f"=SUM(B{br0 + 1}:B{br_total - 1})", bold=True)
         KEY(ws, br_total, 1, 2)
         if spec.get("stance") in ("buy", "sell", "neutral"):
-            L(ws, f"A{br_total + 1}", f"Stance dell'analista: {spec['stance'].upper()}", italic=True, color=GREYTX)
-            CMT(ws, f"B{br_total + 1}", "criterio dichiarato di inclusione delle voci discrezionali (lezione Luiss: la discrezionalita' si ordina, non si nasconde)")
+            L(ws, f"A{br_total + 1}", _lt(f"Stance dell'analista: {spec['stance'].upper()}",f"Analyst stance: {spec['stance'].upper()}"), italic=True, color=GREYTX)
+            CMT(ws, f"B{br_total + 1}", _xt("criterio dichiarato di inclusione delle voci discrezionali (lezione Luiss: la discrezionalita' si ordina, non si nasconde)"))
 
     # ===== A6: MINI-DCF PER SCENARIO a formule vive (Gordon; B5/E4 condivisi) =====
     # B14: riga WACC per scenario — di default =$B$4 (formula, si ricalcola col
     # parametro), input blu solo quando l'agente passa wacc_delta_bp bear/bull;
     # il BASE resta sempre =$B$4 (parita' B20 == colonna base garantita)
-    H(ws, f"A{ms}", "MINI-DCF PER SCENARIO (Gordon; g B5, mid-year E4 condivisi; WACC per scenario)", ncols=4)
+    H(ws, f"A{ms}", _xt("MINI-DCF PER SCENARIO (Gordon; g B5, mid-year E4 condivisi; WACC per scenario)"), ncols=4)
     dbp = spec.get("wacc_delta_bp") if isinstance(spec.get("wacc_delta_bp"), dict) else {}
     base_w = _safe(fv.get("wacc_used"), 0.09)
     sc_cols = {"bear": "B", "base": "C", "bull": "D"}
     for name, c in sc_cols.items():
         YH(ws, f"{c}{ms + 1}", name.upper())
-    L(ws, f"A{ms + 2}", "WACC scenario")
-    L(ws, f"A{ms + 3}", "Sum PV UFCF")
-    L(ws, f"A{ms + 4}", "PV Terminal")
-    L(ws, f"A{ms + 5}", "Enterprise Value")
-    L(ws, f"A{ms + 6}", "Equity Value")
-    L(ws, f"A{ms + 7}", "FAIR VALUE / SHARE", bold=True)
+    L(ws, f"A{ms + 2}", _xt("WACC scenario"))
+    L(ws, f"A{ms + 3}", _xt("Sum PV UFCF"))
+    L(ws, f"A{ms + 4}", _xt("PV Terminal"))
+    L(ws, f"A{ms + 5}", _xt("Enterprise Value"))
+    L(ws, f"A{ms + 6}", _xt("Equity Value"))
+    L(ws, f"A{ms + 7}", _xt("FAIR VALUE / SHARE"), bold=True)
     for name, c in sc_cols.items():
         # fonte unica: il WACC di scenario (clampato a g+25bp) arriva dal mirror
         # (fv['wacc_bear'/'wacc_bull'], 6 decimali) — mai ricalcolato qui
@@ -1446,12 +1446,12 @@ def _sheet_dcf(wb, spec, fv, refs):
         F(ws, f"{c}{ms + 6}", f"={c}{ms + 5}+{bridge_ref}" if adjs else f"={c}{ms + 5}-$B$6")
         F(ws, f"{c}{ms + 7}", f"={c}{ms + 6}/{sh_ref}", "#,##0.00", bold=True, color=GOLD)
     if any(_safe(dbp.get(k)) for k in ("bear", "bull")):
-        CMT(ws, f"E{ms + 2}", "wacc_delta_bp dell'analista: bear/bull scontati a WACC diverso dal base (input blu)")
+        CMT(ws, f"E{ms + 2}", _xt("wacc_delta_bp dell'analista: bear/bull scontati a WACC diverso dal base (input blu)"))
     KEY(ws, ms + 7, 1, 4)
-    L(ws, f"A{ms + 8}", "PONDERATO (25/50/25)", bold=True)
+    L(ws, f"A{ms + 8}", _xt("PONDERATO (25/50/25)"), bold=True)
     F(ws, f"B{ms + 8}", f"=0.25*B{ms + 7}+0.5*C{ms + 7}+0.25*D{ms + 7}", "#,##0.00", bold=True, color=GOLD)
     KEY(ws, ms + 8, 1, 2)
-    CMT(ws, f"C{ms + 8}", "stessa ponderazione di probability_weights nel payload; la colonna BASE deve coincidere con B20")
+    CMT(ws, f"C{ms + 8}", _xt("stessa ponderazione di probability_weights nel payload; la colonna BASE deve coincidere con B20"))
     ws.column_dimensions["A"].width = 24
     ws.column_dimensions["D"].width = 26
     # exit_base esposto alla Thesis SOLO con un multiplo reale: con E5=0 il fair
@@ -1477,40 +1477,40 @@ def _sheet_wacc(wb, spec):
     _tax = _safe(wi.get("tax"), 0.25)
     kd_pre = (dw.get("kd_aftertax") / (1 - _tax)
               if (_safe(dw.get("kd_aftertax")) and _tax < 1) else wi.get("kd", 0.055))
-    TITLE(ws, "A1", "WACC — build CAPM (Hamada), input blu modificabili", ncols=8)
-    L(ws, "A3", "Input", bold=True)
+    TITLE(ws, "A1", _xt("WACC — build CAPM (Hamada), input blu modificabili"), ncols=8)
+    L(ws, "A3", _xt("Input"), bold=True)
     rows = [
         # review pre-commit (M4): niente "live" fisso in etichetta — il tier vero
         # (live/LKG/static, con data) sta nella fonte src_rf qui sotto
-        ("Risk-free (10Y)", wi.get("rf", 0.04), "0.00%"),
-        ("Equity Risk Premium", wi.get("erp", 0.05), "0.00%"),
-        ("Country Risk Premium", wi.get("crp", 0.0), "0.00%"),
-        ("Beta unlevered", wi.get("beta_u", 1.0), "0.00"),
+        (_xt("Risk-free (10Y)"), wi.get("rf", 0.04), "0.00%"),
+        (_xt("Equity Risk Premium"), wi.get("erp", 0.05), "0.00%"),
+        (_xt("Country Risk Premium"), wi.get("crp", 0.0), "0.00%"),
+        (_xt("Beta unlevered"), wi.get("beta_u", 1.0), "0.00"),
         ("D/E", dw.get("de_used") if dw.get("de_used") is not None else wi.get("de", 0.3), "0.00"),
-        ("Tax rate", wi.get("tax", 0.25), "0.00%"),
-        ("Kd pre-tax", kd_pre, "0.00%"),
+        (_xt("Tax rate"), wi.get("tax", 0.25), "0.00%"),
+        (_xt("Kd pre-tax"), kd_pre, "0.00%"),
     ]
     for i, (lab, val, fmt) in enumerate(rows, start=4):
         L(ws, f"A{i}", lab)
         N(ws, f"B{i}", _safe(val, 0.0), fmt, is_input=True)
-    L(ws, "A12", "Build (formule vive)", bold=True)
-    L(ws, "A13", "Beta levered (Hamada)"); F(ws, "B13", "=B7*(1+B8*(1-B9))", "0.00")
-    L(ws, "A14", "Cost of equity (CAPM)"); F(ws, "B14", "=B4+B13*B5+B6", "0.00%", bold=True)
-    L(ws, "A15", "Kd after-tax"); F(ws, "B15", "=B10*(1-B9)", "0.00%")
-    L(ws, "A16", "Peso equity"); F(ws, "B16", "=1/(1+B8)", "0.0%")
-    L(ws, "A17", "Peso debito"); F(ws, "B17", "=B8/(1+B8)", "0.0%")
-    L(ws, "A18", "WACC (build)", bold=True); F(ws, "B18", "=B16*B14+B17*B15", "0.00%", bold=True)
+    L(ws, "A12", _xt("Build (formule vive)"), bold=True)
+    L(ws, "A13", _xt("Beta levered (Hamada)")); F(ws, "B13", "=B7*(1+B8*(1-B9))", "0.00")
+    L(ws, "A14", _xt("Cost of equity (CAPM)")); F(ws, "B14", "=B4+B13*B5+B6", "0.00%", bold=True)
+    L(ws, "A15", _xt("Kd after-tax")); F(ws, "B15", "=B10*(1-B9)", "0.00%")
+    L(ws, "A16", _xt("Peso equity")); F(ws, "B16", "=1/(1+B8)", "0.0%")
+    L(ws, "A17", _xt("Peso debito")); F(ws, "B17", "=B8/(1+B8)", "0.0%")
+    L(ws, "A18", _xt("WACC (build)"), bold=True); F(ws, "B18", "=B16*B14+B17*B15", "0.00%", bold=True)
     KEY(ws, 18, ncols=4)
-    L(ws, "A20", "WACC usato nel DCF", bold=True)
+    L(ws, "A20", _xt("WACC usato nel DCF"), bold=True)
     N(ws, "B20", _safe(wi.get("wacc"), 0.0), "0.00%", bold=True)
-    CMT(ws, "C20", "se diverso dal build: numero del motore Damodaran (bottom-up beta peer + synthetic rating)")
+    CMT(ws, "C20", _xt("se diverso dal build: numero del motore Damodaran (bottom-up beta peer + synthetic rating)"))
     if dw:
-        L(ws, "A22", "Motore Damodaran", bold=True)
-        L(ws, "A23", "Rating sintetico"); L(ws, "B23", str(dw.get("synthetic_rating") or "n/d"))
-        L(ws, "A24", "Interest coverage"); N(ws, "B24", _safe(dw.get("interest_coverage_used"), 0.0), "0.00")
-        L(ws, "A25", "Default spread"); N(ws, "B25", _safe(dw.get("default_spread"), 0.0), "0.00%")
+        L(ws, "A22", _xt("Motore Damodaran"), bold=True)
+        L(ws, "A23", _xt("Rating sintetico")); L(ws, "B23", str(dw.get("synthetic_rating") or "n/d"))
+        L(ws, "A24", _xt("Interest coverage")); N(ws, "B24", _safe(dw.get("interest_coverage_used"), 0.0), "0.00")
+        L(ws, "A25", _xt("Default spread")); N(ws, "B25", _safe(dw.get("default_spread"), 0.0), "0.00%")
     notes = dw.get("inputs_note") or {}
-    L(ws, "A27", "Fonti degli input (ogni proxy e' DICHIARATO)", bold=True)
+    L(ws, "A27", _xt("Fonti degli input (ogni proxy e' DICHIARATO)"), bold=True)
     r = 28
     if notes:
         for k, v in notes.items():
@@ -1528,10 +1528,10 @@ def _sheet_wacc(wb, spec):
                 CMT(ws, f"B{r}", str(v))
                 r += 1
         else:
-            CMT(ws, f"A{r}", "motore Damodaran KO e nessuna fonte in wacc_inputs: input dal profilo, NON etichettati")
+            CMT(ws, f"A{r}", _xt("motore Damodaran KO e nessuna fonte in wacc_inputs: input dal profilo, NON etichettati"))
             r += 1
     rr0 = r + 2
-    L(ws, f"A{rr0}", "Sensitivity WACC: Beta unlevered x ERP (formule vive)", bold=True)
+    L(ws, f"A{rr0}", _xt("Sensitivity WACC: Beta unlevered x ERP (formule vive)"), bold=True)
     betas = [round(_safe(wi.get("beta_u"), 1.0) * f, 2) for f in (0.85, 1.0, 1.15, 1.3)]
     erps = [0.045, 0.05, 0.055, 0.06]
     YH(ws, f"A{rr0 + 1}", "Beta\\ERP")
@@ -1556,7 +1556,7 @@ def _sheet_comps(wb, spec, base_ref=None, dcf_cells=None):
     I multipli mancanti vengono derivati da ev/sales/ebitda grezzi dei peer.
     Ritorna le celle chiave per il football field della Thesis."""
     ws = wb.create_sheet("Comps")
-    TITLE(ws, "A1", "Trading comps (peer del sub-settore)", ncols=6)
+    TITLE(ws, "A1", _xt("Trading comps (peer del sub-settore)"), ncols=6)
     comps = spec.get("comps") or []
     if spec.get("_peer_note"):
         # 16/07: la PROVENIENZA dei peer va detta nel foglio (auto dal sub-settore
@@ -1575,7 +1575,7 @@ def _sheet_comps(wb, spec, base_ref=None, dcf_cells=None):
         if rr["m"] is not None:
             N(ws, f"C{r}", rr["m"], "0.0\"x\"", color=GREYTX if rr["excluded"] else INK)
             if rr["excluded"]:
-                CMT(ws, f"E{r}", "escluso dalla mediana: outlier (>3x mediana grezza o <=0)")
+                CMT(ws, f"E{r}", _xt("escluso dalla mediana: outlier (>3x mediana grezza o <=0)"))
             else:
                 med_cells.append(f"C{r}")
         pe = _safe(cdat.get("pe"))
@@ -1586,15 +1586,15 @@ def _sheet_comps(wb, spec, base_ref=None, dcf_cells=None):
         # 16/07 (feedback PM su un industriale: "non trova comp e peer"): il buco si dichiara PER
         # ESTESO dentro il foglio. NB review: il primo fix scriveva la nota PRIMA di
         # questo early-return preesistente, che la sovrascriveva con la riga corta.
-        L(ws, "A4", "Peer NON trovati per questo nome: ne' passati dall'analista nella "
+        L(ws, "A4", _xt("Peer NON trovati per questo nome: ne' passati dall'analista nella "
                     "chiamata (peers=[...]) ne' disponibili dalla lista auto del "
-                    "sub-settore. Il fair value NON usa il metodo comps: buco dichiarato.",
+                    "sub-settore. Il fair value NON usa il metodo comps: buco dichiarato."),
           italic=True, color=GREYTX)
         ws.column_dimensions["A"].width = 24
         return None
     med_row = r
-    L(ws, f"A{r}", "MEDIANA" + (f" ({n_excl} outlier esclusi)" if n_excl else "")
-      + ("" if med else " — SOTTO QUORUM (n<3): informativa, NON usata nel fair value"), bold=True)
+    L(ws, f"A{r}", _xt("MEDIANA") + (_lt(f' ({n_excl} outlier esclusi)',f' ({n_excl} outliers excluded)') if n_excl else "")
+      + ("" if med else _xt(" — SOTTO QUORUM (n<3): informativa, NON usata nel fair value")), bold=True)
     F(ws, f"B{r}", f"=MEDIAN(B4:B{r-1})", "0.0\"x\"", bold=True)
     if med_cells:
         F(ws, f"C{r}", f"=MEDIAN({','.join(med_cells)})", "0.0\"x\"", bold=True)
@@ -1604,31 +1604,31 @@ def _sheet_comps(wb, spec, base_ref=None, dcf_cells=None):
     # valutazione implicita viva (solo con mediana valida — quorum n>=3, audit/12 V0.6 —
     # e ref del DCF/base): il gate usa la STESSA fonte del payload, mai due verita'
     if not (med and med_cells and base_ref and dcf_cells):
-        L(ws, f"A{r}", "(valutazione implicita non calcolabile: multipli validi sotto il "
+        L(ws, f"A{r}", _xt("(valutazione implicita non calcolabile: multipli validi sotto il "
                        "quorum n>=3 o riferimenti DCF assenti — il fair value usa il proxy "
-                       "di settore, dichiarato nel payload)", italic=True, color=GREYTX)
+                       "di settore, dichiarato nel payload)"), italic=True, color=GREYTX)
         ws.column_dimensions["A"].width = 30
         return None
-    H(ws, f"A{r}", "VALUTAZIONE IMPLICITA (mediana x EBITDA fwd Y1 Base, bridge del DCF)", ncols=3)
+    H(ws, f"A{r}", _xt("VALUTAZIONE IMPLICITA (mediana x EBITDA fwd Y1 Base, bridge del DCF)"), ncols=3)
     ebitda_ref = f"'{base_ref['sheet']}'!{base_ref['fcols'][0]}{base_ref['ebitda_row']}"
     r += 1
-    L(ws, f"A{r}", "EBITDA fwd Y1 (Scenario Base)"); F(ws, f"B{r}", f"={ebitda_ref}", link=True); eb_row = r; r += 1
-    L(ws, f"A{r}", "EV implicito"); F(ws, f"B{r}", f"=C{med_row}*B{eb_row}"); ev_row = r; r += 1
+    L(ws, f"A{r}", _xt("EBITDA fwd Y1 (Scenario Base)")); F(ws, f"B{r}", f"={ebitda_ref}", link=True); eb_row = r; r += 1
+    L(ws, f"A{r}", _xt("EV implicito")); F(ws, f"B{r}", f"=C{med_row}*B{eb_row}"); ev_row = r; r += 1
     bridge = dcf_cells.get("bridge_total")
     if bridge:
-        L(ws, f"A{r}", "(-) Net debt + adjustments (bridge DCF)")
+        L(ws, f"A{r}", _xt("(-) Net debt + adjustments (bridge DCF)"))
         F(ws, f"B{r}", f"=DCF!{bridge}", link=True)
     else:
-        L(ws, f"A{r}", "(-) Net Debt (da DCF)")
+        L(ws, f"A{r}", _xt("(-) Net Debt (da DCF)"))
         F(ws, f"B{r}", f"=-DCF!{dcf_cells.get('net_debt', '$B$6')}", link=True)
     r += 1
-    L(ws, f"A{r}", "Equity implicito", bold=True); F(ws, f"B{r}", f"=B{ev_row}+B{r-1}", bold=True); r += 1
-    L(ws, f"A{r}", "PER SHARE implicito (comps)", bold=True)
+    L(ws, f"A{r}", _xt("Equity implicito"), bold=True); F(ws, f"B{r}", f"=B{ev_row}+B{r-1}", bold=True); r += 1
+    L(ws, f"A{r}", _xt("PER SHARE implicito (comps)"), bold=True)
     F(ws, f"B{r}", f"=B{r-1}/DCF!{dcf_cells.get('sh_ref', '$B$7')}", "#,##0.00", bold=True, color=GOLD)
     KEY(ws, r, 1, 2)
     ps_row = r; r += 1
     if dcf_cells.get("weighted"):
-        L(ws, f"A{r}", "Premio/sconto vs DCF ponderato")
+        L(ws, f"A{r}", _xt("Premio/sconto vs DCF ponderato"))
         F(ws, f"B{r}", f"=B{ps_row}/DCF!{dcf_cells['weighted']}-1", "+0.0%;-0.0%")
         r += 1
     ws.column_dimensions["A"].width = 34
@@ -1642,8 +1642,8 @@ def _sheet_precedents(wb, spec):
     CON conteggio — i dati sporchi del template (celle stringa, EV=0, multipli
     negativi) non si replicano. MEDIAN viva; senza dati, nota esplicita."""
     ws = wb.create_sheet("Precedents")
-    TITLE(ws, "A1", "Precedent transactions (M&A, dati dell'analista)", ncols=6)
-    heads = ("Target", "Acquirer", "Year", "EV (m)", "EBITDA (m)", "EV/EBITDA")
+    TITLE(ws, "A1", _xt("Precedent transactions (M&A, dati dell'analista)"), ncols=6)
+    heads = (_xt("Target"), _xt("Acquirer"), _xt("Year"), "EV (m)", "EBITDA (m)", "EV/EBITDA")
     for i, h in enumerate(heads):
         YH(ws, f"{get_column_letter(1 + i)}3", h)
     raw = spec.get("precedents") or []
@@ -1660,25 +1660,26 @@ def _sheet_precedents(wb, spec):
         F(ws, f"F{r}", f"=D{r}/E{r}", "0.0\"x\"")
         r += 1
     if r > 4:
-        L(ws, f"A{r}", "MEDIANA", bold=True)
+        L(ws, f"A{r}", _xt("MEDIANA"), bold=True)
         F(ws, f"F{r}", f"=MEDIAN(F4:F{r-1})", "0.0\"x\"", bold=True)
         KEY(ws, r, 1, 6)
         if skipped:
-            CMT(ws, f"A{r + 1}", f"{skipped} deal scartati in validazione (EV/EBITDA mancanti o <=0)")
+            CMT(ws, f"A{r + 1}", _lt(f'{skipped} deal scartati in validazione (EV/EBITDA mancanti o <=0)',f'{skipped} deals rejected during validation (EV/EBITDA missing or <=0)'))
     else:
-        L(ws, "A4", "(nessuna transazione fornita dall'analista: passa precedents=[{target, acquirer, "
-                    "year, ev_m, ebitda_m}] in get_valuation, cifre dai tool con [src: tool])", italic=True, color=GREYTX)
+        L(ws, "A4", _xt("(nessuna transazione fornita dall'analista: passa precedents=[{target, acquirer, "
+                    "year, ev_m, ebitda_m}] in get_valuation, cifre dai tool con [src: tool])"), italic=True, color=GREYTX)
         if skipped:
-            CMT(ws, "A5", f"{skipped} deal ricevuti ma scartati in validazione (EV/EBITDA mancanti o <=0)")
+            CMT(ws, "A5", _lt(f'{skipped} deal ricevuti ma scartati in validazione (EV/EBITDA mancanti o <=0)',f'{skipped} deals received but rejected during validation (EV/EBITDA missing or <=0)'))
     for col in "ABCDEF":
         ws.column_dimensions[col].width = 16
     ws.column_dimensions["A"].width = 24
 
 
+@scoped_language
 def build_model_v3(spec, out_path, scenarios=None, history=None):
     """Workbook v3 template-parity. Ritorna fair value numerici per scenario + ponderato."""
     if not OPX_OK:
-        return {"ok": False, "error": "openpyxl non disponibile"}
+        return {"ok": False, "error": _xt("openpyxl non disponibile")}
     defaults = _default_scenarios(spec, history)
     sc = _merge_scenarios(scenarios, defaults)
     agent_provided = bool(scenarios)
@@ -1761,8 +1762,7 @@ def build_model_v3(spec, out_path, scenarios=None, history=None):
                   dcf_cells=dcf_cells, comps_cells=comps_cells)
     append_quality_sheet(wb, quality)
     wb["Thesis & Output"]["A3"] = (
-        f"QUALITA: {quality['status']} — vedi Qualita e revisioni; "
-        "completezza documentale, non validazione economica")
+        _lt(f"QUALITA: {quality['status']} — vedi Qualita e revisioni; completezza documentale, non validazione economica",f"QUALITY: {quality['status']} — see Qualita e revisioni; documentary completeness, not economic validation"))
     wb["Thesis & Output"]["A3"].font = Font(bold=True, color="9C6500", size=9)
     # P0 17/07: cintura — se il bake COM di dcf_engine fallisse, Excel ricalcola
     # comunque all'apertura (openpyxl non scrive i valori cached delle formule)
@@ -1788,9 +1788,9 @@ def build_model_v3(spec, out_path, scenarios=None, history=None):
         out["precedents_n"] = len(deals)
         out["precedents_median_ev_ebitda"] = round(_median([d["ev"] / d["ebitda"] for d in deals]), 2)
     if not agent_provided:
-        out["_analyst_note"] = ("ATTENZIONE: scenari generati dai dati. Da analista buy-side dovresti passare "
+        out["_analyst_note"] = (_xt("ATTENZIONE: scenari generati dai dati. Da analista buy-side dovresti passare "
                                 "scenarios={bear/base/bull: {revenue_growth:[...], gross_margin:[...], ..., "
-                                "commentary:{driver: 'perche''}}} - il modello e' la TUA tesi, commentary inclusa.")
+                                "commentary:{driver: 'perche''}}} - il modello e' la TUA tesi, commentary inclusa."))
     return out
 
 

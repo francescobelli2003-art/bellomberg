@@ -22,6 +22,8 @@ generate_valuation(ticker) ->
 
 Tutto guarded. Mai eccezioni propagate.
 """
+from bellomberg.core.language import scoped_language, text as _lt
+from bellomberg.reporting.i18n_excel import label as _xt
 import json
 import os
 from datetime import datetime
@@ -1772,6 +1774,7 @@ def _compute_sotp(segments=None, net_debt=None, adjustments=None, shares_m=None,
     return out
 
 
+@scoped_language
 def _append_sotp_sheet(path, sotp, ticker, currency):
     """Aggiunge il foglio 'SOTP (segmenti)' al workbook v3 GIA' salvato, a formule
     VIVE (il bake COM a valle scrive i valori). Round-trip openpyxl verificato: il
@@ -1784,11 +1787,8 @@ def _append_sotp_sheet(path, sotp, ticker, currency):
     if "SOTP (segmenti)" in wb.sheetnames:
         wb.remove(wb["SOTP (segmenti)"])
     ws = wb.create_sheet("SOTP (segmenti)")
-    T(ws, "A1", f"SOTP (segmenti) — {ticker}")
-    L(ws, "A2", "Somma delle parti DICHIARATA DALL'ANALISTA (segment notes di bilancio/piano). "
-                f"Valori in mln {currency}. Il fair value HEADLINE resta il CONSOLIDATO "
-                "(decisione PM 21/07): qui il confronto con la riga delta (G5, stile Kairos). "
-                "Bridge to equity = lo stesso del modello DCF (net debt + adjustments).",
+    T(ws, "A1", _lt(f'SOTP (segmenti) — {ticker}',f'SOTP (segments) — {ticker}'))
+    L(ws, "A2", _lt(f"Somma delle parti DICHIARATA DALL'ANALISTA (segment notes di bilancio/piano). Valori in mln {currency}. Il fair value HEADLINE resta il CONSOLIDATO (decisione PM 21/07): qui il confronto con la riga delta (G5, stile Kairos). Bridge to equity = lo stesso del modello DCF (net debt + adjustments).",f'Sum of the parts DISCLOSED BY THE ANALYST (financial statement/plan segment notes). Values in m {currency}. HEADLINE fair value remains CONSOLIDATED (PM decision 21/07): this sheet provides the comparison and difference (G5, Kairos style). Bridge to equity is the same as the DCF model (net debt + adjustments).'),
       italic=True, color=GREYTX)
     def _txt(v):
         # review codice C8: un'etichetta che inizia con "=" verrebbe scritta come
@@ -1796,8 +1796,8 @@ def _append_sotp_sheet(path, sotp, ticker, currency):
         s = str(v)
         return (" " + s) if s.startswith("=") else s
 
-    for c, h in (("A", "Segmento"), ("B", "Motore"), ("C", "Metrica"), ("D", "Valore (mln)"),
-                 ("E", "Multiplo/Premio"), ("F", "Stake"), ("G", "EV (mln)"), ("H", "Fonte / note")):
+    for c, h in (("A", _xt("Segmento")), ("B", _xt("Motore")), ("C", _xt("Metrica")), ("D", _xt("Valore (mln)")),
+                 ("E", _xt("Multiplo/Premio")), ("F", "Stake"), ("G", _xt("EV (mln)")), ("H", _xt("Fonte / note"))):
         H(ws, f"{c}4", h)
     r = 5
     ev_cells, eq_cells = [], []
@@ -1816,7 +1816,7 @@ def _append_sotp_sheet(path, sotp, ticker, currency):
             ws[f"G{r}"].number_format = "#,##0.0"
             # review finanza F2: base EQUITY fuori dalla somma EV, dentro l'equity
             (eq_cells if row.get("basis") == "equity" else ev_cells).append(r)
-            _note = " | ".join(x for x in (row["src"] or "fonte n.d. (dichiarato)",
+            _note = " | ".join(x for x in (row["src"] or _xt("fonte n.d. (dichiarato)"),
                                            row["method_note"]) if x)
             if row["src"]:
                 L(ws, f"H{r}", _txt(_note))
@@ -1825,10 +1825,10 @@ def _append_sotp_sheet(path, sotp, ticker, currency):
         r += 1
     r += 1
     tot_row = r
-    L(ws, f"A{r}", "SOMMA EV SEGMENTI (solo base EV)", bold=True)
+    L(ws, f"A{r}", _xt("SOMMA EV SEGMENTI (solo base EV)"), bold=True)
     if sotp["incomplete"]:
         L(ws, f"G{r}", "n.d.", bold=True)
-        L(ws, f"H{r}", "SOTP INCOMPLETO: vedi righe n.d. sopra (mai somme parziali)", bold=True)
+        L(ws, f"H{r}", _xt("SOTP INCOMPLETO: vedi righe n.d. sopra (mai somme parziali)"), bold=True)
         r += 2
     else:
         # somma enumerata (mirror di ev_total): le righe EQUITY non ci entrano
@@ -1837,24 +1837,24 @@ def _append_sotp_sheet(path, sotp, ticker, currency):
         ws[f"G{r}"].font = Font(bold=True, size=9)
         r += 1
         if sotp["net_debt"] is None:
-            L(ws, f"A{r}", "Net debt consolidato: n.d. — equity SOTP n.d. (dichiarato)", bold=True)
+            L(ws, f"A{r}", _xt("Net debt consolidato: n.d. — equity SOTP n.d. (dichiarato)"), bold=True)
             r += 2
         else:
             nd_row = r
-            L(ws, f"A{r}", "Net debt consolidato (stesso bridge del modello DCF)")
+            L(ws, f"A{r}", _xt("Net debt consolidato (stesso bridge del modello DCF)"))
             N(ws, f"G{r}", -sotp["net_debt"], fmt="#,##0.0")
             # review finanza F4: definizione del proxy DICHIARATA in riga
-            L(ws, f"H{r}", "[src: totalDebt-cassa Yahoo o spec del modello — proxy contabile: "
+            L(ws, f"H{r}", _xt("[src: totalDebt-cassa Yahoo o spec del modello — proxy contabile: "
                            "ibridi/leases/cash collateral NON rettificati, correggere via "
-                           "equity_adjustments]", color=GREYTX)
+                           "equity_adjustments]"), color=GREYTX)
             r += 1
             for a in sotp["adjustments"]:
-                L(ws, f"A{r}", _txt(f"Bridge: {a.get('label')}"))
+                L(ws, f"A{r}", _txt(_lt(f"Ponte: {a.get('label')}",f"Bridge: {a.get('label')}")))
                 N(ws, f"G{r}", float(a.get("value_m")), fmt="#,##0.0")
                 L(ws, f"H{r}", _txt(str(a.get("commentary") or "")[:120]), color=GREYTX)
                 r += 1
             eq_row = r
-            L(ws, f"A{r}", "EQUITY SOTP" + (" (incl. parti a base EQUITY)" if eq_cells else ""), bold=True)
+            L(ws, f"A{r}", "EQUITY SOTP" + (_xt(" (incl. parti a base EQUITY)") if eq_cells else ""), bold=True)
             ws[f"G{r}"] = (f"=G{tot_row}+SUM(G{nd_row}:G{r - 1})"
                            + "".join(f"+G{n}" for n in eq_cells))
             ws[f"G{r}"].number_format = "#,##0.0"
@@ -1862,41 +1862,41 @@ def _append_sotp_sheet(path, sotp, ticker, currency):
             r += 1
             if sotp["fv_ps"] is not None:
                 sh_row = r
-                L(ws, f"A{r}", "Azioni (mln — fully diluted se fornite dal modello)")
+                L(ws, f"A{r}", _xt("Azioni (mln — fully diluted se fornite dal modello)"))
                 N(ws, f"G{r}", sotp["shares_m"], fmt="#,##0.0")
                 r += 1
                 fv_row = r
-                L(ws, f"A{r}", "FAIR VALUE / AZIONE (SOTP)", bold=True)
+                L(ws, f"A{r}", _xt("FAIR VALUE / AZIONE (SOTP)"), bold=True)
                 ws[f"G{r}"] = f"=G{eq_row}/G{sh_row}"
                 ws[f"G{r}"].number_format = "#,##0.00"
                 ws[f"G{r}"].font = Font(bold=True, color=GOLD, size=9)
                 r += 1
                 if sotp["delta_pct"] is not None:
                     cons_row = r
-                    L(ws, f"A{r}", "Fair value CONSOLIDATO (headline del modello)")
+                    L(ws, f"A{r}", _xt("Fair value CONSOLIDATO (headline del modello)"))
                     N(ws, f"G{r}", sotp["headline_fv"], fmt="#,##0.00")
-                    L(ws, f"H{r}", "dal payload del modello (fair_value_final/weighted/base): "
-                                   "l'headline resta QUESTO", color=GREYTX)
+                    L(ws, f"H{r}", _xt("dal payload del modello (fair_value_final/weighted/base): "
+                                   "l'headline resta QUESTO"), color=GREYTX)
                     r += 1
-                    L(ws, f"A{r}", "DELTA SOTP vs CONSOLIDATO", bold=True)
+                    L(ws, f"A{r}", _xt("DELTA SOTP vs CONSOLIDATO"), bold=True)
                     ws[f"G{r}"] = f"=G{fv_row}/G{cons_row}-1"
                     ws[f"G{r}"].number_format = "+0.0%;-0.0%"
                     ws[f"G{r}"].font = Font(bold=True, color=GOLD, size=9)
-                    L(ws, f"H{r}", "G5 (stile Kairos 'Delta vs top down approach'): se grande, "
-                                   "i due approcci vanno riconciliati nella tesi", color=GREYTX)
+                    L(ws, f"H{r}", _xt("G5 (stile Kairos 'Delta vs top down approach'): se grande, "
+                                   "i due approcci vanno riconciliati nella tesi"), color=GREYTX)
                     r += 1
                 else:
-                    L(ws, f"A{r}", "Delta vs consolidato: n.d. (headline mancante) — dichiarato")
+                    L(ws, f"A{r}", _xt("Delta vs consolidato: n.d. (headline mancante) — dichiarato"))
                     r += 1
             else:
-                L(ws, f"A{r}", str(sotp["note"] or "FV/azione SOTP n.d. (dichiarato)"), bold=True)
+                L(ws, f"A{r}", str(sotp["note"] or _xt("FV/azione SOTP n.d. (dichiarato)")), bold=True)
                 r += 1
             r += 1
     if sotp["incomplete"] and sotp["note"]:
         L(ws, f"A{r}", sotp["note"], bold=True)
         r += 2
     if sotp["warnings"]:
-        L(ws, f"A{r}", "ATTENZIONI (dichiarate, da riportare nel report):", bold=True)
+        L(ws, f"A{r}", _xt("ATTENZIONI (dichiarate, da riportare nel report):"), bold=True)
         r += 1
         for w in sotp["warnings"]:
             L(ws, f"A{r}", "! " + w)
@@ -1983,6 +1983,7 @@ def _sanity_with_fx(r: Dict[str, Any], price, info: Dict[str, Any]) -> Dict[str,
     return _apply_sanity_flag(r, price)
 
 
+@scoped_language
 def sanity_check(fair_value: Optional[float], price: Optional[float]) -> Dict[str, Any]:
     """Confronta fair value vs prezzo. 204b-FIX: ora URLA. Oltre al testo ritorna 'severity'
     (OK/WARN/BLOCK) e 'exclude_from_action_table': se |fair/price-1| supera il 40-50% il
@@ -1995,22 +1996,30 @@ def sanity_check(fair_value: Optional[float], price: Optional[float]) -> Dict[st
     ratio = fair_value / price
     divergence = abs(ratio - 1.0)
     if ratio < 0.4:
-        flag = "FAIR VALUE MOLTO SOTTO il prezzo: o le assumptions sono troppo conservative, o il mercato sconta crescita non nel modello. Rivedere growth/terminal."
+        flag = _lt("FAIR VALUE MOLTO SOTTO il prezzo: o le assumptions sono troppo conservative, o il mercato sconta crescita non nel modello. Rivedere growth/terminal.",
+                   "FAIR VALUE FAR BELOW price: assumptions may be too conservative, or the market prices growth absent from the model. Review growth/terminal.")
     elif ratio > 2.5:
-        flag = "FAIR VALUE MOLTO SOPRA il prezzo: assumptions forse troppo ottimistiche, o vero deep value. Verificare margini/WACC."
+        flag = _lt("FAIR VALUE MOLTO SOPRA il prezzo: assumptions forse troppo ottimistiche, o vero deep value. Verificare margini/WACC.",
+                   "FAIR VALUE FAR ABOVE price: assumptions may be too optimistic, or this may be deep value. Verify margins/WACC.")
     elif 0.7 <= ratio <= 1.4:
-        flag = "Fair value coerente col prezzo (entro +/-40%): modello calibrato bene."
+        flag = _lt("Fair value coerente col prezzo (entro +/-40%): modello calibrato bene.",
+                   "Fair value consistent with price (within +/-40%): model is well calibrated.")
     else:
-        flag = "Scostamento moderato: possibile sopra/sottovalutazione da approfondire."
+        flag = _lt("Scostamento moderato: possibile sopra/sottovalutazione da approfondire.",
+                   "Moderate divergence: investigate possible over/undervaluation.")
     if divergence > 0.5:
         severity = "BLOCK"; exclude = True
-        headline = ("VAL SOSPETTA: fair value %.0f diverge %.0f%% dal prezzo %.0f (ratio %.2f). "
+        headline = (_lt("VAL SOSPETTA: fair value %.0f diverge %.0f%% dal prezzo %.0f (ratio %.2f). "
                     "Rivedere growth/margini/WACC/shares/net_debt PRIMA di fidarsi. "
-                    "ESCLUSO dalla ACTION TABLE." % (fair_value, divergence * 100, price, ratio))
+                    "ESCLUSO dalla ACTION TABLE.",
+                    "SUSPECT VALUATION: fair value %.0f diverges %.0f%% from price %.0f (ratio %.2f). "
+                    "Review growth/margins/WACC/shares/net_debt BEFORE relying on it. "
+                    "EXCLUDED from ACTION TABLE.") % (fair_value, divergence * 100, price, ratio))
     elif divergence > 0.4:
         severity = "WARN"; exclude = False
-        headline = ("VAL da verificare: fair value %.0f diverge %.0f%% dal prezzo %.0f (ratio %.2f). "
-                    "Trattare con cautela." % (fair_value, divergence * 100, price, ratio))
+        headline = (_lt("VAL da verificare: fair value %.0f diverge %.0f%% dal prezzo %.0f (ratio %.2f). Trattare con cautela.",
+                       "VALUATION needs verification: fair value %.0f diverges %.0f%% from price %.0f (ratio %.2f). Use with caution.")
+                    % (fair_value, divergence * 100, price, ratio))
     else:
         severity = "OK"; exclude = False; headline = None
     return {"status": "ok", "ratio": round(ratio, 2),
@@ -2242,6 +2251,14 @@ def _bake_values(r: Dict[str, Any]) -> Dict[str, Any]:
             r["exclude_from_action_table"] = True
     ps1 = str(PROJECT_ROOT / "tools" / "ops" / "bake_xlsx_values.ps1")
     import subprocess
+    import sys
+    if sys.platform != "win32":
+        r["values_baked"] = False
+        r["bake_error"] = (f"ricalcolo Excel COM disponibile solo su Windows (sistema: {sys.platform}); "
+                           "celle calcolate senza valori cached; all'apertura in Excel il "
+                           "ricalcolo parte comunque (fullCalcOnLoad)")
+        print(f"[dcf_engine] WARN bake {os.path.basename(p)}: {r['bake_error']}")
+        return r
     try:
         proc = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
@@ -2249,7 +2266,7 @@ def _bake_values(r: Dict[str, Any]) -> Dict[str, Any]:
             capture_output=True, text=True, errors="replace", timeout=120,
             # review 17/07 M1: senza questo flag ogni bake apre una finestra console
             # visibile quando il backend e' spawnato dall'app Electron
-            creationflags=subprocess.CREATE_NO_WINDOW)
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if proc.returncode != 0:
             out = ((proc.stdout or "") + " " + (proc.stderr or "")).strip()
             raise RuntimeError(f"exit {proc.returncode}: {out[:300]}")

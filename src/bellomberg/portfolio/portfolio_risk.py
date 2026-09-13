@@ -32,6 +32,7 @@ except ImportError:
     YF_OK = False
 
 from bellomberg.storage.memory_db import MemoryDB
+from bellomberg.core.presentation import message as _message, render_payload
 
 
 CACHE_TTL_SEC = 300
@@ -51,8 +52,7 @@ def prezzi_speciali() -> Dict[str, Any]:
 def ko_negozio_prezzi(esito: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """L'errore DICHIARATO se il negozio non si legge, altrimenti None (regola PM 14/07)."""
     if esito["origine"] in ("assente", "illeggibile"):
-        return {"error": "negozio dei prezzi speciali %s: %s — senza quella lista la base "
-                         "NAV dei VaR in euro cambierebbe" % (esito["origine"], esito["motivo"]),
+        return {"error": _message("negozio dei prezzi speciali {origin}: {reason} — senza quella lista la base NAV dei VaR in euro cambierebbe", "Special price store {origin}: {reason} — without that list, the NAV basis for EUR VaR would change", origin=esito["origine"], reason=esito["motivo"]),
                 "negozio_prezzi": {"origine": esito["origine"], "motivo": esito["motivo"]},
                 "timestamp": datetime.now().isoformat()}
     return None
@@ -127,7 +127,7 @@ def _convert_returns_to_eur(returns: "pd.DataFrame", cur_of: Dict[str, str],
             continue
         pair = fx_syms.get(cur)
         if pair is None or pair not in fx_prices.columns or fx_prices[pair].dropna().empty:
-            meta["local_declared"].append(f"{sym} ({cur}: FX non disponibile, rendimenti in valuta locale)")
+            meta["local_declared"].append(_message('{v0} ({v1}: FX non disponibile, rendimenti in valuta locale)', '{v0} ({v1}: FX unavailable, returns in local currency)', v0=sym, v1=cur))
             continue
         fx_col = fx_prices[pair].reindex(out.index)
         # guardia FX-STANTIO (review quant 22/07): la guardia 0.9 sotto misura le
@@ -138,7 +138,7 @@ def _convert_returns_to_eur(returns: "pd.DataFrame", cur_of: Dict[str, str],
         n_fx_real = int(fx_col.notna().sum())
         if n_fx_real < 0.8 * len(out.index):
             meta["local_declared"].append(
-                f"{sym} ({cur}: FX stantio/lacunoso, quota {n_fx_real}/{len(out.index)} giorni, serie in valuta locale)")
+                _message('{v0} ({v1}: FX stantio/lacunoso, quota {v2}/{v3} giorni, serie in valuta locale)', '{v0} ({v1}: stale/incomplete FX, coverage {v2}/{v3} days, series in local currency)', v0=sym, v1=cur, v2=n_fx_real, v3=len(out.index)))
             continue
         fx_ret = fx_col.ffill().pct_change()
         conv = (1 + out[sym]) / (1 + fx_ret) - 1
@@ -149,7 +149,7 @@ def _convert_returns_to_eur(returns: "pd.DataFrame", cur_of: Dict[str, str],
         n_after = int(conv.notna().sum())
         if n_before > 0 and n_after < 0.9 * n_before:
             meta["local_declared"].append(
-                f"{sym} ({cur}: FX copre solo {n_after}/{n_before} obs, serie tenuta in valuta locale)")
+                _message('{v0} ({v1}: FX copre solo {v2}/{v3} obs, serie tenuta in valuta locale)', '{v0} ({v1}: FX covers only {v2}/{v3} observations, series kept in local currency)', v0=sym, v1=cur, v2=n_after, v3=n_before))
             continue
         out[sym] = conv
         meta["converted"].append(sym)
@@ -177,7 +177,7 @@ def _weighted_portfolio_returns(returns: "pd.DataFrame", weights: "np.ndarray",
     port_r = (num / avail_w)[avail_w >= MIN_XSECTION_WEIGHT].dropna()
     dropped = int((avail_w < MIN_XSECTION_WEIGHT).sum())
     meta = {"obs": int(len(port_r)), "days_dropped_thin_xsection": dropped,
-            "method": "media pesata per-giorno sui nomi disponibili (pesi rinormalizzati)"}
+            "method": _message('media pesata per-giorno sui nomi disponibili (pesi rinormalizzati)', 'Daily weighted mean of available holdings (renormalized weights)')}
     return port_r, meta
 
 
@@ -228,7 +228,7 @@ def compute_portfolio_risk(force: bool = False) -> Dict[str, Any]:
 
     if not (NUMPY_OK and YF_OK):
         return {
-            "error": "numpy/yfinance non installati",
+            "error": _message('numpy/yfinance non installati', 'numpy/yfinance not installed'),
             "timestamp": datetime.now().isoformat(),
         }
 
@@ -236,17 +236,16 @@ def compute_portfolio_risk(force: bool = False) -> Dict[str, Any]:
         db = MemoryDB()
         snap = db.get_portfolio_summary()
     except Exception as e:
-        return {"error": f"portfolio fetch failed: {e}", "timestamp": datetime.now().isoformat()}
+        return {"error": _message('portfolio fetch failed: {v0}', 'Portfolio fetch failed: {v0}', v0=e), "timestamp": datetime.now().isoformat()}
     if snap.get("fx_incomplete"):
-        return {"error": "FX incompleto: pesi rischio EUR n.d. (" +
-                         ", ".join(snap["fx_incomplete"]) + ")",
+        return {"error": _message("FX incompleto: pesi rischio EUR n.d. ({currencies})", "Incomplete FX: EUR risk weights unavailable ({currencies})", currencies=", ".join(snap["fx_incomplete"])),
                 "timestamp": datetime.now().isoformat()}
     if not force and _CACHE["data"] and (time.time() - _CACHE["ts"] < CACHE_TTL_SEC):
-        return _CACHE["data"]
+        return render_payload(_CACHE["data"])
 
     positions = snap.get("positions", [])
     if not positions:
-        return {"error": "no positions", "timestamp": datetime.now().isoformat()}
+        return {"error": _message("nessuna posizione", "no positions"), "timestamp": datetime.now().isoformat()}
 
     # Sort by weight desc, take all with valid ticker
     positions = sorted(positions, key=lambda p: p.get("peso_pct", 0) or 0, reverse=True)
@@ -264,11 +263,11 @@ def compute_portfolio_risk(force: bool = False) -> Dict[str, Any]:
         cur_of[sym] = (p.get("valuta") or "EUR")
 
     if not yf_map:
-        return {"error": "no analyzable tickers", "timestamp": datetime.now().isoformat()}
+        return {"error": _message('no analyzable tickers', 'No analyzable tickers'), "timestamp": datetime.now().isoformat()}
 
     total_eur = sum(weights_eur.values())
     if total_eur <= 0:
-        return {"error": "zero portfolio value", "timestamp": datetime.now().isoformat()}
+        return {"error": _message('zero portfolio value', 'Zero portfolio value'), "timestamp": datetime.now().isoformat()}
 
     weights = {t: weights_eur[t] / total_eur for t in weights_eur}
 
@@ -296,10 +295,10 @@ def compute_portfolio_risk(force: bool = False) -> Dict[str, Any]:
     except Exception as e:
         _log(f"yf download FAILED: {e}")
         _log(traceback.format_exc())
-        return {"error": f"yfinance error: {e}", "timestamp": datetime.now().isoformat()}
+        return {"error": _message('yfinance error: {v0}', 'yfinance error: {v0}', v0=e), "timestamp": datetime.now().isoformat()}
 
     if prices.empty:
-        return {"error": "no price data", "timestamp": datetime.now().isoformat()}
+        return {"error": _message("nessun dato prezzi", "no price data"), "timestamp": datetime.now().isoformat()}
 
     returns = prices.pct_change().dropna(how="all")
 
@@ -338,7 +337,7 @@ def compute_portfolio_risk(force: bool = False) -> Dict[str, Any]:
         }
 
     if not valid_internal_tickers:
-        return {"error": "no valid return series", "timestamp": datetime.now().isoformat()}
+        return {"error": _message('no valid return series', 'No valid return series'), "timestamp": datetime.now().isoformat()}
 
     # Portfolio metrics: weighted returns
     valid_yf = [yf_map[t] for t in valid_internal_tickers]
@@ -349,7 +348,7 @@ def compute_portfolio_risk(force: bool = False) -> Dict[str, Any]:
     # ne' fillna(0) (smorzava la vol): media pesata per-giorno sui disponibili.
     port_r, sample_meta = _weighted_portfolio_returns(returns, valid_weights, valid_yf)
     if port_r.empty:
-        return {"error": "serie di portafoglio vuota dopo il filtro cross-section",
+        return {"error": _message('serie di portafoglio vuota dopo il filtro cross-section', 'Portfolio series empty after cross-section filter'),
                 "timestamp": datetime.now().isoformat()}
 
     port_vol_ann = float(port_r.std() * np.sqrt(252) * 100)
@@ -399,6 +398,7 @@ def compute_portfolio_risk(force: bool = False) -> Dict[str, Any]:
             corr_df = corr_data.corr()
             corr_matrix = [[round(float(corr_df.iloc[i, j]), 2) for j in range(len(top8))] for i in range(len(top8))]
             corr_meta = {"estimator": "sample (Ledoit-Wolf fallito: " + str(_le)[:60] + ")",
+                         "note": _message("Ledoit-Wolf fallito: {error}; correlazione campionaria dichiarata", "Ledoit-Wolf failed: {error}; sample correlation declared", error=str(_le)[:60]),
                          "obs": int(len(corr_data))}
 
     # Alerts
@@ -406,32 +406,32 @@ def compute_portfolio_risk(force: bool = False) -> Dict[str, Any]:
     if abs(port_var99_pct) > 4:
         alerts.append({
             "level": "high", "metric": "VaR 99% 1d",
-            "message": f"VaR 99% 1d critico: {port_var99_pct:.2f}% (EUR {port_var99_eur:,.0f})",
+            "message": _message('VaR 99% 1d critico: {v0:.2f}% (EUR {v1:,.0f})', 'Critical 1-day VaR99: {v0:.2f}% (EUR {v1:,.0f})', v0=port_var99_pct, v1=port_var99_eur),
         })
     elif abs(port_var95_pct) > 3:
         alerts.append({
             "level": "med", "metric": "VaR 95% 1d",
-            "message": f"VaR 95% 1d elevato: {port_var95_pct:.2f}%",
+            "message": _message('VaR 95% 1d elevato: {v0:.2f}%', 'High 1-day VaR95: {v0:.2f}%', v0=port_var95_pct),
         })
     if abs(beta_spy) > 1.3:
         alerts.append({
             "level": "med", "metric": "Beta",
-            "message": f"Beta vs SPY elevato: {beta_spy:.2f}",
+            "message": _message('Beta vs SPY elevato: {v0:.2f}', 'High beta vs SPY: {v0:.2f}', v0=beta_spy),
         })
     if max_dd_port < -20:
         alerts.append({
             "level": "high", "metric": "Max Drawdown 1y",
-            "message": f"Drawdown 1y significativo: {max_dd_port:.1f}%",
+            "message": _message('Drawdown 1y significativo: {v0:.1f}%', 'Significant 1-year drawdown: {v0:.1f}%', v0=max_dd_port),
         })
     if port_vol_ann > 30:
         alerts.append({
             "level": "med", "metric": "Volatility",
-            "message": f"Volatility annualizzata alta: {port_vol_ann:.1f}%",
+            "message": _message('Volatility annualizzata alta: {v0:.1f}%', 'High annualized volatility: {v0:.1f}%', v0=port_vol_ann),
         })
     if port_sharpe < 0:
         alerts.append({
             "level": "med", "metric": "Sharpe",
-            "message": f"Sharpe ratio negativo: {port_sharpe:.2f} - rivedere risk/reward",
+            "message": _message('Sharpe ratio negativo: {v0:.2f} - rivedere risk/reward', 'Negative Sharpe ratio: {v0:.2f} - review risk/reward', v0=port_sharpe),
         })
 
     # Concentration risk: top holding > 25%
@@ -439,7 +439,7 @@ def compute_portfolio_risk(force: bool = False) -> Dict[str, Any]:
     if top_pos and (top_pos.get("peso_pct") or 0) > 25:
         alerts.append({
             "level": "med", "metric": "Concentration",
-            "message": f"Top holding {top_pos['ticker']} = {top_pos['peso_pct']:.1f}% (concentrazione elevata)",
+            "message": _message('Top holding {v0} = {v1:.1f}% (concentrazione elevata)', 'Top holding {v0} = {v1:.1f}% (high concentration)', v0=top_pos['ticker'], v1=top_pos['peso_pct']),
         })
 
     # Skipped tickers report
@@ -460,12 +460,10 @@ def compute_portfolio_risk(force: bool = False) -> Dict[str, Any]:
             "max_dd_1y_pct": round(max_dd_port, 2),
         },
         # review quant 22/07: convenzioni DICHIARATE accanto ai numeri
-        "beta_basis": "portafoglio EUR vs SPY convertito in EUR (fix 22/07; prima SPY era in USD)",
+        "beta_basis": _message('portafoglio EUR vs SPY convertito in EUR (fix 22/07; prima SPY era in USD)', 'EUR portfolio vs SPY converted to EUR (fix 22/07; SPY was previously in USD)'),
         "risk_free_used": 0.0,
-        "sharpe_note": ("Sharpe con rf=0 (non excess return); lo Sharpe ufficiale con rf "
-                        "live e' in advanced_metrics (risk_free_used dichiarato li')"),
-        "nav_basis": ("perimetro ANALIZZATO (posizioni SKIP/non-yfinance escluse): "
-                      "i VaR EUR scalano su questa base"),
+        "sharpe_note": (_message("Sharpe con rf=0 (non excess return); lo Sharpe ufficiale con rf live e' in advanced_metrics (risk_free_used dichiarato li')", 'Sharpe with rf=0 (not excess return); official Sharpe with live rf is in advanced_metrics (risk_free_used declared there)')),
+        "nav_basis": (_message('perimetro ANALIZZATO (posizioni SKIP/non-yfinance escluse): i VaR EUR scalano su questa base', 'ANALYZED scope (SKIP/non-yfinance positions excluded): EUR VaR scales on this basis')),
         "nav_book_total_eur": float(snap.get("totale_valore_mercato_eur") or 0),
         "per_asset": per_asset,
         "correlation": {
@@ -477,15 +475,15 @@ def compute_portfolio_risk(force: bool = False) -> Dict[str, Any]:
         "n_assets_analyzed": len(valid_internal_tickers),
         "skipped_tickers": skipped,
         "lookback_days": int(len(port_r)),
-        "returns_basis": "EUR (FX convertito per-serie)" if fx_meta.get("converted") else "valuta locale",
+        "returns_basis": _message("EUR (FX convertito per-serie)", "EUR (FX converted per series)") if fx_meta.get("converted") else _message("valuta locale", "local currency"),
         "fx_conversion": fx_meta,
         "sample_meta": sample_meta,
         # Gerarchia VaR DICHIARATA (fix 14/07: tre VaR scollegati senza gerarchia)
         "var_hierarchy": {
-            "official": "historical_95_1d su rendimenti EUR (questo payload) — validato da var_backtest",
-            "var99_note": "VaR99 storico su ~252 obs = 2-3 osservazioni di coda: statisticamente debole, usare con cautela",
-            "attribution": "component VaR parametrico Jorion (portfolio_analytics) — SOLO per attribution",
-            "scenarios": "MC FHS + replay storico (portfolio_montecarlo) — scenari e code simulate",
+            "official": _message('historical_95_1d su rendimenti EUR (questo payload) — validato da var_backtest', 'historical_95_1d on EUR returns (this payload) — validated by var_backtest'),
+            "var99_note": _message('VaR99 storico su ~252 obs = 2-3 osservazioni di coda: statisticamente debole, usare con cautela', 'Historical VaR99 over ~252 observations = 2-3 tail observations: statistically weak, use with caution'),
+            "attribution": _message('component VaR parametrico Jorion (portfolio_analytics) — SOLO per attribution', 'Parametric Jorion component VaR (portfolio_analytics) — ONLY for attribution'),
+            "scenarios": _message('MC FHS + replay storico (portfolio_montecarlo) — scenari e code simulate', 'MC FHS + historical replay (portfolio_montecarlo) — simulated scenarios and tails'),
         },
         "cached_for_sec": CACHE_TTL_SEC,
     }
@@ -493,7 +491,7 @@ def compute_portfolio_risk(force: bool = False) -> Dict[str, Any]:
     _CACHE["ts"] = time.time()
     _CACHE["data"] = result
     _log(f"computed risk: VaR95={port_var95_pct:.2f}% Sharpe={port_sharpe:.2f} Beta={beta_spy:.2f} DD={max_dd_port:.1f}% alerts={len(alerts)}")
-    return result
+    return render_payload(result)
 
 
 def invalidate_cache():

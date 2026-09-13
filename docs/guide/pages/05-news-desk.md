@@ -22,6 +22,20 @@ configured services; they can consume provider quota or AI credits.
 5. Read a briefing as a synthesis to investigate, not as a replacement for its
    source material.
 
+## Language and original material
+The source title and excerpt remain in their original language. Generated
+summaries and briefings identify their recorded output language when known;
+legacy material can have an unknown language. If no generated summary exists
+for the selected language, the page declares that gap. Switching the interface
+language does not translate historical news or start a new AI generation.
+
+Corporate-event wording authored by Bellomberg and topic labels can be displayed
+in Italian or English. A description taken from a filing remains source text;
+check the origin label rather than assuming every event sentence is a quotation.
+An unreadable briefing cache is reported as an error, distinct from a briefing
+that has not yet been generated. Use the explicit refresh action when you intend
+to request new generated content.
+
 ## Calendars need source checks
 Event calendars can combine provider data and recurring-date heuristics.
 Some economic calendar entries are generated from scheduling rules rather than

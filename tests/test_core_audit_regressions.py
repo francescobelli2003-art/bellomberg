@@ -299,10 +299,14 @@ def test_scorers_keep_real_zero_and_disclose_an_invalid_partial_metric():
 def test_politics_reads_the_actual_polymarket_tool_contract(monkeypatch):
     import bellomberg.agents.agent_tools as at
     import bellomberg.agents.specialist_scores as ss
+    # audit 11/09: il contratto letto comprende anche endDate (un mercato senza data di
+    # chiusura futura e' risolto o non datato: politics_score lo scarta, dichiarandolo)
     monkeypatch.setattr(at, "_poly_fetch", lambda url, params, **kw: {
-        "events": [{"title": "synthetic event", "slug": "synthetic-event", "markets": [{
+        "events": [{"title": "synthetic event", "slug": "synthetic-event",
+                    "endDate": "2099-01-01T00:00:00Z", "markets": [{
             "question": "synthetic tail?", "outcomes": '["Yes","No"]',
-            "outcomePrices": '["0.8","0.2"]'}]}]} if url.endswith("public-search") else [])
+            "outcomePrices": '["0.8","0.2"]', "endDate": "2099-01-01T00:00:00Z"}]}]}
+        if url.endswith("public-search") else [])
     monkeypatch.setattr(ss, "_POLI_TOPICS", {"Synthetic": "synthetic"})
     result = ss.politics_score()
     assert result["metrics"]["topics"] == {"Synthetic": .8}

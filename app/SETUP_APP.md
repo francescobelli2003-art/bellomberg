@@ -31,6 +31,8 @@ npm run dev
 
 The source checkout is the default backend directory during development. Python defaults to `python` on Windows and `python3` elsewhere; setting the executable explicitly avoids using the wrong environment. The desktop reuses an already running backend and stops only a backend process it started itself.
 
+After login, a new profile asks you to choose and save English or Italian before opening the application. The preference belongs to the backend profile; changing it preserves drafts and existing research. See the [first-session guide](../docs/guide/first-session.md) for the difference between actual trades and documented opening positions.
+
 The default API address is `http://127.0.0.1:8765`. `BELLOMBERG_API_PORT` can select an integer port from 1024 to 65535 when supported by the installed backend. Vite uses port 5173 and refuses to silently move to another port.
 
 For an installed desktop application, set these variables before starting the executable, or start the Python backend separately first. Missing Python, a missing backend directory, and failed startup are reported explicitly. Keep private configuration and data in the backend installation, outside the desktop package.
@@ -47,3 +49,7 @@ npm run build
 Release tests exercise chat races, stream completion, safe URLs and missing financial data using synthetic inputs. The desktop smoke test opens a hidden Electron window with isolated browser storage and a temporary mock HTTP server; it does not connect to the operational backend or start Python. It verifies the production renderer, preload, sandbox and CSP, not installation of the external Python backend.
 
 The installer is written to `app/release/`. No publishing command is run. The executable is unsigned unless the maintainer separately configures code signing; Windows can show a publisher warning.
+
+## macOS source boundary
+
+Use the explicit POSIX setup in the [installation guide](../docs/guide/installation.md#macos-and-linux), including the virtual-environment Python path. The `macos-source` CI job checks source dependencies, offline contracts and hidden Electron against a synthetic server. A successful result must be checked for the exact commit. It does not certify launching the real backend from Finder/Dock, a physical Mac session, Intel compatibility, or a signed/notarized application. No launchd/cron replacement for the Windows scheduler is included.

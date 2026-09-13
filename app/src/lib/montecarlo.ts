@@ -1,3 +1,5 @@
+import { t as tr } from '@/i18n/t';
+import { linguaCorrente, type Lingua } from '@/i18n/lingua';
 /* ════════════════════════════════════════════════════════════
    BANCO DI PROVA DI F5 — UN SOLO GIUDIZIO SULLE RIGHE
    ────────────────────────────────────────────────────────────
@@ -77,6 +79,8 @@ export interface RigaBanco {
   ticker: string;
   amount_eur: string;
   amount_pct: string;
+  /** Captured when editing starts; only the UI language may change afterwards. */
+  inputLanguage?: Lingua;
 }
 
 /** Quello che il giudizio non può dedurre dalla riga da sola. */
@@ -95,20 +99,20 @@ export function classificaRiga(m: RigaBanco, ctx: ContestoBanco = {}): GiudizioR
   // è questa funzione a dirlo.
   if (!m.ticker.trim()) {
     if (ctx.bookVuoto && m.action !== 'add') {
-      return { stato: 'inerte', motivo: 'book non caricato: nessun titolo da scegliere' };
+      return { stato: 'inerte', motivo: tr('montecarlo.f133') };
     }
     // La riga non entra PERCHÉ manca il titolo — ma se anche l'importo è
     // illeggibile va detto subito, non quando il titolo arriverà: è la classe
     // ×10/×100 che questa pagina esiste per fermare, e tacerla è un fallback
     // silenzioso (regola 14/07). Reperto della review.
-    const lE = leggiNumero(m.amount_eur);
-    const lP = leggiNumero(m.amount_pct);
+    const lE = leggiNumero(m.amount_eur, m.inputLanguage, linguaCorrente());
+    const lP = leggiNumero(m.amount_pct, m.inputLanguage, linguaCorrente());
     const numeroKo = (lE && !lE.ok) || (lP && !lP.ok);
     return {
       stato: 'inerte',
       motivo: numeroKo
-        ? 'senza titolo non entra nel calcolo · e l’importo scritto non si legge'
-        : 'senza titolo non entra nel calcolo',
+        ? tr('montecarlo.f134')
+        : tr('montecarlo.f135'),
     };
   }
   // Lo slider ha dominio 0-100 per costruzione: non può essere illeggibile.
@@ -121,22 +125,22 @@ export function classificaRiga(m: RigaBanco, ctx: ContestoBanco = {}): GiudizioR
   if (m.action === 'trim') {
     const pct = parseFloat(m.amount_pct);
     if (!isFinite(pct) || pct <= 0) {
-      return { stato: 'inerte', motivo: 'la riduzione è a zero: non cambia niente' };
+      return { stato: 'inerte', motivo: tr('montecarlo.f136') };
     }
     return { stato: 'entra' };
   }
 
-  const lE = leggiNumero(m.amount_eur);
+  const lE = leggiNumero(m.amount_eur, m.inputLanguage, linguaCorrente());
   if (lE && !lE.ok) return { stato: 'blocca', motivo: `EUR: ${lE.motivo}` };
   if (m.action === 'add') {
-    return lE ? { stato: 'entra' } : { stato: 'blocca', motivo: 'importo mancante' };
+    return lE ? { stato: 'entra' } : { stato: 'blocca', motivo: tr('montecarlo.f137') };
   }
-  const lP = leggiNumero(m.amount_pct);
+  const lP = leggiNumero(m.amount_pct, m.inputLanguage, linguaCorrente());
   if (lP && !lP.ok) return { stato: 'blocca', motivo: `%: ${lP.motivo}` };
-  if (lP && lP.ok && lP.valore > 100) return { stato: 'blocca', motivo: '%: oltre il 100' };
+  if (lP && lP.ok && lP.valore > 100) return { stato: 'blocca', motivo: tr('montecarlo.f138') };
   return lE || lP
     ? { stato: 'entra' }
-    : { stato: 'blocca', motivo: 'serve un importo in EUR oppure una %' };
+    : { stato: 'blocca', motivo: tr('montecarlo.f139') };
 }
 
 export interface ContoBanco {
@@ -196,11 +200,11 @@ export function costruisciPayload(
       ticker: m.ticker.trim().toUpperCase(),
     };
     if (m.action === 'add') {
-      const l = leggiNumero(m.amount_eur);
+      const l = leggiNumero(m.amount_eur, m.inputLanguage, linguaCorrente());
       if (l && l.ok) p.amount_eur = l.valore;
     } else if (m.action === 'remove') {
-      const lE = leggiNumero(m.amount_eur);
-      const lP = leggiNumero(m.amount_pct);
+      const lE = leggiNumero(m.amount_eur, m.inputLanguage, linguaCorrente());
+      const lP = leggiNumero(m.amount_pct, m.inputLanguage, linguaCorrente());
       if (lE && lE.ok) p.amount_eur = lE.valore;
       else if (lP && lP.ok) p.amount_pct = lP.valore;
     } else {
@@ -234,8 +238,8 @@ export function costruisciPayload(
  *  Singolare e plurale si accordano: «1 ILLEGGIBILI» diceva il falso sul
  *  numero, ed era in pagina da prima. */
 export function targhettaBanco(c: ContoBanco): string {
-  if (c.totale === 0) return 'NESSUNA — SI SIMULA IL BOOK COM’È';
-  const p: string[] = [`${c.totale} IN ATTESA`];
+  if (c.totale === 0) return tr('montecarlo.f140');
+  const p: string[] = [tr('montecarlo.f141', {a: c.totale})];
   if (c.bloccanti > 0) {
     // NON «ILLEGGIBILI»: su nove motivi di blocco solo quattro sono
     // illeggibilità. «importo mancante» è un campo BIANCO, «deve essere
@@ -243,15 +247,15 @@ export function targhettaBanco(c: ContoBanco): string {
     // e fuori dominio. La parola vecchia mandava a cercare un refuso dove non
     // c'era niente da leggere (reperto della review; il termine era in pagina
     // da prima, ma questo lotto lo ereditava).
-    p.push(`${c.bloccanti} DA CORREGGERE — SIMULA SPENTO`);
+    p.push(tr('montecarlo.f142', {a: c.bloccanti}));
   }
   if (c.inerti > 0) {
-    p.push(c.inerti === 1 ? '1 INERTE, NON ENTRA' : `${c.inerti} INERTI, NON ENTRANO`);
+    p.push(c.inerti === 1 ? tr('montecarlo.f143') : tr('montecarlo.f144', {a: c.inerti}));
   }
   if (c.bloccanti > 0 || c.inerti > 0) {
     p.push(c.entrano === 0
-      ? '0 SPEDITE — SI SIMULA IL BOOK COM’È'
-      : `${c.entrano} SPEDIT${c.entrano === 1 ? 'A' : 'E'} AL MOTORE`);
+      ? tr('montecarlo.f145')
+      : tr(c.entrano === 1 ? 'montecarlo.sentOne' : 'montecarlo.sentMany', { count: c.entrano }));
   }
   return p.join(' · ');
 }
@@ -262,7 +266,7 @@ export function targhettaBanco(c: ContoBanco): string {
  *  A zero righe spedite il tasto dice cosa fa, perché quello che fa non è
  *  quello che il banco lascia credere: simula il book com'è. */
 export function etichettaSimula(c: ContoBanco, spento: boolean): string {
-  if (spento || c.totale === 0 || c.entrano === c.totale) return 'SIMULA';
-  if (c.entrano === 0) return 'SIMULA IL BOOK COM’È';
-  return `SIMULA · ${c.entrano} DI ${c.totale}`;
+  if (spento || c.totale === 0 || c.entrano === c.totale) return tr('montecarlo.f146');
+  if (c.entrano === 0) return tr('montecarlo.f147');
+  return tr('montecarlo.f148', {a: c.entrano, b: c.totale});
 }

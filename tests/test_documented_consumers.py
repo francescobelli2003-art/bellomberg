@@ -6,6 +6,7 @@ import os
 import subprocess
 import pytest
 from functools import partial
+from datetime import date, timedelta
 
 from test_sector_operating_drivers import DAY, bundle_for, operating_records
 from test_sector_valuation_integration import isolated_tools
@@ -34,6 +35,46 @@ CASES.append((developer_bundle,developer_records,'property_development_fcff','pr
 CASES.append((resource_bundle,resource_records,'resources_asset_dcf','forecasts'))
 CASES.append((development_bundle,development_records,'development_rnpv','probabilities'))
 CASES.append((sotp_bundle,sotp_records,'mixed_business_sotp','central_cash_cost'))
+
+
+@pytest.mark.parametrize('days_after', [1, 30])
+@pytest.mark.parametrize('factory', [bundle_for, sotp_bundle])
+def test_documented_value_survives_later_read_in_committee_database_f17_and_score(tmp_path, monkeypatch, db, days_after, factory):
+    from bellomberg.valuation import dcf_engine, dcf_quality, sector_analysis
+    from bellomberg.agents import specialist_scores
+    from test_sector_valuation_api import endpoint
+
+    source = factory()
+    symbol = source['case']['ticker']
+    good = dcf_engine.generate_valuation(symbol, prepared_bundle=source, output_dir=str(tmp_path))
+    assert good['valuation_usability']['usable'], good['valuation_usability']
+    fair_value = good['fair_value_base']
+    db.save_valuation_thesis(symbol, valuation_payload=good, fair_value=fair_value, price=good['price'])
+
+    class ReadingDate(date):
+        @classmethod
+        def today(cls):
+            return cls.fromisoformat(DAY) + timedelta(days=days_after)
+
+    monkeypatch.setattr(dcf_quality, 'date', ReadingDate)
+    snapshot = db.get_valuation_snapshot(good['snapshot_id'], generation_id=good['generation_id'])
+    assert snapshot['fair_value_base'] == fair_value
+    assert snapshot['valuation_decision']['as_of'] == DAY
+    db.save_valuation_thesis(symbol, valuation_payload=good, fair_value=fair_value, price=good['price'])
+    assert db.get_valuation_history(symbol)[0]['fair_value'] == fair_value
+    block = sector_analysis.valuation_results_block({symbol: good})
+    assert str(fair_value) in block and DAY in block
+    assert json.loads(block.splitlines()[-1])['information_cutoff'] == DAY
+    model = endpoint(tmp_path, db.get_latest_valuation_snapshots())['models'][0]
+    assert model['fair_value'] == fair_value and model['valuation_usability']['usable']
+    monkeypatch.setattr(specialist_scores.cl, 'carica_veicoli',
+                        lambda: {'origine': 'synthetic', 'veicoli': {}, 'motivo': None})
+    score = specialist_scores.fundamentals_score(
+        {'positions': [{'ticker': symbol, 'peso_pct': 100}]}, valuations={symbol: good})
+    assert score is not None and score['metrics']['n_valued'] == 1
+    blocked = deepcopy(good)
+    blocked['sanity']['severity'] = 'BLOCK'
+    assert dcf_quality.normalize_valuation_payload(blocked)['fair_value_base'] is None
 
 
 @pytest.mark.parametrize('factory,records_factory,method,missing',CASES)

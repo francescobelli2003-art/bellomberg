@@ -6,18 +6,23 @@
 
 *DEMO illustration: invented instruments, values and text; not a screenshot.*
 
-This destination has two internal tabs: **Mandato** defines your declared rules;
-**Diario** is your private writing space. Neither is supplied as a prefilled
-personal investment profile in the public distribution.
+This destination has two tabs: **Mandate** (*Mandato*) defines your declared
+rules; **Journal** (*Diario*) is your private writing space. Neither is supplied
+as a prefilled personal investment profile in the public distribution.
 
 ## Define your mandate
-1. Open **Mandato** and read the available sections covering the investment
-   universe, portfolio constraints and research preferences.
-2. Complete the fields for your own process. The example schema explains the
-   structure; its sample values are not a recommended mandate.
+1. Open **Mandate**. **Mandate sections** (*Sezioni del mandato*) lists seven
+   sections: Profile, Risk, Position sizing, Cash, Discipline, Options and Notes.
+   Select one to show its fields. Each entry shows **!** for errors, the number
+   of required fields still missing, or **✓** when complete.
+2. Complete the fields for your own process. **Fill with example profile**
+   (*Compila con profilo di esempio*) loads the example values into your draft;
+   its sample values are not a recommended mandate.
 3. Inspect validation and coverage badges. They distinguish rules enforced by
    code from instructions interpreted by agents.
-4. Preview the changes, then save.
+4. Press **Validate and preview** (*Verifica e apri anteprima*), read the committee
+   text, then press **Save mandate** (*Salva mandato*). Saving stays disabled until
+   the current draft has a valid preview.
 5. Review the saved mandate before the next committee run.
 
 A saved field is not automatically a deterministic constraint. Read its
@@ -26,9 +31,11 @@ A missing or invalid required mandate can prevent a committee run rather than
 silently selecting somebody else's preferences.
 
 ## Write a journal entry
-1. Open **Diario** and choose a new note.
-2. Select a stock thesis or macro thought. Add a title and an optional ticker;
-   ticker text is yours to enter, not a fixed list of example holdings.
+1. Open **Journal** and press **New note** (*Nuova nota*).
+2. In **Note type** (*Tipo di nota*), select **Investment thesis** (*Tesi su un
+   titolo*) or **Macro scenario** (*Scenario macro*). Add a title and an optional
+   ticker; suggestions come from your current portfolio, and you can type any
+   other ticker.
 3. Write the thesis, evidence, risks and what would change your mind.
 4. Save and inspect the entry's timestamp, version and explicit user origin.
 
@@ -38,9 +45,12 @@ embedded or sent to the research agents**. To share it, explicitly select text
 and include it in your chosen conversation or workflow.
 
 ## Revise without losing the past
-Select an entry, edit it and save a new version. Open history to inspect earlier
-revisions; loading an old revision into the editor creates a new draft, so the
-existing history stays intact.
+Select an entry in **Your notes** (*Le tue note*), edit it and press **Save new
+version** (*Salva nuova versione*). The **How your idea evolves** (*Come evolve la
+tua idea*) column beside the editor lists earlier revisions: expand one to read
+it, or press **Load earlier versions** (*Carica versioni precedenti*) for older
+ones. **Use this version as a draft** (*Usa questa versione come bozza*) loads it
+into the editor as a new draft, so the existing history stays intact.
 
 If another editor saved a newer version, the app rejects the outdated save
 with a conflict rather than overwriting it. Read the current server version,
@@ -55,6 +65,12 @@ included when you need to recover one.
 Unsaved drafts can survive navigation within the same running interface, but
 they are not a durable backup. Reloading or closing the application can discard
 them; heed the unsaved-change prompt and save deliberately.
+
+In **Mandate**, an unsaved draft kept for the current session is offered as
+**RECOVERABLE DRAFT** (*BOZZA RECUPERABILE*) with **RESTORE EXPLICITLY**
+(*RIPRISTINA ESPLICITAMENTE*) and **DISCARD** (*SCARTA*). A draft whose number
+format is missing or not recognised says so: restoring reads it as Italian
+(1.234,56), and the notice stays until you save. Check the numbers before saving.
 
 Journal reads and writes require an authenticated session. Keep the database
 and its backups private. A missing journal schema or database failure is shown

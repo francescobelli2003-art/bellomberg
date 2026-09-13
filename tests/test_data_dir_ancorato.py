@@ -28,7 +28,7 @@ def _sqlite_path_da(cwd, env_extra=None):
     r = subprocess.run([sys.executable, "-c", CODICE], cwd=str(cwd), env=_env_pulito(env_extra),
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     assert r.returncode == 0, r.stderr
-    return os.path.normcase(r.stdout.strip())
+    return os.path.normcase(os.path.realpath(r.stdout.strip()))
 
 
 def test_bellomberg_data_dir_relativa_e_relativa_al_repo_non_alla_cwd(tmp_path):
@@ -70,7 +70,7 @@ def test_nessun_modulo_apre_il_db_con_un_percorso_proprio():
 
 def test_da_una_cwd_diversa_il_db_resta_nel_repo(tmp_path):
     p = _sqlite_path_da(tmp_path)
-    atteso = os.path.normcase(os.path.join(REPO, "data", "consigliere.db"))
+    atteso = os.path.normcase(os.path.realpath(os.path.join(REPO, "data", "consigliere.db")))
     assert p == atteso, f"{p} != {atteso}"
 
 
@@ -82,7 +82,7 @@ def test_bellomberg_data_dir_sposta_i_dati(tmp_path):
 
 def test_bellomberg_data_dir_vuota_vale_assente(tmp_path):
     p = _sqlite_path_da(tmp_path, {"BELLOMBERG_DATA_DIR": "   "})
-    assert p == os.path.normcase(os.path.join(REPO, "data", "consigliere.db"))
+    assert p == os.path.normcase(os.path.realpath(os.path.join(REPO, "data", "consigliere.db")))
 
 
 def test_heartbeat_deriva_da_db_dir(tmp_path):

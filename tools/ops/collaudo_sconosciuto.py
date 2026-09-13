@@ -3,13 +3,13 @@
 ogni dato mancante»). Fa, misurando, quello che il README promette a chi clona:
 
   1. il tree che lo sconosciuto riceve (export in temp, oppure `--tree <clone>`)
-  2. venv nuovo + `pip install -r requirements.txt` (+ pytest, come dice il README)
+  2. venv nuovo + `pip install -e . pytest` (come dice il README)
   3. `.env` dal template — PRIMA verbatim (PIN vuoto): il login deve rispondere 503 DICHIARATO
   4. `.env` col solo PIN: login, poi OGNI GET dell'app senza chiavi e a book vuoto, classificato
      DATO / DICHIARATO (errore, KO, n.d., stale...) / VUOTO (200 senza dato ne' avviso) / CRASH (5xx)
      / N.A. (vuole un parametro che la sonda non ha) / TIMEOUT
-  5. la prima operazione di un utente vero: VERSAMENTO, BUY di un simbolo INVENTATO, la posizione
-     in portafoglio e la cassa aggiornata
+  5. profilo vuoto, lingua salvata e riletta, VERSAMENTO, BUY di un simbolo INVENTATO con
+     anteprima/conferma e cassa SQLite riletta; saldo documentato senza trade o cassa aggiunti
   6. `pytest tests/` nel venv (solo i pacchetti di requirements.txt: quello che ha lo sconosciuto)
 
 Ogni fase e' un contatore, non una frase; il rapporto (stdout e `--rapporto`) porta una riga per
@@ -17,19 +17,20 @@ route. Il backend gira su una porta DIVERSA da 8765 (mai quella dell'app in uso)
 RIPULITO (nessuna chiave della macchina che lo lancia) e una cartella dati temporanea.
 
 Uso:
-  python scripts/collaudo_sconosciuto.py                    # export --tieni --senza-suite, poi tutto
-  python scripts/collaudo_sconosciuto.py --tree .           # su un clone (il tuo): rifiuta se .env esiste
-  python scripts/collaudo_sconosciuto.py --tree D --venv V --senza-pip   # riusa un venv gia' installato
+  python tools/ops/collaudo_sconosciuto.py                    # export --tieni --senza-suite, poi tutto
+  python tools/ops/collaudo_sconosciuto.py --tree .           # su un clone (il tuo): rifiuta se .env esiste
+  python tools/ops/collaudo_sconosciuto.py --tree D --venv V --senza-pip   # riusa un venv gia' installato
   --porta 8766 · --rapporto FILE.md · --senza-suite · --timeout-richiesta 30 · --anche-sporco (export)
 
 Exit: 0 = collaudo completo senza guasti (VUOTO e TIMEOUT contano, non fermano: osservazione) ·
 1 = un guasto misurato (pip, pacchetto mancante, avvio, login, CRASH, flusso, suite rossa) ·
 2 = una fase NON eseguita o un KO dello strumento (porta, export, tree non pulito).
-Guardia: se nel tree esistono gia' `.env`, `portfolio.json` o `data/`, si FERMA (exit 2): il
-collaudo li scrive, e non sovrascrive quelli di nessuno.
+Guardia: se nel tree esistono gia' `.env`, `portfolio.json` o `data/`, si FERMA (exit 2):
+serve un clone senza configurazione o dati preesistenti. Il collaudo non crea portfolio.json.
 """
 import argparse
 import json
+import math
 import os
 import re
 import shutil
@@ -72,40 +73,23 @@ VARIABILI_DI_SISTEMA = frozenset({
     "PYTHONIOENCODING", "TZ"})
 
 # Eseguito nel VENV dello sconosciuto, cwd = tree: importa l'app (come fa uvicorn) e stampa le
-# route con i parametri di percorso e le query OBBLIGATORIE. `app.routes` e' la fonte, non una
-# grep del sorgente: /openapi.json e' spento nell'app (quick-win n.10).
+# route con i parametri di percorso e le query OBBLIGATORIE. Lo schema generato in memoria
+# include anche i router differiti: /openapi.json resta spento nell'app (quick-win n.10).
 PROGRAMMA_ROUTE = """
 import importlib, json, os, sys
 sys.path.insert(0, os.getcwd())
 m = importlib.import_module(os.environ.get("COLLAUDO_MODULO", "bellomberg.api.bellomberg_api"))
 out = []
-for r in m.app.routes:
-    dep = getattr(r, "dependant", None)
-    if dep is None:
-        continue
-    qr = []
-    for q in dep.query_params:
-        req = getattr(q, "required", None)
-        if req is None:
-            fi = getattr(q, "field_info", None)
-            req = fi.is_required() if hasattr(fi, "is_required") else False
-        if req:
-            qr.append(q.name)
-    out.append({"path": r.path, "methods": sorted(r.methods or []),
-                "path_params": [p.name for p in dep.path_params], "query_required": qr})
+for path, operations in m.app.openapi()["paths"].items():
+    for method, operation in operations.items():
+        if method not in {"get", "post", "put", "patch", "delete", "head", "options", "trace"}:
+            continue
+        parameters = operations.get("parameters", []) + operation.get("parameters", [])
+        out.append({"path": path, "methods": [method.upper()],
+                    "path_params": [p["name"] for p in parameters if p.get("in") == "path"],
+                    "query_required": [p["name"] for p in parameters if p.get("in") == "query" and p.get("required")]})
 print(json.dumps(out))
 """
-
-# Lo stesso avvio del README (`python bellomberg_api.py` = uvicorn su bellomberg_api:app), sulla
-# porta del collaudo. La porta passa per l'ambiente: niente formattazione dentro il programma.
-PROGRAMMA_SERVER = """
-import os, sys
-sys.path.insert(0, os.getcwd())
-import uvicorn
-uvicorn.run("bellomberg.api.bellomberg_api:app", host="127.0.0.1", port=int(os.environ["COLLAUDO_PORTA"]),
-            log_level="warning")
-"""
-
 
 # ============================================================================
 # PARTI PURE (provate in tests/test_collaudo_sconosciuto.py)
@@ -334,6 +318,9 @@ def rapporto_md(fasi, verdetto):
             f = riepilogo(f) if f is not None else None
         r.append("| %s | %s |" % (nome, "NON ESEGUITA" if f is None
                                   else _tronca(f, 300).replace("|", "/")))
+    measurements = (fasi.get("flusso") or {}).get("misure")
+    if measurements is not None:
+        r += ["", "## Misure del flusso", "", "```json", json.dumps(measurements, ensure_ascii=False, indent=2), "```"]
     sonda = fasi.get("sonda") or []
     if sonda:
         c = riepilogo(sonda)
@@ -488,7 +475,7 @@ def controlla_tree(tree):
 
 
 def fase_pip(tree, venv, senza_pip, log):
-    """venv + pip install -r requirements.txt + pytest. Contatori: rc, secondi, installati, mancanti."""
+    """venv + pip install -e . pytest. Contatori: rc, secondi, installati, mancanti."""
     py = python_del_venv(venv)
     esito = {"rc": None, "secondi_venv": 0.0, "secondi_pip": 0.0, "installati": 0, "mancanti": [],
              "python": None, "venv": venv}
@@ -498,7 +485,7 @@ def fase_pip(tree, venv, senza_pip, log):
             esito["rc"] = r.returncode or 1
             esito["errore"] = "venv non creato: %s" % (r.stderr or r.stdout)[-500:]
             return esito
-        r, esito["secondi_pip"] = _run([py, "-m", "pip", "install", "-q", ".", "pytest"],
+        r, esito["secondi_pip"] = _run([py, "-m", "pip", "install", "-q", "-e", ".", "pytest"],
                                        cwd=tree, timeout=3600, log=log)
         esito["rc"] = r.returncode
         if r.returncode != 0:
@@ -564,17 +551,25 @@ class Backend:
 
     def __init__(self, tree, py, env, porta, log):
         self.tree, self.py, self.porta, self.log = tree, py, porta, log
-        self.env = dict(env, COLLAUDO_PORTA=str(porta))
+        self.env = dict(env, BELLOMBERG_API_PORT=str(porta), PYTHONUNBUFFERED="1")
         self.proc = None
         self.secondi_avvio = None
 
     def avvia(self, timeout=180):
+        try:
+            controlla_porta(self.porta)
+        except ValueError as exc:
+            raise RuntimeError(str(exc)) from exc
+        entrypoint = os.path.join(os.path.dirname(self.py), "bellomberg-api.exe" if os.name == "nt" else "bellomberg-api")
+        if not os.path.isfile(entrypoint):
+            raise RuntimeError("entrypoint bellomberg-api non installato nel venv: %s" % entrypoint)
         self._f = open(self.log, "a", encoding="utf-8")
         self._f.write("\n===== avvio backend porta %d =====\n" % self.porta)
         self._f.flush()
         t0 = time.monotonic()
-        self.proc = subprocess.Popen([self.py, "-u", "-c", PROGRAMMA_SERVER], cwd=self.tree, env=self.env,
-                                     stdout=self._f, stderr=subprocess.STDOUT)
+        self.proc = subprocess.Popen([entrypoint], cwd=self.tree, env=self.env,
+                                     stdout=self._f, stderr=subprocess.STDOUT,
+                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         while time.monotonic() - t0 < timeout:
             if self.proc.poll() is not None:
                 raise RuntimeError("il backend e' USCITO (rc %s) prima di rispondere: %s"
@@ -597,7 +592,16 @@ class Backend:
 
     def ferma(self):
         if self.proc and self.proc.poll() is None:
-            self.proc.terminate()
+            if os.name == "nt":
+                # Launcher pip e redirector del venv hanno figli: chiudi solo
+                # l'albero del processo creato qui, prima che il padre scompaia.
+                stopped = subprocess.run(["taskkill", "/PID", str(self.proc.pid), "/T", "/F"],
+                                         capture_output=True, text=True, timeout=20,
+                                         creationflags=subprocess.CREATE_NO_WINDOW)
+                if stopped.returncode and self.proc.poll() is None:
+                    raise RuntimeError("chiusura backend posseduto fallita: %s" % (stopped.stderr or stopped.stdout))
+            else:
+                self.proc.terminate()
             try:
                 self.proc.wait(10)
             except subprocess.TimeoutExpired:
@@ -656,43 +660,122 @@ def fase_sonda(porta, token, route, timeout):
 
 
 def fase_flusso(porta, token, tree, timeout):
-    """VERSAMENTO, BUY di un simbolo inventato, la posizione in portafoglio, la cassa aggiornata."""
-    passi, ok = [], True
+    """Profilo vuoto, lingua, versamento, trade e saldo documentato: API vere con dati sintetici.
 
-    def passo(nome, risp, condizione, dettaglio=""):
-        nonlocal ok
-        c = classifica(risp["status"], risp["body"], risp["errore"])
-        bene = condizione and c["bucket"] not in ("CRASH", "TIMEOUT")
-        ok = ok and bene
-        passi.append("%s: %s %s%s" % (nome, "OK" if bene else "KO", risp["status"],
-                                      (" " + dettaglio) if dettaglio else (" " + c["motivo"] if not bene else "")))
+    Anteprime misurate senza cambi ai registri; conferme con corpo esatto e token.
+    Un KO ferma il flusso: nessun tentativo automatico di riscrittura.
+    """
+    passi, misure, last_portfolio = [], {}, {}
 
-    v = richiesta(porta, "POST", "/cash/movement", {"tipo": "DEPOSIT", "importo_eur": VERSAMENTO_EUR,
-                                                     "nota": "collaudo"}, token=token, timeout=timeout)
-    passo("versamento", v, v["status"] == 200)
-    b = richiesta(porta, "POST", "/trade", {"ticker": SIMBOLO_INVENTATO, "action": "BUY",
-                                            "quantita": QUANTITA_INVENTATA, "prezzo": PREZZO_INVENTATO,
-                                            "valuta": "EUR", "note": "collaudo"}, token=token, timeout=timeout)
-    passo("buy", b, b["status"] == 200)
-    p = richiesta(porta, "GET", "/portfolio", token=token, timeout=max(timeout, 60))
-    testo = json.dumps(p["body"], default=str) if p["body"] is not None else ""
-    passo("portafoglio", p, p["status"] == 200 and SIMBOLO_INVENTATO in testo,
-          "posizione %s %s" % (SIMBOLO_INVENTATO, "presente" if SIMBOLO_INVENTATO in testo else "ASSENTE"))
-    attesa = VERSAMENTO_EUR - QUANTITA_INVENTATA * PREZZO_INVENTATO
+    def require(condition, message):
+        if not condition:
+            raise ValueError(message)
+
+    def call(method, url, body=None):
+        response = richiesta(porta, method, url, body, token=token, timeout=timeout)
+        payload = response.get("body")
+        require(response.get("status") == 200 and isinstance(payload, dict) and payload.get("ok") is not False,
+                "%s %s: %s %s" % (method, url, response.get("status"), response.get("errore") or _testo_detail(payload)))
+        return payload
+
+    def snapshot(*, allow_uninitialized=False):
+        nonlocal last_portfolio
+        p = call("GET", "/portfolio")
+        cash = p.get("cash_disponibile_eur")
+        cash_source, cash_note = p.get("cash_source"), p.get("cash_source_note")
+        uninitialized = (allow_uninitialized and cash_source is None and type(cash) in (int, float) and cash == 0
+                         and isinstance(cash_note, str) and bool(cash_note.strip()))
+        require(uninitialized or (type(cash) in (int, float) and math.isfinite(cash) and cash_source == "sqlite:cash_state"),
+                "saldo SQLite non dichiarato da /portfolio")
+        if uninitialized:
+            cash = None  # lo zero legacy non diventa una cassa misurata
+        require(isinstance(p.get("positions"), list) and all(isinstance(row, dict) for row in p["positions"]),
+                "posizioni non dichiarate o formato non valido")
+        last_portfolio = p
+        result = {"cash": cash, "cash_source": cash_source, "cash_note": cash_note,
+                  "positions": [{k: row.get(k) for k in ("ticker", "quantita", "prezzo_medio", "valuta")}
+                                                for row in p["positions"]]}
+        for url, key in (("/trades", "trades"), ("/cash/movements", "movements"), ("/positions/opening", "openings")):
+            rows = call("GET", url).get(key)
+            require(isinstance(rows, list), "%s non dichiarato" % url)
+            result[key] = rows
+        return result
+
+    def preview(url, body):
+        before = snapshot()
+        prepared = call("POST", url + "/preview", body)
+        require(isinstance(prepared.get("preview_id"), str) and bool(prepared["preview_id"]) and
+                type(prepared.get("expires_in_seconds")) in (int, float) and prepared["expires_in_seconds"] > 0,
+                "anteprima senza token o validita dichiarata")
+        require(snapshot() == before, "anteprima ha modificato i registri osservati")
+        return prepared, json.loads(json.dumps({**body, "preview_id": prepared["preview_id"]}))
+
     try:
-        with open(os.path.join(tree, "portfolio.json"), encoding="utf-8") as f:
-            cassa = float(json.load(f).get("cash_disponibile_eur"))
-    except (OSError, ValueError, TypeError) as e:
-        cassa = None
-        passi.append("cassa: KO portfolio.json illeggibile (%s)" % e)
+        initial = snapshot(allow_uninitialized=True)
+        require(initial["cash"] in (None, 0) and all(not initial[k] for k in ("positions", "trades", "movements", "openings")),
+                "profilo non vuoto: il collaudo non aggiunge movimenti a dati preesistenti")
+        misure["initial_positions"] = len(initial["positions"])
+        misure["initial_cash"] = initial["cash"]
+        misure["initial_cash_source"] = initial["cash_source"]
+        misure["initial_cash_note"] = initial["cash_note"]
+        preferences = call("GET", "/preferences")
+        require(preferences.get("selected") is False, "il profilo nuovo ha gia una lingua selezionata")
+        call("PUT", "/preferences", {"language": "en"})
+        readback = call("GET", "/preferences")
+        require(readback.get("language") == "en" and readback.get("selected") is True, "lingua non salvata e riletta")
+        after_language = snapshot(allow_uninitialized=True)
+        require({k: v for k, v in after_language.items() if k != "cash_note"} ==
+                {k: v for k, v in initial.items() if k != "cash_note"}, "il cambio lingua ha modificato i registri contabili")
+        passi.append("profilo vuoto e lingua: OK")
+
+        call("POST", "/cash/movement", {"tipo": "DEPOSIT", "importo_eur": VERSAMENTO_EUR, "nota": "collaudo"})
+        deposited = snapshot()
+        require(deposited["cash"] == VERSAMENTO_EUR and len(deposited["movements"]) == 1, "versamento non riscontrato")
+        trade_body = {"ticker": SIMBOLO_INVENTATO, "action": "BUY", "quantita": QUANTITA_INVENTATA,
+                      "prezzo": PREZZO_INVENTATO, "valuta": "EUR", "note": "collaudo", "decisione_stato": "nessuna"}
+        expected_cash = VERSAMENTO_EUR - QUANTITA_INVENTATA * PREZZO_INVENTATO
+        prepared, frozen = preview("/trade", trade_body)
+        require(prepared.get("cash_disponibile_eur") == expected_cash and prepared.get("cash_delta_eur") == expected_cash - VERSAMENTO_EUR
+                and isinstance(prepared.get("fx"), dict) and prepared["fx"].get("tasso") == 1
+                and prepared["fx"].get("fonte") == "identity",
+                "anteprima trade non coerente con gli input EUR sintetici")
+        call("POST", "/trade", frozen)
+        traded = snapshot()
+        require(traded["cash"] == expected_cash and len(traded["trades"]) == 1 and any(
+            row == {"ticker": SIMBOLO_INVENTATO, "quantita": QUANTITA_INVENTATA, "prezzo_medio": PREZZO_INVENTATO, "valuta": "EUR"}
+            for row in traded["positions"]), "trade o cassa SQLite non riscontrati")
+        misure["cash_after_trade"] = traded["cash"]
+        passi.append("versamento, anteprima immutata, BUY confermato e readback SQLite: OK")
+
+        opening_body = {"ticker": "ZZOPEN", "quantita": 2, "prezzo_medio": 0, "valuta": "EUR",
+                        "as_of": "2026-01-01", "provenienza": "Synthetic documented opening balance", "nota": "Original synthetic note"}
+        prepared, frozen = preview("/positions/opening", opening_body)
+        opening, position = prepared.get("opening", {}), prepared.get("position", {})
+        require(isinstance(opening, dict) and isinstance(position, dict)
+                and all(opening.get(k) == v for k, v in opening_body.items()) and opening.get("precisione_data") == "day"
+                and "data_apertura" in position and position["data_apertura"] is None
+                and prepared.get("cash_delta_eur") == 0 and prepared.get("cash_disponibile_eur") == traded["cash"],
+                "anteprima saldo non coerente o acquisto inventato")
+        receipt = call("POST", "/positions/opening", frozen)
+        saved = call("GET", "/positions/opening/ZZOPEN").get("opening", {})
+        require(isinstance(saved, dict) and isinstance(receipt.get("opening"), dict)
+                and type(saved.get("id")) is int and saved["id"] > 0
+                and all(saved.get(k) == v for k, v in opening_body.items()) and saved.get("id") == receipt["opening"].get("id")
+                and bool(saved.get("created_at")) and saved.get("precisione_data") == "day", "ricevuta saldo non riscontrata")
+        after = snapshot()
+        misure.update(opening_trade_delta=len(after["trades"]) - len(traded["trades"]),
+                      opening_cash_movement_delta=len(after["movements"]) - len(traded["movements"]),
+                      opening_cash_delta=after["cash"] - traded["cash"],
+                      opening_rows_delta=len(after["openings"]) - len(traded["openings"]))
+        require(after["trades"] == traded["trades"] and after["movements"] == traded["movements"] and after["cash"] == traded["cash"]
+                and misure["opening_rows_delta"] == 1, "il saldo ha modificato trade/cassa o manca nel registro")
+        passi.append("saldo iniziale: ricevuta verificata, differenze trade/cassa misurate pari a zero")
+        ok = True
+    except (ValueError, TypeError, KeyError) as exc:
+        passi.append("KO: %s; nessuna riscrittura automatica" % exc)
         ok = False
-    if cassa is not None:
-        bene = abs(cassa - attesa) < 0.005
-        ok = ok and bene
-        passi.append("cassa: %s %.2f (attesa %.2f)" % ("OK" if bene else "KO", cassa, attesa))
-    return {"ok": ok, "motivo": " · ".join(passi), "passi": passi,
-            "portafoglio": "%s · forma: %s" % (classifica(p["status"], p["body"], p["errore"])["motivo"]
-                                              or "nessuna dichiarazione", forma(p["body"]))}
+    return {"ok": ok, "motivo": " · ".join(passi), "passi": passi, "misure": misure,
+            "portafoglio": "forma: %s" % forma(last_portfolio)}
 
 
 def fase_suite(tree, py, env, log, timeout):
@@ -755,7 +838,7 @@ def main(argv=None):
             % (tree, venv, dati, len(env), len(scartate), ", ".join(chiavi_scartate) or "nessuna chiave"))
 
     py = python_del_venv(venv)
-    _stampa("\n[1/6] venv + pip install -r requirements.txt pytest ...")
+    _stampa("\n[1/6] venv + pip install -e . pytest ...")
     fasi["pip"] = fase_pip(tree, venv, a.senza_pip, log)
     _stampa("  rc %s · venv %.0f s · pip %.0f s · %s · installati %d · richiesti %d · mancanti: %s"
             % (fasi["pip"]["rc"], fasi["pip"]["secondi_venv"], fasi["pip"]["secondi_pip"],
@@ -780,7 +863,6 @@ def main(argv=None):
 
             _stampa("\n[3/6] .env verbatim dal template (PIN vuoto): il login deve dirlo ...")
             scrivi_env(tree, None)
-            shutil.copyfile(os.path.join(tree, "src/bellomberg/resources/examples/portfolio.example.json"), os.path.join(tree, "portfolio.json"))
             backend = Backend(tree, py, env, porta, log)
             try:
                 sec = backend.avvia()
@@ -813,6 +895,7 @@ def main(argv=None):
                     fasi["flusso"] = fase_flusso(porta, token, tree, a.timeout_richiesta)
                     _stampa("  %s · %s" % ("OK" if fasi["flusso"]["ok"] else "KO", fasi["flusso"]["motivo"]))
                     _stampa("  /portfolio: %s" % fasi["flusso"]["portafoglio"])
+                    _stampa("  misure: %s" % json.dumps(fasi["flusso"]["misure"], ensure_ascii=False, sort_keys=True))
             except RuntimeError as e:
                 fasi["login"] = {"ok": False, "motivo": str(e)}
                 _stampa("  KO: %s" % e)
@@ -835,6 +918,7 @@ def main(argv=None):
         if backend:
             backend.ferma()
 
+    fasi["clone"]["portfolio_json_created"] = os.path.exists(os.path.join(tree, "portfolio.json"))
     v = verdetto(fasi)
     testo = rapporto_md(fasi, v)
     testo += "\nDurata totale: %.0f s · log: %s · tree: %s\n" % (time.monotonic() - t_inizio, log, tree)
@@ -843,7 +927,7 @@ def main(argv=None):
             f.write(testo)
         _stampa("\nrapporto scritto: %s" % a.rapporto)
     _stampa("\n" + "\n".join("- " + m for m in v[1]))
-    _stampa("VERDETTO: exit %d · scritti nel tree: .env, portfolio.json, %s, %s%s · dati temp: %s%s"
+    _stampa("VERDETTO: exit %d · scritti nel tree: .env, %s, %s%s · dati temp: %s%s"
             % (v[0], os.path.basename(venv), MARCATORE,
                ", .git" if fasi.get("clone", {}).get("git_creato") else "", dati,
                " (conservata)" if a.tieni or a.rapporto is None else ""))

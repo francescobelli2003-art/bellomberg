@@ -19,6 +19,8 @@ from threading import Lock
 from time import monotonic
 from urllib.parse import parse_qs, urlparse
 from typing import Dict, Any, List, Optional
+from bellomberg.core.presentation import message as _surface_text, render_payload, join_messages, error_text
+
 
 try:
     import numpy as np
@@ -46,13 +48,13 @@ def _finite(value, *, positive=False):
 def _symbol(ticker):
     value = str(ticker).strip().upper()
     if not re.fullmatch(r"[A-Z0-9][A-Z0-9.\-^]{0,24}", value):
-        raise ValueError("ticker non valido")
+        raise ValueError(_surface_text('ticker non valido', 'Invalid ticker'))
     return value
 
 
 def _expiry(value):
     if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
-        raise ValueError("scadenza richiesta nel formato YYYY-MM-DD")
+        raise ValueError(_surface_text('scadenza richiesta nel formato YYYY-MM-DD', 'Expiry required in YYYY-MM-DD format'))
     return date.fromisoformat(value)
 
 
@@ -67,7 +69,7 @@ def get_expiry_catalog(ticker: str, after: Optional[str] = None,
     from bellomberg.market_data import polygon_data as provider
     ticker = _symbol(ticker)
     if isinstance(request_budget, bool) or not isinstance(request_budget, int) or not 1 <= request_budget <= 12:
-        raise ValueError("budget catalogo da 1 a 12 richieste")
+        raise ValueError(_surface_text('budget catalogo da 1 a 12 richieste', 'Catalog budget must be 1 to 12 requests'))
     if after is not None:
         _expiry(after)
     result = {"ticker": ticker, "expirations": [], "complete": False,
@@ -75,7 +77,7 @@ def get_expiry_catalog(ticker: str, after: Optional[str] = None,
               "error": None, "_source": "Polygon options contract reference",
               "_timestamp": datetime.now(timezone.utc).isoformat()}
     if not provider.polygon_available():
-        return {**result, "error": "POLYGON_API_KEY mancante o non attiva"}
+        return {**result, "error": _surface_text('POLYGON_API_KEY mancante o non attiva', 'POLYGON_API_KEY missing or inactive')}
     cursor = after
     for _ in range(request_budget):
         params = {"underlying_ticker": ticker, "limit": 1,
@@ -84,11 +86,11 @@ def get_expiry_catalog(ticker: str, after: Optional[str] = None,
         page = provider._get("/v3/reference/options/contracts", params)
         result["requests_used"] += 1
         if not isinstance(page, dict) or page.get("error"):
-            result["error"] = (page or {}).get("error", "catalogo non leggibile") if isinstance(page, dict) else "catalogo non leggibile"
+            result["error"] = (page or {}).get("error", _surface_text('catalogo non leggibile', 'Unreadable catalog')) if isinstance(page, dict) else _surface_text('catalogo non leggibile', 'Unreadable catalog')
             break
         rows = page.get("results")
         if not isinstance(rows, list):
-            result["error"] = "risposta catalogo senza lista results"
+            result["error"] = _surface_text('risposta catalogo senza lista results', 'Catalog response has no results list')
             break
         if not rows:
             result["complete"] = True
@@ -97,10 +99,10 @@ def get_expiry_catalog(ticker: str, after: Optional[str] = None,
         try:
             _expiry(candidate)
         except (TypeError, ValueError):
-            result["error"] = "data scadenza non valida nel catalogo provider"
+            result["error"] = _surface_text('data scadenza non valida nel catalogo provider', 'Invalid expiry date in provider catalog')
             break
         if (cursor and candidate <= cursor) or candidate < date.today().isoformat():
-            result["error"] = "catalogo non avanza: filtro scadenza ignorato dal provider"
+            result["error"] = _surface_text('catalogo non avanza: filtro scadenza ignorato dal provider', 'Catalog does not advance: provider ignored the expiry filter')
             break
         result["expirations"].append(candidate)
         cursor = candidate
@@ -124,33 +126,33 @@ def _contract_row(raw):
             pass
     warnings = []
     if bid is None or ask is None:
-        warnings.append("bid/ask mancanti: permessi provider o quota non disponibile")
+        warnings.append(_surface_text('bid/ask mancanti: permessi provider o quota non disponibile', 'Missing bid/ask: provider permissions or quote unavailable'))
     elif ask < bid:
-        warnings.append("bid superiore ad ask: quota incrociata")
+        warnings.append(_surface_text('bid superiore ad ask: quota incrociata', 'Bid above ask: crossed quote'))
     elif bid == ask == 0:
-        warnings.append("bid e ask entrambi zero: nessuna quota negoziabile")
+        warnings.append(_surface_text('bid e ask entrambi zero: nessuna quota negoziabile', 'Bid and ask both zero: no tradable quote'))
     quote_age = None
     if quote_time is None:
-        warnings.append("timestamp quota assente: freschezza non verificabile")
+        warnings.append(_surface_text('timestamp quota assente: freschezza non verificabile', 'Quote timestamp missing: freshness cannot be verified'))
     else:
         quote_age = (datetime.now(timezone.utc) - datetime.fromisoformat(quote_time)).total_seconds()
         if quote_age > 900:
-            warnings.append("quota precedente al download di oltre 15 minuti; verificare timeframe e mercato")
+            warnings.append(_surface_text('quota precedente al download di oltre 15 minuti; verificare timeframe e mercato', 'Quote predates download by over 15 minutes; check timeframe and market'))
         elif quote_age < -5:
-            warnings.append("timestamp quota nel futuro: sincronizzazione orologi da verificare")
+            warnings.append(_surface_text('timestamp quota nel futuro: sincronizzazione orologi da verificare', 'Quote timestamp is in the future: check clock synchronization'))
     iv = _finite(raw.get("implied_volatility"), positive=True)
     if iv is None:
-        warnings.append("IV assente")
+        warnings.append(_surface_text('IV assente', 'Missing IV'))
     greeks = {k: _finite(greek.get(k)) for k in ("delta", "gamma", "theta", "vega", "rho")}
     missing = [k for k, v in greeks.items() if v is None]
     if missing:
-        warnings.append("greche assenti: " + ", ".join(missing))
+        warnings.append(_surface_text(f"greche assenti: {', '.join(missing)}", f"Missing Greeks: {', '.join(missing)}"))
     multiplier = _finite(det.get("shares_per_contract"), positive=True)
     if multiplier is None:
-        warnings.append("moltiplicatore contratto assente")
+        warnings.append(_surface_text('moltiplicatore contratto assente', 'Missing contract multiplier'))
     adjusted = bool(det.get("additional_underlyings"))
     if adjusted:
-        warnings.append("deliverable aggiuntivi: contratto rettificato non rappresentabile dal simulatore standard")
+        warnings.append(_surface_text('deliverable aggiuntivi: contratto rettificato non rappresentabile dal simulatore standard', 'Additional deliverables: adjusted contract cannot be represented by the standard simulator'))
     return {"contract": det.get("ticker"), "type": det.get("contract_type"),
             "strike": _finite(det.get("strike_price"), positive=True),
             "expiry": det.get("expiration_date"), "iv": iv, **greeks,
@@ -173,18 +175,18 @@ def get_chain_detail(ticker: str, expiry: str, cursor: Optional[str] = None) -> 
     ticker = _symbol(ticker)
     _expiry(expiry)
     if cursor is not None and (not isinstance(cursor, str) or len(cursor) > 4096 or not re.fullmatch(r"[A-Za-z0-9_+/=\-]+", cursor)):
-        raise ValueError("cursore chain non valido")
+        raise ValueError(_surface_text('cursore chain non valido', 'Invalid chain cursor'))
     key = (ticker, expiry, cursor)
     with _CHAIN_LOCK:
         cached = _CHAIN_CACHE.get(key)
         if cached and monotonic() - cached[0] < CHAIN_CACHE_SECONDS:
-            return {**deepcopy(cached[1]), "cached": True}
+            return {**render_payload(cached[1]), "cached": True}
         pending = _CHAIN_INFLIGHT.get(key)
         leader = pending is None
         if leader:
             pending = _CHAIN_INFLIGHT[key] = Future()
     if not leader:
-        return {**deepcopy(pending.result()), "cached": True}
+        return {**render_payload(pending.result()), "cached": True}
     try:
         out = _fetch_chain_detail(ticker, expiry, cursor)
         with _CHAIN_LOCK:
@@ -209,22 +211,22 @@ def _fetch_chain_detail(ticker, expiry, cursor):
             "cached": False, "cache_ttl_seconds": CHAIN_CACHE_SECONDS,
             "_source": "Polygon option-chain snapshot", "_timestamp": datetime.now(timezone.utc).isoformat()}
     if not provider.polygon_available():
-        return {**base, "error": "POLYGON_API_KEY mancante o non attiva"}
+        return {**base, "error": _surface_text('POLYGON_API_KEY mancante o non attiva', 'POLYGON_API_KEY missing or inactive')}
     params = {"expiration_date": expiry, "limit": 250, "sort": "strike_price", "order": "asc"}
     if cursor:
         params = {"cursor": cursor}
     page = provider._get(f"/v3/snapshot/options/{ticker}", params)
     base["requests_used"] = 1
     if not isinstance(page, dict) or page.get("error"):
-        return {**base, "error": page.get("error", "chain non leggibile") if isinstance(page, dict) else "chain non leggibile"}
+        return {**base, "error": page.get("error", _surface_text('chain non leggibile', 'Unreadable chain')) if isinstance(page, dict) else _surface_text('chain non leggibile', 'Unreadable chain')}
     if not isinstance(page.get("results"), list):
-        return {**base, "error": "chain senza lista results"}
+        return {**base, "error": _surface_text('chain senza lista results', 'Chain has no results list')}
     rows = page["results"]
     parsed = [_contract_row(x) for x in rows if isinstance(x, dict)]
     # Reject cursor replay for another expiry instead of blending chains.
     wrong = [c for c in parsed if c["expiry"] is not None and c["expiry"] != expiry]
     if wrong:
-        return {**base, "error": "chain restituita per una scadenza diversa da quella richiesta"}
+        return {**base, "error": _surface_text('chain restituita per una scadenza diversa da quella richiesta', 'Returned chain has a different expiry from the request')}
     clean = [c for c in parsed if isinstance(c["contract"], str) and c["contract"].strip()
              and c["expiry"] == expiry and c["type"] in ("call", "put") and c["strike"] is not None]
     malformed = len(rows) - len(clean)
@@ -232,9 +234,9 @@ def _fetch_chain_detail(ticker, expiry, cursor):
     token = parse_qs(urlparse(str(nxt)).query).get("cursor", [None])[0] if nxt else None
     error = None
     if nxt and (not token or token == cursor or len(token) > 4096 or not re.fullmatch(r"[A-Za-z0-9_+/=\-]+", token)):
-        error = "continuazione provider assente o non avanzante"
+        error = _surface_text('continuazione provider assente o non avanzante', 'Provider continuation missing or not advancing')
     if malformed:
-        error = f"{malformed} contratti malformati nella pagina provider"
+        error = _surface_text(f'{malformed} contratti malformati nella pagina provider', f'{malformed} malformed contracts in the provider page')
     underlying = next((x["underlying_asset"] for x in rows
                        if isinstance(x, dict) and isinstance(x.get("underlying_asset"), dict)
                        and _finite(x["underlying_asset"].get("price"), positive=True) is not None), {})
@@ -269,7 +271,7 @@ def _complete_chain(ticker, expiry):
             break
         if not nxt or nxt in seen:
             _forget_chain_page(ticker, expiry, cursor)
-            out.update(complete=False, continuation_error="ciclo o cursore chain non avanzante")
+            out.update(complete=False, continuation_error=_surface_text('ciclo o cursore chain non avanzante', 'Chain cursor cycle or no progress'))
             break
         cursor = nxt
     return out
@@ -401,20 +403,20 @@ def build_vol_surface(ticker: str, max_expiries: int = 4,
     coverage = {"selection_mode": "explicit" if expiries is not None else "sampled",
                 "requested": [], "loaded": [], "excluded": [], "errors": [],
                 "rows": [], "complete": False,
-                "catalog_note": "Le scadenze della superficie sono una selezione; il catalogo completo è separato."}
+                "catalog_note": _surface_text('Le scadenze della superficie sono una selezione; il catalogo completo è separato.', 'Surface expiries are a selection; the complete catalog is separate.')}
     if expiries is not None:
         if not isinstance(expiries, list) or not expiries:
-            raise ValueError("scegli almeno una scadenza distinta per la superficie")
+            raise ValueError(_surface_text('scegli almeno una scadenza distinta per la superficie', 'Select at least one distinct expiry for the surface'))
         for value in expiries:
             _expiry(value)
         if len(set(expiries)) != len(expiries):
-            raise ValueError("scegli scadenze distinte per la superficie")
+            raise ValueError(_surface_text('scegli scadenze distinte per la superficie', 'Select distinct expiries for the surface'))
     if not NP_OK:
-        return {"error": "numpy non disponibile", "_source": src}
+        return {"error": _surface_text('numpy non disponibile', 'numpy unavailable'), "_source": src}
     try:
         from bellomberg.market_data.polygon_data import polygon_available, get_option_expirations, get_options_chain
         if _snapshot is None and not polygon_available():
-            return {"error": "POLYGON_API_KEY mancante o non attiva", "_source": src}
+            return {"error": _surface_text('POLYGON_API_KEY mancante o non attiva', 'POLYGON_API_KEY missing or inactive'), "_source": src}
 
         if expiries is None:
             exp = get_option_expirations(ticker)
@@ -425,7 +427,7 @@ def build_vol_surface(ticker: str, max_expiries: int = 4,
             chosen = [{"expiry": e, "days": (_expiry(e) - date.today()).days} for e in sorted(expiries)]
         coverage["requested"] = [r["expiry"] for r in chosen]
         if not chosen:
-            return {"error": f"nessuna expiry entro {max_days} giorni", "_source": src}
+            return {"error": _surface_text(f'nessuna expiry entro {max_days} giorni', f'No expiry within {max_days} days'), "_source": src}
 
         # Fix 22/07: spot dal SOTTOSTANTE vero (yfinance) — il proxy "strike della
         # call a delta~0.5" sbagliava di -0,30% su SPY (misurato) e fino a uno
@@ -435,7 +437,7 @@ def build_vol_surface(ticker: str, max_expiries: int = 4,
         spot_source = _snapshot.get("spot_source") if _snapshot is not None else None
         try:
             if _snapshot is not None:
-                raise RuntimeError("spot dallo snapshot in memoria")
+                raise RuntimeError(_surface_text("spot dallo snapshot in memoria", "spot from the in-memory snapshot"))
             import yfinance as _yf
             # OPRA snapshots can include only the underlying ticker, without a
             # price. Read the observed spot once, also for explicit selections.
@@ -452,11 +454,11 @@ def build_vol_surface(ticker: str, max_expiries: int = 4,
             if _snapshot is not None:
                 status["chain_complete"] = bool(_snapshot["chains"].get(row["expiry"], {}).get("complete"))
             if row["days"] < 2:
-                status.update(status="excluded", reason="0–1 DTE o scadenza passata: consulta la chain, non il mesh interpolato")
+                status.update(status="excluded", reason=_surface_text('0–1 DTE o scadenza passata: consulta la chain, non il mesh interpolato', '0–1 DTE or expired: consult the chain, not the interpolated mesh'))
                 coverage["excluded"].append(row["expiry"])
                 continue
             if _snapshot is not None:
-                ch = _snapshot["chains"].get(row["expiry"], {"chain": [], "complete": False, "error": "chain non ancora scaricata"})
+                ch = _snapshot["chains"].get(row["expiry"], {"chain": [], "complete": False, "error": _surface_text('chain non ancora scaricata', 'Chain not downloaded yet')})
             elif expiries is None:
                 ch = get_options_chain(ticker, row["expiry"], max_contracts=400)
                 status["chain_complete"] = None
@@ -476,9 +478,9 @@ def build_vol_surface(ticker: str, max_expiries: int = 4,
                          and abs(c["delta"] - 0.5) < 0.08 and c.get("strike")]
                 if cands:
                     spot = float(min(cands, key=lambda c: abs(c["delta"] - 0.5))["strike"])
-                    spot_source = "PROXY strike call delta~0.5 (yfinance ko — dichiarato)"
+                    spot_source = _surface_text('PROXY strike call delta~0.5 (yfinance ko — dichiarato)', 'PROXY call strike at delta~0.5 (yfinance unavailable — disclosed)')
             if spot is None:
-                status["reason"] = "spot osservato assente: nessuna superficie costruita da uno strike proxy"
+                status["reason"] = _surface_text('spot osservato assente: nessuna superficie costruita da uno strike proxy', 'Observed spot missing: no surface built from a strike proxy')
                 coverage["errors"].append(row["expiry"])
                 continue
             m = _slice_metrics(chain, spot)
@@ -486,11 +488,11 @@ def build_vol_surface(ticker: str, max_expiries: int = 4,
                 slices.append({"expiry": row["expiry"], "days": row["days"], **m})
                 partial = status["chain_complete"] is False
                 status.update(status="partial" if partial else "loaded",
-                              reason=(ch.get("continuation_error") or "download chain incompleto; sono rappresentati solo i contratti ricevuti") if partial else None,
+                              reason=(ch.get("continuation_error") or _surface_text('download chain incompleto; sono rappresentati solo i contratti ricevuti', 'Incomplete chain download; only received contracts are represented')) if partial else None,
                               n_contracts=len(chain))
                 coverage["loaded"].append(row["expiry"])
             else:
-                status.update(status="excluded", reason="IV/liquidità insufficienti per uno smile: almeno tre call e tre put liquide e cinque punti OTM")
+                status.update(status="excluded", reason=_surface_text('IV/liquidità insufficienti per uno smile: almeno tre call e tre put liquide e cinque punti OTM', 'Insufficient IV/liquidity for a smile: at least three liquid calls, three liquid puts and five OTM points required'))
                 coverage["excluded"].append(row["expiry"])
 
         coverage["complete"] = bool(coverage["rows"]) and all(r["status"] == "loaded" and r.get("chain_complete") is True for r in coverage["rows"])
@@ -498,7 +500,7 @@ def build_vol_surface(ticker: str, max_expiries: int = 4,
                                          bool(coverage["rows"]) and all(r.get("chain_complete") is True for r in coverage["rows"]))
 
         if not slices:
-            return {"error": "nessuno slice con dati IV sufficienti", "_source": src,
+            return {"error": _surface_text('nessuno slice con dati IV sufficienti', 'No slice with sufficient IV data'), "_source": src,
                     "ticker": ticker, "coverage": coverage, "slices": [],
                     "term_structure": [], "moneyness_grid": MONEYNESS_GRID, "n_expiries": 0}
 
@@ -506,10 +508,8 @@ def build_vol_surface(ticker: str, max_expiries: int = 4,
         skew_note = None
         for s in slices:
             if s.get("rr25") is not None:
-                skew_note = ("RR25 negativo: put più care delle call — domanda di protezione "
-                             "al ribasso (skew classico equity)" if s["rr25"] < 0 else
-                             "RR25 positivo: call più care delle put — domanda di upside "
-                             "(insolito per equity: caccia al rialzo o squeeze atteso)")
+                skew_note = (_surface_text('RR25 negativo: put più care delle call — domanda di protezione al ribasso (skew classico equity)', 'Negative RR25: puts more expensive than calls — demand for downside protection (typical equity skew)') if s["rr25"] < 0 else
+                             _surface_text('RR25 positivo: call più care delle put — domanda di upside (insolito per equity: caccia al rialzo o squeeze atteso)', 'Positive RR25: calls more expensive than puts — upside demand (unusual for equities: upside chasing or an expected squeeze)'))
                 break
 
         # Realized vol 30g + percentile 1y + prossimi earnings (per lettura accurata)
@@ -577,7 +577,7 @@ def build_vol_surface(ticker: str, max_expiries: int = 4,
             "ticker": ticker.upper(),
             "spot_est": spot,
             "spot_source": spot_source,
-            "smoothing": "mediana mobile 3 punti su IV raw (v1.5, 22/07) — fit SVI no-arbitrage resta v2",
+            "smoothing": _surface_text('mediana mobile 3 punti su IV raw (v1.5, 22/07) — fit SVI no-arbitrage resta v2', '3-point moving median on raw IV (v1.5, 22/07) — arbitrage-free SVI fitting remains v2'),
             "moneyness_grid": MONEYNESS_GRID,
             "slices": slices,
             "term_structure": [{"expiry": s["expiry"], "days": s["days"],
@@ -601,7 +601,7 @@ def build_vol_surface(ticker: str, max_expiries: int = 4,
             "_timestamp": datetime.now().isoformat(),
         }
     except Exception as e:
-        return {"error": str(e), "_source": src}
+        return {"error": error_text(e), "_source": src}
 
 
 def _interpret(ticker: str, slices: List[Dict[str, Any]],
@@ -619,96 +619,71 @@ def _interpret(ticker: str, slices: List[Dict[str, Any]],
     # 0. Movimento atteso (la sintesi che un PM vuole per prima)
     if expected_move is not None:
         parts.append(
-            f"Il mercato delle opzioni prezza per {ticker.upper()} un movimento atteso di "
-            f"±{expected_move:.1f}% entro la scadenza a {exp_move_days} giorni (1 deviazione "
-            f"standard, da ATM IV). Sopra/sotto questo range il mercato è 'sorpreso'.")
+            _surface_text(f"Il mercato delle opzioni prezza per {ticker.upper()} un movimento atteso di ±{expected_move:.1f}% entro la scadenza a {exp_move_days} giorni (1 deviazione standard, da ATM IV). Sopra/sotto questo range il mercato è 'sorpreso'.", f"The options market prices for {ticker.upper()} an expected move of ±{expected_move:.1f}% by the expiry in {exp_move_days} days (1 standard deviation, from ATM IV). Beyond this range, the market is 'surprised'."))
 
     # 1. Term structure (+ contestualizzazione earnings se imminenti)
     atm_f = front["atm_iv"] * 100
     earn_note = ""
     if next_earnings:
-        earn_note = f" Prossimi earnings attesi il {next_earnings}: se cadono prima della " \
-                    f"scadenza lunga, parte della vol front è event premium fisiologico."
-    back_label = f"a {back_days} giorni" if back_days else "sulle scadenze lunghe"
+        earn_note = _surface_text(f' Prossimi earnings attesi il {next_earnings}: se cadono prima della scadenza lunga, parte della vol front è event premium fisiologico.', f' Next earnings expected on {next_earnings}: if before the longer expiry, some front volatility is normal event premium.')
+    back_label = _surface_text(f'a {back_days} giorni', f'at {back_days} days') if back_days else _surface_text('sulle scadenze lunghe', 'at longer expiries')
     if term_slope is not None:
         atm_b = (front["atm_iv"] + term_slope) * 100
         if term_slope > 0.01:
             parts.append(
-                f"Term structure ascendente (contango): ATM {atm_f:.1f}% sul front contro "
-                f"{atm_b:.1f}% {back_label}. Il mercato non prezza stress immediato su "
-                f"{ticker.upper()}; l'incertezza è caricata sulle scadenze lunghe — regime ordinato."
-                + earn_note)
+                join_messages("", [_surface_text(f"Term structure ascendente (contango): ATM {atm_f:.1f}% sul front contro {atm_b:.1f}% {{back_label}}. Il mercato non prezza stress immediato su {ticker.upper()}; l'incertezza è caricata sulle scadenze lunghe — regime ordinato.", f'Upward term structure (contango): ATM {atm_f:.1f}% at the front versus {atm_b:.1f}% {{back_label}}. The market does not price immediate stress for {ticker.upper()}; uncertainty is concentrated at longer expiries — an orderly regime.', back_label=back_label), earn_note]))
         elif term_slope < -0.01:
             parts.append(
-                f"Term structure INVERTITA: il front ({atm_f:.1f}%) tratta sopra il livello "
-                f"{back_label} ({atm_b:.1f}%). Il mercato prezza un evento ravvicinato (earnings, "
-                f"macro, catalyst): attenzione a vendere opzioni corte qui." + earn_note)
+                join_messages("", [_surface_text(f'Term structure INVERTITA: il front ({atm_f:.1f}%) tratta sopra il livello {{back_label}} ({atm_b:.1f}%). Il mercato prezza un evento ravvicinato (earnings, macro, catalyst): attenzione a vendere opzioni corte qui.', f'INVERTED term structure: the front ({atm_f:.1f}%) trades above the level {{back_label}} ({atm_b:.1f}%). The market prices a near-term event (earnings, macro, catalyst): take care when selling short-dated options here.', back_label=back_label), earn_note]))
         else:
-            parts.append(f"Term structure piatta intorno a {atm_f:.1f}% ATM: nessun evento "
-                         f"specifico prezzato, vol uniforme sulle scadenze." + earn_note)
+            parts.append(join_messages("", [_surface_text(f'Term structure piatta intorno a {atm_f:.1f}% ATM: nessun evento specifico prezzato, vol uniforme sulle scadenze.', f'Flat term structure around {atm_f:.1f}% ATM: no specific event priced, volatility is uniform across expiries.'), earn_note]))
     else:
-        parts.append(f"ATM front a {atm_f:.1f}% (curva corta disponibile)." + earn_note)
+        parts.append(join_messages("", [_surface_text(f'ATM front a {atm_f:.1f}% (curva corta disponibile).', f'Front ATM at {atm_f:.1f}% (short curve available).'), earn_note]))
 
     # 1bis. Regime di volatilità realizzata (percentile 1 anno)
     if rv_pct_1y is not None:
-        regime_rv = ("regime di movimento COMPRESSO" if rv_pct_1y <= 25 else
-                     "regime di movimento ELEVATO" if rv_pct_1y >= 75 else
-                     "regime di movimento nella media")
-        parts.append(f"La realized vol 30 giorni è al {rv_pct_1y:.0f}° percentile dell'ultimo "
-                     f"anno: {regime_rv}. Gli estremi tendono a rientrare (mean reversion "
-                     f"della volatilità).")
+        regime_rv = (_surface_text('regime di movimento COMPRESSO', 'COMPRESSED movement regime') if rv_pct_1y <= 25 else
+                     _surface_text('regime di movimento ELEVATO', 'ELEVATED movement regime') if rv_pct_1y >= 75 else
+                     _surface_text('regime di movimento nella media', 'average movement regime'))
+        parts.append(_surface_text(f"La realized vol 30 giorni è al {rv_pct_1y:.0f}° percentile dell'ultimo anno: {{regime_rv}}. Gli estremi tendono a rientrare (mean reversion della volatilità).", f'30-day realized volatility is at the {rv_pct_1y:.0f}th percentile of the past year: {{regime_rv}}. Extremes tend to revert (volatility mean reversion).', regime_rv=regime_rv))
 
     # 2. Skew (RR25)
     rr = front.get("rr25")
     if rr is not None:
         rr_pt = rr * 100
         if rr_pt < -3:
-            parts.append(f"Skew put MARCATO (RR25 {rr_pt:.1f}pt): la protezione al ribasso è "
-                         f"cara — domanda di hedge consistente; chi compra put qui paga premio pieno, "
-                         f"chi le vende viene pagato bene per il rischio.")
+            parts.append(_surface_text(f'Skew put MARCATO (RR25 {rr_pt:.1f}pt): la protezione al ribasso è cara — domanda di hedge consistente; chi compra put qui paga premio pieno, chi le vende viene pagato bene per il rischio.', f'PRONOUNCED put skew (RR25 {rr_pt:.1f}pt): downside protection is expensive — substantial hedging demand; put buyers pay a full premium and sellers are well compensated for the risk.'))
         elif rr_pt < -0.5:
-            parts.append(f"Skew put nella norma equity (RR25 {rr_pt:.1f}pt): fisiologica "
-                         f"domanda di protezione, nessun allarme.")
+            parts.append(_surface_text(f'Skew put nella norma equity (RR25 {rr_pt:.1f}pt): fisiologica domanda di protezione, nessun allarme.', f'Typical equity put skew (RR25 {rr_pt:.1f}pt): normal demand for protection, no alarm.'))
         elif rr_pt > 0.5:
-            parts.append(f"Skew INVERTITO a favore delle call (RR25 +{rr_pt:.1f}pt): il mercato "
-                         f"paga per l'upside — tipico di squeeze attesi, M&A o retail chase. "
-                         f"Covered call ben remunerate.")
+            parts.append(_surface_text(f"Skew INVERTITO a favore delle call (RR25 +{rr_pt:.1f}pt): il mercato paga per l'upside — tipico di squeeze attesi, M&A o retail chase. Covered call ben remunerate.", f'INVERTED skew favoring calls (RR25 +{rr_pt:.1f}pt): the market pays for upside — typical of expected squeezes, M&A or retail chasing. Covered calls are well compensated.'))
         else:
-            parts.append(f"Skew neutro (RR25 {rr_pt:.1f}pt): smile simmetrico.")
+            parts.append(_surface_text(f'Skew neutro (RR25 {rr_pt:.1f}pt): smile simmetrico.', f'Neutral skew (RR25 {rr_pt:.1f}pt): symmetric smile.'))
 
     # 3. Curvatura (BF25)
     bf = front.get("bf25")
     if bf is not None and bf * 100 > 1.5:
-        parts.append(f"Butterfly 25Δ elevato ({bf*100:.1f}pt): le code sono care in entrambe "
-                     f"le direzioni — il mercato paga i tail scenario, attesa di movimento ampio.")
+        parts.append(_surface_text(f'Butterfly 25Δ elevato ({bf * 100:.1f}pt): le code sono care in entrambe le direzioni — il mercato paga i tail scenario, attesa di movimento ampio.', f'Elevated 25Δ butterfly ({bf * 100:.1f}pt): tails are expensive in both directions — the market pays for tail scenarios and expects a large move.'))
 
     # 4. IV vs RV (vol risk premium)
     if ivrv is not None and rv30 is not None:
         sp = ivrv * 100
         if sp > 3:
-            parts.append(f"IV front {atm_f:.1f}% contro realized 30g {rv30*100:.1f}%: premio di "
-                         f"{sp:.1f}pt — le opzioni sono CARE rispetto al movimento effettivo. "
-                         f"Contesto favorevole a strategie di vendita di premio coperta "
-                         f"(covered call), sfavorevole all'acquisto di protezione.")
+            parts.append(_surface_text(f"IV front {atm_f:.1f}% contro realized 30g {rv30 * 100:.1f}%: premio di {sp:.1f}pt — le opzioni sono CARE rispetto al movimento effettivo. Contesto favorevole a strategie di vendita di premio coperta (covered call), sfavorevole all'acquisto di protezione.", f'Front IV {atm_f:.1f}% versus 30-day realized volatility of {rv30 * 100:.1f}%: premium of {sp:.1f}pt — options are EXPENSIVE relative to observed movement. This favors covered premium selling (covered calls) and disfavors buying protection.'))
         elif sp < -3:
-            parts.append(f"IV front {atm_f:.1f}% SOTTO la realized 30g ({rv30*100:.1f}%): opzioni "
-                         f"a sconto rispetto al movimento reale — l'hedge in put costa poco, "
-                         f"vendere premio qui è mal pagato.")
+            parts.append(_surface_text(f"IV front {atm_f:.1f}% SOTTO la realized 30g ({rv30 * 100:.1f}%): opzioni a sconto rispetto al movimento reale — l'hedge in put costa poco, vendere premio qui è mal pagato.", f'Front IV {atm_f:.1f}% BELOW 30-day realized volatility ({rv30 * 100:.1f}%): options are discounted relative to observed movement — put hedging is inexpensive and premium selling is poorly compensated.'))
         else:
-            parts.append(f"IV front {atm_f:.1f}% allineata alla realized 30g ({rv30*100:.1f}%): "
-                         f"vol risk premium nella norma.")
+            parts.append(_surface_text(f'IV front {atm_f:.1f}% allineata alla realized 30g ({rv30 * 100:.1f}%): vol risk premium nella norma.', f'Front IV {atm_f:.1f}% aligned with 30-day realized volatility ({rv30 * 100:.1f}%): normal volatility risk premium.'))
 
     # 5. Posizionamento OI
     pc = front.get("pc_oi_ratio")
     if pc is not None:
         if pc > 1.3:
-            parts.append(f"Open interest sbilanciato sulle put (P/C {pc:.2f}): posizionamento "
-                         f"difensivo già costruito sul front.")
+            parts.append(_surface_text(f'Open interest sbilanciato sulle put (P/C {pc:.2f}): posizionamento difensivo già costruito sul front.', f'Open interest skewed toward puts (P/C {pc:.2f}): defensive positioning already built at the front.'))
         elif pc < 0.6:
-            parts.append(f"Open interest sbilanciato sulle call (P/C {pc:.2f}): posizionamento "
-                         f"speculativo rialzista sul front.")
+            parts.append(_surface_text(f'Open interest sbilanciato sulle call (P/C {pc:.2f}): posizionamento speculativo rialzista sul front.', f'Open interest skewed toward calls (P/C {pc:.2f}): speculative bullish positioning at the front.'))
 
-    return "\n\n".join(parts)
+    return join_messages("\n\n", parts)
 
 
 if __name__ == "__main__":

@@ -130,3 +130,20 @@ def test_unknown_port_state_is_not_treated_as_a_free_port(monkeypatch):
     def timeout(*a,**k):raise TimeoutError('synthetic unknown probe')
     monkeypatch.setattr(migration.socket,'create_connection',timeout)
     with pytest.raises(RuntimeError,match='non verificabile'):migration.backend_alive()
+
+
+def test_delayed_windows_refusal_is_observed_for_both_address_families(monkeypatch):
+    observed=[]
+    def delayed_refusal(address, *, timeout):
+        if timeout < 3:raise TimeoutError('Windows refusal has not arrived yet')
+        observed.append(address)
+        raise ConnectionRefusedError(10061,'Windows closed port')
+    monkeypatch.setattr(migration.socket,'create_connection',delayed_refusal)
+    assert migration.backend_alive() is False
+    assert observed==[('127.0.0.1',8765),('::1',8765)]
+
+
+def test_listening_backend_is_still_detected(monkeypatch):
+    from contextlib import nullcontext
+    monkeypatch.setattr(migration.socket,'create_connection',lambda *a,**k:nullcontext())
+    assert migration.backend_alive() is True

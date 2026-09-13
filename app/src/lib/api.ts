@@ -1,4 +1,8 @@
 import axios from 'axios';
+import { linguaCorrente } from '../i18n/lingua';
+import type { SalvaPreferenza } from '../i18n/preferenze';
+import type { TradeRequest, TradeResult, TradePreview } from './trade-entry';
+import type { OpeningPreview, OpeningRequest, OpeningResult } from './position-opening';
 import type { AnteprimaMandato, StatoMandato, ValoriMandato } from './mandato';
 
 export const API_BASE = (window as any).bellomberg?.apiUrl || 'http://127.0.0.1:8765';
@@ -14,12 +18,31 @@ const api = axios.create({
 // dal LoginGate; il backend lo richiede SOLO sugli endpoint mutanti (POST/DELETE).
 // ============================================================
 export const TOKEN_STORAGE_KEY = 'bellomberg_token_v1';
+let memorySessionToken: string | null = null;
+
+/** Only called after authentication. False means storage failed: disclose a session lasting until reload. */
+export function saveSessionToken(token: unknown): boolean {
+  if (typeof token !== 'string' || !token.trim()) throw new Error('Missing session token / Token di sessione assente');
+  memorySessionToken = token;
+  try {
+    localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    return localStorage.getItem(TOKEN_STORAGE_KEY) === token;
+  } catch { return false; }
+}
 
 export function getSessionToken(): string | null {
+  if (memorySessionToken) return memorySessionToken;
   try { return localStorage.getItem(TOKEN_STORAGE_KEY); } catch { return null; }
 }
 
+/** Capture once at the start of a request, including streamed responses. */
+export function requestHeaders(): Record<string, string> {
+  const token = getSessionToken();
+  return { 'X-BB-Language': linguaCorrente(), ...(token ? { 'X-BB-Token': token } : {}) };
+}
+
 export function clearSessionAndReload(): void {
+  memorySessionToken = null;
   try {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
     localStorage.removeItem('bellomberg_unlocked_v1'); // il LoginGate fara' il resto
@@ -29,6 +52,8 @@ export function clearSessionAndReload(): void {
 
 // Allega X-BB-Token a ogni richiesta (innocuo sui GET, richiesto sui mutanti)
 api.interceptors.request.use(cfg => {
+  if (!cfg.headers) (cfg as any).headers = {};
+  (cfg.headers as any)['X-BB-Language'] = linguaCorrente();
   const t = getSessionToken();
   if (t) {
     if (!cfg.headers) (cfg as any).headers = {};
@@ -100,6 +125,12 @@ export interface DecisionNote {
 
 export interface Decision {
   id: number;
+  esecuzione?: {
+    trade_ids: number[]; eur: number | null; pct: number | null;
+    inferito: boolean; data: string | null;
+    trades?: { id: number; data: string; quantita: number; prezzo: number; valuta: string;
+      linked_decision_id?: number | null }[];
+  } | null;
   memo_id: number | null;
   timestamp: string;
   action: string;
@@ -156,6 +187,15 @@ export interface ValuationAcquisitionTask {
 }
 
 export interface ValuationModel {
+  presentation?: {
+    decision_display: { method_rationale: string | null; support_note: string | null; registry_version: string };
+    requirements_display: {
+      method_id: string; method_version: string; registry_version: string;
+      fields?: { field: string; description: string; [key: string]: unknown }[];
+      periods?: string[]; sources?: string[]; reconciliations?: string[]; scenarios?: string[];
+      [key: string]: unknown;
+    } | null;
+  };
   file: string;
   dir: string;
   engine: string;
@@ -286,6 +326,7 @@ export interface ValuationDetail {
 
 export interface Memo {
   id: number;
+  output_language?: 'it' | 'en' | null;
   timestamp: string;
   title: string;
   pdf_path: string;
@@ -398,6 +439,7 @@ export interface UsageTotal {
 }
 
 export interface AgentsLiveState {
+  language?: 'it' | 'en' | null;
   running: boolean;
   start_time?: string;
   current_round?: number;
@@ -476,6 +518,9 @@ export interface UltimoGiro {
 }
 
 export interface NewsItem {
+  summary_status?: 'available' | 'legacy' | 'unavailable' | 'invalid';
+  summary_language?: 'it' | 'en' | null;
+  summary_note?: string | null;
   id: number;
   title: string;
   snippet: string | null;
@@ -510,6 +555,9 @@ export interface MacroNewsItem {
 }
 
 export interface CorporateEvent {
+  title_origin?: string;
+  snippet_origin?: string;
+  presentation_languages?: string[];
   title: string;
   snippet: string | null;
   url: string | null;
@@ -532,6 +580,8 @@ export interface GlobalNewsItem {
 }
 
 export interface BriefingData {
+  error_code?: string | null;
+  language?: 'it' | 'en' | null;
   period?: string | null;
   slot_label?: string;
   generated_at?: string | null;
@@ -719,7 +769,7 @@ export interface AttributionPayload {
   by_bucket?: { bucket: string; contribution_pct: number; tickers: string[] }[];
   by_currency?: { currency: string; contribution_pct: number; fx_contribution_pct: number; tickers: string[] }[];
   totals?: { local_pct: number; fx_pct: number; cross_pct: number };
-  excluded?: { ticker: string; reasons: Record<string, number>; days_excluded: number; days_total: number; partial: boolean }[];
+  excluded?: { ticker: string; reasons: Record<string, number>; reason_details?: { reason: string; label: string; days: number }[]; days_excluded: number; days_total: number; partial: boolean }[];
   reconciliation?: { recon_return_pct?: number; official_twr_pct?: number; delta_pp?: number; note?: string; error?: string };
   notes?: string[];
   basis?: string;
@@ -753,6 +803,11 @@ export interface TwrMetrics {
 }
 
 export interface TwrPayload {
+  copertura?: {
+    primo_trade: string | null; primo_snapshot: string | null; ultimo_snapshot: string | null;
+    official_since: string | null; n_trade_prima_del_primo_snapshot: number | null;
+    giorni_senza_snapshot: number | null; nota: string | null;
+  };
   as_of?: { computed_at: string; price_basis: string; fx_basis: string };
   dates: string[];
   twr_index: number[];
@@ -948,6 +1003,7 @@ export interface PortfolioModification {
 }
 
 export interface ChatSession {
+  output_language?: 'it' | 'en' | null;
   id: number; specialist: string; title: string;
   started_at: string; last_activity: string; msg_count?: number;
 }
@@ -957,6 +1013,7 @@ export interface MandatoMeta {
   origine: string;
 }
 export interface ChatMessage {
+  output_language?: 'it' | 'en' | null;
   id: number; role: 'user'|'assistant'|'system'; content: string; timestamp: string;
   /** n.5 del lotto backend (58): misure dal DB, valorizzate sulle righe
    *  assistant. ⚠ `tokens_in` NON è l'input totale: è il resto non cachato
@@ -998,6 +1055,8 @@ export interface RispostaMovimentoCassa {
 
 export const Bellomberg = {
   health: () => api.get('/health').then(r => r.data),
+  preferences: () => api.get('/preferences').then(r => r.data),
+  savePreferences: (body: SalvaPreferenza) => api.put('/preferences', body).then(r => r.data),
   authLogin: (pin: string) =>
     api.post<{ ok: boolean; user: string; brand: string; token?: string; expires_in_s?: number }>('/auth/login', { pin }).then(r => r.data),
   authStatus: () =>
@@ -1041,16 +1100,15 @@ export const Bellomberg = {
   // (bellomberg_api.py:1654-1682). Tipizzato apposta: finche' era `any`, un
   // rename lato backend sarebbe passato senza che il compilatore fiatasse, e
   // il difetto che F7 esiste per chiudere sarebbe tornato in silenzio.
-  logTrade: (body: any) => api.post<{
-    ok?: boolean;
-    trade_id?: number | string | null;
-    cash_disponibile_eur?: number | null;
-    cash_note?: string | null;
-    // GUARDIA PREZZI (backend 01/08, changelog (61)): scostamento fra ±30% e ×3
-    // → la scrittura passa e la nota viaggia qui; null quando pulito. Il 422
-    // della guardia si riconosce dal prefisso `GUARDIA PREZZI:` nel detail.
-    guardia_note?: string | null;
-  }>('/trade', body).then(r => r.data),
+  previewTrade: (body: TradeRequest) =>
+    api.post<TradePreview>('/trade/preview', body).then(r => r.data),
+  openingPositions: () => api.get('/positions/opening').then(r => r.data),
+  openingPosition: (ticker: string) => api.get(`/positions/opening/${encodeURIComponent(ticker)}`).then(r => r.data),
+  previewOpeningPosition: (body: OpeningRequest) =>
+    api.post<OpeningPreview>('/positions/opening/preview', body).then(r => r.data),
+  createOpeningPosition: (body: OpeningRequest) =>
+    api.post<OpeningResult>('/positions/opening', body).then(r => r.data),
+  logTrade: (body: TradeRequest) => api.post<TradeResult>('/trade', body).then(r => r.data),
   trades: (limit = 60) => api.get('/trades', { params: { limit } }).then(r => r.data),
   // ── IL CANALE CASSA (backend changelog (70)+(71)) ────────────────────
   // Versare e prelevare «come se fosse un trade» (voce PM 12/08).

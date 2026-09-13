@@ -1,8 +1,12 @@
+import { useLingua, useT } from '@/i18n/provider';
+import { localizePayload } from '@/lib/api-presentation';
+import { plurale, t as tr } from '@/i18n/t';
+import { linguaCorrente, localeDi } from '@/i18n/lingua';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bellomberg, PortfolioSnapshot, Decision, PortfolioRisk, NavHistory, Position, TwrPayload, AgentInfo, AgentsLiveState, MktOverview, MktOverviewRow } from '@/lib/api';
+import { Bellomberg, PortfolioSnapshot, Decision, PortfolioRisk, NavHistory, Position, TwrPayload, AgentsLiveState, MktOverview, MktOverviewRow } from '@/lib/api';
 import { fmtEUR, fmtPct, fmtNum } from '@/lib/format';
-import { leggiQuota, cimaF1, formattaCifra, notaFlusso, motivoChiamata } from '@/lib/quota';
+import { leggiQuota, cimaF1, formattaCifra, notaFlusso, motivoChiamata, leggiDetail } from '@/lib/quota';
 import { leggiCurva, letturaCurva, spiegaCurva, titoloVista, etichettaVista } from '@/lib/curva';
 import type { EsitoCurva, VistaCurva } from '@/lib/curva';
 import { getPulsePicks, togglePulse } from '@/lib/pulse';
@@ -15,6 +19,14 @@ import RunConfirmDialog from '@/components/RunConfirmDialog';
 import { RefreshCw, Play, Cpu } from 'lucide-react';
 import './dashboard-command.css';
 import './dashboard-f1.css';
+
+type ReadFailure = { error: unknown };
+function readFailureText(failure: ReadFailure): string {
+  const error = failure.error as { response?: { data?: { detail?: unknown } }; message?: string };
+  const detail = leggiDetail(error?.response?.data?.detail) || error?.message;
+  const status = statusHttp(error);
+  return (status ? `HTTP ${status} · ` : '') + (detail || tr('dashboard.client_request_failed'));
+}
 
 /* ============================================================
    F1 v3 "OBSIDIAN COMMAND" (design approvato PM 23/07):
@@ -67,23 +79,28 @@ function useCountUp(target: number, ms = 750, da = 0) {
 
 // fix 30c: fetch nav_history SOLLEVATO nel Dashboard (lifting) e condiviso via prop
 function useNavHistory() {
-  const [hist, setHist] = useState<NavHistory | null>(null);
+  const tr = useT();
+  const [histRaw, setHist] = useState<NavHistory | null>(null);
+  const hist = useMemo(() => localizePayload(histRaw), [histRaw, tr]);
   /* (F41) era un `failed: boolean` che, tolta la curva, non aveva piu' nessun
      lettore — e toglierlo del tutto avrebbe lasciato un `.catch` vuoto, cioe' un
      ingoio silenzioso (regola PM 14/07). Ora e' il MOTIVO, e il motivo lo legge
      il chip ITD: e' l'unica cosa che questa chiamata regge ancora. */
-  const [motivo, setMotivo] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ kind: 'empty' } | { kind: 'source'; detail: string } | { kind: 'transport'; error: unknown } | null>(null);
   useEffect(() => {
     let m = true;
     Bellomberg.navHistory(false)
       .then(h => {
         if (!m) return;
         if (h && !h.error) setHist(h);
-        else setMotivo(h?.error || 'il motore ha risposto senza la serie');
+        else setFailure(h?.error ? { kind: 'source', detail: h.error } : { kind: 'empty' });
       })
-      .catch(err => { if (m) setMotivo(motivoChiamata(err)); });
+      .catch(error => { if (m) setFailure({ kind: 'transport', error }); });
     return () => { m = false; };
   }, []);
+  const motivo = failure?.kind === 'empty' ? tr('dashboard.nav_no_series')
+    : failure?.kind === 'source' ? failure.detail
+    : failure?.kind === 'transport' ? motivoChiamata(failure.error) : null;
   return { hist, motivo };
 }
 
@@ -109,6 +126,7 @@ function useNavHistory() {
    `values_eur`/`regimes`/`external_flows` arrivavano già e finivano nel
    cestino. `navHistory` resta chiamata perché regge ancora il chip ITD. */
 function NavSpark({ c, hClass = 'h-28' }: { c: EsitoCurva; hClass?: string }) {
+  const tr = useT();
   const [hover, setHover] = useState<number | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const viva = c.stato === 'viva' ? c : null;
@@ -154,7 +172,7 @@ function NavSpark({ c, hClass = 'h-28' }: { c: EsitoCurva; hClass?: string }) {
   if (!viva || !s) {
     return (
       <div className={hClass + ' flex items-center justify-center text-3xs font-mono uppercase tracking-wider'} style={{ color: '#FFA51E' }}>
-        serie dichiarata viva ma non disegnabile
+        {tr('dashboard.curve_bad_live')}
       </div>
     );
   }
@@ -239,8 +257,9 @@ function NavSpark({ c, hClass = 'h-28' }: { c: EsitoCurva; hClass?: string }) {
 function HeatStrip({ positions, limit = 10, onSelect }: {
   positions: Position[]; limit?: number; onSelect: (tk: string) => void;
 }) {
+  const tr = useT();
   const ps = positions.filter(p => (p.peso_pct || 0) > 0).sort((a, b) => (b.peso_pct || 0) - (a.peso_pct || 0));
-  if (ps.length === 0) return <div className="text-faint text-2xs font-mono py-4 text-center">no positions</div>;
+  if (ps.length === 0) return <div className="text-faint text-2xs font-mono py-4 text-center">{tr('dashboard.no_positions')}</div>;
   const top = ps.slice(0, limit);
   const rest = ps.slice(limit);
   const restW = rest.reduce((s, p) => s + (p.peso_pct || 0), 0);
@@ -252,7 +271,7 @@ function HeatStrip({ positions, limit = 10, onSelect }: {
         const a = Math.min(0.09 + Math.abs(pl) / 45, 0.4);
         return (
           <div key={p.ticker} className="hcell"
-               title={p.ticker + '  peso ' + (p.peso_pct || 0).toFixed(1) + '%  P/L ' + pl.toFixed(1) + '%  ·  click → MKT'}
+               title={p.ticker + tr('dashboard.heat_weight') + fmtNum((p.peso_pct || 0), 1) + '%  P/L ' + fmtNum(pl, 1) + '%  ·  click → MKT'}
                onClick={() => onSelect(p.ticker)}
                style={{
                  flexGrow: Math.max(Math.sqrt(p.peso_pct || 1) * 2, 1),
@@ -260,16 +279,16 @@ function HeatStrip({ positions, limit = 10, onSelect }: {
                  borderColor: pos ? 'rgba(33,224,160,0.4)' : 'rgba(255,61,96,0.4)',
                }}>
             <span className="t">{p.ticker}</span>
-            <span className="r2"><span className="w">{(p.peso_pct || 0).toFixed(1)}</span>
-              <span className={'pl ' + (pos ? 'up' : 'dn')}>{pl >= 0 ? '+' : ''}{pl.toFixed(1)}%</span></span>
+            <span className="r2"><span className="w">{fmtNum((p.peso_pct || 0), 1)}</span>
+              <span className={'pl ' + (pos ? 'up' : 'dn')}>{pl >= 0 ? '+' : ''}{fmtNum(pl, 1)}%</span></span>
           </div>
         );
       })}
       {rest.length > 0 && (
         <div className="hcell" style={{ flexGrow: 1.4, background: 'rgba(154,166,192,0.05)', borderColor: '#2A3760' }}
              title={rest.map(p => p.ticker).join(' · ')}>
-          <span className="t" style={{ color: '#8D9FC4' }}>+{rest.length} ALTRI</span>
-          <span className="r2"><span className="w">{restW.toFixed(1)}</span><span className="pl">—</span></span>
+          <span className="t" style={{ color: '#8D9FC4' }}>+{rest.length} {tr('dashboard.more_positions')}</span>
+          <span className="r2"><span className="w">{fmtNum(restW, 1)}</span><span className="pl">—</span></span>
         </div>
       )}
     </div>
@@ -278,18 +297,19 @@ function HeatStrip({ positions, limit = 10, onSelect }: {
 
 // ===== pannello MARKET: grafico TV-grade condiviso (TvChartPanel, altezza reattiva) =====
 function MarketPanel({ tickers, onOpenMkt }: { tickers: string[]; onOpenMkt: (tk: string) => void }) {
+  const tr = useT();
   const [tk, setTk] = useState('');
   useEffect(() => { if (!tk && tickers.length) setTk(tickers[0]); }, [tickers, tk]);
   return (
     <div className="p3 cy mkchart">
       <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
-      <div className="p3h">MARKET // {tk || '-'}
+      <div className="p3h">{tr('dashboard.market')} {tk || '-'}
         <select value={tk} onChange={e => setTk(e.target.value)}
                 className="bg-bg border border-border text-cyan font-mono text-2xs px-1.5 py-0.5 focus:outline-none focus:border-cyan cursor-pointer">
           {tickers.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
-        <button className="tb" style={{ color: '#29D3F2' }} onClick={() => tk && onOpenMkt(tk)} title="apri la pagina completa su MKT">APRI IN MKT ⧉</button>
-        <span className="side">MOTORE TRADINGVIEW · SCROLL = ZOOM · DRAG = PAN</span>
+        <button className="tb" style={{ color: '#29D3F2' }} onClick={() => tk && onOpenMkt(tk)} title={tr('dashboard.open_market_hint')}>{tr('dashboard.open_market')}</button>
+        <span className="side">{tr('dashboard.chart_controls')}</span>
       </div>
       {tk && <TvChartPanel ticker={tk} fill defaultRange={5} defaultInterval={4} />}
     </div>
@@ -297,47 +317,59 @@ function MarketPanel({ tickers, onOpenMkt }: { tickers: string[]; onOpenMkt: (tk
 }
 
 // ===== AI DESK // COMITATO: agenti veri + stato run live =====
-function AiDeskPanel() {
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
+export function AiDeskPanel() {
+  const tr = useT();
+  const [rawAgents, setRawAgents] = useState<Awaited<ReturnType<typeof Bellomberg.agentsList>> | null>(null);
+  const agents = useMemo(() => localizePayload(rawAgents)?.agents || [], [rawAgents, tr]);
   const [committeeEng, setCommitteeEng] = useState<string | null>(null);
   const [live, setLive] = useState<AgentsLiveState | null>(null);
+  const [listError, setListError] = useState<{ invalid?: boolean; cause?: unknown } | null>(null);
+  const [liveError, setLiveError] = useState<{ invalid?: boolean; cause?: unknown } | null>(null);
   useEffect(() => {
     let m = true;
     Bellomberg.agentsList().then(r => {
       if (!m) return;
-      setAgents(r.agents || []);
+      if (!Array.isArray(r.agents)) { setRawAgents(null); setListError({ invalid: true }); return; }
+      setRawAgents(r); setListError(null);
       // ENGINE = motore del COMITATO (engines.committee_r1_r2, ponte 26/07):
       // agents[].model è il modello CHAT e qui mentirebbe. Assente = dichiarato.
       const e = r.engines;
       setCommitteeEng(e?.committee_r1_r2 || (e?.committee_r1_r2_error ? 'ERR: ' + e.committee_r1_r2_error : null));
-    }).catch(() => {});
-    const poll = () => Bellomberg.agentsLive().then(r => { if (m) setLive(r); }).catch(() => { if (m) setLive(null); });
+    }).catch(err => { if (m) setListError({ cause: err }); });
+    const poll = () => Bellomberg.agentsLive().then(r => {
+      if (!m) return;
+      if (typeof r?.running !== 'boolean') { setLive(null); setLiveError({ invalid: true }); return; }
+      setLive(r); setLiveError(null);
+    }).catch(err => { if (m) { setLive(null); setLiveError({ cause: err }); } });
     poll();
     const i = setInterval(poll, 45 * 1000);
     return () => { m = false; clearInterval(i); };
   }, []);
   const eng = committeeEng ? committeeEng.replace('claude-', '').replace(/-\d{8}$/, '').replace(/-/g, ' ') : null;
   const stFor = (id: string): { cls: string; label: string } => {
-    if (!live?.running) return { cls: 'g', label: 'READY' };
+    if (!live) return { cls: 'off', label: tr('dashboard.na') };
+    if (!live.running) return { cls: 'g', label: tr('dashboard.ready') };
     const st = live.specialist_status?.[id];
     if (st === 'running') return { cls: 'a', label: 'R' + (live.current_round ?? '') };
     if (st === 'error') return { cls: 'r', label: 'ERR' };
-    if (st === 'done') return { cls: 'g', label: 'DONE' };
-    return { cls: 'off', label: 'IDLE' };
+    if (st === 'done') return { cls: 'g', label: tr('dashboard.done') };
+    return { cls: 'off', label: tr('dashboard.idle') };
   };
   return (
     <div className="p3 vi" style={{ flexShrink: 0 }}>
-      <div className="p3h vi">AI DESK // COMITATO
-        <span className="side">{live?.running ? 'RUN IN CORSO · R' + (live.current_round ?? '-') : 'STANDBY'}</span>
+      <div className="p3h vi">{tr('dashboard.desk_title')}
+        <span className="side">{!live ? tr('dashboard.na') : live.running ? tr('dashboard.desk_running') + (live.current_round ?? '-') : tr('dashboard.standby')}</span>
       </div>
       <div className="num" style={{ paddingTop: 5 }}>
-        {agents.length === 0 && <div className="dk"><span className="nm">agenti</span><span className="st">n.d. (backend)</span></div>}
+        {listError != null && <div role="alert" className="text-red text-2xs">/agents/list · {listError.invalid ? tr('dashboard.agent_list_invalid') : motivoChiamata(listError.cause)}</div>}
+        {liveError != null && <div role="alert" className="text-red text-2xs">/agents/live · {liveError.invalid ? tr('dashboard.heartbeat_invalid') : motivoChiamata(liveError.cause)}</div>}
+        {agents.length === 0 && <div className="dk"><span className="nm">{tr('dashboard.agents_lower')}</span><span className="st">{tr('dashboard.backend_na')}</span></div>}
         {agents.map(a => {
           const s = stFor(a.id);
           return (
             <div className="dk" key={a.id}>
               <span className="ld" style={{ width: 6, height: 6, borderRadius: '50%', background: a.color || '#9B7BFF', flexShrink: 0 }} />
-              <span className="nm" title={a.role}>{a.name}</span>
+              <span className="nm" title={a.role ? tr('dashboard.service_detail') + ': ' + a.role : undefined}>{a.name}</span>
               <span className="st">{s.label}</span>
               <span className={'ld ' + s.cls} />
             </div>
@@ -345,7 +377,7 @@ function AiDeskPanel() {
         })}
       </div>
       <div style={{ borderTop: '1px solid #1A2440' }}>
-        <div className="sysrow num"><span>ENGINE</span><span style={{ color: '#8D9FC4', letterSpacing: '.06em' }}>{agents.length || '-'} AGENTS · {eng || 'n.d.'} · <span style={{ color: '#9B7BFF' }}>LIVE ▸</span></span></div>
+        <div className="sysrow num"><span>{tr('dashboard.engine')}</span><span style={{ color: '#8D9FC4', letterSpacing: '.06em' }}>{agents.length || '-'} {tr('dashboard.agents_tail')} {eng || tr('dashboard.na')} · <span style={{ color: '#9B7BFF' }}>{tr('dashboard.live_open')}</span></span></div>
       </div>
     </div>
   );
@@ -358,6 +390,7 @@ const PULSE_PICKS: ReadonlyArray<readonly [keyof MktOverview & string, string]> 
   ['valute', 'EUR/USD'], ['valute', 'Bitcoin'],
 ];
 function MacroPulse({ onSelect }: { onSelect: (tk: string) => void }) {
+  const tr = useT();
   const [rows, setRows] = useState<MktOverviewRow[] | null>(null);
   const [custom, setCustom] = useState<MktOverviewRow[]>([]);
   const [failed, setFailed] = useState(false);
@@ -400,13 +433,13 @@ function MacroPulse({ onSelect }: { onSelect: (tk: string) => void }) {
     return (
       <tr key={(mine ? '+' : '') + r.ticker} onClick={() => onSelect(r.ticker)} style={{ cursor: 'pointer' }} title={r.ticker + ' · click → MKT'}>
         <td style={{ color: '#8D9FC4' }}>{mine && <span style={{ color: '#D4AF37' }}>◆ </span>}{r.name}</td>
-        <td style={{ color: '#29D3F2' }}>{r.price == null ? 'n.d.' : r.price.toLocaleString('it-IT', { maximumFractionDigits: 2 })}</td>
+        <td style={{ color: '#29D3F2' }}>{r.price == null ? tr('dashboard.na') : r.price.toLocaleString(localeDi(linguaCorrente()), { maximumFractionDigits: 2 })}</td>
         <td className={c == null ? 'text-muted' : c >= 0 ? 'up' : 'dn'} style={{ fontWeight: 600 }}>
-          {c == null ? 'n.d.' : (c >= 0 ? '+' : '') + c.toFixed(2) + '%'}
+          {c == null ? tr('dashboard.na') : (c >= 0 ? '+' : '') + fmtNum(c, 2) + '%'}
         </td>
         <td style={{ width: 14, padding: '3px 4px' }}>
           {mine && (
-            <span className="pxdel" title={'togli ' + r.ticker + ' dal MACRO PULSE'}
+            <span className="pxdel" title={tr('dashboard.pulse_remove') + r.ticker + tr('dashboard.pulse_remove_tail')}
                   onClick={e => { e.stopPropagation(); removePick(r.ticker); }}>×</span>
           )}
         </td>
@@ -415,12 +448,12 @@ function MacroPulse({ onSelect }: { onSelect: (tk: string) => void }) {
   };
   return (
     <div className="p3 cy" style={{ flex: 1, minHeight: 0 }}>
-      <div className="p3h">MACRO PULSE <span className="n">· FEED MKT · 5MIN</span><span className="side">◆ = TUOI (DA MKT) · CLICK → MKT</span></div>
+      <div className="p3h">MACRO PULSE <span className="n">{tr('dashboard.pulse_feed')}</span><span className="side">{tr('dashboard.pulse_hint')}</span></div>
       <div style={{ overflowY: 'auto', minHeight: 0 }}>
         {rows === null ? (
-          <div className="text-faint text-2xs font-mono py-4 text-center">caricamento feed…</div>
+          <div className="text-faint text-2xs font-mono py-4 text-center">{tr('dashboard.pulse_loading')}</div>
         ) : failed && custom.length === 0 ? (
-          <div className="text-faint text-2xs font-mono py-4 text-center">feed overview n.d. (dichiarato)</div>
+          <div className="text-faint text-2xs font-mono py-4 text-center">{tr('dashboard.pulse_missing')}</div>
         ) : (
           <table className="num">
             <tbody>
@@ -436,9 +469,10 @@ function MacroPulse({ onSelect }: { onSelect: (tk: string) => void }) {
 
 // ===== telemetria rischio a barre (fondo scala dichiarato nel title) =====
 function TelemetryRisk({ risk, loading, onRefresh }: { risk: PortfolioRisk | null; loading: boolean; onRefresh: () => void }) {
+  const tr = useT(), lingua = useLingua();
   const p = risk && !risk.error ? risk.portfolio : null;
   const bar = (label: string, value: string, frac: number, color: string, scale: string) => (
-    <div className="ab num" title={'fondo scala barre: ' + scale}>
+    <div className="ab num" title={tr('dashboard.bar_scale') + scale}>
       <span className="k">{label}</span>
       <span className="bar"><i style={{ width: Math.min(100, Math.max(2, frac * 100)) + '%', background: color }} /></span>
       <span className="v">{value}</span>
@@ -446,32 +480,32 @@ function TelemetryRisk({ risk, loading, onRefresh }: { risk: PortfolioRisk | nul
   );
   return (
     <div className="p3" style={{ flexShrink: 0, paddingBottom: 8 }}>
-      <div className="p3h">TELEMETRY // RISK
-        {risk && !risk.error && <span className="n">· {risk.n_assets_analyzed} ASSET · {risk.lookback_days}D</span>}
+      <div className="p3h">{tr('dashboard.telemetry')}
+        {risk && !risk.error && <span className="n">· {plurale(lingua, risk.n_assets_analyzed, 'dashboard.risk_scope_one', 'dashboard.risk_scope_many', { days: risk.lookback_days })}</span>}
         <span className="side">
           <button className="tb" onClick={onRefresh} disabled={loading} style={{ color: '#29D3F2' }}>
-            {loading ? 'CALCOLO…' : '↻ REFRESH'}
+            {loading ? tr('dashboard.calculating') : tr('dashboard.refresh')}
           </button>
         </span>
       </div>
       {!p ? (
         <div className="text-faint text-2xs font-mono py-4 text-center">
-          {loading ? 'calcolo metriche (storico 1y)…' : (risk?.error || 'metriche non caricate')}
+          {loading ? tr('dashboard.risk_calculating') : (risk?.error || tr('dashboard.risk_not_loaded'))}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 7, paddingTop: 8 }}>
-          {bar('VaR 95 1D', p.var_95_1d_pct.toFixed(2) + '%', Math.abs(p.var_95_1d_pct) / 3, '#FF3D60', '3%')}
-          {bar('VaR 99 1D', p.var_99_1d_pct.toFixed(2) + '%', Math.abs(p.var_99_1d_pct) / 4, '#FF3D60', '4%')}
-          {bar('Sharpe', p.sharpe.toFixed(2), p.sharpe / 2, '#21E0A0', '2,0')}
-          {bar('Vol ann', p.vol_annual_pct.toFixed(1) + '%', p.vol_annual_pct / 40, '#95A1BA', '40%')}
-          {bar('Beta SPY', p.beta_vs_spy.toFixed(2), Math.abs(p.beta_vs_spy) / 2, '#95A1BA', '2,0')}
-          {bar('Max DD 1Y', p.max_dd_1y_pct.toFixed(1) + '%', Math.abs(p.max_dd_1y_pct) / 30, '#FFA51E', '30%')}
+          {bar('VaR 95 ' + tr('dashboard.one_day'), fmtNum(p.var_95_1d_pct, 2) + '%', Math.abs(p.var_95_1d_pct) / 3, '#FF3D60', '3%')}
+          {bar('VaR 99 ' + tr('dashboard.one_day'), fmtNum(p.var_99_1d_pct, 2) + '%', Math.abs(p.var_99_1d_pct) / 4, '#FF3D60', '4%')}
+          {bar('Sharpe', fmtNum(p.sharpe, 2), p.sharpe / 2, '#21E0A0', fmtNum(2, 1))}
+          {bar(tr('dashboard.annual_vol'), fmtNum(p.vol_annual_pct, 1) + '%', p.vol_annual_pct / 40, '#95A1BA', '40%')}
+          {bar('Beta SPY', fmtNum(p.beta_vs_spy, 2), Math.abs(p.beta_vs_spy) / 2, '#95A1BA', fmtNum(2, 1))}
+          {bar('Max DD ' + tr('dashboard.one_year'), fmtNum(p.max_dd_1y_pct, 1) + '%', Math.abs(p.max_dd_1y_pct) / 30, '#FFA51E', '30%')}
           <div className="sysrow num" style={{ paddingTop: 2 }}>
-            <span>RISK ALERTS</span>
+            <span>{tr('dashboard.risk_alerts')}</span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span className={'ld ' + ((risk?.alerts?.length || 0) > 0 ? 'a' : 'g')} />
               <span style={{ color: (risk?.alerts?.length || 0) > 0 ? '#FFA51E' : '#21E0A0', letterSpacing: '.08em' }}>
-                {(risk?.alerts?.length || 0)} ACTIVE
+                {(risk?.alerts?.length || 0)} {tr('dashboard.active')}
               </span>
             </span>
           </div>
@@ -482,14 +516,20 @@ function TelemetryRisk({ risk, loading, onRefresh }: { risk: PortfolioRisk | nul
 }
 
 export default function Dashboard() {
+  const tr = useT();
   const navigate = useNavigate();
-  const [snap, setSnap] = useState<PortfolioSnapshot | null>(null);
+  const [snapRaw, setSnap] = useState<PortfolioSnapshot | null>(null);
+  const snap = useMemo(() => localizePayload(snapRaw), [snapRaw, tr]);
   const [decisions, setDecisions] = useState<Decision[]>([]);
-  const [risk, setRisk] = useState<PortfolioRisk | null>(null);
+  const [riskRaw, setRisk] = useState<PortfolioRisk | null>(null);
+  const risk = useMemo(() => localizePayload(riskRaw), [riskRaw, tr]);
   const [riskLoading, setRiskLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [runMsg, setRunMsg] = useState<string | null>(null);
+  const [runNotice, setRunNotice] = useState<{ kind: 'starting' } | { kind: 'active'; task: string } | { kind: 'error'; detail: string } | null>(null);
+  const runMsg = runNotice?.kind === 'starting' ? tr('dashboard.run_starting')
+    : runNotice?.kind === 'active' ? tr('dashboard.run_active', { task: runNotice.task })
+    : runNotice?.kind === 'error' ? tr('dashboard.error_prefix') + runNotice.detail : null;
   const [askRun, setAskRun] = useState(false);  // Lotto D: la run costa, si conferma prima
 
   // count-up sul NAV (hook chiamato sempre, prima dell'early return)
@@ -505,9 +545,12 @@ export default function Dashboard() {
   // IL VALORE QUOTA, che da oggi è il titolo della pagina. Nessuna chiamata
   // nuova: `dates`/`twr_index`/`regimes`/`external_flows` erano GIÀ in questa
   // risposta e finivano nel cestino insieme a tutto il resto del payload.
-  const [twrRec, setTwrRec] = useState<TwrPayload['reconciliation']>(null);
-  const [twr, setTwr] = useState<TwrPayload | null>(null);
-  const [twrErr, setTwrErr] = useState<string | null>(null);
+  const [twrRecRaw, setTwrRec] = useState<TwrPayload['reconciliation']>(null);
+  const [twrRaw, setTwr] = useState<TwrPayload | null>(null);
+  const twr = useMemo(() => localizePayload(twrRaw), [twrRaw, tr]);
+  const twrRec = twr?.reconciliation || twrRecRaw;
+  const [twrFailure, setTwrFailure] = useState<{ error: unknown } | null>(null);
+  const twrErr = twrFailure ? motivoChiamata(twrFailure.error) : null;
   const [twrInCorso, setTwrInCorso] = useState(true);
   /* (F41) quale delle due viste della curva. La quota e' la predefinita perche'
      e' l'unica serie VERA su tutta la finestra; il patrimonio vero esiste solo
@@ -516,11 +559,11 @@ export default function Dashboard() {
   useEffect(() => {
     let m = true;
     Bellomberg.twr(false)
-      .then(r => { if (m) { setTwrRec(r.reconciliation || null); setTwr(r); setTwrErr(null); } })
+      .then(r => { if (m) { setTwrRec(r.reconciliation || null); setTwr(r); setTwrFailure(null); } })
       // ⚠️ qui c'era `.catch(() => {})`. Finché la quota era un chip in fondo
       // il motivo si poteva buttare; ora senza motivo la pagina resterebbe
       // senza titolo e senza spiegazione — ripiego muto, regola PM 14/07.
-      .catch(err => { if (m) { setTwr(null); setTwrErr(motivoChiamata(err)); } })
+      .catch(error => { if (m) { setTwr(null); setTwrFailure({ error }); } })
       .finally(() => { if (m) setTwrInCorso(false); });
     return () => { m = false; };
   }, []);
@@ -528,28 +571,31 @@ export default function Dashboard() {
   // (§9-unquadragies-octodecies): la cifra grande, il suo occhiello, il suo
   // timbro e la riga che la spiega non possono divergere per costruzione.
   const quota = useMemo(
-    () => leggiQuota(twr, twrErr, twrInCorso), [twr, twrErr, twrInCorso]);
+    () => leggiQuota(twr, twrErr, twrInCorso), [twr, twrErr, twrInCorso, tr]);
 
   /* (F41) lo stesso payload, letto per la curva: un giudizio solo, e tutte le
      stringhe del riquadro (titolo, nota, piedino, lettura del crosshair) escono
      da li'. La pagina non ricalcola e non riformatta niente. */
   const curva: EsitoCurva = useMemo(
-    () => leggiCurva(twr, vistaCurva, twrInCorso, twrErr), [twr, vistaCurva, twrInCorso, twrErr]);
+    () => leggiCurva(twr, vistaCurva, twrInCorso, twrErr), [twr, vistaCurva, twrInCorso, twrErr, tr]);
   /* ⚠️ il motivo per cui una parola dell'interruttore è spenta. Se la curva NON è
      viva, sono spente TUTTE E DUE: la prima stesura le lasciava premibili in
      attesa e in errore, e premendo PATRIMONIO il titolo cambiava sopra un
      riquadro vuoto, promettendo «gli euro veri degli snapshot». */
   const curvaSpenta = curva.stato === 'attesa'
-    ? 'la serie non è ancora arrivata dal motore contabile'
+    ? tr('dashboard.curve_not_arrived')
     : curva.stato === 'assente' ? curva.motivo : null;
   const patrimonioSpento = curvaSpenta
     || (curva.stato === 'viva' && curva.altra.vista === 'patrimonio'
       ? curva.altra.motivoSpento : null);
   const oggiISO = new Date().toLocaleDateString('sv-SE');  // YYYY-MM-DD locale
   const cima = useMemo(
-    () => cimaF1(quota, navTotalTarget, oggiISO), [quota, navTotalTarget, oggiISO]);
+    () => cimaF1(quota, navTotalTarget, oggiISO), [quota, navTotalTarget, oggiISO, tr]);
   const cifraDisp = useCountUp(cima.contaA, 750, cima.contaDa);
   const flussoOggi = notaFlusso(quota, oggiISO);
+  const [readFailures, setReadFailures] = useState<Record<string, ReadFailure | null>>({});
+  const setReadFailure = (source: string, failure: ReadFailure | null) =>
+    setReadFailures(previous => ({ ...previous, [source]: failure }));
 
   // silent=true: refresh quasi-live senza smontare la pagina (il loader pieno resta solo al primo load)
   const loadAll = async (silent = false) => {
@@ -557,11 +603,15 @@ export default function Dashboard() {
     try {
       const [p, d] = await Promise.all([
         Bellomberg.portfolio(),
-        Bellomberg.decisions('PENDING', 6).catch(() => ({ decisions: [] })),
+        Bellomberg.decisions('PENDING', 6)
+          .then(result => { setReadFailure('/decisions', null); return result; })
+          .catch(error => { setReadFailure('/decisions', { error }); return { decisions: [] }; }),
       ]);
       setSnap(p);
+      setReadFailure('/portfolio', p ? null : { error: null });
       setDecisions(d?.decisions || []);
     } catch (e: any) {
+      setReadFailure('/portfolio', { error: e });
       console.error('[Dashboard.loadAll]', e);
     } finally {
       if (!silent) setLoading(false);
@@ -573,7 +623,10 @@ export default function Dashboard() {
     try {
       const r = await Bellomberg.portfolioRisk(force);
       setRisk(r);
+      setReadFailure('/portfolio/risk', null);
     } catch (e: any) {
+      setRisk(null);
+      setReadFailure('/portfolio/risk', { error: e });
       console.error('[Dashboard.loadRisk]', e);
     } finally {
       setRiskLoading(false);
@@ -591,13 +644,13 @@ export default function Dashboard() {
   };
 
   const triggerRun = async () => {
-    setRunMsg('Spawning consigliere process...');
+    setRunNotice({ kind: 'starting' });
     try {
       const r = await Bellomberg.runConsigliere();
-      setRunMsg('RUN ' + r.task_id + ' ACTIVE - est. 25-40min - email on complete');
+      setRunNotice({ kind: 'active', task: r.task_id });
     } catch (e: any) {
       const detail = dettaglioLeggibile(e);
-      setRunMsg('Error: ' + detail);
+      setRunNotice({ kind: 'error', detail });
       if (statusHttp(e) === 428) { conservaDettaglioRun(detail); navigate('/mandato'); }
     }
   };
@@ -629,11 +682,15 @@ export default function Dashboard() {
   };
 
   if (loading || !snap) {
+    const failure = readFailures['/portfolio'];
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] gap-3 font-mono">
-        <Cpu className="text-amber animate-pulse" size={32} />
-        <div className="text-amber text-2xs uppercase tracking-[0.3em]">Loading terminal data...</div>
-        <div className="text-faint text-2xs">Polling SQLite + FX feed</div>
+        <Cpu className={'text-amber' + (loading ? ' animate-pulse' : '')} size={32} />
+        <div className="text-amber text-2xs uppercase tracking-[0.3em]">{!loading && failure ? tr('dashboard.data_unavailable') : tr('dashboard.loading_terminal')}</div>
+        {!loading && failure ? <>
+          <div role="status" className="text-amber text-2xs">/portfolio · {readFailureText(failure)}</div>
+          <button className="tb" onClick={() => loadAll()}>{tr('dashboard.refresh')}</button>
+        </> : <div className="text-faint text-2xs">{tr('dashboard.polling')}</div>}
       </div>
     );
   }
@@ -697,14 +754,17 @@ export default function Dashboard() {
   return (
     <div className="f1c animate-fadeIn">
       {runMsg && <div className="runline num"><span className="ld" style={{ background: '#29D3F2', boxShadow: '0 0 7px rgba(41,211,242,.8)' }} />{runMsg}</div>}
+      {Object.entries(readFailures).filter(([, failure]) => failure).map(([source, failure]) => (
+        <div key={source} role="status" className="runline num text-amber">{tr('dashboard.data_unavailable')} · {source} · {readFailureText(failure!)}</div>
+      ))}
 
       {/* ══ COL 1: STRUMENTO NAV + AI DESK ══ */}
       <div className="col">
         <div className="p3 hero" style={{ flexShrink: 0 }}>
           <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
-          <div className="p3h am">NAV // INV + CASH
+          <div className="p3h am">{tr('dashboard.nav_title')}
             <span className="side num">
-              {snap.timestamp ? new Date(snap.timestamp).toLocaleTimeString('it-IT', { hour12: false, hour: '2-digit', minute: '2-digit' }) : '-'} · {((snap.source || '-').split(/[\s_]/)[0]).toUpperCase()}
+              {snap.timestamp ? new Date(snap.timestamp).toLocaleTimeString(localeDi(linguaCorrente()), { hour12: false, hour: '2-digit', minute: '2-digit' }) : '-'} · {((snap.source || '-').split(/[\s_]/)[0]).toUpperCase()}
             </span>
           </div>
           <div className="navv num">
@@ -739,8 +799,8 @@ export default function Dashboard() {
                 riga sotto (chiusura ufficiale), e nei 237px di questa colonna
                 valevano una TERZA riga a capo (misurato: 45px → 30px). */}
             <div className="sub">
-              {cima.tipo === 'quota' && <>PATRIMONIO {fmtEUR(navTotal, false, 0)} · </>}
-              INV {fmtEUR(nav, false, 0)} · CASH {fmtEUR(cash, false, 0)} · {snap.n_positions || positions.length} POS
+              {cima.tipo === 'quota' && <>{tr('dashboard.wealth')} {fmtEUR(navTotal, false, 0)} · </>}
+              INV {fmtEUR(nav, false, 0)} {tr('dashboard.cash_tail')} {fmtEUR(cash, false, 0)} · {snap.n_positions || positions.length} POS
               {values.note && <span className="ko" role="status"> · {values.note}</span>}
               {/* il versamento sta sulla riga del PATRIMONIO perché è il
                   patrimonio che muove — ed è esattamente la confusione che
@@ -751,14 +811,14 @@ export default function Dashboard() {
             </div>
             {twrRec && twrRec.last_snapshot_nav_eur != null && (
               <div className="sub">
-                CHIUSURA UFF. {String(twrRec.last_snapshot_date || '').slice(5)} <span style={{ color: '#29D3F2' }}>{fmtEUR(twrRec.last_snapshot_nav_eur)}</span>
+                {tr('dashboard.official_close')} {String(twrRec.last_snapshot_date || '').slice(5)} <span style={{ color: '#29D3F2' }}>{fmtEUR(twrRec.last_snapshot_nav_eur)}</span>
                 {/* lo spazio sta FUORI dallo span: e' l'opportunita' di a-capo
                     che permette allo span nowrap di scendere INTERO (senza, a
                     NAV a 7 cifre + BREACH la riga sborderebbe muta) */}
                 {twrRec.delta_pct != null && (<>
                   {' '}<span style={{ color: (twrRec.breach ?? Math.abs(twrRec.delta_pct) > 1) ? '#FFA51E' : '#8D9FC4' }}
-                        title={twrRec.tolerance_pct != null ? 'allarme dal backend: tolleranza ' + twrRec.tolerance_pct + '%' : 'soglia locale 1% (backend pre-riavvio senza campo breach)'}>
-                    · Δ LIVE {twrRec.delta_pct >= 0 ? '+' : ''}{twrRec.delta_pct.toFixed(2)}%{twrRec.breach ? ' ⚠ BREACH' : ''}
+                        title={twrRec.tolerance_pct != null ? tr('dashboard.backend_tolerance') + twrRec.tolerance_pct + '%' : tr('dashboard.legacy_tolerance')}>
+                    · Δ LIVE {twrRec.delta_pct >= 0 ? '+' : ''}{fmtNum(twrRec.delta_pct, 2)}%{twrRec.breach ? ' ⚠ BREACH' : ''}
                   </span>
                 </>)}
               </div>
@@ -766,57 +826,57 @@ export default function Dashboard() {
             <div className="chips">
               {totRetPct != null
                 ? <span className={'chip ' + (totRetPct >= 0 ? 'g' : 'r')}
-                        title="ITD = rendimento sul capitale investito (utile+dividendi+realizzato diviso il costo). NON e' il TWR della cifra grande, che i versamenti non li conta: i due numeri sono vicini ma diversi, e possono divergere.">
+                        title={tr('dashboard.itd_hint')}>
                     ITD {fmtPct(totRetPct)}</span>
                 : <span className="chip n"
                         title={navHistMotivo
-                          ? 'ITD non disponibile: ' + navHistMotivo
-                          : 'ITD non disponibile: il motore ha risposto, ma senza il rendimento sul capitale investito'}>
-                    ITD n.d.</span>}
+                          ? tr('dashboard.itd_missing') + navHistMotivo
+                          : tr('dashboard.itd_no_return')}>
+                    {tr('dashboard.itd_na')}</span>}
               {/* (F40) il chip «TWR …% GIPS» è SPARITO: è diventato il titolo
                   della pagina. Tenerlo direbbe due volte la stessa cosa, e a
                   due righe di distanza dalla cifra grande che lo dice meglio. */}
-              <span className={'chip ' + (isPositive ? 'g' : 'r')}>UNRLZ {fmtEUR(totPl, true)}</span>
+              <span className={'chip ' + (isPositive ? 'g' : 'r')}>{tr('dashboard.unrealised_short')} {fmtEUR(totPl, true)}</span>
             </div>
           </div>
           <div className="gaugebox">
             <div className="gauge">
               <svg viewBox="0 0 116 116">{gaugeEls}</svg>
               <div className="in num">
-                <span className="gk">INVESTITO</span>
-                <span className="gv">{investedPct === null ? 'n.d.' : investedPct.toFixed(1) + '%'}</span>
-                <span className="gs">cash {cashPct === null ? 'n.d.' : cashPct.toFixed(1) + '%'}</span>
+                <span className="gk">{tr('dashboard.invested')}</span>
+                <span className="gv">{investedPct === null ? tr('dashboard.na') : fmtNum(investedPct, 1) + '%'}</span>
+                <span className="gs">{tr('dashboard.cash')} {cashPct === null ? tr('dashboard.na') : fmtNum(cashPct, 1) + '%'}</span>
               </div>
             </div>
             <div className="kside num">
-              <div><div className="krow"><span className="kk">P&L GG</span>
+              <div><div className="krow"><span className="kk">{tr('dashboard.daily_pl')}</span>
                 <span className="kv kvx"
                       style={{ fontWeight: 600, color: dayTot == null ? '#8D9FC4' : dayTot >= 0 ? '#21E0A0' : '#FF3D60' }}
                       title={dayTot == null
-                        ? 'prev_close/FX non ancora nel payload: riavviare il backend per il P&L daily'
-                        : 'P&L di giornata dell’INTERO portafoglio vs chiusura precedente (live, refresh 30/60s)'
-                          + (dayPartial ? ' — PARZIALE: posizioni senza prev_close/FX escluse (n.d.)' : '')
-                          + (dayTotPct != null ? ' · % sul valore investito di ieri · barra: fondo scala 5%' : '')}>
-                  <FlashVal k="__plgg" value={dayTot}>{dayTot != null ? fmtEUR(dayTot, true) : 'n.d.'}</FlashVal>
-                  {dayTotPct != null && <span className="kvs"> {(dayTotPct >= 0 ? '+' : '') + dayTotPct.toFixed(2)}%</span>}
-                  {dayPartial && <span className="kvs" style={{ color: '#B97A00' }}> ±PARZ</span>}
+                        ? tr('dashboard.daily_missing')
+                        : tr('dashboard.daily_hint')
+                          + (dayPartial ? tr('dashboard.daily_partial') : '')
+                          + (dayTotPct != null ? tr('dashboard.daily_scale') : '')}>
+                  <FlashVal k="__plgg" value={dayTot}>{dayTot != null ? fmtEUR(dayTot, true) : tr('dashboard.na')}</FlashVal>
+                  {dayTotPct != null && <span className="kvs"> {(dayTotPct >= 0 ? '+' : '') + fmtNum(dayTotPct, 2)}%</span>}
+                  {dayPartial && <span className="kvs" style={{ color: '#B97A00' }}> {tr('dashboard.partial_chip')}</span>}
                 </span></div>
                 <div className="meter"><i style={{ width: Math.min(100, Math.abs(dayTotPct ?? 0) * 20) + '%', background: dayTot == null ? '#414B68' : dayTot >= 0 ? '#21E0A0' : '#FF3D60' }} /></div></div>
-              <div><div className="krow"><span className="kk">P&L ITD</span><span className="kv" style={{ fontWeight: 600, color: (totRet ?? 0) >= 0 ? '#21E0A0' : '#FF3D60' }}>{totRet != null ? fmtEUR(totRet, true) : 'n.d.'}</span></div>
+              <div><div className="krow"><span className="kk">P&L ITD</span><span className="kv" style={{ fontWeight: 600, color: (totRet ?? 0) >= 0 ? '#21E0A0' : '#FF3D60' }}>{totRet != null ? fmtEUR(totRet, true) : tr('dashboard.na')}</span></div>
                 <div className="meter"><i style={{ width: Math.min(100, Math.abs(totRetPct ?? 0) * 8) + '%', background: (totRet ?? 0) >= 0 ? '#21E0A0' : '#FF3D60' }} /></div></div>
-              <div><div className="krow"><span className="kk">Unrlz live</span><span className="kv" style={{ fontWeight: 600, color: isPositive ? '#21E0A0' : '#FF3D60' }}>{fmtEUR(totPl, true)}</span></div>
+              <div><div className="krow"><span className="kk">{tr('dashboard.unrealised_live')}</span><span className="kv" style={{ fontWeight: 600, color: isPositive ? '#21E0A0' : '#FF3D60' }}>{fmtEUR(totPl, true)}</span></div>
                 <div className="meter"><i style={{ width: Math.min(100, Math.abs(totPl) / Math.max(1, Math.abs(totRet ?? totPl)) * 100) + '%', background: isPositive ? '#21E0A0' : '#FF3D60' }} /></div></div>
-              <div><div className="krow"><span className="kk">Dry powder</span><span className="kv">{cashPct === null ? 'n.d.' : cashPct.toFixed(1) + '%'}</span></div>
+              <div><div className="krow"><span className="kk">{tr('dashboard.dry_powder')}</span><span className="kv">{cashPct === null ? tr('dashboard.na') : fmtNum(cashPct, 1) + '%'}</span></div>
                 {cashPct !== null && <div className="meter"><i style={{ width: cashPct + '%', background: '#95A1BA' }} /></div>}</div>
-              <div><div className="krow"><span className="kk">Max DD 1Y</span><span className="kv" style={{ color: '#FFA51E' }}>{maxDd != null ? maxDd.toFixed(1) + '%' : 'n.d.'}</span></div>
+              <div><div className="krow"><span className="kk">{'Max DD ' + tr('dashboard.one_year')}</span><span className="kv" style={{ color: '#FFA51E' }}>{maxDd != null ? fmtNum(maxDd, 1) + '%' : tr('dashboard.na')}</span></div>
                 <div className="meter"><i style={{ width: Math.min(100, Math.abs(maxDd ?? 0) / 30 * 100) + '%', background: '#FFA51E' }} /></div></div>
             </div>
           </div>
           <div className="acts">
             <button className="abtn cy" onClick={refreshPrices} disabled={refreshing}>
-              <RefreshCw size={10} className={refreshing ? 'animate-spin' : ''} />{refreshing ? 'UPDATING' : 'REFRESH PRICES'}
+              <RefreshCw size={10} className={refreshing ? 'animate-spin' : ''} />{refreshing ? tr('dashboard.updating') : tr('dashboard.refresh_prices')}
             </button>
-            <button className="abtn am" onClick={() => setAskRun(true)}><Play size={10} />RUN CONSIGLIERE</button>
+            <button className="abtn am" onClick={() => setAskRun(true)}><Play size={10} />{tr('dashboard.run_committee')}</button>
             <RunConfirmDialog open={askRun}
               onConfirm={() => { setAskRun(false); triggerRun(); }}
               onCancel={() => setAskRun(false)} />
@@ -847,13 +907,13 @@ export default function Dashboard() {
           <div className="p3h" title={spiegaCurva(curva)}>
             {titoloVista(vistaCurva)}
             <span className="n">{curva.stato === 'viva' ? curva.nota : ''}</span>
-            <span className="side curva-sw" role="group" aria-label="vista della curva">
+            <span className="side curva-sw" role="group" aria-label={tr('dashboard.curve_view')}>
               <button type="button" className={vistaCurva === 'quota' ? 'on' : ''}
                       aria-pressed={vistaCurva === 'quota'}
                       onClick={() => setVistaCurva('quota')}
                       disabled={!!curvaSpenta}
                       title={curvaSpenta
-                        || 'Il valore quota: il rendimento al netto dei versamenti, su tutta la finestra.'}>
+                        || tr('dashboard.curve_unit_hint')}>
                 {etichettaVista('quota')}
               </button>
               <span aria-hidden="true">·</span>
@@ -864,7 +924,7 @@ export default function Dashboard() {
                       onClick={() => setVistaCurva('patrimonio')}
                       disabled={!!patrimonioSpento}
                       title={patrimonioSpento
-                        || 'Gli euro veri degli snapshot NAV: posizioni piu\' la cassa di quel giorno.'}>
+                        || tr('dashboard.curve_assets_hint')}>
                 {etichettaVista('patrimonio')}
               </button>
             </span>
@@ -877,7 +937,7 @@ export default function Dashboard() {
         <MarketPanel tickers={positions.map(p => p.ticker)} onOpenMkt={goMkt} />
 
         <div className="p3 heatp">
-          <div className="p3h">BOOK HEAT // PESO × P/L <span className="side">AREA = PESO · COLORE = P/L · CLICK → MKT</span></div>
+          <div className="p3h">{tr('dashboard.heat_title')} <span className="side">{tr('dashboard.heat_hint')}</span></div>
           <HeatStrip positions={positions} limit={10} onSelect={goMkt} />
         </div>
       </div>
@@ -886,12 +946,12 @@ export default function Dashboard() {
       <div className="col">
         <div className="p3" style={{ flexShrink: 0 }}>
           <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
-          <div className="p3h am">PENDING DECISIONS <span style={{ color: '#FFC555' }}>{decisions.length}</span>
-            <span className="side" style={{ cursor: 'pointer' }} onClick={() => navigate('/decisions')}>DECN ▸</span>
+          <div className="p3h am">{tr('dashboard.pending_decisions')} <span style={{ color: '#FFC555' }}>{decisions.length}</span>
+            <span className="side" style={{ cursor: 'pointer' }} onClick={() => navigate('/decisions')}>{tr('dashboard.decisions_open')}</span>
           </div>
           <div className="num" style={{ maxHeight: 176, overflowY: 'auto' }}>
             {decisions.length === 0 ? (
-              <div className="text-muted text-2xs font-mono py-4 text-center">NO PENDING ACTIONS</div>
+              <div className="text-muted text-2xs font-mono py-4 text-center">{readFailures['/decisions'] ? tr('dashboard.data_unavailable') : tr('dashboard.pending_none')}</div>
             ) : decisions.map(d => (
               <div className="dec" key={d.id} onClick={() => navigate('/decisions')}>
                 <span className="ld a" />
@@ -905,26 +965,26 @@ export default function Dashboard() {
         </div>
 
         <div className="p3 blot" style={{ flex: 1, minHeight: 0 }}>
-          <div className="p3h">BLOTTER <span className="n">· {positions.length} ACTIVE · TOP P/L</span>
+          <div className="p3h">{tr('dashboard.blotter')} <span className="n">· {positions.length} {tr('dashboard.blotter_active')}</span>
             {dayTot != null && (
               <span className={'chip ' + (dayTot >= 0 ? 'g' : 'r')}
-                    title={dayPartial ? 'somma PARZIALE: alcune posizioni senza prev_close/FX (n.d.)' : 'P&L di giornata vs chiusura precedente'}>
-                GG {fmtEUR(dayTot, true)}{dayPartial ? ' ±' : ''}
+                    title={dayPartial ? tr('dashboard.partial_total') : tr('dashboard.daily_vs_close')}>
+                {tr('dashboard.day_short')} {fmtEUR(dayTot, true)}{dayPartial ? ' ±' : ''}
               </span>
             )}
             {nStale > 0 && (
-              <span className="chip a" title={'PREZZO STALE — P&L n.d. (al costo): ' + (snap.stale_positions || []).join(', ')}>
+              <span className="chip a" title={tr('dashboard.stale_pl') + (snap.stale_positions || []).join(', ')}>
                 {nStale} STALE
               </span>
             )}
-            <span className="side">CLICK TICKER → MKT</span>
+                <span className="side">{tr('dashboard.click_ticker')}</span>
           </div>
           <div className="tscroll" style={{ flex: 1 }}>
             <table className="num">
               <thead><tr>
-                <th>Ticker</th><th className="c-qty">Qty</th><th>Live</th><th>GG %</th>
-                <th className="c-plg">P/L GG</th><th className="c-val">Val EUR</th>
-                <th>P/L EUR</th><th className="c-plpct">P/L %</th><th className="c-wt">WT</th>
+                <th>Ticker</th><th className="c-qty">{tr('dashboard.quantity')}</th><th>{tr('dashboard.price_live')}</th><th>{tr('dashboard.day_pct')}</th>
+                <th className="c-plg">{tr('dashboard.day_pl_column')}</th><th className="c-val">{tr('dashboard.value_eur')}</th>
+                <th>P/L EUR</th><th className="c-plpct">P/L %</th><th className="c-wt">{tr('dashboard.weight_short')}</th>
               </tr></thead>
               <tbody>
                 {blotterRows.map(p => {
@@ -935,18 +995,18 @@ export default function Dashboard() {
                       <td className="text-muted c-qty">{fmtNum(p.quantita, 0)}</td>
                       <td style={{ color: '#29D3F2' }}>
                         {p.price_stale
-                          ? <span className="chip a" title={'PREZZO STALE — riga al COSTO, P&L n.d. (' + (p.price_source || 'fonte n.d.') + ')'}>STALE</span>
+                          ? <span className="chip a" title={tr('dashboard.stale_row') + (p.price_source || tr('dashboard.source_na')) + ')'}>STALE</span>
                           : <FlashPx k={p.ticker} value={p.prezzo_live} />}
                       </td>
                       <td className={dp == null ? 'text-muted' : dp >= 0 ? 'up' : 'dn'}
-                          title={p.prev_close_ts ? 'vs chiusura ' + String(p.prev_close_ts).slice(0, 10) : 'prev_close n.d. (storico prezzi o backend da riavviare)'}>
-                        {dp != null ? fmtPct(dp) : 'n.d.'}
+                          title={p.prev_close_ts ? tr('dashboard.vs_close') + String(p.prev_close_ts).slice(0, 10) : tr('dashboard.previous_close_na')}>
+                        {dp != null ? fmtPct(dp) : tr('dashboard.na')}
                       </td>
-                      <td className={'c-plg ' + (de == null ? 'text-muted' : de >= 0 ? 'up' : 'dn')}>{de != null ? fmtEUR(de, true) : 'n.d.'}</td>
+                      <td className={'c-plg ' + (de == null ? 'text-muted' : de >= 0 ? 'up' : 'dn')}>{de != null ? fmtEUR(de, true) : tr('dashboard.na')}</td>
                       <td className="c-val">{fmtEUR(p.valore_mercato || 0)}</td>
-                      <td className={(p.pl_eur || 0) >= 0 ? 'up' : 'dn'}>{p.pl_eur != null ? fmtEUR(p.pl_eur, true) : 'n.d.'}</td>
-                      <td className={'c-plpct ' + ((p.pl_pct || 0) >= 0 ? 'up' : 'dn')}>{p.pl_pct != null ? fmtPct(p.pl_pct) : 'n.d.'}</td>
-                      <td className="text-muted c-wt">{(p.peso_pct ?? 0).toFixed(1)}</td>
+                      <td className={(p.pl_eur || 0) >= 0 ? 'up' : 'dn'}>{p.pl_eur != null ? fmtEUR(p.pl_eur, true) : tr('dashboard.na')}</td>
+                      <td className={'c-plpct ' + ((p.pl_pct || 0) >= 0 ? 'up' : 'dn')}>{p.pl_pct != null ? fmtPct(p.pl_pct) : tr('dashboard.na')}</td>
+                      <td className="text-muted c-wt">{fmtNum((p.peso_pct ?? 0), 1)}</td>
                     </tr>
                   );
                 })}

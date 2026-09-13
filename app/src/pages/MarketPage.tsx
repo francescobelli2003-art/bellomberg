@@ -4,27 +4,32 @@ import { Bellomberg, MktSearchHit, MktQuote, MktNewsItem, MktFinancials, MktHold
 import TvChartPanel from '@/components/TvChartPanel';
 import { Search, Cpu, Heart, Activity, RefreshCw, AlertOctagon } from 'lucide-react';
 import { isInPulse, togglePulse } from '@/lib/pulse';
+import { useT } from '@/i18n/provider';
+import { t as tr } from '@/i18n/t';
+import { linguaCorrente, localeDi } from '@/i18n/lingua';
+import { leggiDetail } from '@/lib/quota';
 import './dashboard-command.css';
 
 /** UI v3 T3 - SECURITY TERMINAL: cerca e analizza QUALSIASI titolo globale (non solo il book).
  *  F15 v3 23/07: vestito OBSIDIAN COMMAND (.obsx) + grafico TV-grade condiviso (TvChartPanel). */
 
 const QUICK = ['NVDA', 'AAPL', 'MSFT', 'TSLA', 'AMZN', 'META', 'GOOGL', 'SPY', 'QQQ', 'MSTR'];
+const sourceError = (error: any) => leggiDetail(error?.response?.data?.detail) || leggiDetail(error?.message) || '—';
 
 const cn = (v?: number | null, dec = 2) =>
-  v == null || !isFinite(v) ? '-' : Intl.NumberFormat('it-IT', { notation: 'compact', maximumFractionDigits: dec }).format(v);
+  v == null || !isFinite(v) ? '-' : Intl.NumberFormat(localeDi(linguaCorrente()), { notation: 'compact', maximumFractionDigits: dec }).format(v);
 const fx = (v?: number | null, dec = 2) =>
-  v == null || !isFinite(v) ? '-' : v.toLocaleString('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  v == null || !isFinite(v) ? '-' : v.toLocaleString(localeDi(linguaCorrente()), { minimumFractionDigits: dec, maximumFractionDigits: dec });
 
 function timeAgo(p?: string | number) {
   if (p == null) return '';
   const t = typeof p === 'number' ? (p > 2e10 ? p : p * 1000) : Date.parse(p);
   if (!isFinite(t)) return '';
   const m = Math.max(0, Math.round((Date.now() - t) / 60000));
-  if (m < 60) return m + 'm fa';
+  if (m < 60) return tr('ui.minutes_ago', { n: m });
   const h = Math.round(m / 60);
-  if (h < 48) return h + 'h fa';
-  return Math.round(h / 24) + 'g fa';
+  if (h < 48) return tr('ui.hours_ago', { n: h });
+  return tr('ui.days_ago', { n: Math.round(h / 24) });
 }
 
 function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
@@ -37,23 +42,25 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
 }
 
 const gv = (r: Record<string, any>, ...keys: string[]) => { for (const k of keys) if (r[k] != null) return r[k]; return null; };
-const numv = (v: any) => v == null ? '-' : Intl.NumberFormat('it-IT', { notation: 'compact', maximumFractionDigits: 1 }).format(Number(v));
-const pctv = (v: any) => v == null ? '-' : (Number(v) <= 1 ? (Number(v) * 100).toFixed(2) : Number(v).toFixed(2)) + '%';
+const numv = (v: any) => v == null ? '-' : Intl.NumberFormat(localeDi(linguaCorrente()), { notation: 'compact', maximumFractionDigits: 1 }).format(Number(v));
+const pctv = (v: any) => v == null ? '-' : fx(Number(v) <= 1 ? Number(v) * 100 : Number(v)) + '%';
 
 function FinTable({ b }: { b: FinBlock }) {
+  const tr = useT();
   const labels = Object.keys(b.rows || {});
-  if (!labels.length) return <div className="text-faint text-2xs font-mono py-6 text-center">dati non disponibili</div>;
+  if (!labels.length) return <div className="text-faint text-2xs font-mono py-6 text-center">{tr('ui.no_data')}</div>;
   return (
     <div className="overflow-x-auto">
       <table className="table-bbg">
-        <thead><tr><th>Voce</th>{b.years.map((y, i) => <th key={i} className="text-right">{y}</th>)}</tr></thead>
+        <caption className="text-faint text-3xs text-left">{tr('ui.source_original')}</caption>
+        <thead><tr><th>{tr('ui.row_label')}</th>{b.years.map((y, i) => <th key={i} className="text-right">{y}</th>)}</tr></thead>
         <tbody>
           {labels.map(l => (
             <tr key={l}>
               <td className="text-gold">{l}</td>
               {b.rows[l].map((v, i) => (
                 <td key={i} className={'text-right tabular-nums ' + (v != null && v < 0 ? 'text-crimson' : 'text-text')}>
-                  {v == null ? '-' : l.includes('EPS') ? v.toFixed(2) : numv(v)}
+                  {v == null ? '-' : l.includes('EPS') ? fx(v) : numv(v)}
                 </td>
               ))}
             </tr>
@@ -64,9 +71,10 @@ function FinTable({ b }: { b: FinBlock }) {
   );
 }
 
-const COUNTRY_LABELS: Record<string, string> = { US: 'USA', IT: 'Italia', DE: 'Germania', FR: 'Francia', UK: 'Regno Unito', JP: 'Giappone', CN: 'Cina / HK', IN: 'India', BR: 'Brasile' };
+const countryLabels = (): Record<string, string> => ({ US: 'USA', IT: tr('ui.country_it'), DE: tr('ui.country_de'), FR: tr('ui.country_fr'), UK: tr('ui.country_uk'), JP: tr('ui.country_jp'), CN: tr('ui.country_cn'), IN: 'India', BR: tr('ui.country_br') });
 
 function OvwSection({ title, rows, onSelect, empty }: { title: string; rows: MktOverviewRow[]; onSelect: (t: string) => void; empty: string }) {
+  useT();
   return (
     <div className="p3">
       <div className="p3h">{title}</div>
@@ -80,9 +88,9 @@ function OvwSection({ title, rows, onSelect, empty }: { title: string; rows: Mkt
               return (
                 <tr key={r.ticker} onClick={() => onSelect(r.ticker)} className="cursor-pointer">
                   <td style={{ color: '#8D9FC4' }}>{r.name}</td>
-                  <td style={{ color: '#29D3F2' }}>{r.price == null ? '-' : r.price.toLocaleString('it-IT', { maximumFractionDigits: 2 })}</td>
+                  <td style={{ color: '#29D3F2' }}>{r.price == null ? '-' : r.price.toLocaleString(localeDi(linguaCorrente()), { maximumFractionDigits: 2 })}</td>
                   <td className={c == null ? 'text-muted' : c >= 0 ? 'up' : 'dn'} style={{ fontWeight: 600 }}>
-                    {c == null ? '-' : (c >= 0 ? '+' : '') + c.toFixed(2) + '%'}
+                    {c == null ? '-' : (c >= 0 ? '+' : '') + fx(c) + '%'}
                   </td>
                 </tr>
               );
@@ -95,6 +103,8 @@ function OvwSection({ title, rows, onSelect, empty }: { title: string; rows: Mkt
 }
 
 function MarketOverview({ onSelect }: { onSelect: (t: string) => void }) {
+  const tr = useT();
+  const COUNTRY_LABELS = countryLabels();
   const [country, setCountry] = useState('US');
   const [data, setData] = useState<MktOverview | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -104,17 +114,17 @@ function MarketOverview({ onSelect }: { onSelect: (t: string) => void }) {
     let m = true; setLoading(true); setErr(null);
     Bellomberg.mktOverview(country)
       .then(d => { if (m) setData(d); })
-      .catch(e => { if (m) { setData(null); setErr(e?.response?.data?.detail || e?.message || String(e)); } })
+      .catch(e => { if (m) { setData(null); setErr(sourceError(e)); } })
       .finally(() => { if (m) setLoading(false); });
     return () => { m = false; };
   }, [country, retry]);
   const ccs = data?.countries || ['US', 'IT', 'DE', 'FR', 'UK', 'JP', 'CN', 'IN', 'BR'];
   // Regola 14/07: il buco si dichiara — mai "caricamento..." perenne su errore
-  const empty = loading ? 'caricamento...' : err ? 'n.d. — overview in errore (v. sopra)' : 'nessun dato dal backend';
+  const empty = loading ? tr('ui.loading') : err ? tr('ui.market_empty_error') : tr('ui.market_empty');
   return (
     <>
       <div className="p3" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: '5px 12px', flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 9, letterSpacing: '.2em', fontWeight: 600, color: '#73829F', textTransform: 'uppercase' }}>Azioni per paese</span>
+        <span style={{ fontSize: 9, letterSpacing: '.2em', fontWeight: 600, color: '#73829F', textTransform: 'uppercase' }}>{tr('ui.market_by_country')}</span>
         <span className="tfg">
           {ccs.map(cc => (
             <button key={cc} onClick={() => setCountry(cc)} className={'tb' + (country === cc ? ' on' : '')}>
@@ -127,18 +137,18 @@ function MarketOverview({ onSelect }: { onSelect: (t: string) => void }) {
       {err && !loading && (
         <div className="p3 border-crimson flex items-center gap-3 px-3 py-2 font-mono text-2xs text-crimson">
           <AlertOctagon size={12} />
-          <span>OVERVIEW NON DISPONIBILE — {err}</span>
+          <span>{tr('ui.market_overview_error', { error: err })}</span>
           <button onClick={() => setRetry(r => r + 1)} className="btn btn-cyan ml-auto">
-            <RefreshCw size={11} /> RETRY
+            <RefreshCw size={11} /> {tr('ui.retry')}
           </button>
         </div>
       )}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-        <OvwSection title="INDICI PRINCIPALI" rows={data?.indici || []} onSelect={onSelect} empty={empty} />
-        <OvwSection title={'AZIONI // ' + (COUNTRY_LABELS[country] || country)} rows={data?.azioni || []} onSelect={onSelect} empty={empty} />
-        <OvwSection title="COMMODITIES" rows={data?.commodities || []} onSelect={onSelect} empty={empty} />
-        <OvwSection title="VALUTE" rows={data?.valute || []} onSelect={onSelect} empty={empty} />
-        <OvwSection title="OBBLIGAZIONI // TASSI" rows={data?.obbligazioni || []} onSelect={onSelect} empty={empty} />
+        <OvwSection title={tr('ui.market_indices')} rows={data?.indici || []} onSelect={onSelect} empty={empty} />
+        <OvwSection title={tr('ui.market_equities', { country: COUNTRY_LABELS[country] || country })} rows={data?.azioni || []} onSelect={onSelect} empty={empty} />
+        <OvwSection title={tr('ui.market_commodities')} rows={data?.commodities || []} onSelect={onSelect} empty={empty} />
+        <OvwSection title={tr('ui.market_currencies')} rows={data?.valute || []} onSelect={onSelect} empty={empty} />
+        <OvwSection title={tr('ui.market_bonds')} rows={data?.obbligazioni || []} onSelect={onSelect} empty={empty} />
         <OvwSection title="FUTURES" rows={data?.futures || []} onSelect={onSelect} empty={empty} />
       </div>
     </>
@@ -146,10 +156,12 @@ function MarketOverview({ onSelect }: { onSelect: (t: string) => void }) {
 }
 
 export default function MarketPage() {
+  const tr = useT();
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<MktSearchHit[]>([]);
   const [open, setOpen] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [tk, setTk] = useState('');
   const [quote, setQuote] = useState<MktQuote | null>(null);
   const [quoteErr, setQuoteErr] = useState<string | null>(null);
@@ -158,20 +170,23 @@ export default function MarketPage() {
   const [showSummary, setShowSummary] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const [fav, setFav] = useState<boolean | null>(null);
+  const [favErr, setFavErr] = useState<{ operation: 'read' | 'write'; detail: string } | null>(null);
   const [fin, setFin] = useState<MktFinancials | null>(null);
+  const [finError, setFinError] = useState<string | null>(null);
   const [holders, setHolders] = useState<MktHolders | null>(null);
   const [holdersErr, setHoldersErr] = useState<string | null>(null);
   const [finTab, setFinTab] = useState<'income' | 'balance' | 'cashflow'>('income');
 
   // ricerca con debounce
   useEffect(() => {
-    if (!q.trim()) { setHits([]); setOpen(false); return; }
+    if (!q.trim()) { setHits([]); setOpen(false); setSearchError(null); setSearching(false); return; }
     let alive = true;
     setSearching(true);
+    setSearchError(null);
     const t = setTimeout(() => {
       Bellomberg.mktSearch(q.trim())
         .then(r => { if (alive) { setHits(r.results || []); setOpen(true); } })
-        .catch(() => { if (alive) setHits([]); })
+        .catch(e => { if (alive) { setHits([]); setOpen(false); setSearchError(sourceError(e)); } })
         .finally(() => { if (alive) setSearching(false); });
     }, 300);
     return () => { alive = false; clearTimeout(t); };
@@ -195,9 +210,10 @@ export default function MarketPage() {
     if (!tk) return;
     let m = true;
     setFav(null);
+    setFavErr(null);
     Bellomberg.favorites()
       .then(r => { if (m) setFav((r.favorites || []).some(f => f.ticker === tk)); })
-      .catch(() => { if (m) setFav(false); });
+      .catch(e => { if (m) { setFav(null); setFavErr({ operation: 'read', detail: sourceError(e) }); } });
     return () => { m = false; };
   }, [tk]);
 
@@ -205,10 +221,11 @@ export default function MarketPage() {
     if (fav == null || !tk) return;
     const cur = fav;
     setFav(!cur);
+    setFavErr(null);
     try {
       if (cur) await Bellomberg.favDel(tk);
       else await Bellomberg.favAdd({ ticker: tk, name: quote?.name || '', sector: quote?.sector || '', industry: quote?.industry || '' });
-    } catch { setFav(cur); }
+    } catch (e) { setFav(cur); setFavErr({ operation: 'write', detail: sourceError(e) }); }
   };
 
   // MACRO PULSE personalizzabile (richiesta PM 23/07): il titolo in vista si
@@ -226,8 +243,8 @@ export default function MarketPage() {
     let m = true;
     setQuote(null); setNews(null); setShowSummary(false); setQuoteErr(null); setNewsErr(null);
     // Degrado DICHIARATO (regola 14/07): quote scheletro + errore reso, mai stats mute
-    Bellomberg.mktQuote(tk).then(r => { if (m) setQuote(r); }).catch(e => { if (m) { setQuote({ ticker: tk, name: tk }); setQuoteErr(e?.response?.data?.detail || e?.message || String(e)); } });
-    Bellomberg.mktNews(tk).then(r => { if (m) setNews(r.items || []); }).catch(e => { if (m) { setNews([]); setNewsErr(e?.response?.data?.detail || e?.message || String(e)); } });
+    Bellomberg.mktQuote(tk).then(r => { if (m) setQuote(r); }).catch(e => { if (m) { setQuote({ ticker: tk, name: tk }); setQuoteErr(sourceError(e)); } });
+    Bellomberg.mktNews(tk).then(r => { if (m) setNews(r.items || []); }).catch(e => { if (m) { setNews([]); setNewsErr(sourceError(e)); } });
     return () => { m = false; };
   }, [tk]);
 
@@ -235,9 +252,9 @@ export default function MarketPage() {
   useEffect(() => {
     if (!tk) return;
     let m = true;
-    setFin(null); setHolders(null); setFinTab('income'); setHoldersErr(null);
-    Bellomberg.mktFinancials(tk).then(r => { if (m) setFin(r); }).catch(() => { if (m) setFin({ ticker: tk, error: 'bilanci non disponibili' }); });
-    Bellomberg.mktHolders(tk).then(r => { if (m) setHolders(r); }).catch(e => { if (m) { setHolders({ ticker: tk, major: [], institutional: [] }); setHoldersErr(e?.response?.data?.detail || e?.message || String(e)); } });
+    setFin(null); setFinError(null); setHolders(null); setFinTab('income'); setHoldersErr(null);
+    Bellomberg.mktFinancials(tk).then(r => { if (m) setFin(r); }).catch(e => { if (m) { setFinError(sourceError(e)); setFin({ ticker: tk }); } });
+    Bellomberg.mktHolders(tk).then(r => { if (m) setHolders(r); }).catch(e => { if (m) { setHolders({ ticker: tk, major: [], institutional: [] }); setHoldersErr(sourceError(e)); } });
     return () => { m = false; };
   }, [tk]);
 
@@ -257,7 +274,7 @@ export default function MarketPage() {
       <div className="p3 hero" style={{ position: 'relative', zIndex: 30 }}>
         <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
         <div className="flex items-center gap-3 px-3 py-2.5">
-          <span className="font-mono" style={{ fontSize: 10, letterSpacing: '.24em', color: '#FFA51E', textTransform: 'uppercase' }}>GLOBAL MARKETS // OMNISEARCH</span>
+          <span className="font-mono" style={{ fontSize: 10, letterSpacing: '.24em', color: '#FFA51E', textTransform: 'uppercase' }}>{tr('ui.market_search')}</span>
           <div className="flex-1 relative">
             <div className="flex items-center gap-2 bg-bg border border-border focus-within:border-amber px-3 py-1.5 transition-colors">
               <Search size={12} className="text-faint" />
@@ -269,11 +286,12 @@ export default function MarketPage() {
                   if (e.key === 'Enter' && hits[0]) select(hits[0].symbol);
                   if (e.key === 'Escape') { setOpen(false); setQ(''); }
                 }}
-                placeholder="CERCA QUALSIASI TITOLO GLOBALE - nome o ticker (es. Ferrari, RACE.MI, 7203.T, SAP.DE)"
+                placeholder={tr('ui.market_search_hint')}
                 className="flex-1 bg-transparent outline-none font-mono text-xs text-text placeholder:text-faint tracking-wider"
               />
               {searching && <Cpu size={11} className="text-amber animate-pulse" />}
             </div>
+            {searchError !== null && <div role="alert" className="text-crimson text-2xs font-mono">{tr('ui.market_search_failed', { error: searchError })}</div>}
             {open && hits.length > 0 && (
               <div className="absolute z-30 inset-x-0 top-full mt-1 bg-panel border border-amber-deep shadow-depth max-h-72 overflow-y-auto">
                 {hits.map(h => (
@@ -290,7 +308,7 @@ export default function MarketPage() {
           </div>
         </div>
         <div className="flex items-center gap-1.5 px-3 pb-2 font-mono flex-wrap">
-          <span style={{ fontSize: 9, letterSpacing: '.2em', fontWeight: 600, color: '#73829F', textTransform: 'uppercase', marginRight: 4 }}>Quick</span>
+          <span style={{ fontSize: 9, letterSpacing: '.2em', fontWeight: 600, color: '#73829F', textTransform: 'uppercase', marginRight: 4 }}>{tr('ui.market_quick')}</span>
           <span className="tfg">
             {QUICK.map(s => (
               <button key={s} onClick={() => select(s)} className={'tb' + (tk === s ? ' on' : '')}>{s}</button>
@@ -312,14 +330,14 @@ export default function MarketPage() {
                   <span className="font-mono font-bold text-2xl text-gold tracking-wide">{tk}</span>
                   <span className="text-text text-sm font-mono">{quote?.name || '...'}</span>
                   <button onClick={toggleFav} disabled={fav == null}
-                          title={fav ? 'Rimuovi dai preferiti' : 'Aggiungi ai preferiti (il Consigliere li seguira)'}
+                          title={fav ? tr('ui.remove_favorite') : tr('ui.add_favorite')}
                           className={'flex items-center gap-1.5 px-2 py-0.5 border font-mono text-3xs uppercase tracking-wider transition-colors disabled:opacity-40 ' + (fav ? 'border-crimson text-crimson bg-crimson/10' : 'border-border text-muted hover:text-crimson hover:border-crimson')}>
-                    <Heart size={10} fill={fav ? 'currentColor' : 'none'} /> {fav ? 'PREFERITO' : 'PREFERITI'}
+                    <Heart size={10} fill={fav ? 'currentColor' : 'none'} /> {fav ? tr('ui.favorite') : tr('ui.favorites')}
                   </button>
                   <button onClick={togglePulsePick}
-                          title={inPulse ? 'Togli dal box MACRO PULSE della Dashboard' : 'Aggiungi al box MACRO PULSE della Dashboard (F1)'}
+                          title={inPulse ? tr('ui.pulse_remove') : tr('ui.pulse_add')}
                           className={'flex items-center gap-1.5 px-2 py-0.5 border font-mono text-3xs uppercase tracking-wider transition-colors ' + (inPulse ? 'border-cyan text-cyan bg-cyan/10' : 'border-border text-muted hover:text-cyan hover:border-cyan')}>
-                    <Activity size={10} /> {inPulse ? 'NEL PULSE ✓' : '+ MACRO PULSE'}
+                    <Activity size={10} /> {inPulse ? tr('ui.pulse_selected') : '+ MACRO PULSE'}
                   </button>
                   {quote?.recommendation && (
                     <span className="font-mono text-3xs uppercase tracking-wider px-1.5 py-0.5 border border-cyan-deep text-cyan">{quote.recommendation}</span>
@@ -327,14 +345,16 @@ export default function MarketPage() {
                 </div>
                 <div className="font-mono text-3xs text-muted uppercase tracking-wider mt-1">
                   {quote?.exchange || '-'} &middot; {quote?.sector || '-'}{quote?.industry ? ' / ' + quote.industry : ''}
+                  {' · '}{tr('ui.source_original')}
                 </div>
+                {favErr && <div role="alert" className="text-crimson text-2xs font-mono">{tr(favErr.operation === 'read' ? 'ui.market_favorites_failed' : 'ui.market_favorite_unconfirmed', { error: favErr.detail })}</div>}
               </div>
               <div className="p-3.5 text-right">
                 {quote === null ? (
                   <Cpu size={16} className="text-amber animate-pulse inline" />
                 ) : quoteErr ? (
                   <div className="font-mono text-2xs text-crimson max-w-[280px]">
-                    QUOTE NON DISPONIBILE — {quoteErr}
+                    {tr('ui.quote_error', { error: quoteErr })}
                   </div>
                 ) : (
                   <>
@@ -343,7 +363,7 @@ export default function MarketPage() {
                     </div>
                     {chg != null && (
                       <div className={'font-mono text-sm tabular-nums mt-1 ' + (up ? 'text-emerald' : 'text-crimson')}>
-                        {up ? '+' : ''}{chg.toFixed(2)}% <span className="text-3xs text-muted">vs chiusura prec.</span>
+                        {up ? '+' : ''}{fx(chg)}% <span className="text-3xs text-muted">{tr('ui.previous_close')}</span>
                       </div>
                     )}
                   </>
@@ -352,22 +372,22 @@ export default function MarketPage() {
             </div>
             {/* STATS GRID */}
             <div className="grid grid-cols-5 border-t border-border">
-              <Stat label="Mkt Cap" value={cn(quote?.market_cap)} />
+              <Stat label={tr('ui.market_cap')} value={cn(quote?.market_cap)} />
               <Stat label="P/E" value={fx(quote?.pe)} />
-              <Stat label="Fwd P/E" value={fx(quote?.fwd_pe)} />
+              <Stat label={tr('ui.forward_pe')} value={fx(quote?.fwd_pe)} />
               <Stat label="EPS" value={fx(quote?.eps)} />
               <Stat label="Beta" value={fx(quote?.beta)} />
-              <Stat label="Div Yield" value={quote?.div_yield != null ? (quote.div_yield > 0.5 ? fx(quote.div_yield) : fx(quote.div_yield * 100)) + '%' : '-'} />
+              <Stat label={tr('ui.dividend_yield')} value={quote?.div_yield != null ? (quote.div_yield > 0.5 ? fx(quote.div_yield) : fx(quote.div_yield * 100)) + '%' : '-'} />
               <Stat label="Volume" value={cn(quote?.volume, 1)} />
-              <Stat label="Avg Vol 3M" value={cn(quote?.avg_volume, 1)} />
-              <Stat label="Short % Float" value={quote?.short_pct_float != null ? fx(quote.short_pct_float * 100, 1) + '%' : '-'} />
-              <Stat label="Target medio" value={fx(quote?.target_mean)} tone={quote?.target_mean != null && px != null ? (quote.target_mean >= px ? 'text-emerald' : 'text-crimson') : undefined} />
+              <Stat label={tr('ui.average_volume')} value={cn(quote?.avg_volume, 1)} />
+              <Stat label={tr('ui.short_float')} value={quote?.short_pct_float != null ? fx(quote.short_pct_float * 100, 1) + '%' : '-'} />
+              <Stat label={tr('ui.mean_target')} value={fx(quote?.target_mean)} tone={quote?.target_mean != null && px != null ? (quote.target_mean >= px ? 'text-emerald' : 'text-crimson') : undefined} />
               <Stat label="EV" value={cn(quote?.ev)} />
               <Stat label="EV/EBITDA" value={fx(quote?.ev_ebitda)} />
-              <Stat label="EV/Sales" value={fx(quote?.ev_sales)} />
+              <Stat label={tr('ui.ev_sales')} value={fx(quote?.ev_sales)} />
               <Stat label="PEG" value={fx(quote?.peg)} />
               <Stat label="P/B" value={fx(quote?.pb)} />
-              <Stat label="FCF Yield" value={quote?.fcf != null && quote?.market_cap ? ((quote.fcf / quote.market_cap) * 100).toFixed(1) + '%' : '-'} tone="text-cyan" />
+              <Stat label={tr('ui.fcf_yield')} value={quote?.fcf != null && quote?.market_cap ? fx((quote.fcf / quote.market_cap) * 100, 1) + '%' : '-'} tone="text-cyan" />
             </div>
             {/* 52W RANGE */}
             {range != null && (
@@ -388,23 +408,23 @@ export default function MarketPage() {
           <div className="grid grid-cols-12 gap-2">
             <div className="p3 cy col-span-8">
               <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
-              <div className="p3h">PRICE ACTION // {tk}
-                <span className="side">MOTORE TRADINGVIEW · SCROLL = ZOOM · DRAG = PAN</span>
+              <div className="p3h">{tr('ui.chart_price_action', { ticker: tk })}
+                <span className="side">{tr('ui.chart_controls')}</span>
               </div>
               <TvChartPanel ticker={tk} height={420} defaultRange={5} defaultInterval={4} />
             </div>
 
             <div className="p3 col-span-4 flex flex-col">
-              <div className="p3h am">NEWS WIRE // {tk}
-                <span className="side">{news?.length ?? '...'}</span>
+              <div className="p3h am">{tr('ui.market_wire', { ticker: tk })}
+                <span className="side">{news?.length ?? '...'} · {tr('ui.source_original')}</span>
               </div>
               <div className="flex-1 overflow-y-auto max-h-[430px] p-2 space-y-1.5">
                 {news === null ? (
-                  <div className="text-faint text-2xs font-mono py-8 text-center"><Cpu size={12} className="animate-pulse inline mr-2" />caricamento wire...</div>
+                  <div className="text-faint text-2xs font-mono py-8 text-center"><Cpu size={12} className="animate-pulse inline mr-2" />{tr('ui.wire_loading')}</div>
                 ) : newsErr ? (
-                  <div className="text-crimson text-2xs font-mono py-8 text-center">WIRE NON DISPONIBILE — {newsErr}</div>
+                  <div className="text-crimson text-2xs font-mono py-8 text-center">{tr('ui.wire_error', { error: newsErr })}</div>
                 ) : news.length === 0 ? (
-                  <div className="text-faint text-2xs font-mono py-8 text-center">nessuna notizia recente</div>
+                  <div className="text-faint text-2xs font-mono py-8 text-center">{tr('ui.news_empty')}</div>
                 ) : (
                   news.map((n, i) => (
                     <a key={i} href={externalWebUrl(n.link || '') || undefined} target="_blank" rel="noreferrer"
@@ -423,20 +443,20 @@ export default function MarketPage() {
 
           {/* FINANCIALS STORICI (T4-2) */}
           <div className="p3">
-            <div className="p3h">FINANCIALS // STORICO ANNUALE
+            <div className="p3h">{tr('ui.financials_title')}
               <span className="side">
                 <span className="tfg">
-                  <button onClick={() => setFinTab('income')} className={btn(finTab === 'income')}>CONTO ECONOMICO</button>
-                  <button onClick={() => setFinTab('balance')} className={btn(finTab === 'balance')}>STATO PATRIMONIALE</button>
-                  <button onClick={() => setFinTab('cashflow')} className={btn(finTab === 'cashflow')}>CASH FLOW</button>
+                  <button onClick={() => setFinTab('income')} className={btn(finTab === 'income')}>{tr('ui.income_statement')}</button>
+                  <button onClick={() => setFinTab('balance')} className={btn(finTab === 'balance')}>{tr('ui.balance_sheet')}</button>
+                  <button onClick={() => setFinTab('cashflow')} className={btn(finTab === 'cashflow')}>{tr('ui.cash_flow')}</button>
                 </span>
               </span>
             </div>
             <div className="p-2">
               {fin === null
-                ? <div className="text-faint text-2xs font-mono py-6 text-center"><Cpu size={11} className="animate-pulse inline mr-2" />caricamento bilanci...</div>
+                ? <div className="text-faint text-2xs font-mono py-6 text-center"><Cpu size={11} className="animate-pulse inline mr-2" />{tr('ui.financials_loading')}</div>
                 : fin.error || !fin.statements
-                  ? <div className="text-faint text-2xs font-mono py-6 text-center">{fin.error || 'dati non disponibili'}</div>
+                  ? <div className="text-faint text-2xs font-mono py-6 text-center">{finError !== null ? `${tr('ui.financials_error')}: ${finError}` : fin.error || tr('ui.no_data')}</div>
                   : <FinTable b={fin.statements[finTab]} />}
             </div>
           </div>
@@ -444,25 +464,25 @@ export default function MarketPage() {
           {/* OWNERSHIP (T4-2) */}
           <div className="grid grid-cols-12 gap-2">
             <div className="p3 col-span-4">
-              <div className="p3h">OWNERSHIP // STRUTTURA</div>
+              <div className="p3h">{tr('ui.ownership_title')}</div>
               <div className="p-3 space-y-1.5 font-mono text-2xs">
                 {holders === null
-                  ? <div className="text-faint py-4 text-center">caricamento...</div>
+                  ? <div className="text-faint py-4 text-center">{tr('ui.loading')}</div>
                   : holdersErr
-                    ? <div className="text-crimson py-4 text-center">n.d. — ownership in errore: {holdersErr}</div>
+                    ? <div className="text-crimson py-4 text-center">{tr('ui.ownership_error', { error: holdersErr })}</div>
                     : holders.major.length === 0
-                      ? <div className="text-faint py-4 text-center">n/d</div>
+                      ? <div className="text-faint py-4 text-center">{tr('settings.nd')}</div>
                       : holders.major.map((m, i) => {
                         const OWN_LABELS: Record<string, string> = {
-                          insidersPercentHeld: 'Insider %', institutionsPercentHeld: 'Istituzionali %',
-                          institutionsFloatPercentHeld: 'Istituzionali % del float', institutionsCount: 'N. istituzioni',
+                          insidersPercentHeld: tr('ui.ownership_insiders'), institutionsPercentHeld: tr('ui.ownership_institutions'),
+                          institutionsFloatPercentHeld: tr('ui.ownership_float'), institutionsCount: tr('ui.ownership_count'),
                         };
                         const isCount = String(m.label).toLowerCase().includes('count');
                         return (
                           <div key={i} className="flex items-center justify-between border-b border-border/40 pb-1">
                             <span className="text-text-dim">{OWN_LABELS[String(m.label)] || m.label}</span>
                             <span className="text-cyan tabular-nums">
-                              {typeof m.value === 'number' ? (isCount ? Math.round(m.value).toLocaleString('it-IT') : pctv(m.value)) : String(m.value ?? '-')}
+                              {typeof m.value === 'number' ? (isCount ? Math.round(m.value).toLocaleString(localeDi(linguaCorrente())) : pctv(m.value)) : String(m.value ?? '-')}
                             </span>
                           </div>
                         );
@@ -470,13 +490,13 @@ export default function MarketPage() {
               </div>
             </div>
             <div className="p3 col-span-8">
-              <div className="p3h">INSTITUTIONAL HOLDERS // TOP 10
+              <div className="p3h">{tr('ui.institutional_title')}
                 <span className="side">{holders?.institutional.length ?? '...'}</span>
               </div>
               <div className="overflow-x-auto max-h-[280px] overflow-y-auto">
                 {holders && holders.institutional.length > 0 ? (
                   <table className="table-bbg">
-                    <thead><tr><th>Holder</th><th className="text-right">Shares</th><th className="text-right">% Out</th><th className="text-right">Valore</th><th className="text-right">Data</th></tr></thead>
+                    <thead><tr><th>{tr('ui.holder')}</th><th className="text-right">{tr('ui.shares')}</th><th className="text-right">{tr('ui.outstanding_pct')}</th><th className="text-right">{tr('ui.value')}</th><th className="text-right">{tr('ui.date')}</th></tr></thead>
                     <tbody>
                       {holders.institutional.map((r, i) => (
                         <tr key={i}>
@@ -489,7 +509,7 @@ export default function MarketPage() {
                       ))}
                     </tbody>
                   </table>
-                ) : <div className={'text-2xs font-mono py-6 text-center ' + (holdersErr ? 'text-crimson' : 'text-faint')}>{holders === null ? 'caricamento...' : holdersErr ? 'n.d. — ownership in errore' : 'n/d'}</div>}
+                ) : <div className={'text-2xs font-mono py-6 text-center ' + (holdersErr ? 'text-crimson' : 'text-faint')}>{holders === null ? tr('ui.loading') : holdersErr ? tr('ui.ownership_failed') : tr('settings.nd')}</div>}
               </div>
             </div>
           </div>
@@ -498,10 +518,10 @@ export default function MarketPage() {
           {quote?.summary && (
             <div className="p3">
               <button onClick={() => setShowSummary(s => !s)} className="p3h w-full text-left cursor-pointer" style={{ background: 'transparent', border: 0, borderBottom: showSummary ? '1px solid #1A2440' : 0, fontFamily: 'inherit' }}>
-                PROFILO SOCIETARIO
-                <span className="side">{showSummary ? 'CHIUDI ▴' : 'APRI ▾'}</span>
+                {tr('ui.company_profile')}
+                <span className="side">{showSummary ? tr('ui.close_up') : tr('ui.open_down')}</span>
               </button>
-              {showSummary && <div className="p-3.5 text-xs text-text-dim leading-relaxed">{quote.summary}</div>}
+              {showSummary && <div className="p-3.5 text-xs text-text-dim leading-relaxed"><div className="text-faint text-3xs">{tr('ui.source_original')}</div>{quote.summary}</div>}
             </div>
           )}
         </>

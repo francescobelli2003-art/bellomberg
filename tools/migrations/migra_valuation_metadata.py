@@ -88,7 +88,8 @@ def _historical_rows(conn):
 def backend_alive():
     for host in ('127.0.0.1','::1'):
         try:
-            with socket.create_connection((host,8765),timeout=.5):return True
+            # Windows loopback refusal can arrive after two seconds.
+            with socket.create_connection((host,8765),timeout=5):return True
         except OSError as exc:
             if not isinstance(exc,ConnectionRefusedError) and exc.errno not in (errno.ECONNREFUSED,10061):
                 raise RuntimeError('Porta 8765 non verificabile: nessuna scrittura consentita') from exc

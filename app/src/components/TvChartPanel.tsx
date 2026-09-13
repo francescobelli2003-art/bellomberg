@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { Bellomberg, OhlcBar } from '@/lib/api';
 import TerminalChart from '@/components/TerminalChart';
 import { Cpu } from 'lucide-react';
+import { useT } from '@/i18n/provider';
+
+const NO_CHART_DATA = Symbol('no-chart-data');
 
 /**
  * F1/F15 v3 — pannello grafico TV-grade CONDIVISO (toolbar + TerminalChart).
@@ -47,6 +50,11 @@ function resample(bars: OhlcBar[], group: number): OhlcBar[] {
 export default function TvChartPanel({ ticker, height = 360, fill = false, defaultRange = 5, defaultInterval = 4 }: {
   ticker: string; height?: number; fill?: boolean; defaultRange?: number; defaultInterval?: number;
 }) {
+  const tr = useT();
+  const rangeLabel = (label: string) => label.endsWith('G') ? tr('ui.chart_day', { n: label.slice(0, -1) })
+    : label.endsWith('A') ? tr('ui.chart_year', { n: label.slice(0, -1) }) : label;
+  const intervalLabel = (label: string) => label === '1S' ? tr('ui.chart_week')
+    : label === '1ME' ? tr('ui.chart_month') : rangeLabel(label);
   const [ri, setRi] = useState(defaultRange);
   const [ii, setIi] = useState(defaultInterval);
   const [mode, setMode] = useState<'candle' | 'area' | 'line'>('candle');
@@ -55,7 +63,7 @@ export default function TvChartPanel({ ticker, height = 360, fill = false, defau
   const [showVwap, setShowVwap] = useState(false);
   const [showRsi, setShowRsi] = useState(false);
   const [bars, setBars] = useState<OhlcBar[] | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<string | typeof NO_CHART_DATA | null>(null);
   // al passaggio del breakpoint impilato (grid<->flex) il chart viene RIMONTATO
   // pulito: evita il race dei binding interni di lightweight-charts sul reflow
   const [stacked, setStacked] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width:1160px)').matches);
@@ -82,7 +90,7 @@ export default function TvChartPanel({ ticker, height = 360, fill = false, defau
     Bellomberg.ohlc(ticker, period, fetchIv)
       .then(r => {
         if (!m) return;
-        if (r.error || !r.bars?.length) { setErr(r.error || 'nessun dato'); return; }
+        if (r.error || !r.bars?.length) { setErr(r.error || NO_CHART_DATA); return; }
         setBars(iv === '4h' ? resample(r.bars, 4) : r.bars);
       })
       .catch(e => { if (m) setErr(String(e?.message || e)); });
@@ -97,10 +105,10 @@ export default function TvChartPanel({ ticker, height = 360, fill = false, defau
   return (
     <>
       <div className="tbar num">
-        <span className="tlab">RANGE</span>
+        <span className="tlab">{tr('ui.chart_range')}</span>
         <span className="tfg">
           {RANGES.map(([lab], i) => (
-            <button key={lab} onClick={() => setRi(i)} className={'tb' + (i === ri ? ' on' : '')}>{lab}</button>
+            <button key={lab} onClick={() => setRi(i)} className={'tb' + (i === ri ? ' on' : '')}>{rangeLabel(lab)}</button>
           ))}
         </span>
         <span className="tlab">TF</span>
@@ -109,21 +117,21 @@ export default function TvChartPanel({ ticker, height = 360, fill = false, defau
             const okIv = intervalOk(iv, rangeDays);
             return (
               <button key={lab} onClick={() => okIv && setIi(i)} disabled={!okIv}
-                      title={okIv ? (iv === '4h' ? '4H = resample dall’1H (il provider non lo espone)' : '') : 'timeframe non disponibile su questo range (limite dati provider)'}
-                      className={'tb' + (i === ii ? ' on' : '') + (okIv ? '' : ' dis')}>{lab}</button>
+                      title={okIv ? (iv === '4h' ? tr('ui.chart_resample_hint') : '') : tr('ui.chart_interval_unavailable')}
+                      className={'tb' + (i === ii ? ' on' : '') + (okIv ? '' : ' dis')}>{intervalLabel(lab)}</button>
             );
           })}
         </span>
         <span className="tfg">
-          <button onClick={() => setMode('candle')} className={'tb' + (mode === 'candle' ? ' on' : '')}>CANDELE</button>
-          <button onClick={() => setMode('area')} className={'tb' + (mode === 'area' ? ' on' : '')}>AREA</button>
-          <button onClick={() => setMode('line')} className={'tb' + (mode === 'line' ? ' on' : '')}>LINEA</button>
+          <button onClick={() => setMode('candle')} className={'tb' + (mode === 'candle' ? ' on' : '')}>{tr('ui.chart_candles')}</button>
+          <button onClick={() => setMode('area')} className={'tb' + (mode === 'area' ? ' on' : '')}>{tr('ui.chart_area')}</button>
+          <button onClick={() => setMode('line')} className={'tb' + (mode === 'line' ? ' on' : '')}>{tr('ui.chart_line')}</button>
         </span>
         <button onClick={() => setShowSma(s => !s)} className={ind(showSma)}>SMA 20/50</button>
         <button onClick={() => setShowVwap(s => !s)} className={ind(showVwap)}>VWAP</button>
         <button onClick={() => setShowRsi(s => !s)} className={ind(showRsi)}>RSI 14</button>
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 3, alignItems: 'center' }}>
-          {INTERVALS[ii][1] === '4h' && <span className="tlab" style={{ color: '#B97A00' }}>4H = RESAMPLE 1H</span>}
+          {INTERVALS[ii][1] === '4h' && <span className="tlab" style={{ color: '#B97A00' }}>{tr('ui.chart_resample')}</span>}
           <span className="tfg">
             <button onClick={() => setLog(false)} className={'tb' + (!log ? ' on' : '')}>LIN</button>
             <button onClick={() => setLog(true)} className={'tb' + (log ? ' on' : '')}>LOG</button>
@@ -132,9 +140,9 @@ export default function TvChartPanel({ ticker, height = 360, fill = false, defau
       </div>
       <div style={boxStyle}>
         {err
-          ? <div className="flex items-center justify-center text-crimson text-2xs font-mono" style={{ height: fill ? '100%' : height, minHeight: 200 }}>{err}</div>
+          ? <div className="flex items-center justify-center text-crimson text-2xs font-mono" style={{ height: fill ? '100%' : height, minHeight: 200 }}>{err === NO_CHART_DATA ? tr('ui.no_data') : err}</div>
           : !bars
-            ? <div className="flex items-center justify-center text-faint text-2xs font-mono" style={{ height: fill ? '100%' : height, minHeight: 200 }}><Cpu size={12} className="animate-pulse mr-2" /> caricamento {ticker}...</div>
+            ? <div className="flex items-center justify-center text-faint text-2xs font-mono" style={{ height: fill ? '100%' : height, minHeight: 200 }}><Cpu size={12} className="animate-pulse mr-2" /> {tr('ui.chart_loading', { ticker })}</div>
             : <TerminalChart key={stacked ? 'stk' : 'wide'} bars={bars} mode={mode} height={height} fill={fill} log={log} showSma={showSma} showVwap={showVwap} showRsi={showRsi} />}
       </div>
     </>

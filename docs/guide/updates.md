@@ -7,7 +7,9 @@
 An application update should replace code and dependencies, not your portfolio.
 Keep private files in their existing configured locations.
 
-1. Read the release notes and record which version you are running.
+1. Read the [changelog](../../CHANGELOG.md) and record which version you are
+   running: the number declared in `pyproject.toml` and `app/package.json`, and
+   the commit of your checkout (`git rev-parse --short HEAD`).
 2. Create a database backup using **F19 Settings**. Keep a separate private backup
    of configuration, mandate, research files and instrument metadata.
 3. Close the desktop and stop the backend and any scheduled writers before
@@ -35,6 +37,15 @@ Keep private files in their existing configured locations.
 8. Sign in, compare positions and cash with your pre-update records, open a saved
    memo, check the mandate and inspect new pages. A new empty book usually means
    the process is using another data directory—do not enter replacement trades.
+
+Choose and save the interface language if this profile has not selected one yet.
+Existing memos and specialist reports keep their original text; records without
+language metadata remain unknown. Changing the preference does not translate or
+regenerate that history. Preserve `preferences.json` with your private profile.
+
+Existing holdings are not automatically converted into documented opening
+positions. The new F16 opening-position workflow is an explicit balance entry
+with provenance; it does not infer past trades, historical FX or returns.
 
 Do not overwrite `.env` from the example during an update. Compare newly documented
 variables and add only the choices you need. Your existing chat output limit,

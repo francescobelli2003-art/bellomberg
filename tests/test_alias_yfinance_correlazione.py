@@ -4,6 +4,12 @@ import json
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def _no_opening_balances(monkeypatch):
+    from bellomberg.portfolio import portfolio_analytics as pa
+    monkeypatch.setattr(pa, "_opening_positions", lambda: [])
+
 import bellomberg.storage.negozi_privati as np_
 
 

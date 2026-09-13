@@ -22,6 +22,18 @@ opening it does not by itself generate a new valuation.
 5. Show older models when you need to compare revisions and explain why a view
    changed. Review the underlying report or workbook where available.
 
+For a documented method, inspect the method decision, evidence, unresolved input
+tasks and usability status together. The current canonical analysis takes
+precedence over a merely newer file modification time. A changed workbook,
+missing or unreadable sidecar, or discordant identity cannot revive an
+unverified fair value from a saved snapshot. Blocked values and upside remain
+unavailable; intermediate source fields may still be shown for investigation.
+See the [documented valuation methods](../sector-valuations.md).
+
+Changing interface language rereads the model list for current descriptions.
+It does not regenerate calculations, translate a saved thesis, or rewrite an
+existing workbook or report.
+
 ## If the library is empty
 Generate research through the committee or a supported valuation tool request,
 then return to the saved models. The optional maintenance script lives at

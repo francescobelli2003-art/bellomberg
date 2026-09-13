@@ -1,20 +1,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
-const ts = require('typescript');
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
-const root = path.resolve(__dirname, '../..');
+const { creaCaricatore, ambienteBrowser } = require('../i18n/_carica.cjs');
+ambienteBrowser();
 
 function load(relative, overrides = {}) {
-  const scope = { exports: {}, structuredClone, require: name => overrides[name] ?? require(name) };
-  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root, relative), 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022,
-      jsx: ts.JsxEmit.ReactJSX },
-  }).outputText, scope);
-  return scope.exports;
+  return creaCaricatore({ stub: overrides })(relative.replace(/^src\//, ''));
 }
 const presentation = load('src/lib/sector-valuation.ts');
 
@@ -31,14 +24,15 @@ function fixture() {
     detail: { engine: 'operating', fair_value_weighted: 1234.56, sanity: { severity: 'OK' } } };
 }
 
-function render(model) {
+function render(model, language = 'it') {
   let state = 0;
   const hooks = { ...React, useEffect() {}, useMemo: fn => fn(),
     useState: initial => [state++ === 0 ? [model] : initial, () => {}] };
-  const Page = load('src/pages/FundamentalsPage.tsx', {
+  const carica = creaCaricatore({ stub: {
     react: hooks, '@/lib/api': { Bellomberg: {}, API_BASE: 'http://synthetic.invalid' },
-    '@/lib/sector-valuation': presentation,
-  }).default;
+  } });
+  carica('i18n/lingua.ts').impostaLinguaCorrente(language);
+  const Page = carica('pages/FundamentalsPage.tsx').default;
   return renderToStaticMarkup(React.createElement(Page));
 }
 
@@ -47,9 +41,10 @@ test('F17 renders an external canonical ticker, documented method and usable val
   assert.match(html, /SYNTH\.X/);
   assert.match(html, /operating_fcff/);
   assert.match(html, /Synthetic method rationale/);
-  assert.match(html, /1234\.56/);
+  assert.match(html, /1\.234,56/);
   assert.match(html, />OK</);
   assert.match(html, /non nel book/);
+  assert.match(render(fixture(), 'en'), /1,234\.56/);
 });
 
 test('unknown sanity and legacy page caches never render an OK or a fair value', () => {
@@ -59,7 +54,7 @@ test('unknown sanity and legacy page caches never render an OK or a fair value',
     const before = structuredClone(model);
     const html = render(model);
     assert.doesNotMatch(html, />OK</);
-    assert.doesNotMatch(html, /1234\.56/);
+    assert.doesNotMatch(html, /1\.234,56|1,234\.56|1234\.56/);
     assert.deepEqual(model, before);
   }
 });
@@ -77,7 +72,7 @@ test('blocked NAV and SOTP secondary values cannot revive through detail or UI c
   assert.equal(normalized.detail.nav_per_share, 50);
   const html = render(model);
   assert.match(html, />BLOCK</);
-  assert.doesNotMatch(html, /1901|2701|1234\.56/);
+  assert.doesNotMatch(html, /1\.901|2\.701|1901|2701|1\.234,56|1,234\.56|1234\.56/);
 });
 
 test('incomplete research renders acquisition gaps and no fictitious Excel download', () => {
@@ -90,7 +85,7 @@ test('incomplete research renders acquisition gaps and no fictitious Excel downl
   assert.match(html, /capital_bridge/);
   assert.match(html, /Issuer filing required/);
   assert.match(html, /Capital data absent/);
-  assert.doesNotMatch(html, /APRI EXCEL|1234\.56|>OK</);
+  assert.doesNotMatch(html, /APRI EXCEL|1\.234,56|1,234\.56|1234\.56|>OK</);
 });
 
 test('managed care renders the real Python pipeline output with cutoff and capital gaps',

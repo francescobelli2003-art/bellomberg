@@ -103,3 +103,6 @@ def test_unhandled_skipped_extension_remains_blocking(tmp_path, binary):
     (tree / 'unexpected.png').write_bytes(b'not scanned')
     outcome = vp.controllo_gitleaks(str(tree), exe=binary)
     assert not outcome.ok and 'NON scansionati' in outcome.errore
+    # 13/09: both reasons stay in the verdict: the unscanned file is named and the
+    # failed raster provenance check is not replaced by the coverage report.
+    assert 'unexpected.png' in outcome.errore and 'verifica raster' in outcome.errore

@@ -29,6 +29,8 @@ Lotto 1 = spec + mirror Python + ancore + test offline.
 Lotto 2 = workbook a formule vive + routing get_valuation + collaudo sandbox
 (Terna/Snam) + review avversariale finanza+codice pre-commit.
 """
+from bellomberg.core.language import scoped_language, text as _lt
+from bellomberg.reporting.i18n_excel import label as _xt
 from typing import Any, Dict, Optional
 
 from bellomberg.valuation.dcf_bank import _real_payout_from_cashflow, _safe  # riuso, mai riscrivere
@@ -705,19 +707,19 @@ def _sheet_thesis_rab(wb, spec, fv, peers_note=None):
     from bellomberg.valuation.dcf_bank import GREYTX, L, T
     from datetime import datetime as _dt
     ws = wb.create_sheet("Thesis & Assumptions", 0)
-    T(ws, "A1", f"{spec['company_name']} ({spec['ticker']}) - Rete regolata (motore RAB)")
-    L(ws, "A2", f"Motore RAB V7 (audit/15) - {_dt.now():%d/%m/%Y %H:%M} - valuta {spec['currency']}",
+    T(ws, "A1", _lt(f"{spec['company_name']} ({spec['ticker']}) - Rete regolata (motore RAB)",f"{spec['company_name']} ({spec['ticker']}) - Regulated network (RAB engine)"))
+    L(ws, "A2", _lt(f"Motore RAB V7 (audit/15) - {_dt.now():%d/%m/%Y %H:%M} - valuta {spec['currency']}",f"Motore RAB V7 (audit/15) - {_dt.now():%d/%m/%Y %H:%M} - currency {spec['currency']}"),
       italic=True, color=GREYTX)
-    L(ws, "A4", "PERCHE' NON C'E' UN DCF: in una rete regolata la revenue e' la FORMULA "
+    L(ws, "A4", _xt("PERCHE' NON C'E' UN DCF: in una rete regolata la revenue e' la FORMULA "
                 "del regolatore (WACC ammesso x RAB + pass-through), non un'assumption di "
-                "crescita. Metodi: EV/RAB premium, DDM sull'utile ammesso, peer.", italic=True)
+                "crescita. Metodi: EV/RAB premium, DDM sull'utile ammesso, peer."), italic=True)
     r = 6
-    L(ws, f"A{r}", "SERVIZIO REGOLATO: " + str(spec.get("service") or "n.d."), bold=True); r += 1
-    L(ws, f"A{r}", "RENDIMENTO AMMESSO (nominale): %.2f%%" % (spec["allowed_return_nominal"] * 100),
+    L(ws, f"A{r}", _xt("SERVIZIO REGOLATO: ") + str(spec.get("service") or "n.d."), bold=True); r += 1
+    L(ws, f"A{r}", _xt("RENDIMENTO AMMESSO (nominale): %.2f%%") % (spec["allowed_return_nominal"] * 100),
       bold=True); r += 2
-    L(ws, f"A{r}", "TESI DELL'ANALISTA (variant view):", bold=True); r += 1
-    L(ws, f"A{r}", str(spec.get("variant_view") or "(nessuna variant view fornita)")); r += 2
-    L(ws, f"A{r}", "FONTI E SCELTE (ogni input ha la sua):", bold=True); r += 1
+    L(ws, f"A{r}", _xt("TESI DELL'ANALISTA (variant view):"), bold=True); r += 1
+    L(ws, f"A{r}", str(spec.get("variant_view") or _xt("(nessuna variant view fornita)"))); r += 2
+    L(ws, f"A{r}", _xt("FONTI E SCELTE (ogni input ha la sua):"), bold=True); r += 1
     for k, v in (spec.get("_sources") or {}).items():
         L(ws, f"A{r}", f"- {k}: {v}"); r += 1
     if peers_note:
@@ -725,7 +727,7 @@ def _sheet_thesis_rab(wb, spec, fv, peers_note=None):
     r += 1
     warns = (fv or {}).get("warnings") or []
     if warns:
-        L(ws, f"A{r}", "ATTENZIONI (dal motore, da riportare nel report):", bold=True); r += 1
+        L(ws, f"A{r}", _xt("ATTENZIONI (dal motore, da riportare nel report):"), bold=True); r += 1
         for w in warns:
             L(ws, f"A{r}", "! " + w); r += 1
     ws.column_dimensions["A"].width = 110
@@ -734,26 +736,26 @@ def _sheet_thesis_rab(wb, spec, fv, peers_note=None):
 def _sheet_rab_rollforward(wb, spec):
     from bellomberg.valuation.dcf_bank import H, L, N, T, GOLD
     ws = wb.create_sheet("RAB Roll-forward")
-    T(ws, "A1", "Roll-forward della RAB (nominale, mln %s)" % spec["currency"])
-    L(ws, "A3", "RAB base (mln, anno %s)" % (spec.get("rab_base_year") or "n.d."))
+    T(ws, "A1", _xt("Roll-forward della RAB (nominale, mln %s)") % spec["currency"])
+    L(ws, "A3", _xt("RAB base (mln, anno %s)") % (spec.get("rab_base_year") or "n.d."))
     N(ws, "B3", spec["rab_base"], fmt="#,##0.0")
-    L(ws, "A4", "Indicizzazione annua (ia)")
+    L(ws, "A4", _xt("Indicizzazione annua (ia)"))
     N(ws, "B4", spec["ia"], fmt="0.00%")
-    L(ws, "A5", "D&A regolatoria (% RAB)")
+    L(ws, "A5", _xt("D&A regolatoria (% RAB)"))
     N(ws, "B5", spec["da_pct_rab"], fmt="0.0%")
     plan = spec.get("_capex_plan_mln")
     if plan is None:
-        L(ws, "A6", "Capex (% RAB, piano annuale n.d.)")
+        L(ws, "A6", _xt("Capex (% RAB, piano annuale n.d.)"))
         N(ws, "B6", spec.get("_capex_pct_rab") or 0.0, fmt="0.0%")
-    H(ws, "A8", "VOCE")
+    H(ws, "A8", _xt("VOCE"))
     for i, c in enumerate(_COLS):
-        H(ws, f"{c}8", f"Anno {i + 1}")
+        H(ws, f"{c}8", _lt(f'Anno {i + 1}',f'Year {i + 1}'))
         N(ws, f"{c}9", i + 1, fmt="0")
     L(ws, "A9", "t")
-    L(ws, "A10", "RAB inizio anno (BoP)")
+    L(ws, "A10", _xt("RAB inizio anno (BoP)"))
     L(ws, "A11", "Capex")
-    L(ws, "A12", "D&A regolatoria")
-    L(ws, "A13", "RAB fine anno (EoP)", bold=True)
+    L(ws, "A12", _xt("D&A regolatoria"))
+    L(ws, "A13", _xt("RAB fine anno (EoP)"), bold=True)
     for i, c in enumerate(_COLS):
         ws[f"{c}10"] = "=$B$3" if i == 0 else f"={_COLS[i-1]}13"
         ws[f"{c}10"].number_format = "#,##0.0"
@@ -775,47 +777,47 @@ def _sheet_rab_rollforward(wb, spec):
 def _sheet_ddm_regolato(wb, spec):
     from bellomberg.valuation.dcf_bank import GREYTX, H, L, N, T, GOLD
     ws = wb.create_sheet("DDM regolato")
-    T(ws, "A1", "DDM sull'utile ammesso (nominale, 10 anni + Gordon)")
+    T(ws, "A1", _xt("DDM sull'utile ammesso (nominale, 10 anni + Gordon)"))
     ni1 = _allowed_ni_year1(spec)
     if ni1 is None:
-        L(ws, "A3", "DDM regolato N.D. DICHIARATO: " +
-          ("convenzione vanilla (Ofgem) — serve la separazione equity/debito della FD "
-           "(review finanza)" if spec.get("convention") == "cpih_real_vanilla" else
-           "mancano kd / aliquota / net debt (vedi Thesis)"), italic=True, color=GREYTX)
+        L(ws, "A3", _xt("DDM regolato N.D. DICHIARATO: ") +
+          (_xt("convenzione vanilla (Ofgem) — serve la separazione equity/debito della FD "
+           "(review finanza)") if spec.get("convention") == "cpih_real_vanilla" else
+           _xt("mancano kd / aliquota / net debt (vedi Thesis)")), italic=True, color=GREYTX)
         ws.column_dimensions["A"].width = 90
         return
     for lbl, cell, val, fmt in (
-            ("WACC ammesso (REALE, su RAB indicizzata — review V7 F1)", "B3",
+            (_xt("WACC ammesso (REALE, su RAB indicizzata — review V7 F1)"), "B3",
              spec["allowed_return_calc"], "0.00%"),
-            ("Costo del debito kd", "B4", spec["kd"], "0.00%"),
-            ("Aliquota (tc)", "B5", spec["tax"], "0.0%"),
+            (_xt("Costo del debito kd"), "B4", spec["kd"], "0.00%"),
+            (_xt("Aliquota (tc)"), "B5", spec["tax"], "0.0%"),
             ("Payout", "B6", spec["payout"], "0.0%"),
             ("Ke (CAPM)", "B7", spec["ke"], "0.00%"),
-            ("g terminale (nominale)", "B8", spec["growth_lt"], "0.00%"),
-            ("Net debt (mln)", "B9", spec["net_debt"], "#,##0.0"),
-            ("Azioni (mln)", "B10", spec["shares"], "#,##0.0")):
+            (_xt("g terminale (nominale)"), "B8", spec["growth_lt"], "0.00%"),
+            (_xt("Net debt (mln)"), "B9", spec["net_debt"], "#,##0.0"),
+            (_xt("Azioni (mln)"), "B10", spec["shares"], "#,##0.0")):
         L(ws, "A" + cell[1:], lbl)
         N(ws, cell, val, fmt=fmt)
-    H(ws, "A12", "VOCE")
+    H(ws, "A12", _xt("VOCE"))
     for i, c in enumerate(_COLS):
-        H(ws, f"{c}12", f"Anno {i + 1}")
+        H(ws, f"{c}12", _lt(f'Anno {i + 1}',f'Year {i + 1}'))
         N(ws, f"{c}13", i + 1, fmt="0")
     L(ws, "A13", "t")
-    rows = (("RAB inizio anno (dal foglio RAB)", 14, lambda c: f"='RAB Roll-forward'!{c}10", "#,##0.0"),
-            ("Utile ammesso lordo = RABxWACC - NDxkd", 15, lambda c: f"={c}14*$B$3-$B$9*$B$4", "#,##0.0"),
-            ("Utile netto ammesso", 16, lambda c: f"={c}15*(1-$B$5)", "#,##0.0"),
-            ("Dividendo (payout)", 17, lambda c: f"={c}16*$B$6", "#,##0.0"),
-            ("Fattore di sconto", 18, lambda c: f"=1/(1+$B$7)^{c}13", "0.000"),
-            ("PV dividendo", 19, lambda c: f"={c}17*{c}18", "#,##0.0"))
+    rows = ((_xt("RAB inizio anno (dal foglio RAB)"), 14, lambda c: f"='RAB Roll-forward'!{c}10", "#,##0.0"),
+            (_xt("Utile ammesso lordo = RABxWACC - NDxkd"), 15, lambda c: f"={c}14*$B$3-$B$9*$B$4", "#,##0.0"),
+            (_xt("Utile netto ammesso"), 16, lambda c: f"={c}15*(1-$B$5)", "#,##0.0"),
+            (_xt("Dividendo (payout)"), 17, lambda c: f"={c}16*$B$6", "#,##0.0"),
+            (_xt("Fattore di sconto"), 18, lambda c: f"=1/(1+$B$7)^{c}13", "0.000"),
+            (_xt("PV dividendo"), 19, lambda c: f"={c}17*{c}18", "#,##0.0"))
     for lbl, rr, f, fmt in rows:
         L(ws, f"A{rr}", lbl)
         for c in _COLS:
             ws[f"{c}{rr}"] = f(c)
             ws[f"{c}{rr}"].number_format = fmt
-    L(ws, "A21", "Terminale Gordon su DIV anno 10")
+    L(ws, "A21", _xt("Terminale Gordon su DIV anno 10"))
     ws["B21"] = f"={_COLS[-1]}17*(1+$B$8)/($B$7-$B$8)"
     ws["B21"].number_format = "#,##0.0"
-    L(ws, "A22", "FAIR VALUE PER AZIONE (DDM regolato)", bold=True)
+    L(ws, "A22", _xt("FAIR VALUE PER AZIONE (DDM regolato)"), bold=True)
     ws["B22"] = f"=(SUM(C19:{_COLS[-1]}19)+B21*{_COLS[-1]}18)/$B$10"
     ws["B22"].number_format = "#,##0.00"
     ws["B22"].font = Font(bold=True, color=GOLD, size=11)
@@ -827,34 +829,34 @@ def _sheet_ddm_regolato(wb, spec):
 def _sheet_ev_rab_peers(wb, spec, peers_data, peers_note=None):
     from bellomberg.valuation.dcf_bank import GREYTX, H, L, N, T, GOLD
     ws = wb.create_sheet("EV-RAB & Peers")
-    T(ws, "A1", "EV/RAB premium + cross-check peer")
-    L(ws, "A3", "RAB base (mln)"); ws["B3"] = "='RAB Roll-forward'!B3"
+    T(ws, "A1", _xt("EV/RAB premium + cross-check peer"))
+    L(ws, "A3", _xt("RAB base (mln)")); ws["B3"] = "='RAB Roll-forward'!B3"
     ws["B3"].number_format = "#,##0.0"
-    L(ws, "A4", "Premio EV/RAB"); N(ws, "B4", spec["rab_premium"], fmt="0.00")
+    L(ws, "A4", _xt("Premio EV/RAB")); N(ws, "B4", spec["rab_premium"], fmt="0.00")
     lo, hi = spec.get("ev_rab_band") or (0.7, 1.6)
-    L(ws, "C4", "banda plausibile %.1f-%.1fx (fuori banda = warning dichiarato)" % (lo, hi),
+    L(ws, "C4", _xt("banda plausibile %.1f-%.1fx (fuori banda = warning dichiarato)") % (lo, hi),
       italic=True, color=GREYTX)
-    L(ws, "A5", "Net debt (mln)")
+    L(ws, "A5", _xt("Net debt (mln)"))
     if spec.get("net_debt") is not None:
         N(ws, "B5", spec["net_debt"], fmt="#,##0.0")
     else:
-        L(ws, "B5", "n.d. (dichiarato)", color=GREYTX)
-    L(ws, "A6", "Azioni (mln)"); N(ws, "B6", spec["shares"], fmt="#,##0.0")
-    L(ws, "A8", "EV = RAB x premio"); ws["B8"] = "=B3*B4"; ws["B8"].number_format = "#,##0.0"
+        L(ws, "B5", _xt("n.d. (dichiarato)"), color=GREYTX)
+    L(ws, "A6", _xt("Azioni (mln)")); N(ws, "B6", spec["shares"], fmt="#,##0.0")
+    L(ws, "A8", _xt("EV = RAB x premio")); ws["B8"] = "=B3*B4"; ws["B8"].number_format = "#,##0.0"
     if spec.get("net_debt") is not None:
         L(ws, "A9", "Equity = EV - net debt"); ws["B9"] = "=B8-B5"; ws["B9"].number_format = "#,##0.0"
-        L(ws, "A10", "FAIR VALUE PER AZIONE (EV/RAB)", bold=True)
+        L(ws, "A10", _xt("FAIR VALUE PER AZIONE (EV/RAB)"), bold=True)
         ws["B10"] = "=B9/B6"; ws["B10"].number_format = "#,##0.00"
         ws["B10"].font = Font(bold=True, color=GOLD, size=11)
     else:
-        L(ws, "A9", "Equity n.d.: net debt mancante — metodo SALTATO, dichiarato", color=GREYTX)
+        L(ws, "A9", _xt("Equity n.d.: net debt mancante — metodo SALTATO, dichiarato"), color=GREYTX)
     # review V7 finanza (F5b): il perimetro del metodo va DETTO nel foglio
-    L(ws, "A11", "NB: EV = SOLO RAB x premio — partecipazioni/attivita' NON-RAB escluse "
+    L(ws, "A11", _xt("NB: EV = SOLO RAB x premio — partecipazioni/attivita' NON-RAB escluse "
                  "(Snam: TAP/TAG/Terega/ADNOC ~2 mld). Se materiali: correggere via "
-                 "rab_premium con [src] nella variant view.", italic=True, color=GREYTX)
+                 "rab_premium con [src] nella variant view."), italic=True, color=GREYTX)
     r = 13
-    H(ws, f"A{r}", "PEER REGOLATI"); H(ws, f"B{r}", "P/E"); H(ws, f"C{r}", "Div yield")
-    H(ws, f"D{r}", "Nota")
+    H(ws, f"A{r}", _xt("PEER REGOLATI")); H(ws, f"B{r}", "P/E"); H(ws, f"C{r}", _xt("Div yield"))
+    H(ws, f"D{r}", _xt("Nota"))
     if peers_note:
         L(ws, f"E{r}", peers_note, italic=True, color=GREYTX)
     r += 1
@@ -871,21 +873,21 @@ def _sheet_ev_rab_peers(wb, spec, peers_data, peers_note=None):
         r += 1
     _fv_peer_cell = None
     if _inband_cells:
-        L(ws, f"A{r}", "MEDIANA P/E (solo in banda)", bold=True)
+        L(ws, f"A{r}", _xt("MEDIANA P/E (solo in banda)"), bold=True)
         ws[f"B{r}"] = "=MEDIAN(" + ",".join(_inband_cells) + ")"
         ws[f"B{r}"].number_format = "0.0"
         _med_cell = f"B{r}"
         r += 1
         if _allowed_ni_year1(spec) is not None:
-            L(ws, f"A{r}", "FV PEER = utile ammesso anno 1 x P/E mediano / azioni", bold=True)
+            L(ws, f"A{r}", _xt("FV PEER = utile ammesso anno 1 x P/E mediano / azioni"), bold=True)
             ws[f"B{r}"] = f"='DDM regolato'!C16*{_med_cell}/B6"
             ws[f"B{r}"].number_format = "#,##0.00"
             _fv_peer_cell = f"B{r}"   # review V7 codice (C4): il Summary lo referenzia VIVO
         else:
-            L(ws, f"A{r}", "FV peer n.d.: utile ammesso non calcolabile (v. foglio DDM)",
+            L(ws, f"A{r}", _xt("FV peer n.d.: utile ammesso non calcolabile (v. foglio DDM)"),
               color=GREYTX)
     else:
-        L(ws, f"A{r}", "Nessun peer con P/E in banda: cross-check n.d. DICHIARATO", color=GREYTX)
+        L(ws, f"A{r}", _xt("Nessun peer con P/E in banda: cross-check n.d. DICHIARATO"), color=GREYTX)
     ws.column_dimensions["A"].width = 42
     for c in "BCD":
         ws.column_dimensions[c].width = 12
@@ -896,23 +898,23 @@ def _sheet_ev_rab_peers(wb, spec, peers_data, peers_note=None):
 def _sheet_summary_rab(wb, spec, fv, peer_cell=None):
     from bellomberg.valuation.dcf_bank import GREYTX, H, L, N, T, GOLD
     ws = wb.create_sheet("Summary")
-    T(ws, "A1", "Summary - fair value per metodo e blend (mediana)")
-    H(ws, "A3", "METODO"); H(ws, "B3", "FV/azione")
+    T(ws, "A1", _xt("Summary - fair value per metodo e blend (mediana)"))
+    H(ws, "A3", _xt("METODO")); H(ws, "B3", _xt("FV/azione"))
     # review V7 codice (C2): il foglio replica il filtro del mirror (solo metodi
     # POSITIVI nella mediana) — un FV <= 0 scritto vivo in B4/B5 entrerebbe nella
     # MEDIAN di Excel divergendo dal payload proprio sugli input rotti.
-    L(ws, "A4", "EV/RAB premium")
+    L(ws, "A4", _xt("EV/RAB premium"))
     _ev = fv.get("fair_value_ev_rab")
     if _ev is not None and _ev > 0:
         ws["B4"] = "='EV-RAB & Peers'!B10"; ws["B4"].number_format = "#,##0.00"
     else:
-        L(ws, "B4", "n.d." if _ev is None else "escluso: <=0 (v. attenzioni)", color=GREYTX)
-    L(ws, "A5", "DDM regolato")
+        L(ws, "B4", "n.d." if _ev is None else _xt("escluso: <=0 (v. attenzioni)"), color=GREYTX)
+    L(ws, "A5", _xt("DDM regolato"))
     _dd = fv.get("fair_value_ddm_reg")
     if _dd is not None and _dd > 0:
         ws["B5"] = "='DDM regolato'!B22"; ws["B5"].number_format = "#,##0.00"
     else:
-        L(ws, "B5", "n.d." if _dd is None else "escluso: <=0 (v. attenzioni)", color=GREYTX)
+        L(ws, "B5", "n.d." if _dd is None else _xt("escluso: <=0 (v. attenzioni)"), color=GREYTX)
     L(ws, "A6", str(fv.get("peer_method") or "Peer"))
     _pe = fv.get("fair_value_peer")
     if _pe is not None and _pe > 0:
@@ -923,10 +925,10 @@ def _sheet_summary_rab(wb, spec, fv, peer_cell=None):
             ws["B6"].number_format = "#,##0.00"
         else:
             N(ws, "B6", _pe, fmt="#,##0.00")
-            L(ws, "C6", "(valore mirror, NON ricalcola)", italic=True, color=GREYTX)
+            L(ws, "C6", _xt("(valore mirror, NON ricalcola)"), italic=True, color=GREYTX)
     else:
         L(ws, "B6", "n.d.", color=GREYTX)
-    L(ws, "A7", "BLEND (mediana dei metodi)", bold=True)
+    L(ws, "A7", _xt("BLEND (mediana dei metodi)"), bold=True)
     if fv.get("fair_value_blend") is not None:
         # MEDIAN ignora le celle di testo/vuote: restano solo i metodi vivi >0
         ws["B7"] = "=MEDIAN(B4:B6)"
@@ -934,24 +936,25 @@ def _sheet_summary_rab(wb, spec, fv, peer_cell=None):
         ws["B7"].font = Font(bold=True, color=GOLD, size=12)
     else:
         # review V7 codice (C5): niente MEDIAN su celle vuote (#NUM! in vetrina)
-        L(ws, "B7", "n.d. — nessun metodo disponibile (v. attenzioni)", color=GREYTX)
-    L(ws, "A9", "Prezzo di mercato")
+        L(ws, "B7", _xt("n.d. — nessun metodo disponibile (v. attenzioni)"), color=GREYTX)
+    L(ws, "A9", _xt("Prezzo di mercato"))
     if spec.get("price"):
         N(ws, "B9", spec["price"], fmt="#,##0.00")
         if fv.get("fair_value_blend") is not None:
-            L(ws, "A10", "Upside/downside vs blend")
+            L(ws, "A10", _xt("Upside/downside vs blend"))
             ws["B10"] = "=B7/B9-1"; ws["B10"].number_format = "0.0%"
     r = 12
     for w in (fv.get("warnings") or []):
         L(ws, f"A{r}", "! " + w, color=GREYTX); r += 1
     _blend_txt = ("%.2f" % fv["fair_value_blend"]) if fv.get("fair_value_blend") is not None else "n.d."
-    L(ws, f"A{r+1}", "Mirror Python (payload F17): blend %s, metodi %s" %
+    L(ws, f"A{r+1}", _xt("Mirror Python (payload F17): blend %s, metodi %s") %
       (_blend_txt, "/".join(fv.get("blend_methods") or []) or "nessuno"),
       italic=True, color=GREYTX)
     ws.column_dimensions["A"].width = 70
     ws.column_dimensions["B"].width = 14
 
 
+@scoped_language
 def build_rab_model(spec, output_path, peers_data=None, peers_note=None):
     """Workbook rete regolata multi-foglio (V7 Lotto 2). Ritorna anche i fair
     value numerici del mirror Python (payload = fonte di verita', i fogli li
@@ -959,7 +962,7 @@ def build_rab_model(spec, output_path, peers_data=None, peers_note=None):
     try:
         import openpyxl
     except ImportError:
-        return {"ok": False, "error": "openpyxl non disponibile"}
+        return {"ok": False, "error": _xt("openpyxl non disponibile")}
     import statistics as _st
     _pes = [p.get("pe") for p in (peers_data or []) if p.get("in_band") and p.get("pe")]
     pe_med = _st.median(_pes) if _pes else None
@@ -979,7 +982,7 @@ def build_rab_model(spec, output_path, peers_data=None, peers_note=None):
     from datetime import datetime as _dt
     out = {"ok": True, "path": output_path, "engine": "rab",
            "payload_currency": spec.get("currency"),
-           "method": "EV/RAB premium + DDM su utile ammesso + peer P/E (motore RAB V7)",
+           "method": _xt("EV/RAB premium + DDM su utile ammesso + peer P/E (motore RAB V7)"),
            "peers_used": [p.get("name") for p in (peers_data or [])],
            "peer_note": peers_note,
            "rab_base": spec.get("rab_base"),

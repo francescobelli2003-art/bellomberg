@@ -1,3 +1,8 @@
+import { useT } from '@/i18n/provider';
+import { t as tr } from '@/i18n/t';
+import { linguaCorrente, localeDi } from '@/i18n/lingua';
+import { fmtNum } from '@/lib/format';
+import { dataIt, leggiDetail } from '@/lib/quota';
 import { externalWebUrl } from '../../electron/security';
 // ============================================================
 // BELLOMBERG — NEWS WIRE v3 OBSIDIAN (F5; v2 = T4-3 parte B)
@@ -15,6 +20,7 @@ import { externalWebUrl } from '../../electron/security';
 // backend chiesto in (F5). Mai dedotto client-side.
 // ============================================================
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { localizePayload } from '@/lib/api-presentation';
 import { useScalaTesto } from '../lib/svg-kit';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -45,6 +51,38 @@ type FeedItem = NewsItem & {
 
 type SentBucket = 'pos' | 'neu' | 'neg';
 
+type NewsProblem = { operation: 'feed' | 'refresh' | 'favorites' | 'scheduler' | 'providers' | 'briefing' | 'macro' | 'corporate' | 'global' | 'calendar'; detail: string | null };
+
+function errorDetail(error: any): string | null {
+  return leggiDetail(error?.response?.data?.detail ?? error?.message ?? error) || null;
+}
+
+function economicNumber(value?: number | string | null): string {
+  if (value == null) return '-';
+  // Provider strings carry their own units/precision: never parse them here.
+  return typeof value === 'number' && Number.isFinite(value)
+    ? value.toLocaleString(localeDi(linguaCorrente()), { useGrouping: true, maximumSignificantDigits: 21 })
+    : String(value);
+}
+
+function problemText(problem: NewsProblem): string {
+  return tr(`newsdesk.error_${problem.operation}`) + ': ' + (problem.detail || tr('newsdesk.errorUnknown'));
+}
+
+function originalLanguage(language?: string | null): string {
+  return language === 'it' ? tr('newsdesk.languageIt') : language === 'en' ? tr('newsdesk.languageEn') : tr('newsdesk.languageUnknown');
+}
+
+function SummaryOrigin({ item }: { item: FeedItem }) {
+  const tr = useT();
+  const generated = item.summary_status === 'available' || item.summary_status === 'legacy';
+  return <div className="text-3xs text-faint mt-0.5">
+    <span>{generated ? tr('newsdesk.originalSummary', { language: originalLanguage(item.summary_language) })
+      : item.summary_status ? tr('newsdesk.originalSource') : tr('newsdesk.receivedUnknown')}</span>
+    {item.summary_note && <span> · {item.summary_note}</span>}
+  </div>;
+}
+
 interface WireStats {
   pos: number; neu: number; neg: number;
   h24: number; h6: number; total: number;
@@ -71,11 +109,11 @@ function timeAgo(iso: string | null | undefined): string {
     if (!isFinite(t)) return iso.slice(0, 16);
     const diffMs = Date.now() - t;
     const diffMin = Math.floor(diffMs / 60000);
-    if (diffMin < 1) return 'now';
+    if (diffMin < 1) return tr('newsdesk.s001');
     if (diffMin < 60) return `${diffMin}m`;
     const diffH = Math.floor(diffMin / 60);
     if (diffH < 24) return `${diffH}h`;
-    return `${Math.floor(diffH / 24)}d`;
+    return tr('newsdesk.s002', {a: Math.floor(diffH / 24)});
   } catch { return '-'; }
 }
 
@@ -86,10 +124,20 @@ function tsOf(n: { published_at?: string | null; pulled_at?: string | null }): n
   return 0;
 }
 
+// Motivo di un provider muto (fonti_mute / providers_blocked). I due codici del limiter che
+// news_aggregator.providers_blocked emette si traducono; ogni altro motivo e' testo libero del
+// backend (SENZA_CHIAVE: …, NEGOZIO_…, MODULO_ASSENTE: …) e resta com'e' arrivato.
+function motivoMuto(m: unknown): string {
+  const s = String(m);
+  if (s === 'SKIP_BUDGET') return tr('newsdesk.muteBudget');
+  if (s === 'SKIP_DISABLED') return tr('newsdesk.muteSuspended');
+  return s.replace('SKIP_', '');
+}
+
 function hhmm(n: FeedItem): string {
   const t = tsOf(n);
   if (!t) return '--:--';
-  return new Date(t).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  return new Date(t).toLocaleTimeString(localeDi(linguaCorrente()), { hour: '2-digit', minute: '2-digit' });
 }
 
 function dayKeyFromTs(ts: number): string {
@@ -99,14 +147,14 @@ function dayKeyFromTs(ts: number): string {
 }
 
 function dayLabel(key: string): string {
-  if (key === 'nd') return 'DATA NON DISPONIBILE';
+  if (key === 'nd') return tr('newsdesk.s003');
   const today = dayKeyFromTs(Date.now());
   const yesterday = dayKeyFromTs(Date.now() - 86_400_000);
   const d = new Date(`${key}T12:00:00`);
-  const fmt = d.toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: 'short' })
+  const fmt = d.toLocaleDateString(localeDi(linguaCorrente()), { weekday: 'short', day: '2-digit', month: 'short' })
                .replace(/\./g, '').toUpperCase();
-  if (key === today) return `OGGI · ${fmt}`;
-  if (key === yesterday) return `IERI · ${fmt}`;
+  if (key === today) return tr('newsdesk.s004', {a: fmt});
+  if (key === yesterday) return tr('newsdesk.s005', {a: fmt});
   const yr = d.getFullYear() !== new Date().getFullYear() ? ` ${d.getFullYear()}` : '';
   return fmt + yr;
 }
@@ -133,18 +181,18 @@ function relColor(rel: number): string {
 // news_aggregator.auto_pull_feed: fed / ecb / ukraine / middle_east /
 // cpi / btc_etf / china / italy; '' = news ticker o feed generale).
 // Fallback: temi nuovi etichettati dinamicamente dagli item caricati.
-const THEME_LABELS: Record<string, string> = {
+const THEME_LABELS = (): Record<string, string> => ({
   fed: 'FED / FOMC',
-  ecb: 'BCE',
-  cpi: 'INFLAZIONE / CPI',
-  ukraine: 'UCRAINA',
-  middle_east: 'MEDIO ORIENTE',
+  ecb: tr('newsdesk.s006'),
+  cpi: tr('newsdesk.s007'),
+  ukraine: tr('newsdesk.s008'),
+  middle_east: tr('newsdesk.s009'),
   btc_etf: 'BTC / ETF',
-  china: 'CINA',
-  italy: 'ITALIA',
-  __pf: 'PORTAFOGLIO',
-  __gen: 'GENERALE',
-};
+  china: tr('newsdesk.s010'),
+  italy: tr('newsdesk.s011'),
+  __pf: tr('newsdesk.s012'),
+  __gen: tr('newsdesk.s013'),
+});
 
 function themeKeyOf(n: FeedItem): string {
   const th = (n.theme || '').trim();
@@ -153,7 +201,7 @@ function themeKeyOf(n: FeedItem): string {
 }
 
 function themeLabelOf(key: string): string {
-  return THEME_LABELS[key] || key.replace(/_/g, ' ').toUpperCase();
+  return THEME_LABELS()[key] || key.replace(/_/g, ' ').toUpperCase();
 }
 
 function toggleIn<T>(arr: T[], v: T, set: (next: T[]) => void) {
@@ -163,9 +211,9 @@ function toggleIn<T>(arr: T[], v: T, set: (next: T[]) => void) {
 // --- helpers vista DESK (legacy v0.7, palette aggiornata) ---
 function sentimentTone(s: string | null | undefined) {
   const b = sentBucket(s);
-  if (b === 'pos') return { color: C.emerald, label: 'BULL' };
-  if (b === 'neg') return { color: C.crimson, label: 'BEAR' };
-  return { color: C.muted, label: 'NEUT' };
+  if (b === 'pos') return { color: C.emerald, label: tr('newsdesk.s014') };
+  if (b === 'neg') return { color: C.crimson, label: tr('newsdesk.s015') };
+  return { color: C.muted, label: tr('newsdesk.s016') };
 }
 
 function importanceTone(imp: number | undefined) {
@@ -190,49 +238,49 @@ function categoryIcon(cat: string | undefined) {
   }
 }
 
-const CATEGORY_LABELS: Record<string, string> = {
-  rates:       'Banche Centrali',
-  inflation:   'Inflazione',
-  geopolitics: 'Geopolitica',
-  politics:    'Politica',
-  em:          'EM',
-  commodities: 'Commodity',
-  crypto:      'Crypto',
-  corporate:   'Eventi Soc.',
-};
+const CATEGORY_LABELS = (): Record<string, string> => ({
+  rates:       tr('newsdesk.s017'),
+  inflation:   tr('newsdesk.s018'),
+  geopolitics: tr('newsdesk.s019'),
+  politics:    tr('newsdesk.s020'),
+  em:          tr('newsdesk.s021'),
+  commodities: tr('newsdesk.s022'),
+  crypto:      tr('newsdesk.s023'),
+  corporate:   tr('newsdesk.s024'),
+});
 
 const COUNTRIES_AVAILABLE = ['US', 'EU', 'UK', 'IT', 'DE', 'JP', 'CN', 'FR', 'ES', 'CA', 'AU'];
-const IMPORTANCE_LEVELS = [
-  { value: 5, label: 'Alta (5*)' },
-  { value: 4, label: 'Medio-Alta (4*)' },
-  { value: 3, label: 'Media (3*)' },
-];
+const IMPORTANCE_LEVELS = () => ([
+  { value: 5, label: tr('newsdesk.s025') },
+  { value: 4, label: tr('newsdesk.s026') },
+  { value: 3, label: tr('newsdesk.s027') },
+]);
 
-const DATE_PRESETS_NEWS: Array<{ value: string; label: string }> = [
-  { value: 'today',  label: 'Oggi' },
-  { value: '24h',    label: 'Ultime 24h' },
-  { value: '3days',  label: 'Ultimi 3 giorni' },
-  { value: 'week',   label: 'Ultima settimana' },
-  { value: 'all',    label: 'Tutto' },
-];
-const DATE_PRESETS_CAL: Array<{ value: string; label: string }> = [
-  { value: 'today',    label: 'Oggi' },
-  { value: 'tomorrow', label: 'Domani' },
-  { value: 'week',     label: 'Settimana' },
-  { value: '2weeks',   label: '2 settimane' },
-  { value: 'all',      label: 'Tutto' },
-];
+const DATE_PRESETS_NEWS = (): Array<{ value: string; label: string }> => ([
+  { value: 'today',  label: tr('newsdesk.s028') },
+  { value: '24h',    label: tr('newsdesk.s029') },
+  { value: '3days',  label: tr('newsdesk.s030') },
+  { value: 'week',   label: tr('newsdesk.s031') },
+  { value: 'all',    label: tr('newsdesk.s032') },
+]);
+const DATE_PRESETS_CAL = (): Array<{ value: string; label: string }> => ([
+  { value: 'today',    label: tr('newsdesk.s028') },
+  { value: 'tomorrow', label: tr('newsdesk.s033') },
+  { value: 'week',     label: tr('newsdesk.s034') },
+  { value: '2weeks',   label: tr('newsdesk.s035') },
+  { value: 'all',      label: tr('newsdesk.s032') },
+]);
 
 const SENT_FILTERS: Array<{ key: SentBucket; label: string; color: string }> = [
   { key: 'pos', label: 'POS', color: C.emerald },
   { key: 'neu', label: 'NEU', color: C.muted },
   { key: 'neg', label: 'NEG', color: C.crimson },
 ];
-const REL_FILTERS = [
-  { value: 0, label: 'Tutte' },
+const REL_FILTERS = () => ([
+  { value: 0, label: tr('newsdesk.s036') },
   { value: 5, label: 'Rel 5+' },
   { value: 8, label: 'Rel 8+' },
-];
+]);
 
 const HOLIDAY_KEYWORDS = ['day of', 'eid ', 'arafa', 'independence', 'holiday', 'memorial', 'thanksgiving',
                           'christmas', 'easter', 'new year', 'labour day', 'national day', 'bank holiday'];
@@ -278,7 +326,7 @@ function matchesDatePresetCal(eventDate: string, preset: string): boolean {
 // DROPDOWN POPUP (multi-select con checkbox — vista DESK)
 // ============================================================
 function Dropdown<T extends string | number>({
-  label, options, selected, onChange, allLabel = 'Tutto', summaryFmt, width = 150,
+  label, options, selected, onChange, allLabel = tr('newsdesk.s032'), summaryFmt, width = 150,
 }: {
   label: string;
   options: Array<{ value: T; label: string; count?: number }>;
@@ -445,14 +493,19 @@ function PanelHeader({ icon: Icon, title, count, action }: {
 
 function NewsRow({
   title, snippet, url, provider, source, published_at, ticker,
-  sentiment, importance, badges,
+  sentiment, importance, badges, bellombergText = false, titleOrigin, snippetOrigin, presentationLanguages,
 }: {
   title: string; snippet?: string | null; url?: string | null;
   provider?: string | null; source?: string | null;
   published_at?: string | null; ticker?: string | null;
   sentiment?: string | null; importance?: number | null;
   badges?: React.ReactNode;
+  bellombergText?: boolean;
+  titleOrigin?: string;
+  snippetOrigin?: string;
+  presentationLanguages?: string[];
 }) {
+  const tr = useT();
   const tone = sentimentTone(sentiment);
   const barColor = importance != null && importance >= 5 ? C.crimson
                   : importance != null && importance >= 4 ? C.amber
@@ -478,6 +531,10 @@ function NewsRow({
         </div>
         <div className="text-2xs text-text leading-tight group-hover:text-amber-bright transition-colors mt-0.5">{title}</div>
         {snippet && <div className="text-3xs text-muted leading-tight mt-0.5 line-clamp-1 italic">{snippet}</div>}
+        <div className="text-3xs text-faint">{titleOrigin === 'bellomberg' && presentationLanguages?.includes(linguaCorrente())
+          ? tr('newsdesk.currentWording', { language: originalLanguage(linguaCorrente()) })
+          : bellombergText ? tr('newsdesk.originalBellomberg', { language: originalLanguage(null) }) : tr('newsdesk.originalSource')}
+          {snippet && snippetOrigin === 'source' && <> · {tr('newsdesk.sourceExcerpt')}</>}</div>
         <div className="flex items-center gap-1 mt-0.5">
           <span className="text-3xs text-faint truncate">
             {provider}{source && provider !== source ? ` · ${source}` : ''}
@@ -489,16 +546,18 @@ function NewsRow({
   );
 }
 
-function ErrorBox({ msg }: { msg: string }) {
+function ErrorBox({ msg }: { msg: string | NewsProblem }) {
+  const tr = useT();
   return (
     <div className="m-2 p-2 border-l-2 border-crimson bg-crimson/5 text-2xs text-crimson font-mono flex items-start gap-2">
-      <AlertCircle size={11} className="mt-0.5 flex-shrink-0" /> {msg}
+      <AlertCircle size={11} className="mt-0.5 flex-shrink-0" /> {typeof msg === 'string' ? tr('newsdesk.sourceError', { detail: msg }) : problemText(msg)}
     </div>
   );
 }
 
-function LoadingBox({ label = 'Caricamento...' }: { label?: string }) {
-  return <div className="p-4 text-center text-2xs text-faint font-mono animate-pulse">{label}</div>;
+function LoadingBox({ label }: { label?: string }) {
+  const tr = useT();
+  return <div className="p-4 text-center text-2xs text-faint font-mono animate-pulse">{label ?? tr('newsdesk.s037')}</div>;
 }
 
 function EmptyBox({ label }: { label: string }) {
@@ -509,30 +568,33 @@ function EmptyBox({ label }: { label: string }) {
 // BRIEFING CARD (vista DESK)
 // ============================================================
 function BriefingCard({ data, loading, error, onRefresh }: {
-  data: BriefingData | null; loading: boolean; error: string | null; onRefresh: () => void;
+  data: BriefingData | null; loading: boolean; error: NewsProblem | null; onRefresh: () => void;
 }) {
+  const tr = useT();
   const stale = data?.stale;
+  const unreadable = data?.error_code === 'briefing_cache_unreadable';
   const isInitial = !data?.generated_at;
   const ageLabel = data?.age_minutes != null
-    ? (data.age_minutes < 60 ? `${data.age_minutes}m fa` : `${Math.floor(data.age_minutes / 60)}h fa`)
-    : 'mai';
+    ? (data.age_minutes < 60 ? tr('newsdesk.s038', {a: data.age_minutes}) : tr('newsdesk.s039', {a: Math.floor(data.age_minutes / 60)}))
+    : tr('newsdesk.ageUnknown');
   return (
     <div className="p3 flex-1 min-h-0" style={{ ...bd(60), borderLeft: '2px solid rgba(255,165,30,.55)' }}>
-      <div className="p3h am"><Sparkles size={11} /> DAILY BRIEFING
+      <div className="p3h am"><Sparkles size={11} /> {tr('newsdesk.s042')}
         {data?.slot_label && <span className="n">· {data.slot_label}</span>}
         <span className="side" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <span className={stale ? 'text-amber' : ''}>{isInitial ? 'MAI' : ageLabel}</span>
+          <span className={stale ? 'text-amber' : ''}>{unreadable ? tr('newsdesk.unreadableCache') : isInitial ? tr('newsdesk.s041') : ageLabel}</span>
           <button onClick={onRefresh} disabled={loading}
                   className={'tb' + (loading ? ' dis' : '')} style={{ color: '#FFA51E' }}>
-            {loading ? 'GENERO…' : '↻ REFRESH'}
+            {loading ? tr('newsdesk.s043') : tr('newsdesk.s044')}
           </button>
         </span>
       </div>
       <div className="flex-1 overflow-y-auto p-3 min-h-0">
+        {data?.generated_at && data.briefing_md && <div className="text-3xs text-faint mb-2">{tr('newsdesk.originalBriefing', { language: originalLanguage(data.language) })}</div>}
         {error ? <ErrorBox msg={error} /> :
-         loading && !data ? <LoadingBox label="Generazione briefing (Haiku)..." /> :
+         loading && !data ? <LoadingBox label={tr('newsdesk.s045')} /> :
          <div className="prose prose-invert prose-sm max-w-none news-briefing-md">
-           <ReactMarkdown remarkPlugins={[remarkGfm]}>{data?.briefing_md || '_Nessun briefing._'}</ReactMarkdown>
+           <ReactMarkdown remarkPlugins={[remarkGfm]}>{data?.briefing_md || tr('newsdesk.s046')}</ReactMarkdown>
          </div>}
       </div>
     </div>
@@ -572,6 +634,7 @@ function RailChip({ on, label, count, star, onClick }: {
 // preferito), headline da desk, why_matters in corsivo, fonte e
 // relevance a destra. REL >= 8: accento ambra (bordo sx + fondo).
 function WireRow({ n, fav }: { n: FeedItem; fav: boolean }) {
+  const tr = useT();
   const hot = (n.relevance ?? 0) >= 8;
   const dot = sentColor(n.sentiment);
   const rel = n.relevance ?? 0;
@@ -601,6 +664,7 @@ function WireRow({ n, fav }: { n: FeedItem; fav: boolean }) {
         {n.snippet && (
           <div className="text-2xs italic text-muted leading-snug mt-0.5 truncate">{n.snippet}</div>
         )}
+        <SummaryOrigin item={n} />
       </div>
       <div className="shrink-0 w-32 flex flex-col items-end gap-1 pt-0.5">
         <span className="font-mono text-3xs text-faint uppercase truncate max-w-full">
@@ -623,6 +687,7 @@ function WireRow({ n, fav }: { n: FeedItem; fav: boolean }) {
 // Riga MARKET MOVING: catalyst REL>=8 ordinati per _materiality.
 // rank = posizione nella coda priorita' (l'ordine E' informazione: materiality).
 function MoverRow({ n, fav, rank }: { n: FeedItem; fav: boolean; rank: number }) {
+  const tr = useT();
   const href = externalWebUrl(n.url || '') || undefined;
   return (
     <a href={href} target="_blank" rel="noopener noreferrer"
@@ -640,8 +705,8 @@ function MoverRow({ n, fav, rank }: { n: FeedItem; fav: boolean; rank: number })
           R{n.relevance ?? '-'}
         </span>
         <span className="font-mono text-3xs tabular-nums text-cyan"
-              title="Materiality: relevance + peso book + freschezza + boost preferito">
-          M{(n._materiality ?? 0).toFixed(1)}
+              title={tr('newsdesk.s047')}>
+          M{fmtNum((n._materiality ?? 0), 1)}
         </span>
       </div>
       <div className="text-2xs text-text leading-snug mt-0.5 line-clamp-2 group-hover:text-amber-bright transition-colors">
@@ -650,6 +715,7 @@ function MoverRow({ n, fav, rank }: { n: FeedItem; fav: boolean; rank: number })
       {n.snippet && (
         <div className="text-3xs italic text-muted leading-snug mt-0.5 line-clamp-1">{n.snippet}</div>
       )}
+      <SummaryOrigin item={n} />
     </a>
   );
 }
@@ -661,30 +727,31 @@ function MoverRow({ n, fav, rank }: { n: FeedItem; fav: boolean; rank: number })
 function ChannelsPanel({ stats, channels, fontiDeclared }: {
   stats: WireStats; channels: Channel[]; fontiDeclared: boolean;
 }) {
+  const tr = useT();
   const maxCh = Math.max(1, ...channels.map(c => c.count));
   return (
     <div className="p3 flex-1 min-h-0" style={bd(240)}>
-      <div className="p3h"><Activity size={11} /> CANALI // LINK PROVIDER
-        <span className="side">CLIENT-SIDE · DAL PREFETCH</span>
+      <div className="p3h"><Activity size={11} /> {tr('newsdesk.s048')}
+        <span className="side">{tr('newsdesk.s049')}</span>
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-3 min-h-0">
         <div>
           <div className="space-y-px">
             {channels.length === 0 && (
-              <div className="font-mono text-3xs text-faint px-1">nessun canale nel feed</div>
+              <div className="font-mono text-3xs text-faint px-1">{tr('newsdesk.s050')}</div>
             )}
             {channels.map(ch => {
               const live = ch.last > 0 && (Date.now() - ch.last) <= 24 * 3600_000;
               return (
                 <div key={ch.name} className="chx font-mono"
                      title={ch.muteReason
-                       ? `${ch.name}: MUTO dichiarato dal backend (${ch.muteReason}) — poche/zero news qui NON significa quiete`
-                       : `${ch.name}: ${ch.count} item nel buffer · ultimo ${ch.last ? new Date(ch.last).toLocaleString('it-IT') : 'n.d.'}`}>
+                       ? tr('newsdesk.s051', {a: ch.name, b: ch.muteReason})
+                       : tr('newsdesk.s052', {a: ch.name, b: ch.count, c: ch.last ? new Date(ch.last).toLocaleString(localeDi(linguaCorrente())) : tr('newsdesk.s053')})}>
                   <span className={`ld ${ch.muteReason ? 'r' : live ? 'g' : 'off'}`} />
                   <span className="nm">{ch.name}</span>
                   <span className="bar"><i style={{ width: `${(ch.count / maxCh) * 100}%` }} /></span>
                   {ch.muteReason
-                    ? <span className="mt">{ch.muteReason.replace('SKIP_', '')}</span>
+                    ? <span className="mt">{motivoMuto(ch.muteReason)}</span>
                     : <span className="ct num">{ch.count}</span>}
                 </div>
               );
@@ -692,17 +759,17 @@ function ChannelsPanel({ stats, channels, fontiDeclared }: {
           </div>
           <div className="font-mono text-3xs mt-1" style={{ color: fontiDeclared ? '#8D9FC4' : '#B97A00', letterSpacing: '.04em' }}
                title={fontiDeclared
-                 ? 'Il backend dichiara lo stato quota dei provider (voce (25)): LED rosso = muto per budget/disable'
-                 : 'Gli endpoint consumati qui non espongono ancora fonti_mute/avviso: LED solo vivo/spento dal feed, stato quota n.d. DICHIARATO'}>
-            {fontiDeclared ? 'STATO QUOTA: DICHIARATO DAL BACKEND' : 'STATO QUOTA: n.d. — DICHIARAZIONE NON ESPOSTA QUI'}
+                 ? tr('newsdesk.s054')
+                 : tr('newsdesk.s055')}>
+            {fontiDeclared ? tr('newsdesk.s056') : tr('newsdesk.s057')}
           </div>
         </div>
 
         <div>
-          <div className="font-mono text-3xs uppercase tracking-[0.22em] text-faint mb-1">Copertura</div>
+          <div className="font-mono text-3xs uppercase tracking-[0.22em] text-faint mb-1">{tr('newsdesk.s058')}</div>
           <div className="font-mono text-3xs text-text-dim tabular-nums leading-relaxed">
-            <div className="flex justify-between"><span className="text-faint">TICKER DISTINTI</span><span>{stats.nTickers}</span></div>
-            <div className="flex justify-between"><span className="text-faint">REL MEDIA</span><span className="text-cyan">{stats.avgRel.toFixed(1)}</span></div>
+            <div className="flex justify-between"><span className="text-faint">{tr('newsdesk.s059')}</span><span>{stats.nTickers}</span></div>
+            <div className="flex justify-between"><span className="text-faint">{tr('newsdesk.s060')}</span><span className="text-cyan">{fmtNum(stats.avgRel, 1)}</span></div>
           </div>
         </div>
       </div>
@@ -734,6 +801,7 @@ function HeroCell({ label, value, tone, color, sub, title, grado10 }: {
 // veri del feed caricato (zero chiamate, zero numeri inventati). Barra 23 =
 // ora corrente (evidenziata). Tooltip per barra: ora · conteggio.
 function FlowBars({ feed, width = 220 }: { feed: FeedItem[]; width?: number }) {
+  const tr = useT();
   const buckets = useMemo(() => {
     const now = Date.now();
     const arr = new Array(24).fill(0) as number[];
@@ -750,14 +818,14 @@ function FlowBars({ feed, width = 220 }: { feed: FeedItem[]; width?: number }) {
   const nowH = new Date().getHours();
   return (
     <div className="fbx num" style={{ width }}
-         title="Item per ora, ultime 24h — misura il flusso SALVATO nel DB locale, non il mercato">
+         title={tr('newsdesk.s061')}>
       {buckets.map((c, i) => {
         const hh = ((nowH - (23 - i)) + 48) % 24;
         return (
           <i key={i}
              className={i === 23 ? 'now' : c > 0 ? 'on' : ''}
              style={{ height: c === 0 ? 2 : Math.max(3, Math.round((c / max) * 26)) }}
-             title={`${String(hh).padStart(2, '0')}:00 · ${c} item`} />
+             title={tr('newsdesk.s062', {a: String(hh).padStart(2, '0'), b: c})} />
         );
       })}
     </div>
@@ -789,6 +857,7 @@ function scRadius(ageFrac: number): number {
   return SC_R_MIN + (SC_R_MAX - SC_R_MIN) * Math.sqrt(Math.min(1, Math.max(0, ageFrac)));
 }
 function RadarScope({ feed, favSet }: { feed: FeedItem[]; favSet: Set<string> }) {
+  const tr = useT();
   const { contacts, sectors } = useMemo(() => {
     const now = Date.now();
     const H24 = 24 * 3600_000;
@@ -840,7 +909,7 @@ function RadarScope({ feed, favSet }: { feed: FeedItem[]; favSet: Set<string> })
                     stroke="#1A2440" strokeWidth={0.6} />
               <text x={lx} y={ly} fontSize={8 * kT} fill="#8D9FC4" textAnchor="middle" dominantBaseline="middle"
                     fontFamily="inherit" letterSpacing={0.5}>
-                {k === '__altro' ? 'ALTRO' : themeLabelOf(k).slice(0, 9)}
+                {k === '__altro' ? tr('newsdesk.s063') : themeLabelOf(k).slice(0, 9)}
               </text>
             </g>
           );
@@ -877,6 +946,7 @@ function RadarScope({ feed, favSet }: { feed: FeedItem[]; favSet: Set<string> })
 
 // COMM TAPE: le ultime headline in nastro scorrevole (contenuto x2 = loop CSS).
 function CommTape({ feed }: { feed: FeedItem[] }) {
+  const tr = useT();
   const latest = useMemo(
     () => [...feed].sort((a, b) => tsOf(b) - tsOf(a)).slice(0, 18),
     [feed]);
@@ -890,7 +960,7 @@ function CommTape({ feed }: { feed: FeedItem[] }) {
     </span>
   ));
   return (
-    <div className="tapex font-mono" title="Ultime 18 headline dal feed DB locale — hover = pausa, click sulle righe del nastro sotto per aprire le fonti">
+    <div className="tapex font-mono" title={tr('newsdesk.s064')}>
       <div className="tapein">{run(0)}{run(1)}</div>
     </div>
   );
@@ -900,18 +970,25 @@ function CommTape({ feed }: { feed: FeedItem[] }) {
 // MAIN PAGE — NEWS WIRE v3 OBSIDIAN "SIGNAL DECK" (F5)
 // ============================================================
 export default function NewsPage() {
+  const tr = useT();
   // ---- vista: WIRE (default) / DESK (briefing+macro+societario+calendario) ----
   const [view, setView] = useState<'wire' | 'desk'>('wire');
 
   // ---- WIRE: feed dal DB (get_feed) ----
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [feedLoad, setFeedLoad] = useState(false);
-  const [feedErr, setFeedErr] = useState<string | null>(null);
+  const [feedErr, setFeedErr] = useState<NewsProblem | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [refreshInfo, setRefreshInfo] = useState<string | null>(null);
+  const [refreshInfo, setRefreshInfo] = useState<{ saved: number; duplicates: number } | null>(null);
   const [auto, setAuto] = useState(true);
   const [lastFeedAt, setLastFeedAt] = useState<Date | null>(null);
   const [favs, setFavs] = useState<FavCompany[]>([]);
+  const [favsErr, setFavsErr] = useState<NewsProblem | null>(null);
+  const [schedulerErr, setSchedulerErr] = useState<NewsProblem | null>(null);
+  const [providersErr, setProvidersErr] = useState<NewsProblem | null>(null);
+  const feedRead = useRef(0);
+  const briefingRead = useRef(0);
+  const cacheLanguage = useRef(linguaCorrente());
 
   // ---- filtri wire (combinabili, client-side sul prefetch) ----
   const [fPeriod, setFPeriod] = useState<string>('all');
@@ -928,28 +1005,30 @@ export default function NewsPage() {
   // ---- DESK (legacy v0.7) ----
   const [briefing, setBriefing] = useState<BriefingData | null>(null);
   const [briefingLoad, setBriefingLoad] = useState(false);
-  const [briefingErr, setBriefingErr] = useState<string | null>(null);
+  const [briefingErr, setBriefingErr] = useState<NewsProblem | null>(null);
 
-  const [macro, setMacro] = useState<MacroNewsItem[]>([]);
+  const [rawMacro, setRawMacro] = useState<Awaited<ReturnType<typeof Bellomberg.newsMacro>> | null>(null);
+  const macro = useMemo(() => localizePayload(rawMacro)?.items || [], [rawMacro, tr]);
   const [macroLoad, setMacroLoad] = useState(false);
-  const [macroErr, setMacroErr] = useState<string | null>(null);
+  const [macroErr, setMacroErr] = useState<NewsProblem | null>(null);
   const [macroCategorySel, setMacroCategorySel] = useState<string[]>([]);
   const [macroDateSel, setMacroDateSel] = useState<string>('week');
 
-  const [corp, setCorp] = useState<CorporateEvent[]>([]);
+  const [rawCorp, setRawCorp] = useState<Awaited<ReturnType<typeof Bellomberg.newsCorporateEvents>> | null>(null);
+  const corp = useMemo(() => localizePayload(rawCorp)?.items || [], [rawCorp, tr]);
   const [corpLoad, setCorpLoad] = useState(false);
-  const [corpErr, setCorpErr] = useState<string | null>(null);
+  const [corpErr, setCorpErr] = useState<NewsProblem | null>(null);
   const [corpDateSel, setCorpDateSel] = useState<string>('week');
   const [corpTickerSel, setCorpTickerSel] = useState<string[]>([]);
 
   const [globalNews, setGlobalNews] = useState<GlobalNewsItem[]>([]);
   const [globalLoad, setGlobalLoad] = useState(false);
-  const [globalErr, setGlobalErr] = useState<string | null>(null);
+  const [globalErr, setGlobalErr] = useState<NewsProblem | null>(null);
   const [globalDateSel, setGlobalDateSel] = useState<string>('24h');
 
   const [econ, setEcon] = useState<EconomicEvent[]>([]);
   const [econLoad, setEconLoad] = useState(false);
-  const [econErr, setEconErr] = useState<string | null>(null);
+  const [econErr, setEconErr] = useState<NewsProblem | null>(null);
   const [econCountrySel, setEconCountrySel] = useState<string[]>(['US', 'EU', 'IT', 'DE']);
   const [econImportanceSel, setEconImportanceSel] = useState<number[]>([4, 5]);
   const [econDateSel, setEconDateSel] = useState<string>('week');
@@ -980,20 +1059,22 @@ export default function NewsPage() {
   const loadGiro = useCallback(async () => {
     try {
       const d = await Bellomberg.newsProviders();
+      setProvidersErr(null);
       setGiro(d.ultimo_giro ?? 'assente');
       takeFonti(d);   // il payload porta ANCHE fonti_mute/avviso: accende la cella FONTI MUTE
-    } catch { setGiro('errore'); }
+    } catch (e) { setGiro('errore'); setProvidersErr({ operation: 'providers', detail: errorDetail(e) }); }
   }, [takeFonti]);
   // il «prossimo giro» è NextRunTime del task NewsFeed (il join del ponte):
   // task Disabled o formato imprevisto → null, e in cella si scrive n.d.
   const loadNextRun = useCallback(async () => {
     try {
       const d = await Bellomberg.scheduledTasks();
+      setSchedulerErr(null);
       const t = (d.tasks || []).find((x: any) => x?.TaskName === 'Bellomberg-NewsFeed');
       const m = t && t.State !== 'Disabled' && typeof t.NextRunTime === 'string'
         ? t.NextRunTime.match(/(\d{2}:\d{2}):\d{2}$/) : null;
       setNextRun(m ? m[1] : null);
-    } catch { setNextRun(null); }
+    } catch (e) { setNextRun(null); setSchedulerErr({ operation: 'scheduler', detail: errorDetail(e) }); }
   }, []);
 
   // La cella ULTIMO GIRO FEED: età VIVA dal timestamp (modello FX STALE —
@@ -1001,16 +1082,16 @@ export default function NewsPage() {
   // ri-renderizza coi poll), age_minutes dichiarato come ripiego ETICHETTATO.
   const giroCella = (() => {
     if (giro === 'attesa') return {
-      v: '…', col: undefined as string | undefined, sub: 'PRIMA LETTURA IN CORSO',
-      tip: 'GET /news/providers: prima lettura in corso',
+      v: '…', col: undefined as string | undefined, sub: tr('newsdesk.s065'),
+      tip: tr('newsdesk.s066'),
     };
     if (giro === 'errore') return {
-      v: 'n.d.', col: '#FF5C7A', sub: 'ENDPOINT NON RAGGIUNTO',
-      tip: 'GET /news/providers non ha risposto: la freschezza del feed non è misurabile — dichiarato, non dedotto',
+      v: tr('newsdesk.s053'), col: '#FF5C7A', sub: tr('newsdesk.s067'),
+      tip: tr('newsdesk.s068'),
     };
     if (giro === 'assente') return {
-      v: 'n.d.', col: '#FF5C7A', sub: 'CHIAVE ASSENTE DAL BACKEND',
-      tip: 'Il backend risponde ma senza `ultimo_giro`: processo più vecchio del contratto (68) del 12/08 — al riavvio la dichiarazione compare da sola',
+      v: tr('newsdesk.s053'), col: '#FF5C7A', sub: tr('newsdesk.s069'),
+      tip: tr('newsdesk.s070'),
     };
     const g = giro;
     const ts = g.timestamp ? new Date(g.timestamp).getTime() : NaN;
@@ -1018,30 +1099,30 @@ export default function NewsPage() {
       : (typeof g.age_minutes === 'number' && isFinite(g.age_minutes) ? Math.round(g.age_minutes) : null);
     const etaTxt = eta == null ? '?' : `${eta}′`;
     const oraTxt = isFinite(ts)
-      ? new Date(ts).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : 'n.d.';
+      ? new Date(ts).toLocaleTimeString(localeDi(linguaCorrente()), { hour: '2-digit', minute: '2-digit' }) : tr('newsdesk.s053');
     const blocked = g.providers_blocked || {};
     const nBlk = Object.keys(blocked).length;
     const blkTxt = Object.entries(blocked)
-      .map(([p, m]) => `${p} (${String(m).replace('SKIP_', '')})`).join(' · ');
-    const tip = `Giro delle ${oraTxt}: ${g.fetched ?? 0} lette · ${g.classified ?? 0} classificate · `
-      + `${g.saved ?? 0} salvate · ${g.skipped_duplicates ?? 0} doppioni.`
-      + (nBlk ? ` Bloccati: ${blkTxt}.` : '')
-      + ` Prossimo giro ${nextRun ?? 'n.d.'} (task scheduler).`
-      + ' Stato dichiarato dal backend [src: GET /news/providers] — poche news per quota e news fresche sono problemi diversi con la stessa età.';
+      .map(([p, m]) => `${p} (${motivoMuto(m)})`).join(' · ');
+    const tip = tr('newsdesk.s071', {a: oraTxt, b: g.fetched ?? 0, c: g.classified ?? 0})
+      + tr('newsdesk.s072', {a: g.saved ?? 0, b: g.skipped_duplicates ?? 0})
+      + (nBlk ? tr('newsdesk.s073', {a: blkTxt}) : '')
+      + tr('newsdesk.s074', {a: nextRun ?? tr('newsdesk.s053')})
+      + tr('newsdesk.s075');
     if (g.stato === 'ok') return {
       v: `${etaTxt} · OK`, col: undefined,
-      sub: `${g.fetched ?? 0} LETTE · ${g.saved ?? 0} SALVATE · PROSSIMO ${nextRun ?? 'n.d.'}`, tip,
+      sub: tr('newsdesk.s076', {a: g.fetched ?? 0, b: g.saved ?? 0, c: nextRun ?? tr('newsdesk.s053')}), tip,
     };
     if (g.stato === 'degradato') return {
-      v: `${etaTxt} · DEGRADATO`, col: '#FFA51E',
-      sub: `${g.fetched ?? 0} LETTE · ${g.saved ?? 0} SALVATE · ${nBlk} ${nBlk === 1 ? 'FONTE' : 'FONTI'} K.O.`, tip,
+      v: tr('newsdesk.s077', {a: etaTxt}), col: '#FFA51E',
+      sub: tr('newsdesk.s078', {a: g.fetched ?? 0, b: g.saved ?? 0, c: nBlk, d: nBlk === 1 ? tr('newsdesk.s079') : tr('newsdesk.s080')}), tip,
     };
     // n.d. / illeggibile / valore imprevisto: il motivo VERBATIM, mai un trattino nudo
     return {
-      v: 'n.d.', col: '#FF5C7A',
-      sub: (g.motivo || `STATO «${String(g.stato)}» NON PREVISTO DAL CONTRATTO`).toUpperCase().slice(0, 42),
-      tip: (g.motivo ? `Motivo dal backend, verbatim: ${g.motivo}` : `Stato «${String(g.stato)}» fuori contratto (68)`)
-        + ` — ultimo tentativo di lettura noto: ${oraTxt}.`,
+      v: tr('newsdesk.s053'), col: '#FF5C7A',
+      sub: (g.motivo || tr('newsdesk.s081', {a: String(g.stato)})).toUpperCase().slice(0, 42),
+      tip: (g.motivo ? tr('newsdesk.s082', {a: g.motivo}) : tr('newsdesk.s083', {a: String(g.stato)}))
+        + tr('newsdesk.s084', {a: oraTxt}),
     };
   })();
 
@@ -1050,20 +1131,22 @@ export default function NewsPage() {
   // ============================================================
   // Lettura LEGGERA dal DB locale (/news/feed): nessun provider esterno.
   const loadFeed = useCallback(async () => {
+    const read = ++feedRead.current, language = linguaCorrente();
     setFeedLoad(true);
     try {
       const d = await Bellomberg.newsFeed({ limit: 200, min_relevance: 0 });
+      if (read !== feedRead.current || language !== linguaCorrente()) return;
       setFeed((d.items || []) as FeedItem[]);
       setFeedErr(null);
       setLastFeedAt(new Date());
       takeFonti(d);
-    } catch (e: any) { setFeedErr(e?.message || 'caricamento feed fallito'); }
-    finally { setFeedLoad(false); }
+    } catch (e) { if (read === feedRead.current && language === linguaCorrente()) setFeedErr({ operation: 'feed', detail: errorDetail(e) }); }
+    finally { if (read === feedRead.current) setFeedLoad(false); }
   }, [takeFonti]);
 
   const loadFavs = useCallback(async () => {
-    try { const d = await Bellomberg.favorites(); setFavs(d.favorites || []); }
-    catch { /* non bloccante */ }
+    try { const d = await Bellomberg.favorites(); setFavs(d.favorites || []); setFavsErr(null); }
+    catch (e) { setFavsErr({ operation: 'favorites', detail: errorDetail(e) }); }
   }, []);
 
   // Refresh PESANTE (pull provider + classificazione Haiku): SOLO su bottone.
@@ -1071,24 +1154,29 @@ export default function NewsPage() {
     setRefreshing(true); setRefreshInfo(null);
     try {
       const r = await Bellomberg.newsFeedRefresh(1, true);
-      setRefreshInfo(`+${r.saved ?? 0} nuove · ${r.skipped_duplicates ?? 0} dup`);
+      setRefreshInfo({ saved: r.saved ?? 0, duplicates: r.skipped_duplicates ?? 0 });
       takeFonti(r);
       // il refresh manuale E' un giro: lo stato freschezza va riletto
       await Promise.all([loadFeed(), loadFavs(), loadGiro()]);
-    } catch (e: any) { setFeedErr(e?.message || 'refresh feed fallito'); }
+    } catch (e) { setFeedErr({ operation: 'refresh', detail: errorDetail(e) }); }
     finally { setRefreshing(false); }
-  }, [loadFeed, loadFavs, takeFonti]);
+  }, [loadFeed, loadFavs, loadGiro, takeFonti]);
 
   const loadBriefing = useCallback(async () => {
+    const read = ++briefingRead.current, language = linguaCorrente();
     try {
       const d = await Bellomberg.briefingCurrent();
-      setBriefing(d); setBriefingErr(d.error || null);
-    } catch (e: any) { setBriefingErr(e?.message || 'briefing load failed'); }
+      if (read !== briefingRead.current || language !== linguaCorrente()) return;
+      setBriefing(d); setBriefingErr(d.error ? { operation: 'briefing', detail: d.error } : null);
+    } catch (e) { if (read === briefingRead.current && language === linguaCorrente()) setBriefingErr({ operation: 'briefing', detail: errorDetail(e) }); }
   }, []);
   const refreshBriefing = useCallback(async () => {
+    const read = ++briefingRead.current, language = linguaCorrente();
     setBriefingLoad(true); setBriefingErr(null);
-    try { const d = await Bellomberg.briefingRefresh(); setBriefing(d); if (d.error) setBriefingErr(d.error); }
-    catch (e: any) { setBriefingErr(e?.message || 'briefing refresh failed'); }
+    try { const d = await Bellomberg.briefingRefresh();
+      if (read !== briefingRead.current || language !== linguaCorrente()) return;
+      setBriefing(d); if (d.error) setBriefingErr({ operation: 'briefing', detail: d.error }); }
+    catch (e) { if (read === briefingRead.current && language === linguaCorrente()) setBriefingErr({ operation: 'briefing', detail: errorDetail(e) }); }
     finally { setBriefingLoad(false); }
   }, []);
   const loadMacro = useCallback(async (cats: string[] = []) => {
@@ -1098,27 +1186,27 @@ export default function NewsPage() {
         categories: cats.length > 0 ? cats.join(',') : undefined,
         min_importance: 3, days: 2, max_per_topic: 3, include_reddit: false,
       });
-      setMacro(d.items || []);
+      setRawMacro(d);
       takeFonti(d);
-    } catch (e: any) { setMacroErr(e?.message || 'macro news failed'); }
+    } catch (e) { setMacroErr({ operation: 'macro', detail: errorDetail(e) }); }
     finally { setMacroLoad(false); }
   }, [takeFonti]);
   const loadCorporate = useCallback(async () => {
     setCorpLoad(true); setCorpErr(null);
-    try { const d = await Bellomberg.newsCorporateEvents(30, 50); setCorp(d.items || []); takeFonti(d); }
-    catch (e: any) { setCorpErr(e?.message || 'corporate events failed'); }
+    try { const d = await Bellomberg.newsCorporateEvents(30, 50); setRawCorp(d); takeFonti(d); }
+    catch (e) { setCorpErr({ operation: 'corporate', detail: errorDetail(e) }); }
     finally { setCorpLoad(false); }
   }, [takeFonti]);
   const loadGlobal = useCallback(async () => {
     setGlobalLoad(true); setGlobalErr(null);
     try { const d = await Bellomberg.newsTopGlobal(30); setGlobalNews(d.items || []); takeFonti(d); }
-    catch (e: any) { setGlobalErr(e?.message || 'global news failed'); }
+    catch (e) { setGlobalErr({ operation: 'global', detail: errorDetail(e) }); }
     finally { setGlobalLoad(false); }
   }, [takeFonti]);
   const loadEcon = useCallback(async () => {
     setEconLoad(true); setEconErr(null);
     try { const d = await Bellomberg.economicCalendar(14); setEcon(d.items || []); }
-    catch (e: any) { setEconErr(e?.message || 'economic calendar failed'); }
+    catch (e) { setEconErr({ operation: 'calendar', detail: errorDetail(e) }); }
     finally { setEconLoad(false); }
   }, []);
   const refreshAllDesk = useCallback(async () => {
@@ -1130,6 +1218,14 @@ export default function NewsPage() {
   // ============================================================
   // EFFECTS
   // ============================================================
+  // Language changes select existing local cache versions; these two GETs do
+  // not pull providers or generate a new summary/briefing.
+  useEffect(() => {
+    const selected = linguaCorrente();
+    if (cacheLanguage.current === selected) return;
+    cacheLanguage.current = selected;
+    loadFeed(); loadBriefing();
+  }, [tr, loadFeed, loadBriefing]);
   // Mount + poll 5 min della vista DESK (cadenza identica alla v0.7:
   // NESSUN aumento di frequenza verso i provider esterni).
   useEffect(() => {
@@ -1184,7 +1280,7 @@ export default function NewsPage() {
     return Object.entries(counts)
       .map(([key, count]) => ({ key, count, label: themeLabelOf(key) }))
       .sort((a, b) => b.count - a.count);
-  }, [feed]);
+  }, [feed, tr]);
 
   const filtered = useMemo(() => {
     return feed.filter(n => {
@@ -1243,7 +1339,7 @@ export default function NewsPage() {
     return { pos, neu, neg, h24, h6, total: feed.length, topThemes,
              nTickers: tickers.size, nProviders: providers.size,
              avgRel: relN > 0 ? relSum / relN : 0 };
-  }, [feed]);
+  }, [feed, tr]);
 
   // MATRICE CANALI: provider visti nel feed (count + ultimo item) fusi con la
   // dichiarazione fonti_mute (25); un provider muto ASSENTE dal feed compare
@@ -1344,58 +1440,58 @@ export default function NewsPage() {
       {/* ══ HERO "SIGNAL DECK": traffico wire in vetrina + copertura DICHIARATA + comandi ══ */}
       <div className="p3 hero scanx" style={{ flexShrink: 0 }}>
         <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
-        <div className="p3h am">NEWS // SIGNAL DECK
-          <span className="n">· WIRE & DESK · FEED DB LOCALE · PROVIDER SOLO SU REFRESH</span>
+        <div className="p3h am">{tr('newsdesk.s086')}
+          <span className="n">{tr('newsdesk.s087')}</span>
           <span className="side num">
-            {feed.length} ITEM · AGG {lastFeedAt ? lastFeedAt.toLocaleTimeString('it-IT', { hour12: false }) : '--:--:--'}
-            {refreshInfo ? ' · ' + refreshInfo : ''}
+            {feed.length} {tr('newsdesk.s088')} {lastFeedAt ? lastFeedAt.toLocaleTimeString(localeDi(linguaCorrente()), { hour12: false }) : '--:--:--'}
+            {refreshInfo ? ' · ' + tr('newsdesk.s085', { a: refreshInfo.saved, b: refreshInfo.duplicates }) : ''}
             {view === 'desk'
-              ? ' · DESK AUTO 5M' + (lastDeskAt ? ' · AGG ' + lastDeskAt.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '')
+              ? ' · DESK AUTO 5M' + (lastDeskAt ? tr('newsdesk.s089') + lastDeskAt.toLocaleTimeString(localeDi(linguaCorrente()), { hour: '2-digit', minute: '2-digit' }) : '')
               : auto ? ' · AUTO 60S' : ''}
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'stretch', flexWrap: 'wrap', minHeight: 74 }}>
           {/* vetrina: SIGNAL TRAFFIC — istogramma orario 24h + polso sentiment */}
           <div style={{ padding: '9px 16px 11px' }}>
-            <div style={{ fontSize: 9, letterSpacing: '.22em', fontWeight: 600, color: '#73829F', textTransform: 'uppercase' }}>SIGNAL TRAFFIC // ULTIME 24H</div>
+            <div style={{ fontSize: 9, letterSpacing: '.22em', fontWeight: 600, color: '#73829F', textTransform: 'uppercase' }}>{tr('newsdesk.s090')}</div>
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, marginTop: 3 }}>
               <div className="num" style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1, color: '#ECF1FA', whiteSpace: 'nowrap' }}
-                   title="Item del feed DB locale con timestamp nelle ultime 24h: misura il flusso SALVATO, non il mercato — lo stato quota provider è nella cella FONTI MUTE">
-                {stats.h24}<span style={{ fontSize: 12, fontWeight: 600, marginLeft: 6, color: '#8D9FC4' }}>ITEM</span>
+                   title={tr('newsdesk.s091')}>
+                {stats.h24}<span style={{ fontSize: 12, fontWeight: 600, marginLeft: 6, color: '#8D9FC4' }}>{tr('newsdesk.s092')}</span>
               </div>
               <FlowBars feed={feed} width={200} />
             </div>
             <div style={{ width: 260, height: 3, marginTop: 6, display: 'flex', background: 'rgba(26,36,64,.9)' }}
-                 title={`Polso sentiment sull'intero feed: POS ${stats.pos} / NEU ${stats.neu} / NEG ${stats.neg}`}>
+                 title={tr('newsdesk.s093', {a: stats.pos, b: stats.neu, c: stats.neg})}>
               <span style={{ display: 'block', width: `${(stats.pos / tot3) * 100}%`, background: C.emerald }} />
               <span style={{ display: 'block', width: `${(stats.neu / tot3) * 100}%`, background: '#2A3760' }} />
               <span style={{ display: 'block', width: `${(stats.neg / tot3) * 100}%`, background: C.crimson }} />
             </div>
             <div className="num" style={{ fontSize: 9, fontWeight: 600, color: '#73829F', marginTop: 4, letterSpacing: '.1em', textTransform: 'uppercase' }}>
-              6H {stats.h6} · TOT {stats.total} · ISTOGRAMMA ITEM/ORA · POLSO POS/NEU/NEG
+              6H {stats.h6} {tr('newsdesk.s094')} {stats.total} {tr('newsdesk.s095')}
             </div>
           </div>
-          <HeroCell label="MARKET MOVING" value={String(marketMoving.length)}
+          <HeroCell label={tr('newsdesk.s096')} value={String(marketMoving.length)}
                     color={marketMoving.length > 0 ? '#FFA51E' : undefined}
-                    sub="REL ≥ 8 · RANK MATERIALITY"
-                    title="Catalyst con relevance ≥ 8, ordinati per materiality (relevance + peso book + freschezza + boost preferito)" />
-          <HeroCell label="COPERTURA FEED" value={`${stats.nTickers} TKR`}
-                    sub={`${stats.nProviders} FONTI VIVE · REL MEDIA ${stats.avgRel.toFixed(1)}`}
-                    title="Ticker distinti e provider presenti negli item caricati (conteggio client-side sul prefetch)" />
-          <HeroCell label="FONTI MUTE"
-                    value={!fonti.declared ? 'n.d.' : nMute === 0 ? 'NESSUNA' : String(nMute)}
+                    sub={tr('newsdesk.s097')}
+                    title={tr('newsdesk.s098')} />
+          <HeroCell label={tr('newsdesk.s099')} value={`${stats.nTickers} TKR`}
+                    sub={tr('newsdesk.s100', {a: stats.nProviders, b: fmtNum(stats.avgRel, 1)})}
+                    title={tr('newsdesk.s101')} />
+          <HeroCell label={tr('newsdesk.s102')}
+                    value={!fonti.declared ? tr('newsdesk.s053') : nMute === 0 ? tr('newsdesk.s103') : String(nMute)}
                     tone={!fonti.declared ? undefined : nMute === 0 ? 'up' : 'dn'}
-                    sub={!fonti.declared ? 'DICHIARAZIONE NON ESPOSTA QUI'
-                         : nMute === 0 ? 'DICHIARATO DAL BACKEND'
+                    sub={!fonti.declared ? tr('newsdesk.s104')
+                         : nMute === 0 ? tr('newsdesk.s105')
                          : Object.keys(fonti.mute).sort().join(' · ').slice(0, 34).toUpperCase()}
                     title={!fonti.declared
-                      ? 'Gli endpoint consumati da questa pagina non espongono ancora fonti_mute/avviso (voce (25) backend: oggi solo /news/ticker, /news/search, /news/portfolio): n.d. DICHIARATO, mai dedotto. Coordinamento richiesto alla chat backend in (F5).'
+                      ? tr('newsdesk.s106')
                       : nMute === 0
-                        ? 'Il backend dichiara: nessun provider fuori per budget/disable. NB: il cooldown per-query resta fuori dal conteggio (scelta (25)).'
-                        : 'Provider fuori per budget/disable dichiarati dal backend: poche/zero news NON significa quiete.'} />
+                        ? tr('newsdesk.s107')
+                        : tr('newsdesk.s108')} />
           {/* FRESCHEZZA (ponte (68), impianto A scelto dal PM 17/08 sulla rosa
               in situ): stato + età, MAI solo l'età; il verbale pieno nel title */}
-          <HeroCell label="ULTIMO GIRO FEED" grado10
+          <HeroCell label={tr('newsdesk.s109')} grado10
                     value={giroCella.v} color={giroCella.col}
                     sub={giroCella.sub} title={giroCella.tip} />
           <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', gap: 6, padding: '8px 14px' }}>
@@ -1405,26 +1501,26 @@ export default function NewsPage() {
                 <button className={'tb' + (view === 'desk' ? ' on' : '')} onClick={() => setView('desk')}>DESK</button>
               </span>
               <button className={'tb' + (auto ? ' on' : '')} onClick={() => setAuto(a => !a)}
-                      title="Poll del solo get_feed (DB locale) ogni 60s — nessun provider esterno">
+                      title={tr('newsdesk.s110')}>
                 AUTO 60S
               </button>
               {view === 'wire' ? (
                 <button className={'tb' + (refreshing ? ' dis' : '')} onClick={heavyRefresh} disabled={refreshing}
                         style={{ color: '#FFA51E' }}
-                        title="Pull pesante dai provider + classificazione Haiku (solo manuale)">
-                  {refreshing ? 'PULL IN CORSO…' : '↻ REFRESH PROVIDER'}
+                        title={tr('newsdesk.s111')}>
+                  {refreshing ? tr('newsdesk.s112') : tr('newsdesk.s113')}
                 </button>
               ) : (
                 <button className={'tb' + (deskBusy ? ' dis' : '')} onClick={refreshAllDesk} disabled={deskBusy}
                         style={{ color: '#FFA51E' }}>
-                  {deskBusy ? 'CARICO…' : '↻ REFRESH ALL'}
+                  {deskBusy ? tr('newsdesk.s114') : tr('newsdesk.s115')}
                 </button>
               )}
             </div>
             <div className="num" style={{ fontSize: 9, fontWeight: 600, color: '#73829F', letterSpacing: '.1em', textTransform: 'uppercase' }}>
               {view === 'wire'
-                ? `${filtered.length}/${feed.length} nel nastro · ${nActiveFilters} filtri attivi`
-                : `briefing + macro + societario + calendario + global`}
+                ? tr('newsdesk.s116', {a: filtered.length, b: feed.length, c: nActiveFilters})
+                : tr('newsdesk.s117')}
             </div>
           </div>
         </div>
@@ -1432,6 +1528,10 @@ export default function NewsPage() {
 
       {/* ══ COMM TAPE: nastro headline live (dati veri, hover=pausa) ══ */}
       <CommTape feed={feed} />
+      {(schedulerErr || providersErr) && <div style={{ flexShrink: 0 }}>
+        {schedulerErr && <ErrorBox msg={schedulerErr} />}
+        {providersErr && <ErrorBox msg={providersErr} />}
+      </div>}
 
       {/* ══ AVVISO COPERTURA (reso SOLO se il backend lo dichiara: mai dedotto) ══ */}
       {fonti.declared && (nMute > 0 || fonti.avviso) && (
@@ -1439,8 +1539,8 @@ export default function NewsPage() {
              style={{ flexShrink: 0 }}>
           <AlertCircle size={12} className="mt-0.5 shrink-0" />
           <span>
-            <b>COPERTURA PARZIALE — FONTI MUTE: </b>
-            {Object.entries(fonti.mute).map(([p, m]) => `${p} (${String(m).replace('SKIP_', '')})`).join(' · ') || '—'}
+            <b>{tr('newsdesk.s118')} </b>
+            {Object.entries(fonti.mute).map(([p, m]) => `${p} (${motivoMuto(m)})`).join(' · ') || '—'}
             {fonti.avviso ? ` — ${fonti.avviso}` : ''}
           </span>
         </div>
@@ -1452,21 +1552,21 @@ export default function NewsPage() {
         <div className="nwir flex-1 flex gap-2 overflow-hidden min-h-0 animate-fadeIn">
           {/* (a) RAIL FILTRI */}
           <div className="w-44 shrink-0 p3" style={bd(60)}>
-            <div className="p3h"><Filter size={10} /> FILTRI
+            <div className="p3h"><Filter size={10} /> {tr('newsdesk.s119')}
               {nActiveFilters > 0 && (
                 <span className="side">
                   <button onClick={resetFilters}
                           className="font-mono text-3xs text-amber hover:text-amber-bright transition-colors">
-                    AZZERA ({nActiveFilters})
+                    {tr('newsdesk.s120')}{nActiveFilters})
                   </button>
                 </span>
               )}
             </div>
             <div className="flex-1 overflow-y-auto p-1.5 space-y-3 min-h-0">
               <div>
-                <RailLabel>Periodo</RailLabel>
+                <RailLabel>{tr('newsdesk.s121')}</RailLabel>
                 <div className="space-y-px">
-                  {DATE_PRESETS_NEWS.map(p => (
+                  {DATE_PRESETS_NEWS().map(p => (
                     <RailChip key={p.value} on={fPeriod === p.value} label={p.label}
                               onClick={() => setFPeriod(p.value)} />
                   ))}
@@ -1474,10 +1574,10 @@ export default function NewsPage() {
               </div>
 
               <div>
-                <RailLabel>Categorie</RailLabel>
+                <RailLabel>{tr('newsdesk.s122')}</RailLabel>
                 <div className="space-y-px">
                   {themeOptions.length === 0 && (
-                    <div className="px-1.5 font-mono text-3xs text-faint">nessun tema</div>
+                    <div className="px-1.5 font-mono text-3xs text-faint">{tr('newsdesk.s123')}</div>
                   )}
                   {themeOptions.map(t => (
                     <RailChip key={t.key} on={fThemes.includes(t.key)} label={t.label} count={t.count}
@@ -1487,7 +1587,7 @@ export default function NewsPage() {
               </div>
 
               <div>
-                <RailLabel>Sentiment</RailLabel>
+                <RailLabel>{tr('newsdesk.s124')}</RailLabel>
                 <div className="grid grid-cols-3 gap-1">
                   {SENT_FILTERS.map(s => {
                     const on = fSent.includes(s.key);
@@ -1506,9 +1606,9 @@ export default function NewsPage() {
               </div>
 
               <div>
-                <RailLabel>Relevance</RailLabel>
+                <RailLabel>{tr('newsdesk.s125')}</RailLabel>
                 <div className="grid grid-cols-3 gap-1">
-                  {REL_FILTERS.map(r => {
+                  {REL_FILTERS().map(r => {
                     const on = fRel === r.value;
                     return (
                       <button key={r.value}
@@ -1523,10 +1623,10 @@ export default function NewsPage() {
               </div>
 
               <div>
-                <RailLabel>Ticker nel feed</RailLabel>
+                <RailLabel>{tr('newsdesk.s126')}</RailLabel>
                 <div className="space-y-px max-h-44 overflow-y-auto pr-0.5">
                   {tickerOptions.length === 0 && (
-                    <div className="px-1.5 font-mono text-3xs text-faint">nessun ticker</div>
+                    <div className="px-1.5 font-mono text-3xs text-faint">{tr('newsdesk.s127')}</div>
                   )}
                   {tickerOptions.slice(0, 40).map(t => (
                     <RailChip key={t.ticker} on={fTickers.includes(t.ticker)} label={t.ticker} count={t.count}
@@ -1537,10 +1637,11 @@ export default function NewsPage() {
               </div>
 
               <div>
-                <RailLabel>Preferiti PM</RailLabel>
+                <RailLabel>{tr('newsdesk.s128')}</RailLabel>
                 <div className="space-y-px max-h-44 overflow-y-auto pr-0.5">
-                  {favs.length === 0 && (
-                    <div className="px-1.5 font-mono text-3xs text-faint">nessun preferito</div>
+                  {favsErr && <ErrorBox msg={favsErr} />}
+                  {!favsErr && favs.length === 0 && (
+                    <div className="px-1.5 font-mono text-3xs text-faint">{tr('newsdesk.s129')}</div>
                   )}
                   {favs.map(f => {
                     const tk = (f.ticker || '').toUpperCase();
@@ -1558,33 +1659,33 @@ export default function NewsPage() {
 
           {/* (b) NASTRO WIRE */}
           <div className="nwmain flex-1 min-w-0 p3" style={bd(120)}>
-            <div className="p3h am">WIRE // NASTRO CRONOLOGICO
-              <span className="n num">{filtered.length}/{feed.length} ITEM</span>
+            <div className="p3h am">{tr('newsdesk.s130')}
+              <span className="n num">{filtered.length}/{feed.length} {tr('newsdesk.s092')}</span>
               {feedLoad && <RefreshCw size={10} className="animate-spin text-amber" />}
-              <span className="side hidden xl:block">CLICK RIGA = APRI FONTE</span>
+              <span className="side hidden xl:block">{tr('newsdesk.s131')}</span>
             </div>
             <div className="flex-1 overflow-y-auto min-h-0">
               {feedErr ? (
                 <div className="p-4">
                   <ErrorBox msg={feedErr} />
                   <div className="text-center mt-2">
-                    <button onClick={loadFeed} className="btn btn-amber text-3xs px-3 py-1">RIPROVA</button>
+                    <button onClick={loadFeed} className="btn btn-amber text-3xs px-3 py-1">{tr('newsdesk.s132')}</button>
                   </div>
                 </div>
               ) : feed.length === 0 && (feedLoad || refreshing) ? (
-                <LoadingBox label="Caricamento wire dal DB..." />
+                <LoadingBox label={tr('newsdesk.s133')} />
               ) : feed.length === 0 ? (
                 <div className="p-8 text-center font-mono text-2xs text-faint">
-                  <div className="mb-3">WIRE VUOTO — nessun item nel DB locale.</div>
+                  <div className="mb-3">{tr('newsdesk.s134')}</div>
                   <button onClick={heavyRefresh} disabled={refreshing}
                           className="btn btn-amber text-3xs px-3 py-1 disabled:opacity-50">
-                    <RefreshCw size={10} className={refreshing ? 'animate-spin' : ''} /> PULL DAI PROVIDER
+                    <RefreshCw size={10} className={refreshing ? 'animate-spin' : ''} /> {tr('newsdesk.s135')}
                   </button>
                 </div>
               ) : filtered.length === 0 ? (
                 <div className="p-8 text-center font-mono text-2xs text-faint">
-                  <div className="mb-3">Nessun item con i filtri attivi.</div>
-                  <button onClick={resetFilters} className="btn btn-amber text-3xs px-3 py-1">AZZERA FILTRI</button>
+                  <div className="mb-3">{tr('newsdesk.s136')}</div>
+                  <button onClick={resetFilters} className="btn btn-amber text-3xs px-3 py-1">{tr('newsdesk.s137')}</button>
                 </div>
               ) : (
                 dayGroups.map(([k, items]) => (
@@ -1608,20 +1709,20 @@ export default function NewsPage() {
           <div className="nwright w-72 shrink-0 flex flex-col gap-2 overflow-hidden min-h-0">
             <div className="p3 scpx cy shrink-0" style={bd(150)}>
               <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
-              <div className="p3h">SCOPE // CONTATTI 24H
-                <span className="side num">{feed.filter(n => { const t = tsOf(n); return t > 0 && Date.now() - t < 86_400_000; }).length} BLIP</span>
+              <div className="p3h">{tr('newsdesk.s138')}
+                <span className="side num">{tr('newsdesk.blipCount', { a: feed.filter(n => { const t = tsOf(n); return t > 0 && Date.now() - t < 86_400_000; }).length })}</span>
               </div>
               <RadarScope feed={feed} favSet={favSet} />
-              <div className="scleg num">SETTORE=TEMA · RAGGIO=ETÀ (1H/6H/24H) · COLORE=SENTIMENT · ALONE=REL≥8 · ANELLO ORO=PREFERITO · CLICK=FONTE</div>
+              <div className="scleg num">{tr('newsdesk.s139')}</div>
             </div>
             <div className="p3 flex-1 min-h-0" style={{ ...bd(180), borderLeft: '2px solid rgba(255,165,30,.55)' }}>
-              <div className="p3h am"><Zap size={11} /> MARKET MOVING
+              <div className="p3h am"><Zap size={11} /> {tr('newsdesk.s096')}
                 <span className="n">REL ≥ 8</span>
                 <span className="side"><span className={`led ${marketMoving.length > 0 ? 'led-amber pulse-dot' : 'led-off'}`} /></span>
               </div>
               <div className="overflow-y-auto min-h-0">
                 {marketMoving.length === 0
-                  ? <EmptyBox label="Nessun catalyst con REL >= 8." />
+                  ? <EmptyBox label={tr('newsdesk.s140')} />
                   : marketMoving.map((n, i) => (
                       <MoverRow key={n.id ?? i} n={n} rank={i + 1}
                                 fav={!!n.ticker_mentioned && favSet.has((n.ticker_mentioned || '').toUpperCase())} />
@@ -1635,9 +1736,9 @@ export default function NewsPage() {
         {/* runline di stato del link wire (idioma SECURE CHANNEL della pagina di accesso) */}
         <div className="runline num" style={{ flexShrink: 0 }}>
           <span className={`led ${auto ? 'led-cyan pulse-dot' : 'led-off'}`} />
-          WIRE LINK · /news/feed DB LOCALE {auto ? '· POLL 60S ATTIVO' : '· POLL SOSPESO'} · BUFFER 200 · PROVIDER SOLO SU REFRESH MANUALE
+          {tr('newsdesk.s141')} {auto ? tr('newsdesk.s142') : tr('newsdesk.s143')} {tr('newsdesk.s144')}
           <span style={{ marginLeft: 'auto' }}>
-            AGG {lastFeedAt ? lastFeedAt.toLocaleTimeString('it-IT', { hour12: false }) : '--:--:--'}
+            {tr('newsdesk.s145')} {lastFeedAt ? lastFeedAt.toLocaleTimeString(localeDi(linguaCorrente()), { hour12: false }) : '--:--:--'}
           </span>
         </div>
         </>
@@ -1653,26 +1754,26 @@ export default function NewsPage() {
           <div className="col-span-4 flex flex-col gap-2 overflow-hidden min-h-0">
             <div className="p3 flex-1 min-h-0" style={bd(120)}>
               <PanelHeader
-                icon={Globe} title="Macro & Geopolitica" count={filteredMacro.length}
+                icon={Globe} title={tr('newsdesk.s146')} count={filteredMacro.length}
                 action={macroLoad && <RefreshCw size={10} className="animate-spin text-amber" />}
               />
               <div className="px-2 py-2 border-b border-border bg-bg/50 flex gap-2 flex-shrink-0">
                 <DropdownSingle
-                  label="Periodo" options={DATE_PRESETS_NEWS}
+                  label={tr('newsdesk.s121')} options={DATE_PRESETS_NEWS()}
                   selected={macroDateSel} onChange={setMacroDateSel}
                 />
                 <Dropdown
-                  label="Categoria"
-                  options={Object.entries(CATEGORY_LABELS).map(([k, v]) => ({ value: k, label: v }))}
+                  label={tr('newsdesk.s147')}
+                  options={Object.entries(CATEGORY_LABELS()).map(([k, v]) => ({ value: k, label: v }))}
                   selected={macroCategorySel}
                   onChange={setMacroCategorySel}
-                  allLabel="Tutte"
+                  allLabel={tr('newsdesk.s036')}
                 />
               </div>
               <div className="flex-1 overflow-y-auto min-h-0">
                 {macroErr ? <ErrorBox msg={macroErr} /> :
-                 filteredMacro.length === 0 && macroLoad ? <LoadingBox label="Caricamento macro news... (~30s)" /> :
-                 filteredMacro.length === 0 ? <EmptyBox label="Nessuna news macro con questi filtri." /> :
+                 filteredMacro.length === 0 && macroLoad ? <LoadingBox label={tr('newsdesk.s148')} /> :
+                 filteredMacro.length === 0 ? <EmptyBox label={tr('newsdesk.s149')} /> :
                  filteredMacro.map((n, i) => {
                    const CatIcon = categoryIcon(n.topic_category);
                    return (
@@ -1685,7 +1786,7 @@ export default function NewsPage() {
                            <span className="text-3xs font-mono px-1 rounded-sm flex items-center gap-1"
                                  style={{ background: importanceTone(n.topic_importance) + '14',
                                           color: importanceTone(n.topic_importance) }}>
-                             <CatIcon size={9} />{n.topic_label?.slice(0, 16) || 'macro'}
+                             <CatIcon size={9} /><span title={tr('newsdesk.serviceLabel', { label: n.topic_label || 'macro' })}>{n.topic_label?.slice(0, 16) || 'macro'}</span>
                            </span>
                            {n.tickers_affected && n.tickers_affected.length > 0 && (
                              <span className="text-3xs font-mono text-amber/80">
@@ -1701,12 +1802,12 @@ export default function NewsPage() {
 
             <div className="p3 flex-1 min-h-0" style={bd(180)}>
               <PanelHeader
-                icon={Building2} title="Eventi Societari" count={filteredCorp.length}
+                icon={Building2} title={tr('newsdesk.s150')} count={filteredCorp.length}
                 action={corpLoad && <RefreshCw size={10} className="animate-spin text-amber" />}
               />
               <div className="px-2 py-2 border-b border-border bg-bg/50 flex gap-2 flex-shrink-0">
                 <DropdownSingle
-                  label="Periodo" options={DATE_PRESETS_NEWS}
+                  label={tr('newsdesk.s121')} options={DATE_PRESETS_NEWS()}
                   selected={corpDateSel} onChange={setCorpDateSel}
                 />
                 <Dropdown
@@ -1714,16 +1815,18 @@ export default function NewsPage() {
                   options={corpTickers.map(t => ({ value: t.ticker, label: t.ticker, count: t.count }))}
                   selected={corpTickerSel}
                   onChange={setCorpTickerSel}
-                  allLabel={`Tutti (${corp.length})`}
+                  allLabel={tr('newsdesk.s151', {a: corp.length})}
                 />
               </div>
               <div className="flex-1 overflow-y-auto min-h-0">
                 {corpErr ? <ErrorBox msg={corpErr} /> :
-                 filteredCorp.length === 0 && corpLoad ? <LoadingBox label="Caricamento SEC + Finnhub..." /> :
-                 filteredCorp.length === 0 ? <EmptyBox label="Nessun evento con questi filtri." /> :
+                 filteredCorp.length === 0 && corpLoad ? <LoadingBox label={tr('newsdesk.s152')} /> :
+                 filteredCorp.length === 0 ? <EmptyBox label={tr('newsdesk.s153')} /> :
                  filteredCorp.map((e, i) => (
                    <NewsRow key={i}
                      title={e.title} snippet={e.snippet} url={e.url}
+                     bellombergText={e.source_type === 'sec'}
+                     titleOrigin={e.title_origin} snippetOrigin={e.snippet_origin} presentationLanguages={e.presentation_languages}
                      provider={e.provider} published_at={e.published_at}
                      ticker={e.ticker_mentioned} importance={e.topic_importance}
                      badges={e.event_type ? (
@@ -1742,37 +1845,39 @@ export default function NewsPage() {
           <div className="col-span-4 flex flex-col gap-2 overflow-hidden min-h-0">
             <div className="p3 cy min-h-0" style={{ ...bd(240), flex: '1.5 1 0' }}>
               <PanelHeader
-                icon={Calendar} title="Economic Calendar" count={filteredEcon.length}
+                icon={Calendar} title={tr('newsdesk.s154')} count={filteredEcon.length}
                 action={econLoad && <RefreshCw size={10} className="animate-spin text-amber" />}
               />
               <div className="px-2 py-2 border-b border-border bg-bg/50 flex gap-2 flex-wrap flex-shrink-0">
                 <DropdownSingle
-                  label="Data" options={DATE_PRESETS_CAL}
+                  label={tr('newsdesk.s155')} options={DATE_PRESETS_CAL()}
                   selected={econDateSel} onChange={setEconDateSel}
                 />
                 <Dropdown
-                  label="Importanza"
-                  options={IMPORTANCE_LEVELS.map(l => ({ value: l.value, label: l.label }))}
+                  label={tr('newsdesk.s156')}
+                  options={IMPORTANCE_LEVELS().map(l => ({ value: l.value, label: l.label }))}
                   selected={econImportanceSel} onChange={setEconImportanceSel}
-                  allLabel="Qualsiasi"
+                  allLabel={tr('newsdesk.s157')}
                 />
                 <Dropdown
-                  label="Paese"
+                  label={tr('newsdesk.s158')}
                   options={COUNTRIES_AVAILABLE.map(c => ({ value: c, label: c, count: countryCounts[c] }))}
                   selected={econCountrySel} onChange={setEconCountrySel}
-                  allLabel="Tutti i paesi"
+                  allLabel={tr('newsdesk.s159')}
                 />
               </div>
               <div className="flex-1 overflow-y-auto min-h-0">
                 {econErr ? (
                   <ErrorBox msg={econErr} />
+                ) : econLoad && Object.keys(econByDate).length === 0 ? (
+                  <LoadingBox label={tr('newsdesk.calendarLoading')} />
                 ) : Object.keys(econByDate).length === 0 ? (
-                  <EmptyBox label="Nessun evento con questi filtri." />
+                  <EmptyBox label={tr('newsdesk.s153')} />
                 ) : (
                   Object.entries(econByDate).map(([date, events]) => (
                     <div key={date} className="border-b border-border/40">
                       <div className="px-3 py-1 bg-bg-elev text-3xs font-mono text-amber uppercase tracking-wider sticky top-0">
-                        {date}
+                        {dataIt(date)}
                       </div>
                       {events.map((e, j) => {
                         const hasData = e.previous != null || e.estimate != null || e.actual != null;
@@ -1792,16 +1897,16 @@ export default function NewsPage() {
                               <span className="text-3xs font-mono text-amber">{e.country}</span>
                               {beat && (
                                 <span className="text-3xs font-mono font-bold ml-auto" style={{ color: beatColor }}>
-                                  {beat === 'beat' ? '+ BEAT' : beat === 'miss' ? '- MISS' : '= INLINE'}
+                                  {beat === 'beat' ? tr('newsdesk.s160') : beat === 'miss' ? tr('newsdesk.s161') : tr('newsdesk.s162')}
                                 </span>
                               )}
                             </div>
                             <div className="text-2xs text-text leading-tight mt-0.5">{e.title}</div>
                             {hasData && (
                               <div className="flex gap-3 mt-0.5 text-3xs font-mono tabular-nums">
-                                <span className="text-faint">prev <span className="text-text-dim">{e.previous != null ? String(e.previous) : '-'}{e.unit || ''}</span></span>
-                                <span className="text-faint">est <span style={{ color: C.cyan }}>{e.estimate != null ? String(e.estimate) : '-'}{e.unit || ''}</span></span>
-                                <span className="text-faint">act <span style={{ color: beat === 'beat' ? C.emerald : beat === 'miss' ? C.crimson : C.amberBright, fontWeight: 700 }}>{e.actual != null ? String(e.actual) : '-'}{e.unit || ''}</span></span>
+                                <span className="text-faint">{tr('newsdesk.s163')} <span className="text-text-dim">{economicNumber(e.previous)}{e.unit || ''}</span></span>
+                                <span className="text-faint">{tr('newsdesk.s164')} <span style={{ color: C.cyan }}>{economicNumber(e.estimate)}{e.unit || ''}</span></span>
+                                <span className="text-faint">{tr('newsdesk.s165')} <span style={{ color: beat === 'beat' ? C.emerald : beat === 'miss' ? C.crimson : C.amberBright, fontWeight: 700 }}>{economicNumber(e.actual)}{e.unit || ''}</span></span>
                               </div>
                             )}
                           </div>
@@ -1815,19 +1920,19 @@ export default function NewsPage() {
 
             <div className="p3 vi flex-1 min-h-0" style={bd(300)}>
               <PanelHeader
-                icon={Globe} title="Top Global News" count={filteredGlobal.length}
+                icon={Globe} title={tr('newsdesk.s166')} count={filteredGlobal.length}
                 action={globalLoad && <RefreshCw size={10} className="animate-spin text-amber" />}
               />
               <div className="px-2 py-2 border-b border-border bg-bg/50 flex gap-2 flex-shrink-0">
                 <DropdownSingle
-                  label="Periodo" options={DATE_PRESETS_NEWS}
+                  label={tr('newsdesk.s121')} options={DATE_PRESETS_NEWS()}
                   selected={globalDateSel} onChange={setGlobalDateSel}
                 />
               </div>
               <div className="flex-1 overflow-y-auto min-h-0">
                 {globalErr ? <ErrorBox msg={globalErr} /> :
                  filteredGlobal.length === 0 && globalLoad ? <LoadingBox /> :
-                 filteredGlobal.length === 0 ? <EmptyBox label="Nessuna top news con questi filtri." /> :
+                 filteredGlobal.length === 0 ? <EmptyBox label={tr('newsdesk.s167')} /> :
                  filteredGlobal.map((n, i) => (
                    <NewsRow key={i}
                      title={n.title} snippet={n.snippet} url={n.url}

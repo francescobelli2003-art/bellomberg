@@ -1,8 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLingua, useT } from '@/i18n/provider';
+import { t as tr } from '@/i18n/t';
+import { linguaCorrente, localeDi } from '@/i18n/lingua';
+import { surfaceExpiries, toggleExpiry, visibleSurface, type VolWorkspace } from '@/lib/vol-atlas';
 import { useScalaTesto } from '../lib/svg-kit';
 import VolWorkbench from '@/components/VolWorkbench';
 import { volRequest } from '@/lib/vol-deck';
+import { localizePayload } from '@/lib/api-presentation';
 import './dashboard-command.css';
+import './vol-atlas.css';
 
 // #179 — F12 Volatility Surface: superficie IV da chain Polygon multi-expiry
 // v2: hover preciso, palette terminale, cresta ATM, 0DTE esclusi dal plot,
@@ -26,7 +32,7 @@ function loadPlotly(): Promise<any> {
     const s = document.createElement('script');
     s.src = new URL('./vendor/plotly-2.32.0.min.js', document.baseURI).href;
     s.onload = () => resolve(window.Plotly);
-    s.onerror = () => reject(new Error('Bundle Plotly locale non disponibile'));
+    s.onerror = () => reject(new Error(tr('voldeck.ui_local_plotly_bundle_unavailable_1')));
     document.head.appendChild(s);
   });
 }
@@ -40,7 +46,7 @@ function pctile(arr: number[], p: number): number {
 
 // prezzo con decimali sensati (stessa filosofia di fmtPx di TerminalChart)
 const px = (v: number) =>
-  v >= 1000 ? v.toLocaleString('it-IT', { maximumFractionDigits: 0 })
+  v >= 1000 ? v.toLocaleString(localeDi(linguaCorrente()), { maximumFractionDigits: 0 })
   : v >= 100 ? v.toFixed(1) : v.toFixed(2);
 
 // mix lineare fra due colori RGB (per la scala vicino→lontano dello X-RAY)
@@ -72,8 +78,7 @@ function StrikeProjector({ spot, term, earnings }: { spot: number; term: any[]; 
   const pts = (term || []).filter(s => s.days >= 2 && s.atm_iv != null && isFinite(s.atm_iv) && s.atm_iv > 0);
   if (!(spot > 0) || pts.length < 2) {
     return <div className="num" style={{ padding: '14px 12px', fontSize: 9, fontWeight: 600, color: '#73829F' }}>
-      n.d. — servono spot e almeno 2 scadenze utilizzabili (0-1 DTE escluse a monte)
-    </div>;
+      {tr('voldeck.ui_n_a_spot_and_at_least_2_usable_expiries_are_required_0_2')}</div>;
   }
   const W = 332, H = 236, L = 46, R = 62, T = 12, B = 24;
   const maxD = pts[pts.length - 1].days;
@@ -107,7 +112,7 @@ function StrikeProjector({ spot, term, earnings }: { spot: number; term: any[]; 
   const last = pts[pts.length - 1];
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="vsxsvg" role="img"
-         aria-label="Cono expected move per scadenza: spot più/meno ATM IV per radice del tempo">
+         aria-label={tr('voldeck.ui_expected_move_cone_by_expiry_spot_plus_minus_atm_iv_ti_3')}>
       {gl.map((v, i) => (
         <g key={i}>
           <line x1={L} x2={W - R} y1={sy(v)} y2={sy(v)} stroke="#131C33" strokeWidth="1" />
@@ -132,7 +137,7 @@ function StrikeProjector({ spot, term, earnings }: { spot: number; term: any[]; 
       {xt.map((t, i) => (
         <g key={i}>
           <line x1={t.x} x2={t.x} y1={H - B} y2={H - B + 3} stroke="#2A3760" strokeWidth="1" />
-          {t.show && <text x={t.x} y={H - B + 13} fontSize="9" fontWeight={600} fill="#73829F" textAnchor="middle" fontFamily="monospace">{t.d}g</text>}
+          {t.show && <text x={t.x} y={H - B + 13} fontSize="9" fontWeight={600} fill="#73829F" textAnchor="middle" fontFamily="monospace">{t.d}{tr('voldeck.short_days')}</text>}
         </g>
       ))}
       {pts.map((p, i) => {
@@ -170,14 +175,14 @@ function StrikeProjector({ spot, term, earnings }: { spot: number; term: any[]; 
 function IvAltimeter({ ctx }: { ctx: any }) {
   if (ctx === undefined) {
     return <div className="num" style={{ padding: '12px 12px 14px', fontSize: 9, fontWeight: 600, color: '#73829F', lineHeight: 1.7 }}>
-      n.d. — STORICO IV NON ESPOSTO DAL BACKEND VIVO<br />
-      <span style={{ color: '#B97A00' }}>SI ACCENDE DA SOLO AL RIAVVIO (VOCE (39)) · RACCOLTA PARTITA COL SEED DEL 24/07</span>
+      {tr('voldeck.ui_n_a_iv_history_missing_from_the_response_4')}<br />
+      <span style={{ color: '#B97A00' }}>{tr('voldeck.ui_request_context_explicitly_to_check_the_available_iv_h_5')}</span>
     </div>;
   }
   if (!ctx || ctx.error) {
     return <div className="num" style={{ padding: '12px 12px 14px', fontSize: 9, color: '#B97A00', lineHeight: 1.7 }}>
-      DICHIARATO DAL BACKEND: {String(ctx?.error || 'contesto vuoto')}
-      {ctx?.n_obs != null && <span style={{ fontWeight: 600, color: '#73829F' }}> · {ctx.n_obs} oss. raccolte</span>}
+      {tr('voldeck.ui_reported_by_the_backend_6')}{String(ctx?.error || tr('voldeck.ui_empty_context_7'))}
+      {ctx?.n_obs != null && <span style={{ fontWeight: 600, color: '#73829F' }}> · {ctx.n_obs} {' '}{tr('voldeck.ui_collected_observations_8')}</span>}
     </div>;
   }
   const pct = Math.max(0, Math.min(100, Number(ctx.iv_percentile)));
@@ -186,7 +191,7 @@ function IvAltimeter({ ctx }: { ctx: any }) {
   const tone = pct >= 80 ? '#FF3D60' : pct >= 60 ? '#FFA51E' : pct <= 20 ? '#21E0A0' : '#29D3F2';
   return (
     <div style={{ display: 'flex', gap: 12, padding: '8px 12px 10px', alignItems: 'stretch' }}>
-      <svg viewBox={`0 0 60 ${H}`} width="60" height={H} style={{ flex: '0 0 60px' }} role="img" aria-label={`IV rank ${pct} su 100`}>
+      <svg viewBox={`0 0 60 ${H}`} width="60" height={H} style={{ flex: '0 0 60px' }} role="img" aria-label={tr('voldeck.fmt_iv_rank_a_out_of__0', {a: pct})}>
         <line x1="40" x2="40" y1={top} y2={bot} stroke="#2A3760" strokeWidth="1.5" />
         {Array.from({ length: 11 }, (_, i) => i * 10).map(p => (
           <g key={p}>
@@ -198,17 +203,17 @@ function IvAltimeter({ ctx }: { ctx: any }) {
         <path d={`M48,${y(pct)} l7,-4 v8 Z`} fill={tone} />
       </svg>
       <div className="num" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 3, minWidth: 0 }}>
-        <div style={{ fontSize: 9, letterSpacing: '.2em', fontWeight: 600, color: '#73829F', textTransform: 'uppercase' }}>IV RANK · PERCENTILE STORICO</div>
+        <div style={{ fontSize: 9, letterSpacing: '.2em', fontWeight: 600, color: '#73829F', textTransform: 'uppercase' }}>{tr('voldeck.ui_iv_rank_historical_percentile_9')}</div>
         <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, color: tone }}>{ctx.iv_percentile}<span style={{ fontSize: 11, fontWeight: 400 }}>°</span></div>
         <div style={{ fontSize: 9, color: '#8D9FC4' }}>ATM front {(ctx.iv_front_current * 100).toFixed(1)}%
           <span style={{ fontWeight: 600, color: '#73829F' }}> · min {(ctx.iv_min * 100).toFixed(1)} · max {(ctx.iv_max * 100).toFixed(1)}</span></div>
         <div style={{ fontSize: 9, fontWeight: 600, color: '#73829F', textTransform: 'uppercase', letterSpacing: '.08em' }}>
-          {ctx.n_obs} oss. dal {ctx.history_from}
+          {ctx.n_obs} {' '}{tr('voldeck.ui_observations_since_10')}{' '}{ctx.history_from}
         </div>
         {ctx.young && (
           <span className="chip a" style={{ alignSelf: 'flex-start' }}
-                title={`storia sotto ${ctx.young_threshold_obs ?? 60} osservazioni: il percentile ha un floor strutturale 100/n — non confrontarlo con un rank maturo`}>
-            STORIA GIOVANE {ctx.n_obs}/{ctx.young_threshold_obs ?? 60}
+                title={tr('voldeck.fmt_history_below_a_observations_the_percentile_has__1', {a: ctx.young_threshold_obs ?? 60})}>
+            {tr('voldeck.ui_short_history_11')}{ctx.n_obs}/{ctx.young_threshold_obs ?? 60}
           </span>
         )}
       </div>
@@ -240,7 +245,7 @@ function SmileXray({ grid, slices, spot }: { grid: number[]; slices: any[]; spot
   const kT = useScalaTesto(svgRef, XR_W);
   const use = (slices || []).filter((s: any) => s.days >= 2 && (s.iv_grid || []).some((v: any) => v != null));
   if (!grid?.length || use.length < 1) {
-    return <div className="num" style={{ padding: '12px', fontSize: 9, fontWeight: 600, color: '#73829F' }}>n.d. — nessuna curva utilizzabile (0-1 DTE escluse)</div>;
+    return <div className="num" style={{ padding: '12px', fontSize: 9, fontWeight: 600, color: '#73829F' }}>{tr('voldeck.ui_n_a_no_usable_curves_0_1_dte_excluded_12')}</div>;
   }
   const vals = use.flatMap((s: any) => s.iv_grid.filter((v: any) => v != null && isFinite(v)).map((v: number) => v * 100));
   const vmin = Math.min(...vals), vmax = Math.max(...vals);
@@ -263,7 +268,8 @@ function SmileXray({ grid, slices, spot }: { grid: number[]; slices: any[]; spot
   return (
     <>
       <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="vsxsvg" role="img"
-           aria-label="Curve smile IV per scadenza: premi o passa sul grafico per leggere l'IV"
+           aria-label={tr('voldeck.ui_iv_smiles_by_expiry_point_or_use_the_arrow_keys_to_rea_13')}
+           tabIndex={0} onKeyDown={e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); setSel(previous => Math.max(0, Math.min(grid.length - 1, (previous ?? Math.floor(grid.length / 2)) + (e.key === 'ArrowLeft' ? -1 : 1)))); } }}
            style={{ cursor: 'crosshair', touchAction: 'none' }}
            onPointerDown={e => pick(e.clientX)}
            onPointerMove={e => { if (e.pointerType === 'mouse' || e.buttons > 0) pick(e.clientX); }}>
@@ -290,7 +296,7 @@ function SmileXray({ grid, slices, spot }: { grid: number[]; slices: any[]; spot
           return (
             <path key={si} d={d} fill="none" stroke={col} strokeWidth={si === 0 ? 2 : 1.4}
                   opacity={0.95 - 0.5 * t}>
-              <title>{s.expiry} · {s.days}g</title>
+              <title>{s.expiry} · {s.days}{tr('voldeck.short_days')}</title>
             </path>
           );
         })}
@@ -308,13 +314,13 @@ function SmileXray({ grid, slices, spot }: { grid: number[]; slices: any[]; spot
           </g>
         )}
         <text x={W - R} y={T + 12} fontSize="11" fill="#29D3F2" textAnchor="end" fontFamily="monospace">
-          FRONT {use[0].expiry} · {use[0].days}g
+          FRONT {use[0].expiry} · {use[0].days}{tr('voldeck.short_days')}
         </text>
       </svg>
       {/* lettura del crosshair: IV per scadenza al K/S selezionato, buchi = n.d. */}
-      <div className="num" style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 14px', padding: '5px 10px 2px', fontSize: 11, alignItems: 'baseline', minHeight: 24 }}>
+      <div className="num" aria-live="polite" style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 14px', padding: '5px 10px 2px', fontSize: 11, alignItems: 'baseline', minHeight: 24 }}>
         {sel == null ? (
-          <span style={{ fontWeight: 600, color: '#73829F', fontSize: 10, letterSpacing: '.08em' }}>PREMI O PASSA SUL GRAFICO → IV DI OGNI SCADENZA A QUEL K/S</span>
+          <span style={{ fontWeight: 600, color: '#73829F', fontSize: 10, letterSpacing: '.08em' }}>{tr('voldeck.ui_point_or_use_arrow_keys_to_read_each_expiry_at_the_sam_14')}</span>
         ) : (
           <>
             <span style={{ color: '#FFD166', fontWeight: 700 }}>
@@ -326,7 +332,7 @@ function SmileXray({ grid, slices, spot }: { grid: number[]; slices: any[]; spot
               return (
                 <span key={si} style={{ color: mixc(XR_C0, XR_C1, t), opacity: v == null ? 0.45 : 1 }}>
                   {s.expiry.slice(8, 10)}/{s.expiry.slice(5, 7)}{' '}
-                  <b>{v == null || !isFinite(v) ? 'n.d.' : (v * 100).toFixed(1) + '%'}</b>
+                  <b>{v == null || !isFinite(v) ? tr('voldeck.ui_n_a_15') : (v * 100).toFixed(1) + '%'}</b>
                 </span>
               );
             })}
@@ -366,7 +372,7 @@ function Term2D({ term, earnings, rv30 }: { term: any[]; earnings?: string | nul
   const svgRef2 = useRef<SVGSVGElement>(null);
   const kT = useScalaTesto(svgRef2, XR_W);
   const pts = (term || []).filter(s => s.days >= 2 && s.atm_iv != null && isFinite(s.atm_iv));
-  if (pts.length < 2) return <div className="num" style={{ padding: '12px', fontSize: 9, fontWeight: 600, color: '#73829F' }}>n.d. — servono ≥2 scadenze</div>;
+  if (pts.length < 2) return <div className="num" style={{ padding: '12px', fontSize: 9, fontWeight: 600, color: '#73829F' }}>{tr('voldeck.ui_n_a_at_least_2_expiries_required_16')}</div>;
   const W = XR_W, H = 230, L = 64, R = 26, T = 18, B = 28;
   const maxD = pts[pts.length - 1].days;
   const X = (d: number) => L + (W - L - R) * Math.sqrt(Math.max(0, d) / maxD);
@@ -382,7 +388,7 @@ function Term2D({ term, earnings, rv30 }: { term: any[]; earnings?: string | nul
   const showE = eDays != null && eDays > 0 && eDays <= maxD;
   let lastLx = -999;
   return (
-    <svg ref={svgRef2} viewBox={`0 0 ${W} ${H}`} className="vsxsvg" role="img" aria-label="ATM IV per scadenza contro volatilità realizzata 30 giorni">
+    <svg ref={svgRef2} viewBox={`0 0 ${W} ${H}`} className="vsxsvg" role="img" aria-label={tr('voldeck.ui_atm_iv_by_expiry_against_30_day_realised_volatility_17')}>
       {[vmin, (vmin + vmax) / 2, vmax].map((v, i) => (
         <g key={i}>
           <line x1={L} x2={W - R} y1={Y(v)} y2={Y(v)} stroke="#131C33" strokeWidth="1" />
@@ -392,7 +398,7 @@ function Term2D({ term, earnings, rv30 }: { term: any[]; earnings?: string | nul
       {rv != null && (
         <g>
           <line x1={L} x2={W - R} y1={Y(rv)} y2={Y(rv)} stroke="#95A1BA" strokeWidth="1" strokeDasharray="5 4" opacity=".7" />
-          <text x={W - R} y={Y(rv) - 4} fontSize={11 * kT} fill="#8D9FC4" textAnchor="end" fontFamily="monospace">RV 30G {rv.toFixed(1)}%</text>
+          <text x={W - R} y={Y(rv) - 4} fontSize={11 * kT} fill="#8D9FC4" textAnchor="end" fontFamily="monospace">{tr('voldeck.ui_30d_rv_18')}{' '}{rv.toFixed(1)}%</text>
         </g>
       )}
       {showE && (
@@ -409,9 +415,9 @@ function Term2D({ term, earnings, rv30 }: { term: any[]; earnings?: string | nul
         return (
           <g key={i}>
             <circle cx={x} cy={Y(p.atm_iv * 100)} r="3.2" fill="#FFD166" stroke="#070B16" strokeWidth="1">
-              <title>{p.expiry} · {p.days}g · ATM {(p.atm_iv * 100).toFixed(1)}%</title>
+              <title>{p.expiry} · {p.days}{tr('voldeck.ui_d_atm_19')}{' '}{(p.atm_iv * 100).toFixed(1)}%</title>
             </circle>
-            {showL && <text x={x} y={H - B + 13} fontSize={10 * kT} fontWeight={600} fill="#73829F" textAnchor="middle" fontFamily="monospace">{p.days}g</text>}
+            {showL && <text x={x} y={H - B + 13} fontSize={10 * kT} fontWeight={600} fill="#73829F" textAnchor="middle" fontFamily="monospace">{p.days}{tr('voldeck.short_days')}</text>}
             {(i === 0 || i === pts.length - 1) && (
               <text x={x} y={Y(p.atm_iv * 100) - 8} fontSize={11 * kT} fill="#FFD166" textAnchor="middle" fontFamily="monospace">{(p.atm_iv * 100).toFixed(1)}</text>
             )}
@@ -427,18 +433,18 @@ function Term2D({ term, earnings, rv30 }: { term: any[]; earnings?: string | nul
    con etichette a PX FISSI — la leggibilità non scala più col contenitore. */
 function HeatTopDown({ grid, slices }: { grid: number[]; slices: any[] }) {
   const use = (slices || []).filter((s: any) => s.days >= 2);
-  if (!grid?.length || !use.length) return <div className="num" style={{ padding: '12px', fontSize: 10, fontWeight: 600, color: '#73829F' }}>n.d.</div>;
+  if (!grid?.length || !use.length) return <div className="num" style={{ padding: '12px', fontSize: 10, fontWeight: 600, color: '#73829F' }}>{tr('voldeck.ui_n_a_15')}</div>;
   const vals = use.flatMap((s: any) => s.iv_grid.filter((v: any) => v != null && isFinite(v)));
-  if (!vals.length) return <div className="num" style={{ padding: '12px', fontSize: 10, fontWeight: 600, color: '#73829F' }}>n.d. — griglia vuota</div>;
+  if (!vals.length) return <div className="num" style={{ padding: '12px', fontSize: 10, fontWeight: 600, color: '#73829F' }}>{tr('voldeck.ui_n_a_empty_grid_20')}</div>;
   const vmin = Math.min(...vals), vmax = Math.max(...vals);
   const iAtm = grid.indexOf(1.0);
   const LBL = 108;
   return (
-    <div style={{ padding: '2px 10px 0' }} role="img" aria-label="Vista dall'alto della superficie IV: scadenze per moneyness">
+    <div style={{ padding: '2px 10px 0' }} role="img" aria-label={tr('voldeck.ui_top_down_iv_surface_expiries_by_moneyness_21')}>
       {use.map((s: any, r: number) => (
         <div key={r} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
           <span className="num" style={{ flex: `0 0 ${LBL}px`, fontSize: 10, color: '#8D9FC4', textAlign: 'right' }}>
-            {s.expiry.slice(8, 10)}/{s.expiry.slice(5, 7)} · {s.days}g
+            {s.expiry.slice(8, 10)}/{s.expiry.slice(5, 7)} · {s.days}{tr('voldeck.short_days')}
           </span>
           <div style={{ flex: 1, display: 'flex', gap: 1, height: 24 }}>
             {grid.map((m: number, c: number) => {
@@ -446,7 +452,7 @@ function HeatTopDown({ grid, slices }: { grid: number[]; slices: any[] }) {
               const ok = v != null && isFinite(v);
               return (
                 <div key={c}
-                     title={`${s.expiry} · K/S ${m.toFixed(3)} · ${ok ? 'IV ' + (v * 100).toFixed(1) + '%' : 'n.d. — quota assente (buco dichiarato)'}`}
+                     title={`${s.expiry} · K/S ${m.toFixed(3)} · ${ok ? 'IV ' + (v * 100).toFixed(1) + '%' : tr('voldeck.ui_n_a_missing_quote_declared_gap_22')}`}
                      style={{ flex: 1, background: ok ? heatColor((v - vmin) / ((vmax - vmin) || 1)) : '#070B16',
                               boxShadow: c === iAtm ? 'inset 0 0 0 1px rgba(236,241,250,.45)' : 'inset 0 0 0 0.5px #0D1426' }} />
               );
@@ -468,7 +474,7 @@ function HeatTopDown({ grid, slices }: { grid: number[]; slices: any[] }) {
         </div>
       </div>
       <div className="num" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '7px 0 2px' }}>
-        <span style={{ flex: `0 0 ${LBL}px`, fontSize: 10, fontWeight: 600, color: '#73829F', textAlign: 'right' }}>SCALA IV</span>
+        <span style={{ flex: `0 0 ${LBL}px`, fontSize: 10, fontWeight: 600, color: '#73829F', textAlign: 'right' }}>{tr('voldeck.ui_iv_scale_23')}</span>
         <div style={{ flex: '0 0 190px', height: 8, background: `linear-gradient(90deg, ${heatColor(0)}, ${heatColor(0.35)}, ${heatColor(0.62)}, ${heatColor(0.85)}, ${heatColor(1)})` }} />
         <span style={{ fontSize: 10, color: '#8D9FC4' }}>{(vmin * 100).toFixed(0)}% → {(vmax * 100).toFixed(0)}%</span>
       </div>
@@ -481,13 +487,13 @@ function HeatTopDown({ grid, slices }: { grid: number[]; slices: any[] }) {
    = curva invertita, DICHIARATA (non un numero inventato). */
 function FwdVolLadder({ term }: { term: any[] }) {
   const pts = (term || []).filter(s => s.days >= 2 && s.atm_iv != null && s.atm_iv > 0);
-  if (pts.length < 2) return <div className="num" style={{ padding: '12px', fontSize: 9, fontWeight: 600, color: '#73829F' }}>n.d. — servono ≥2 scadenze</div>;
+  if (pts.length < 2) return <div className="num" style={{ padding: '12px', fontSize: 9, fontWeight: 600, color: '#73829F' }}>{tr('voldeck.ui_n_a_at_least_2_expiries_required_16')}</div>;
   const rows: { lab: string; fwd: number | null }[] = [];
   for (let i = 1; i < pts.length; i++) {
     const a = pts[i - 1], b = pts[i];
     const T1 = a.days / 365, T2 = b.days / 365;
     const vf = (b.atm_iv * b.atm_iv * T2 - a.atm_iv * a.atm_iv * T1) / (T2 - T1);
-    rows.push({ lab: `${a.days}g→${b.days}g`, fwd: vf > 0 ? Math.sqrt(vf) : null });
+    rows.push({ lab: `${a.days}${tr('voldeck.short_days')}→${b.days}${tr('voldeck.short_days')}`, fwd: vf > 0 ? Math.sqrt(vf) : null });
   }
   const mx = Math.max(...rows.map(r => r.fwd ?? 0), 0.0001);
   return (
@@ -499,7 +505,7 @@ function FwdVolLadder({ term }: { term: any[] }) {
             {r.fwd != null && <i style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: (100 * r.fwd / mx) + '%', background: 'rgba(255,209,102,.6)' }} />}
           </span>
           <span style={{ width: 82, textAlign: 'right', color: r.fwd == null ? '#FFA51E' : '#ECF1FA' }}>
-            {r.fwd == null ? 'INVERTITA' : (r.fwd * 100).toFixed(1) + '%'}
+            {r.fwd == null ? tr('voldeck.ui_inverted_24') : (r.fwd * 100).toFixed(1) + '%'}
           </span>
         </div>
       ))}
@@ -510,13 +516,13 @@ function FwdVolLadder({ term }: { term: any[] }) {
 /* OPEN INTEREST — posizionamento put/call per scadenza (dal payload) */
 function OiProfile({ term }: { term: any[] }) {
   const pts = (term || []).filter(s => (s.call_oi || 0) + (s.put_oi || 0) > 0);
-  if (!pts.length) return <div className="num" style={{ padding: '12px', fontSize: 9, fontWeight: 600, color: '#73829F' }}>n.d. — OI non nel payload</div>;
+  if (!pts.length) return <div className="num" style={{ padding: '12px', fontSize: 9, fontWeight: 600, color: '#73829F' }}>{tr('voldeck.ui_n_a_oi_missing_from_the_response_25')}</div>;
   const mx = Math.max(...pts.map(p => Math.max(p.call_oi || 0, p.put_oi || 0)), 1);
   return (
     <div style={{ padding: '6px 12px 8px', display: 'flex', flexDirection: 'column', gap: 5 }}>
       {pts.map((p, i) => (
         <div key={i} className="num" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10 }}
-             title={`${p.expiry} · put OI ${p.put_oi ?? 'n.d.'} · call OI ${p.call_oi ?? 'n.d.'} · P/C ${p.pc_oi_ratio ?? 'n.d.'}`}>
+             title={`${p.expiry} · put OI ${p.put_oi ?? tr('voldeck.ui_n_a_15')} · call OI ${p.call_oi ?? tr('voldeck.ui_n_a_15')} · P/C ${p.pc_oi_ratio ?? tr('voldeck.ui_n_a_15')}`}>
           <span style={{ width: 48, fontWeight: 600, color: '#73829F' }}>{p.expiry.slice(8, 10)}/{p.expiry.slice(5, 7)}</span>
           <span style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', height: 6, background: 'rgba(26,36,64,.4)' }}>
             <i style={{ width: (100 * (p.put_oi || 0) / mx) + '%', background: 'rgba(255,61,96,.65)' }} />
@@ -525,12 +531,12 @@ function OiProfile({ term }: { term: any[] }) {
             <i style={{ width: (100 * (p.call_oi || 0) / mx) + '%', background: 'rgba(33,224,160,.6)' }} />
           </span>
           <span style={{ width: 48, textAlign: 'right', color: p.pc_oi_ratio != null && p.pc_oi_ratio > 1.5 ? '#FFA51E' : '#8D9FC4' }}>
-            {p.pc_oi_ratio != null ? p.pc_oi_ratio.toFixed(2) : 'n.d.'}
+            {p.pc_oi_ratio != null ? p.pc_oi_ratio.toFixed(2) : tr('voldeck.ui_n_a_15')}
           </span>
         </div>
       ))}
       <div className="num" style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, fontWeight: 600, color: '#73829F', letterSpacing: '.1em' }}>
-        <span>◄ PUT OI (max {kfmt(mx)})</span><span>CALL OI ► · colonna dx = P/C</span>
+        <span>◄ PUT OI (max {kfmt(mx)})</span><span>{tr('voldeck.ui_call_oi_right_column_p_c_26')}</span>
       </div>
     </div>
   );
@@ -549,24 +555,24 @@ function VolCone({ cone }: { cone: any }) {
   const [selW, setSelW] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   if (cone?.__loading) {
-    return <div className="num" style={{ padding: '12px', fontSize: 11, fontWeight: 600, color: '#73829F' }}>interrogo /options/vol_cone…</div>;
+    return <div className="num" style={{ padding: '12px', fontSize: 11, fontWeight: 600, color: '#73829F' }}>{tr('voldeck.ui_loading_volatility_cone_27')}</div>;
   }
   if (cone === undefined) {
     return <div className="num" style={{ padding: '12px 12px 14px', fontSize: 11, fontWeight: 600, color: '#73829F', lineHeight: 1.7 }}>
-      n.d. — ENDPOINT /options/vol_cone NON ANCORA ATTIVO SUL BACKEND VIVO<br />
-      <span style={{ color: '#B97A00' }}>SI ACCENDE DA SOLO AL RIAVVIO (VOCE (43), commit 588224f)</span>
+      {tr('voldeck.ui_n_a_volatility_cone_endpoint_unavailable_28')}<br />
+      <span style={{ color: '#B97A00' }}>{tr('voldeck.ui_the_requested_endpoint_returned_http_404_29')}</span>
     </div>;
   }
   if (!cone || cone.error) {
     return <div className="num" style={{ padding: '12px 12px 14px', fontSize: 11, color: '#B97A00', lineHeight: 1.7 }}>
-      DICHIARATO DAL BACKEND: {String(cone?.error || 'payload vuoto')}
+      {tr(cone?.origin === 'client' ? 'voldeck.ui_cone_request_failed_client' : 'voldeck.ui_reported_by_the_backend_6')}{String(cone?.error || tr('voldeck.ui_empty_response_30'))}
     </div>;
   }
   const wins = (cone.realized?.windows || []).filter((w: any) => !w.error && w.current != null);
   const missing = (cone.realized?.windows || []).filter((w: any) => w.error);
   if (wins.length < 2) {
     return <div className="num" style={{ padding: '12px', fontSize: 11, color: '#B97A00' }}>
-      n.d. — {missing.length ? String(missing[0].error) : 'meno di 2 finestre realized utilizzabili'}
+      {tr('voldeck.ui_n_a_31')}{missing.length ? String(missing[0].error) : tr('voldeck.ui_fewer_than_2_usable_realised_volatility_windows_32')}
     </div>;
   }
   const ivPts = (!cone.implied?.error ? (cone.confronto || []) : []).filter((c: any) => c.atm_iv != null && c.window != null);
@@ -604,7 +610,8 @@ function VolCone({ cone }: { cone: any }) {
   return (
     <>
       <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="vsxsvg" role="img"
-           aria-label="Vol cone interattivo: percentili della realized per orizzonte contro IV implicita per scadenza"
+           aria-label={tr('voldeck.ui_interactive_volatility_cone_realised_percentiles_by_ho_33')}
+           tabIndex={0} onKeyDown={e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); const at = wins.findIndex((w: any) => w.window === selW); setSelW(wins[Math.max(0, Math.min(wins.length - 1, (at < 0 ? 0 : at) + (e.key === 'ArrowLeft' ? -1 : 1)))].window); } }}
            style={{ cursor: 'crosshair', touchAction: 'none' }}
            onPointerDown={e => pick(e.clientX)}
            onPointerMove={e => { if (e.pointerType === 'mouse' || e.buttons > 0) pick(e.clientX); }}>
@@ -628,13 +635,13 @@ function VolCone({ cone }: { cone: any }) {
         {wins.map((w: any, i: number) => (
           <g key={i}>
             <circle cx={X(w.window)} cy={Y(w.current * 100)} r="4" fill="#29D3F2" stroke="#070B16" strokeWidth="1.2">
-              <title>{`realized ${w.window}g: corrente ${(w.current * 100).toFixed(1)}% · min ${(w.min * 100).toFixed(1)} · p50 ${(w.p50 * 100).toFixed(1)} · max ${(w.max * 100).toFixed(1)} · ${w.n_obs} oss.${w.young ? ' · YOUNG' : ''}`}</title>
+              <title>{tr('voldeck.fmt_realised_a_d_current_b_min_c_p_d_max_e_f_obs_g__2', {a: w.window, b: (w.current * 100).toFixed(1), c: (w.min * 100).toFixed(1), d: (w.p50 * 100).toFixed(1), e: (w.max * 100).toFixed(1), f: w.n_obs, g: w.young ? ' · YOUNG' : ''})}</title>
             </circle>
             <text x={X(w.window)} y={Y(w.current * 100) - 11} fontSize="12" fill="#29D3F2" textAnchor="middle" fontFamily="monospace">
               {(w.current * 100).toFixed(0)}%
             </text>
             <text x={X(w.window)} y={H - B + 17} fontSize="12" fill={w.young ? '#B97A00' : selW === w.window ? '#ECF1FA' : '#73829F'} textAnchor="middle" fontFamily="monospace">
-              {w.window}g{w.young ? '*' : ''}
+              {w.window}{tr('voldeck.short_days')}{w.young ? '*' : ''}
             </text>
           </g>
         ))}
@@ -644,44 +651,44 @@ function VolCone({ cone }: { cone: any }) {
           return (
             <g key={i} transform={`translate(${x},${Y(c.atm_iv * 100)})`} opacity={selW == null || c.window === selW ? 1 : 0.4}>
               <path d="M0,-6 L6,0 L0,6 L-6,0 Z" fill="#FFD166" stroke="#070B16" strokeWidth="1.2">
-                <title>{`${c.expiry} · ${c.days}g cal → finestra ${c.window}g borsa · IV ${(c.atm_iv * 100).toFixed(1)}% = ${c.pct_realized_leq_iv}° pct della realized`}</title>
+                <title>{tr('voldeck.fmt__a_b_calendar_days_c_trading_day_window_iv_d_e_t_3', {a: c.expiry, b: c.days, c: c.window, d: (c.atm_iv * 100).toFixed(1), e: c.pct_realized_leq_iv})}</title>
               </path>
-              <text x={8} y={4} fontSize="10" fill="#FFD166" fontFamily="monospace">{c.days}g</text>
+              <text x={8} y={4} fontSize="10" fill="#FFD166" fontFamily="monospace">{c.days}{tr('voldeck.short_days')}</text>
             </g>
           );
         })}
-        <text x={W - R} y={T - 8} fontSize="12" fill="#FFD166" textAnchor="end" fontFamily="monospace">◆ = ATM IV PER SCADENZA (POSATA SULLA FINESTRA ABBINATA)</text>
+        <text x={W - R} y={T - 8} fontSize="12" fill="#FFD166" textAnchor="end" fontFamily="monospace">{tr('voldeck.ui_atm_iv_by_expiry_placed_on_the_matching_window_34')}</text>
       </svg>
       {/* lettura interattiva: percentili completi della finestra selezionata */}
-      <div className="num" style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 16px', padding: '6px 10px 2px', fontSize: 11, alignItems: 'baseline', minHeight: 24 }}>
+      <div className="num" aria-live="polite" style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 16px', padding: '6px 10px 2px', fontSize: 11, alignItems: 'baseline', minHeight: 24 }}>
         {!sel ? (
-          <span style={{ fontWeight: 600, color: '#73829F', fontSize: 10, letterSpacing: '.08em' }}>PREMI O PASSA SUL CONE → PERCENTILI COMPLETI DELLA FINESTRA + IV ABBINATE</span>
+          <span style={{ fontWeight: 600, color: '#73829F', fontSize: 10, letterSpacing: '.08em' }}>{tr('voldeck.ui_point_or_use_arrow_keys_for_window_percentiles_and_mat_35')}</span>
         ) : (
           <>
-            <span style={{ color: '#FFD166', fontWeight: 700 }}>FINESTRA {sel.window}G</span>
-            <span style={{ color: '#29D3F2', fontWeight: 700 }}>CORRENTE {(sel.current * 100).toFixed(1)}%</span>
-            <span style={{ color: '#8D9FC4' }}>MIN {(sel.min * 100).toFixed(1)} · P25 {(sel.p25 * 100).toFixed(1)} · <b>MEDIANA {(sel.p50 * 100).toFixed(1)}</b> · P75 {(sel.p75 * 100).toFixed(1)} · MAX {(sel.max * 100).toFixed(1)}</span>
-            <span style={{ fontWeight: 600, color: '#73829F' }}>{sel.n_obs} OSS. 1Y{sel.young ? ' · YOUNG (<60)' : ''}</span>
+            <span style={{ color: '#FFD166', fontWeight: 700 }}>{tr('voldeck.ui_window_36')}{' '}{sel.window}{tr('voldeck.short_days')}</span>
+            <span style={{ color: '#29D3F2', fontWeight: 700 }}>{tr('voldeck.ui_current_37')}{' '}{(sel.current * 100).toFixed(1)}%</span>
+            <span style={{ color: '#8D9FC4' }}>MIN {(sel.min * 100).toFixed(1)} · P25 {(sel.p25 * 100).toFixed(1)} · <b>{tr('voldeck.ui_median_38')}{' '}{(sel.p50 * 100).toFixed(1)}</b> · P75 {(sel.p75 * 100).toFixed(1)} · MAX {(sel.max * 100).toFixed(1)}</span>
+            <span style={{ fontWeight: 600, color: '#73829F' }}>{sel.n_obs} {' '}{tr('voldeck.ui_1y_obs_39')}{sel.young ? ' · YOUNG (<60)' : ''}</span>
             {selIvs.map((c: any, i: number) => {
               const p = Number(c.pct_realized_leq_iv);
               const col = p >= 80 ? '#FF3D60' : p >= 60 ? '#FFA51E' : p <= 20 ? '#21E0A0' : '#8D9FC4';
-              return <span key={i} style={{ color: col }}>◆ {c.days}g: IV {(c.atm_iv * 100).toFixed(1)}% = <b>{c.pct_realized_leq_iv}°</b> PCT</span>;
+              return <span key={i} style={{ color: col }}>◆ {c.days}{tr('voldeck.ui_d_iv_40')}{' '}{(c.atm_iv * 100).toFixed(1)}% = <b>{c.pct_realized_leq_iv}°</b> PCT</span>;
             })}
           </>
         )}
       </div>
-      <div className="num" style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 16px', padding: '2px 10px 2px', fontSize: 11, alignItems: 'baseline' }}>
+      <div className="num" aria-live="polite" style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 16px', padding: '2px 10px 2px', fontSize: 11, alignItems: 'baseline' }}>
         {ivPts.map((c: any, i: number) => {
           const p = Number(c.pct_realized_leq_iv);
           const col = p >= 80 ? '#FF3D60' : p >= 60 ? '#FFA51E' : p <= 20 ? '#21E0A0' : '#8D9FC4';
           return (
             <span key={i} style={{ color: col }}>
-              {c.days}g · IV {(c.atm_iv * 100).toFixed(1)}% = <b>{c.pct_realized_leq_iv}°</b> pct realized {c.window}g
+              {c.days}{tr('voldeck.ui_d_iv_41')}{' '}{(c.atm_iv * 100).toFixed(1)}% = <b>{c.pct_realized_leq_iv}°</b> {' '}{tr('voldeck.ui_realised_percentile_42')}{' '}{c.window}{tr('voldeck.short_days')}
             </span>
           );
         })}
-        {cone.implied?.error && <span style={{ color: '#B97A00' }}>IMPLIED N.D. — {String(cone.implied.error)}</span>}
-        {missing.map((w: any, i: number) => <span key={'m' + i} style={{ fontWeight: 600, color: '#73829F' }}>{w.window}g: {String(w.error)}</span>)}
+        {cone.implied?.error && <span style={{ color: '#B97A00' }}>{tr('voldeck.ui_implied_n_a_43')}{' '}{String(cone.implied.error)}</span>}
+        {missing.map((w: any, i: number) => <span key={'m' + i} style={{ fontWeight: 600, color: '#73829F' }}>{w.window}{tr('voldeck.ui_d_44')}{' '}{String(w.error)}</span>)}
       </div>
     </>
   );
@@ -698,18 +705,18 @@ function VolCone({ cone }: { cone: any }) {
 function GexProfile({ gex, spot }: { gex: any; spot?: number }) {
   if (gex === undefined) {
     return <div className="num" style={{ padding: '12px 12px 14px', fontSize: 9, fontWeight: 600, color: '#73829F', lineHeight: 1.7 }}>
-      n.d. — IL PAYLOAD NON ESPONE ANCORA GAMMA/OI PER STRIKE<br />
-      <span style={{ color: '#B97A00' }}>RICHIESTA AL BACKEND NEL PONTE (25/07): CAMPO `gex` DALLA STESSA CHAIN POLYGON — IL PANNELLO SI ACCENDE DA SOLO AL PRIMO PAYLOAD COL CAMPO</span>
+      {tr('voldeck.ui_n_a_gamma_oi_by_strike_missing_from_the_response_45')}<br />
+      <span style={{ color: '#B97A00' }}>{tr('voldeck.ui_request_context_explicitly_to_check_gamma_exposure_fro_46')}</span>
     </div>;
   }
   if (!gex || gex.error) {
     return <div className="num" style={{ padding: '12px 12px 14px', fontSize: 9, color: '#B97A00', lineHeight: 1.7 }}>
-      DICHIARATO DAL BACKEND: {String(gex?.error || 'gex vuoto')}
+      {tr('voldeck.ui_reported_by_the_backend_6')}{String(gex?.error || tr('voldeck.ui_empty_gex_47'))}
     </div>;
   }
   const rows = (gex.by_strike || []).filter((r: any) => r.strike != null && r.gex_1pct_usd != null);
   if (rows.length < 2) {
-    return <div className="num" style={{ padding: '12px', fontSize: 9, fontWeight: 600, color: '#73829F' }}>n.d. — by_strike vuoto o insufficiente</div>;
+    return <div className="num" style={{ padding: '12px', fontSize: 9, fontWeight: 600, color: '#73829F' }}>{tr('voldeck.ui_n_a_strike_data_empty_or_insufficient_48')}</div>;
   }
   const mx = Math.max(...rows.map((r: any) => Math.abs(r.gex_1pct_usd)), 1e-9);
   const net = gex.net_gex_1pct_usd;
@@ -717,7 +724,7 @@ function GexProfile({ gex, spot }: { gex: any; spot?: number }) {
     <div style={{ padding: '6px 12px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
       {net != null && (
         <div className="num" style={{ fontSize: 10, marginBottom: 2, fontWeight: 600, color: net >= 0 ? '#21E0A0' : '#FF3D60' }}>
-          NET GEX {net >= 0 ? '+' : ''}{kfmt(Math.abs(net))} $/1% · {net >= 0 ? 'DEALER LONG Γ (movimenti compressi)' : 'DEALER SHORT Γ (movimenti amplificati)'}
+          NET GEX {net >= 0 ? '+' : ''}{kfmt(Math.abs(net))} $/1% · {net >= 0 ? tr('voldeck.ui_dealer_long_moves_dampened_49') : tr('voldeck.ui_dealer_short_moves_amplified_50')}
         </div>
       )}
       {rows.map((r: any, i: number) => {
@@ -746,11 +753,17 @@ function GexProfile({ gex, spot }: { gex: any; spot?: number }) {
 }
 
 export default function VolSurfacePage() {
+  const t = useT(), language = useLingua();
   const [ticker, setTicker] = useState('');
   const [input, setInput] = useState('');
-  const [view, setView] = useState<'surface' | 'desk' | 'laboratory'>('surface');
-  const [data, setData] = useState<any>(null);
-  const [cone, setCone] = useState<any>({ error: 'Contesto aggiuntivo non richiesto. Usa Carica contesto per RV, IV rank, GEX e vol cone.' });
+  const [workspace, setWorkspace] = useState<VolWorkspace>('acquisition');
+  const [surfaceSnapshot, setData] = useState<any>(null);
+  const rawData = useMemo(() => localizePayload(surfaceSnapshot, language), [surfaceSnapshot, language]);
+  const [selectedExpiries, setSelectedExpiries] = useState<string[] | null>(null);
+  const data = useMemo(() => visibleSurface(rawData, selectedExpiries), [rawData, selectedExpiries]);
+  const [contextState, setContextState] = useState<'not_requested' | 'loading' | 'loaded' | 'error'>('not_requested');
+  const [coneSnapshot, setCone] = useState<any>(null);
+  const cone = useMemo(() => localizePayload(coneSnapshot, language), [coneSnapshot, language]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const plotRef = useRef<HTMLDivElement>(null);
@@ -759,34 +772,35 @@ export default function VolSurfacePage() {
 
   useEffect(() => {
     requestRef.current?.abort(); setData(null); setError(null); setLoading(false); lastExpiries.current = [];
-    setCone({ error: 'Contesto aggiuntivo non richiesto: premi Carica contesto per una lettura separata.' });
+    setCone(null); setContextState('not_requested'); setSelectedExpiries(null);
     return () => requestRef.current?.abort();
   }, [ticker]);
 
   const loadSurface = async (expiries: string[], context = false) => {
     requestRef.current?.abort(); const controller = new AbortController(); requestRef.current = controller;
-    setLoading(true); setError(null); setData(null); lastExpiries.current = expiries;
-    setView(context ? 'desk' : 'surface');
+    setLoading(true); setError(null); lastExpiries.current = expiries;
+    if (context) setContextState('loading');
     try {
       const result = await volRequest<any>(`/options/vol_surface/${encodeURIComponent(ticker)}?expiries=${encodeURIComponent(expiries.join(','))}&include_context=${context}`, undefined, controller.signal);
       if (controller.signal.aborted) return;
-      setData(result); if (result.error) setError(result.error);
+      if (result.error) throw new Error(result.error);
+      setData(result); if (context) setContextState('loaded');
       if (context) {
         setCone({ __loading: true });
         try {
           const resultCone = await volRequest<any>(`/options/vol_cone/${encodeURIComponent(ticker)}`, undefined, controller.signal);
           if (!controller.signal.aborted) setCone(resultCone);
-        } catch (e) { if (!controller.signal.aborted) setCone({ error: e instanceof Error ? e.message : String(e) }); }
+        } catch (e) { if (!controller.signal.aborted) setCone({ error: e instanceof Error ? e.message : String(e), origin: (e as { origin?: string } | null)?.origin === 'backend' ? 'backend' : 'client' }); }
       } else {
-        setCone({ error: 'Contesto aggiuntivo non richiesto; premi Carica contesto se serve.' });
+        setCone(null); setContextState('not_requested');
       }
-    } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { if (!controller.signal.aborted) { setError(e instanceof Error ? e.message : String(e)); if (context) setContextState('error'); } }
     finally { if (!controller.signal.aborted) setLoading(false); }
   };
 
   useEffect(() => {
-    // il mesh vive solo nella vista SURFACE: al rientro dalla DESK va ridisegnato
-    if (view !== 'surface' || !data?.slices?.length || !plotRef.current) return;
+    // Preserve the original 3D traces, geometry and camera in the tools workspace.
+    if (workspace !== 'tools' || !data?.slices?.length || !plotRef.current) return;
     let active = true;
     loadPlotly().then(Plotly => {
       if (!active || !plotRef.current) return;
@@ -820,7 +834,7 @@ export default function VolSurfacePage() {
           thickness: 10, len: 0.75, outlinewidth: 0,
         },
         contours: { z: { show: true, usecolormap: true, project: { z: true }, width: 1 } },
-        hovertemplate: 'K/S %{x:.3f} · %{y} giorni<br><b>IV %{z:.1f}%</b><extra></extra>',
+        hovertemplate: tr('voldeck.ui_k_s_x_3f_y_days_br_b_iv_z_1f_b_extra_extra_51', { y: '{y}' }),
         name: '',
       };
       // Cresta ATM in oro: term structure leggibile direttamente sulla superficie.
@@ -837,12 +851,12 @@ export default function VolSurfacePage() {
         }),
         line: { color: '#FFD166', width: 6 },
         marker: { size: 3.5, color: '#FFD166' },
-        hovertemplate: 'ATM · %{y} giorni<br><b>IV %{z:.1f}%</b><extra></extra>',
+        hovertemplate: tr('voldeck.ui_atm_y_days_br_b_iv_z_1f_b_extra_extra_52', { y: '{y}' }),
         name: 'ATM',
         showlegend: false,
       };
 
-      Plotly.newPlot(plotRef.current, [surface, atmLine], {
+      return Plotly.newPlot(plotRef.current, [surface, atmLine], {
         paper_bgcolor: 'rgba(0,0,0,0)',
         scene: {
           xaxis: {
@@ -852,7 +866,7 @@ export default function VolSurfacePage() {
             tickformat: '.2f',
           },
           yaxis: {
-            title: { text: 'Giorni a scadenza', font: { size: 10, color: '#8a8a9e', family: 'monospace' } },
+            title: { text: tr('voldeck.ui_days_to_expiry_53'), font: { size: 10, color: '#8a8a9e', family: 'monospace' } },
             tickfont: { size: 9, color: '#8a8a9e', family: 'monospace' },
             gridcolor: '#1e2638', zerolinecolor: '#1e2638', showbackground: false,
           },
@@ -876,9 +890,9 @@ export default function VolSurfacePage() {
       }, { displayModeBar: false, responsive: true });
     }).catch(e => { if (active) setError(String(e)); });
     return () => { active = false; };
-  }, [data, view]);
+  }, [data, workspace, language]);
 
-  const go = () => { const t = input.trim().toUpperCase(); if (/^[A-Z0-9][A-Z0-9.\-^]{0,24}$/.test(t)) setTicker(t); else setError('Inserisci un ticker valido prima di caricare il catalogo.'); };
+  const go = () => { const t = input.trim().toUpperCase(); if (/^[A-Z0-9][A-Z0-9.\-^]{0,24}$/.test(t)) setTicker(t); else setError(tr('voldeck.ui_enter_a_valid_ticker_before_loading_the_catalogue_54')); };
 
   // toni dichiarati: IV-RV oltre ±3pt = premio caro/a sconto (stessa soglia v2)
   const ivrv = data?.iv_rv_spread_front;
@@ -886,125 +900,114 @@ export default function VolSurfacePage() {
   const slope = data?.term_slope_front_to_60d;
   const nOpt = (data?.slices || []).reduce((a: number, s: any) => a + (s.n_calls || 0) + (s.n_puts || 0), 0);
   const nIll = (data?.slices || []).reduce((a: number, s: any) => a + (s.n_illiquidi_esclusi || 0), 0);
-  // celle griglia senza quota liquida: nel mesh sono interpolate SOLO in resa
-  // (ordine PM 25/07) — il conteggio resta DICHIARATO in legenda
+  // Missing grid quotes stay missing; count only the displayed selection.
   const nHoles = (data?.slices || []).filter((s: any) => s.days >= 2)
     .reduce((a: number, s: any) => a + (s.iv_grid || []).filter((v: any) => v == null).length, 0);
 
   return (
-    <div className="obsx bootx animate-fadeIn">
-
-      {/* ══ HERO: il quadro vol in vetrina + comandi ══ */}
-      <div className="p3 hero" style={{ '--bd': '0s' } as any}>
-        <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
-        <div className="p3h am">VOLATILITY // OPTIONS DECK
-          <span className="n">· SUPERFICIE IV MULTI-EXPIRY · POLYGON OPRA</span>
-          <span className="side num">
-            {data?._timestamp ? 'FOTO ' + data._timestamp.slice(0, 16).replace('T', ' ') + ' · ' : ''}COMPOSITE OTM · SMOOTHING: MEDIANA 3PT (FIT SVI = V2)
-          </span>
+    <div className="obsx vol-atlas" data-vol-atlas>
+      <header className="va-heading">
+        <div><p className="va-eyebrow">Vol Deck</p><h1>{t('voldeck.atlas_title')}</h1><p>{t('voldeck.atlas_intro')}</p></div>
+        <form className="va-ticker" onSubmit={e => { e.preventDefault(); go(); setWorkspace('acquisition'); }}>
+          <label htmlFor="va-ticker">{t('voldeck.underlying')}</label>
+          <div><input id="va-ticker" value={input} onChange={e => setInput(e.target.value.toUpperCase())}
+            spellCheck={false} placeholder="SYNTH" autoComplete="off" />
+            <button type="submit" disabled={loading}>{t('voldeck.catalog')}</button></div>
+        </form>
+      </header>
+      <nav className="va-tabs" aria-label={t('voldeck.workspace')}>
+        {(['acquisition', 'tools', 'chain', 'laboratory'] as const).map(mode => <button key={mode}
+          type="button" aria-pressed={workspace === mode} onClick={() => setWorkspace(mode)}
+          data-vol-workspace={mode}>{t(`voldeck.${mode}`)}</button>)}
+      </nav>
+      {rawData && <>
+        <div className="va-provenance"><strong>{rawData.ticker || ticker}</strong>
+          <span>{t('voldeck.spot')} {rawData.spot_est == null ? t('voldeck.na') : px(Number(rawData.spot_est))}</span>
+          <span className={rawData.spot_source?.startsWith('PROXY') ? 'va-warning' : ''}>{rawData.spot_source || t('voldeck.source_unknown')}</span>
+          <span>{rawData._timestamp || rawData.snapshot_at || t('voldeck.time_unknown')}</span>
+          <span>{rawData.smoothing || t('voldeck.method_unknown')}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'stretch', flexWrap: 'wrap', minHeight: 74 }}>
-          <div style={{ padding: '9px 16px 11px' }}>
-            <div style={{ fontSize: 10, letterSpacing: '.1em', fontWeight: 600, color: '#A9BAD1' }}>Sottostante / selezione dichiarata</div>
-            <div className="num" style={{ fontSize: 22, fontWeight: 700, marginTop: 3, lineHeight: 1.1, color: '#ECF1FA' }}>
-              {data?.ticker || ticker || 'Options deck'}
-              {data?.spot_est != null && <span style={{ fontSize: 12, fontWeight: 600, marginLeft: 8, color: '#29D3F2' }}>spot ~{px(Number(data.spot_est))}</span>}
-            </div>
-            <div style={{ fontSize: 9, color: data?.spot_source?.startsWith('PROXY') ? '#B97A00' : '#73829F', marginTop: 4, letterSpacing: '.1em', textTransform: 'uppercase' }}>
-              {data ? (data.spot_source?.startsWith('PROXY') ? 'SPOT DA PROXY (YFINANCE KO, DICHIARATO)' : 'spot ' + (data.spot_source || 'n.d.')) + ' · ' + (data.n_expiries ?? '–') + ' SCADENZE' : loading ? 'CARICO LA CHAIN…' : 'PRONTO'}
-            </div>
-          </div>
-          <VStat label="EXPECTED MOVE 1σ"
-                 value={data?.expected_move_pct != null ? `±${data.expected_move_pct}%` : 'n.d.'}
-                 tone="text-cyan"
-                 sub={data?.expected_move_days != null ? `ENTRO ${data.expected_move_days}G · ATM IV × √T` : 'DAL PAYLOAD'} />
-          <VStat label="IV − RV FRONT"
-                 value={ivrv != null ? `${(ivrv * 100).toFixed(1)}pt` : 'n.d.'}
-                 tone={ivrvTone}
-                 sub={ivrv != null ? (ivrv > 0.03 ? 'OPZIONI CARE (>+3PT)' : ivrv < -0.03 ? 'OPZIONI A SCONTO (<−3PT)' : 'PREMIO NELLA NORMA') : '—'} />
-          <VStat label="REALIZED VOL 30G"
-                 value={data?.realized_vol_30d != null ? `${(data.realized_vol_30d * 100).toFixed(1)}%` : 'n.d.'}
-                 sub={data?.rv_percentile_1y != null ? `${data.rv_percentile_1y.toFixed(0)}° PCT 1Y` : '—'} />
-          <VStat label="TERM SLOPE F→60G"
-                 value={slope != null ? `${(slope * 100).toFixed(1)}pt` : 'n.d.'}
-                 tone={slope != null ? (slope < 0 ? 'dn' : 'up') : undefined}
-                 sub={slope != null ? (slope < 0 ? 'BACKWARDATION · PREMIO SUL FRONT' : 'CONTANGO') : '—'}
-                 title="ATM IV a ~60 giorni meno ATM IV front: negativo = curva invertita (evento/stress sul front)" />
-          <VStat label="EARNINGS" value={data?.next_earnings || 'n.d.'}
-                 tone={data?.next_earnings ? 'text-amber' : undefined}
-                 sub={data?.next_earnings ? 'PREMIO EVENTO NELLA CURVA' : 'NESSUNA DATA NOTA'} />
-          <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', gap: 6, padding: '8px 14px' }}>
-            <span className="tfg">
-              <button className={'tb' + (view === 'surface' ? ' on' : '')} onClick={() => setView('surface')}>SURFACE</button>
-              <button className={'tb' + (view === 'desk' ? ' on' : '')} onClick={() => setView('desk')}>DESK</button>
-              <button className={'tb' + (view === 'laboratory' ? ' on' : '')} onClick={() => setView('laboratory')}>CHAIN / STRATEGIE</button>
-            </span>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <input value={input} onChange={e => setInput(e.target.value.toUpperCase())}
-                     onKeyDown={e => e.key === 'Enter' && go()} spellCheck={false}
-                     placeholder="TICKER US" aria-label="Ticker underlying"
-                     className="num"
-                     style={{ background: '#070B16', border: '1px solid #1A2440', color: '#ECF1FA', fontSize: 10, padding: '4px 8px', width: 110, letterSpacing: '.15em', outline: 'none' }} />
-              <button className="tb" onClick={go} disabled={loading} style={{ color: '#29D3F2' }}>
-                {loading ? 'SCANSIONE…' : 'CATALOGO'}
-              </button>
-            </div>
-          </div>
+        <div className="va-metrics">
+          <VStat label={t('voldeck.front_iv')} value={rawData.term_structure?.[0]?.atm_iv == null ? t('voldeck.na') : (rawData.term_structure[0].atm_iv * 100).toFixed(1) + '%'}
+            sub={rawData.term_structure?.[0]?.expiry || t('voldeck.na')} />
+          <VStat label={t('voldeck.structure')} value={slope == null ? t('voldeck.na') : slope < 0 ? 'Backwardation' : 'Contango'}
+            sub={slope == null ? t('voldeck.na') : (slope * 100).toFixed(1) + ' pt · ' + t('voldeck.front_60')} />
+          <VStat label={t('voldeck.missing_cells')} value={String(nHoles)} sub={t('voldeck.holes_preserved')} />
+          <VStat label={t('voldeck.context')} value={t(`voldeck.context_${contextState}`)} sub={t('voldeck.explicit_provider')} />
         </div>
-      </div>
-
-      <VolWorkbench ticker={ticker} mode={view} coverage={data?.coverage} surfaceBusy={loading}
+      </>}
+      {workspace === 'tools' && <>
+        {!rawData && <section className="va-empty"><h2>{t('voldeck.tools_empty')}</h2><p>{t('voldeck.tools_empty_help')}</p>
+          <button onClick={() => setWorkspace('acquisition')}>{t('voldeck.acquisition')}</button></section>}
+        {rawData && <section className="va-display-selection" aria-labelledby="va-display-title">
+          <div><h2 id="va-display-title">{t('voldeck.display_sample')}</h2><span>{t('voldeck.selected_count', { n: data?.slices?.length || 0, total: surfaceExpiries(rawData).length })}</span></div>
+          <div className="va-expiries">{surfaceExpiries(rawData).map(expiry => <button key={expiry}
+            aria-pressed={selectedExpiries === null || selectedExpiries.includes(expiry)}
+            onClick={() => setSelectedExpiries(value => toggleExpiry(value, surfaceExpiries(rawData), expiry))}>{expiry}</button>)}
+            <button onClick={() => setSelectedExpiries(null)}>{t('voldeck.all_dates')}</button>
+            <button onClick={() => setSelectedExpiries([])}>{t('voldeck.clear_dates')}</button></div>
+          <p>{t('voldeck.display_only')}</p>
+          {!data?.slices?.length && <p role="status">{t('voldeck.no_selected')}</p>}
+        </section>}
+      </>}
+      <VolWorkbench ticker={ticker} mode={workspace} coverage={rawData?.coverage} surfaceBusy={loading}
         onSurface={(result, expiries) => {
           requestRef.current?.abort(); setLoading(false); setData(result); setError(result.error || null);
-          lastExpiries.current = expiries; setView('surface');
-          setCone({ error: 'Contesto aggiuntivo non richiesto; premi Carica contesto se serve.' });
-        }} onLaboratory={() => setView('laboratory')} />
-      {data?.slices?.length > 0 && <div className="vol-workbench"><div className="vd-actions" style={{ padding: '10px 4px' }}>
-        <button className="vd-secondary" disabled={loading} onClick={() => loadSurface(lastExpiries.current, true)}>Carica contesto RV, IV rank, GEX e cone</button>
-        <small>Richieste provider aggiuntive; il contesto non viene caricato automaticamente con la superficie.</small>
+          lastExpiries.current = expiries; setWorkspace('tools'); setSelectedExpiries(null);
+          setCone(null); setContextState('not_requested');
+        }} onLaboratory={() => setWorkspace('chain')} onAcquisition={() => setWorkspace('acquisition')} />
+      {workspace === 'tools' && rawData?.slices?.length > 0 && <div className="vol-workbench va-context-action"><div className="vd-actions" style={{ padding: '10px 4px' }}>
+        <button className="vd-secondary" disabled={loading} onClick={() => loadSurface(lastExpiries.current, true)}>{tr('voldeck.ui_load_rv_iv_rank_gex_and_cone_context_55')}</button>
+        <small>{tr('voldeck.ui_additional_provider_requests_context_is_not_loaded_aut_56')}</small>
       </div></div>}
+      {workspace === 'tools' && rawData && <div className="va-metrics va-additional-metrics">
+        <VStat label={t('voldeck.expected_move')} value={rawData.expected_move_pct == null ? t('voldeck.na') : `±${rawData.expected_move_pct}%`}
+          sub={rawData.expected_move_days == null ? t('voldeck.na') : t('voldeck.expected_formula', { n: rawData.expected_move_days })} />
+        <VStat label="IV − RV front" value={ivrv == null ? t('voldeck.na') : (ivrv * 100).toFixed(1) + ' pt'} tone={ivrvTone}
+          sub={ivrv == null ? t(`voldeck.context_${contextState}`) : ivrv > .03 ? t('voldeck.expensive') : ivrv < -.03 ? t('voldeck.discounted') : t('voldeck.normal_premium')} />
+        <VStat label={t('voldeck.realised_30')} value={rawData.realized_vol_30d == null ? t('voldeck.na') : (rawData.realized_vol_30d * 100).toFixed(1) + '%'}
+          sub={rawData.rv_percentile_1y == null ? t(`voldeck.context_${contextState}`) : rawData.rv_percentile_1y.toFixed(0) + '° · 1Y'} />
+        <VStat label={t('voldeck.earnings')} value={rawData.next_earnings || t('voldeck.na')}
+          sub={contextState !== 'loaded' ? t(`voldeck.context_${contextState}`) : rawData.next_earnings ? t('voldeck.earnings_known') : t('voldeck.earnings_unknown')} />
+      </div>}
 
       {loading && (
         <div className="p3" style={{ padding: '26px 12px', textAlign: 'center', '--bd': '.05s' } as any}>
-          <div className="num" style={{ fontSize: 11, color: '#A9BAD1' }}>CARICAMENTO CHAIN SELEZIONATE {ticker} — POLYGON OPRA · LE DATE NON RICHIESTE NON VENGONO CARICATE</div>
-          <div className="num" style={{ fontSize: 9, fontWeight: 600, color: '#73829F', marginTop: 4 }}>composite OTM · strike illiquidi esclusi e dichiarati · poi cache</div>
+          <div className="num" style={{ fontSize: 11, color: '#A9BAD1' }}>{tr('voldeck.ui_loading_selected_chains_57')}{' '}{ticker} {' '}{tr('voldeck.ui_polygon_opra_unrequested_dates_are_not_loaded_58')}</div>
+          <div className="num" style={{ fontSize: 9, fontWeight: 600, color: '#73829F', marginTop: 4 }}>{tr('voldeck.ui_composite_otm_illiquid_strikes_excluded_and_declared_t_59')}</div>
         </div>
       )}
       {error && (
-        <div className="p3" style={{ padding: '14px 12px', borderLeft: '2px solid #FF3D60' }}>
-          <span className="num" style={{ fontSize: 10, fontWeight: 600, color: '#FF3D60' }}>ERRORE DICHIARATO: {error}</span>
+        <div className="p3" role="alert" style={{ padding: '14px 12px', borderLeft: '2px solid #FF3D60' }}>
+          <span className="num" style={{ fontSize: 10, fontWeight: 600, color: '#FF3D60' }}>{tr('voldeck.ui_reported_error_60')}{' '}{error}</span>
         </div>
       )}
 
       {/* ══ VISTA SURFACE: mesh 3D + sezione interattiva + strumenti di proiezione ══ */}
-      {data?.slices?.length > 0 && !loading && view === 'surface' && (
-        <div className="vsxgrid">
+      {data?.slices?.length > 0 && workspace === 'tools' && (
+        <div className="vsxgrid va-instruments">
           {/* ── colonna principale: mesh 3D + sezione smile interattiva ── */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
             <div className="p3 cy scanx" style={{ position: 'relative', '--bd': '.08s' } as any}>
               <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
-              <div className="p3h">SUPERFICIE IV // MESH 3D
-                <span className="n">· CRESTA ORO = ATM TERM STRUCTURE</span>
-                <span className="side num">{nOpt > 0 ? nOpt + ' QUOTE USATE · ' + nIll + ' ILLIQUIDE ESCLUSE · ' : ''}0-1 DTE FUORI DAL PLOT</span>
+              <div className="p3h">{tr('voldeck.ui_iv_surface_3d_mesh_61')}<span className="n">{tr('voldeck.ui_gold_ridge_atm_term_structure_62')}</span>
+                <span className="side num">{nOpt > 0 ? nOpt + tr('voldeck.ui_quotes_used_63') + nIll + tr('voldeck.ui_illiquid_quotes_excluded_64') : ''}{tr('voldeck.ui_0_1_dte_excluded_from_the_plot_65')}</span>
               </div>
-              <div ref={plotRef} />
-              {data.slices.length < 2 && <div className="vsxleg">Una sola curva disponibile: la sezione smile è consultabile; per una superficie tridimensionale servono almeno due scadenze.</div>}
+              <div ref={plotRef} data-vol-3d aria-label={t('voldeck.mesh_label')} />
+              {data.slices.length < 2 && <div className="vsxleg">{tr('voldeck.ui_only_one_curve_available_the_smile_remains_usable_a_th_66')}</div>}
               <div className="vsxleg">
-                trascina = ruota · hover = K/S, giorni, IV esatti ·
-                <span style={{ color: '#E9BA64' }}> {nHoles} celle prive di dati lasciate vuote. Nessun riempimento grafico dei buchi; tra strike osservati il builder interpola e applica una mediana a tre punti, come dichiarato</span> ·
-                colore saturato oltre il 99° pct (geometria intatta) · [src: {data._source || 'polygon chains'}]
+                {tr('voldeck.ui_drag_rotate_hover_exact_k_s_days_and_iv_67')}<span style={{ color: '#E9BA64' }}> {nHoles} {' '}{tr('voldeck.ui_missing_cells_left_empty_no_visual_gap_filling_between_68')}</span> {tr('voldeck.ui_colour_saturated_above_the_99th_percentile_geometry_un_69')}{data._source || 'polygon chains'}]
               </div>
             </div>
 
             <div className="p3" style={{ '--bd': '.16s' } as any}>
-              <div className="p3h">SEZIONE SMILE // X-RAY
-                <span className="n">· INTERATTIVA: PREMI E LEGGI L'IV</span>
-                <span className="side num">VICINE = CYAN · LONTANE = VIOLA · CROSSHAIR ORO</span>
+              <div className="p3h">{tr('voldeck.ui_smile_section_x_ray_70')}<span className="n">{tr('voldeck.ui_interactive_point_to_read_iv_71')}</span>
+                <span className="side num">{tr('voldeck.ui_near_cyan_far_purple_gold_crosshair_72')}</span>
               </div>
               <div style={{ padding: '6px 8px 0' }}>
                 <SmileXray grid={data.moneyness_grid} slices={data.slices} spot={Number(data.spot_est)} />
               </div>
-              <div className="vsxleg">smile per scadenza a parità di K/S · qui i buchi del builder RESTANO buchi (sezione fedele, n.d. nella lettura) · ATM = K/S 1.00</div>
+              <div className="vsxleg">{tr('voldeck.ui_smiles_by_expiry_at_equal_k_s_builder_gaps_remain_gaps_73')}</div>
             </div>
           </div>
 
@@ -1012,39 +1015,34 @@ export default function VolSurfacePage() {
           <div className="vsxrail">
             <div className="p3 cy scanx" style={{ position: 'relative', '--bd': '.12s' } as any}>
               <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
-              <div className="p3h">PROIETTORE DI STRIKE
-                <span className="n">· EXPECTED MOVE PER SCADENZA</span>
+              <div className="p3h">{tr('voldeck.ui_strike_projector_74')}<span className="n">{tr('voldeck.ui_expected_move_by_expiry_75')}</span>
               </div>
               <div style={{ padding: '4px 4px 0' }}>
                 <StrikeProjector spot={Number(data.spot_est)} term={data.term_structure} earnings={data.next_earnings} />
               </div>
               <div className="vsxleg">
-                banda = spot ± ATM IV×√T (1σ pieno · 2σ tratteggiato) · asse orizzontale in √t ·
-                <span style={{ color: '#B97A00' }}> E = earnings</span> · hover sui nodi = strike ·
-                è il PREZZO DELLE OPZIONI, non una previsione
-              </div>
+                {tr('voldeck.ui_band_spot_atm_iv_t_solid_1_dashed_2_horizontal_axis_in_76')}<span style={{ color: '#B97A00' }}> {tr('voldeck.earnings_legend')}</span> {tr('voldeck.ui_hover_nodes_for_strikes_this_is_the_options_price_not__77')}</div>
             </div>
 
             <div className="p3" style={{ '--bd': '.2s' } as any}>
-              <div className="p3h" title={data.iv_history_context?.basis || 'percentile dell\'ATM IV front vs storico raccolto (voce (39))'}>
-                ALTIMETRO IV RANK
-                <span className="n">· VS STORICO RACCOLTO</span>
+              <div className="p3h" title={data.iv_history_context?.basis || tr('voldeck.ui_front_atm_iv_percentile_against_collected_history_78')}>
+                {tr('voldeck.ui_iv_rank_altimeter_79')}<span className="n">{tr('voldeck.ui_against_collected_history_80')}</span>
               </div>
-              <IvAltimeter ctx={data.iv_history_context} />
-              <div className="vsxleg">percentile = % giorni storici con ATM IV front ≤ corrente · fonte iv_history (voce (39)) · rank giovane MAI spacciato per maturo</div>
+              {contextState === 'not_requested' ? <p className="vsxleg">{t('voldeck.context_not_requested')} · {t('voldeck.explicit_provider')}</p> : <IvAltimeter ctx={data.iv_history_context} />}
+              <div className="vsxleg">{tr('voldeck.ui_percentile_historical_days_with_front_atm_iv_current_s_81')}</div>
             </div>
           </div>
         </div>
       )}
 
       {/* ══ VISTA DESK: la lettura vol — term 2D vs RV, top-down fedele, forward vol, OI ══ */}
-      {data?.slices?.length > 0 && !loading && view === 'desk' && (
-        <div className="vsxgrid">
+      {data?.slices?.length > 0 && workspace === 'tools' && (
+        <div className="vsxgrid va-instruments">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
             {/* ordine PM 25/07 live: la LETTURA apre il desk, i numeri sotto */}
             {data.interpretation && (
               <div className="p3" style={{ borderLeft: '2px solid #B08D2E', '--bd': '.05s' } as any}>
-                <div className="p3h am">LETTURA // DESK NOTE<span className="n">· GENERATA DAL BUILDER SUI NUMERI QUI SOTTO</span></div>
+                <div className="p3h am">{tr('voldeck.ui_reading_desk_note_82')}<span className="n">{tr('voldeck.ui_generated_by_the_builder_from_the_figures_below_83')}</span></div>
                 <p className="num" style={{ padding: '8px 12px 10px', fontSize: 11, lineHeight: 1.75, color: 'rgba(236,241,250,.92)', whiteSpace: 'pre-wrap', margin: 0 }}>
                   {data.interpretation}
                 </p>
@@ -1052,54 +1050,50 @@ export default function VolSurfacePage() {
             )}
             <div className="p3 cy" style={{ position: 'relative', '--bd': '.08s' } as any}>
               <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
-              <div className="p3h">TERM STRUCTURE // CURVA ATM
-                <span className="n">· ORO = IMPLICITA · TRATTEGGIO = REALIZZATA 30G</span>
-                <span className="side num">IMPLICITA SOPRA LA REALIZZATA = CARRY PER CHI VENDE PREMIO</span>
+              <div className="p3h">{tr('voldeck.ui_term_structure_atm_curve_84')}<span className="n">{tr('voldeck.ui_gold_implied_dashed_30d_realised_85')}</span>
+                <span className="side num">{tr('voldeck.ui_implied_above_realised_carry_for_premium_sellers_86')}</span>
               </div>
               <div style={{ padding: '4px 8px 0' }}>
                 <Term2D term={data.term_structure} earnings={data.next_earnings} rv30={data.realized_vol_30d} />
               </div>
-              <div className="vsxleg">asse orizzontale in √t · hover sui nodi = expiry e IV esatta · <span style={{ color: '#B97A00' }}>E = earnings</span> · RV 30G dal payload [src: builder]</div>
+              <div className="vsxleg">{tr('voldeck.ui_horizontal_axis_in_t_hover_nodes_for_expiry_and_exact__87')}{' '}<span style={{ color: '#B97A00' }}>{tr('voldeck.earnings_legend')}</span> {' '}{tr('voldeck.ui_30d_rv_from_the_response_src_builder_88')}</div>
             </div>
 
             <div className="p3 cy" style={{ position: 'relative', '--bd': '.12s' } as any}>
               <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
               <div className="p3h">VOL CONE // REALIZED VS IMPLIED
-                <span className="n">· LA VOL CHE C'È STATA CONTRO QUELLA PREZZATA</span>
-                <span className="side num">FINESTRE 5/10/21/63G DI BORSA · PERCENTILI 1Y</span>
+                <span className="n">{tr('voldeck.ui_observed_volatility_against_priced_volatility_89')}</span>
+                <span className="side num">{tr('voldeck.ui_5_10_21_63_trading_day_windows_1y_percentiles_90')}</span>
               </div>
               <div style={{ padding: '4px 8px 0' }}>
-                <VolCone cone={cone} />
+                {contextState === 'loaded' || (contextState !== 'not_requested' && cone != null) ? <VolCone cone={cone} /> : <p className="vsxleg">{t(`voldeck.context_${contextState}`)} · {t('voldeck.explicit_provider')}</p>}
               </div>
               <div className="vsxleg">
-                banda chiara = min–max · banda piena = p25–p75 · tratteggio = mediana · linea cyan = realized CORRENTE ·
-                ◆ oro = ATM IV per scadenza sulla finestra abbinata (calendario→borsa ×252/365) ·
-                * = finestra YOUNG (&lt;60 oss.) · IV ≥80° pct della realized = opzioni care vs storia · [src: vol_cone (43)]
-              </div>
+                {tr('voldeck.ui_light_band_min_max_solid_band_p25_p75_dashed_median_cy_91')}</div>
             </div>
 
             <div className="p3" style={{ '--bd': '.16s' } as any}>
               <div className="p3h">SURFACE TOP-DOWN // HEAT
-                <span className="n">· LA VERITÀ CELLA PER CELLA</span>
-                <span className="side num">CELLE SCURE = QUOTA ASSENTE (BUCO DICHIARATO)</span>
+                <span className="n">{tr('voldeck.ui_cell_by_cell_observations_92')}</span>
+                <span className="side num">{tr('voldeck.ui_dark_cells_missing_quote_declared_gap_93')}</span>
               </div>
               <div style={{ padding: '4px 8px 0' }}>
                 <HeatTopDown grid={data.moneyness_grid} slices={data.slices} />
               </div>
-              <div className="vsxleg">stessa palette del mesh (blu = IV bassa → oro = alta) · hover su ogni cella = expiry, K/S, IV · qui NIENTE interpolazione</div>
+              <div className="vsxleg">{tr('voldeck.ui_same_mesh_palette_blue_low_iv_gold_high_hover_cells_fo_94')}</div>
             </div>
 
             <div className="p3" style={{ '--bd': '.24s' } as any}>
               <div className="p3h">TERM STRUCTURE // ATM + SKEW 25Δ
-                <span className="n">· L'ORDINE È LA CURVA</span>
-                <span className="side num">RR25 = CALL25 − PUT25 · BF25 = CURVATURA VS ATM</span>
+                <span className="n">{tr('voldeck.ui_order_follows_the_curve_95')}</span>
+                <span className="side num">{tr('voldeck.ui_rr25_call25_put25_bf25_curvature_vs_atm_96')}</span>
               </div>
               <div className="tscroll">
                 <table className="num" style={{ width: '100%', fontSize: 10, borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ fontWeight: 600, color: '#73829F', fontSize: 9, letterSpacing: '.14em', textTransform: 'uppercase', borderBottom: '1px solid #1A2440' }}>
-                      <th style={{ textAlign: 'left', padding: '5px 10px' }}>Expiry</th>
-                      <th style={{ textAlign: 'right' }}>GG</th>
+                      <th style={{ textAlign: 'left', padding: '5px 10px' }}>{tr('voldeck.ui_expiry_177')}</th>
+                      <th style={{ textAlign: 'right' }}>{tr('voldeck.ui_days_97')}</th>
                       <th style={{ textAlign: 'right' }}>ATM IV</th>
                       <th style={{ textAlign: 'left', paddingLeft: 8 }} aria-hidden="true"></th>
                       <th style={{ textAlign: 'right' }}>RR 25Δ</th>
@@ -1121,7 +1115,7 @@ export default function VolSurfacePage() {
                             <span className="vsxbar" style={{ width: Math.max(2, 84 * (s.atm_iv / maxIv)) }} />
                           </td>
                           <td style={{ textAlign: 'right', fontWeight: 600, color: s.rr25 == null ? '#73829F' : s.rr25 < 0 ? '#FF3D60' : '#21E0A0' }}>
-                            {s.rr25 == null ? 'n.d.' : (s.rr25 > 0 ? '+' : '') + (s.rr25 * 100).toFixed(2) + 'pt'}
+                            {s.rr25 == null ? tr('voldeck.ui_n_a_15') : (s.rr25 > 0 ? '+' : '') + (s.rr25 * 100).toFixed(2) + 'pt'}
                           </td>
                           <td style={{ textAlign: 'center', width: 70 }}>
                             {s.rr25 != null && (
@@ -1132,9 +1126,9 @@ export default function VolSurfacePage() {
                               </span>
                             )}
                           </td>
-                          <td style={{ textAlign: 'right', color: '#8D9FC4' }}>{s.bf25 == null ? 'n.d.' : (s.bf25 * 100).toFixed(2) + 'pt'}</td>
+                          <td style={{ textAlign: 'right', color: '#8D9FC4' }}>{s.bf25 == null ? tr('voldeck.ui_n_a_15') : (s.bf25 * 100).toFixed(2) + 'pt'}</td>
                           <td style={{ textAlign: 'right', paddingRight: 10, color: s.pc_oi_ratio != null && s.pc_oi_ratio > 1.5 ? '#FFA51E' : '#8D9FC4' }}>
-                            {s.pc_oi_ratio == null ? 'n.d.' : s.pc_oi_ratio.toFixed(2)}
+                            {s.pc_oi_ratio == null ? tr('voldeck.ui_n_a_15') : s.pc_oi_ratio.toFixed(2)}
                           </td>
                         </tr>
                       ));
@@ -1144,10 +1138,10 @@ export default function VolSurfacePage() {
               </div>
               {data.skew_note && (
                 <div className="num" style={{ padding: '6px 10px', borderTop: '1px solid rgba(26,36,64,.5)', fontSize: 9, color: '#8D9FC4' }}>
-                  <span style={{ fontWeight: 600, color: '#73829F' }}>NOTA SKEW [src: builder] · </span>{data.skew_note}
+                  <span style={{ fontWeight: 600, color: '#73829F' }}>{tr('voldeck.ui_skew_note_src_builder_98')}{' '}</span>{data.skew_note}
                 </div>
               )}
-              <div className="vsxleg">composite OTM (put sotto spot, call sopra) · griglia K/S 0.80–1.20 · P/C OI &gt; 1.5 in ambra (copertura pesante)</div>
+              <div className="vsxleg">{tr('voldeck.ui_composite_otm_puts_below_spot_calls_above_k_s_grid_0_8_99')}</div>
             </div>
 
           </div>
@@ -1157,26 +1151,26 @@ export default function VolSurfacePage() {
             <div className="p3 cy" style={{ position: 'relative', '--bd': '.12s' } as any}>
               <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
               <div className="p3h">FORWARD VOL
-                <span className="n">· FRA SCADENZE CONSECUTIVE</span>
+                <span className="n">{tr('voldeck.ui_between_consecutive_expiries_100')}</span>
               </div>
               <FwdVolLadder term={data.term_structure} />
-              <div className="vsxleg">σ_fwd = √((σ₂²T₂ − σ₁²T₁)/(T₂−T₁)) · formula dichiarata, input = ATM IV del payload · INVERTITA = varianza forward negativa (backwardation: dichiarata, mai un numero inventato)</div>
+              <div className="vsxleg">{tr('voldeck.ui_fwd_t_t_t_t_inputs_response_atm_iv_inverted_negative_f_101')}</div>
             </div>
 
             <div className="p3" style={{ '--bd': '.2s' } as any}>
               <div className="p3h">OPEN INTEREST
-                <span className="n">· POSIZIONAMENTO PER SCADENZA</span>
+                <span className="n">{tr('voldeck.ui_positioning_by_expiry_102')}</span>
               </div>
               <OiProfile term={data.term_structure} />
-              <div className="vsxleg">rosso = put OI · verde = call OI · P/C &gt; 1.5 in ambra · [src: Polygon chains]</div>
+              <div className="vsxleg">{tr('voldeck.ui_red_put_oi_green_call_oi_p_c_1_5_in_amber_src_polygon__103')}</div>
             </div>
 
             <div className="p3" style={{ '--bd': '.28s' } as any}>
               <div className="p3h">GAMMA EXPOSURE // DEALER
-                <span className="n">· PER STRIKE</span>
+                <span className="n">{tr('voldeck.ui_by_strike_104')}</span>
               </div>
-              <GexProfile gex={data.gex} spot={Number(data.spot_est)} />
-              <div className="vsxleg">GEX &gt; 0 = dealer long gamma (comprimono i movimenti) · &lt; 0 = short gamma (li amplificano) · ipotesi standard dealer long call / short put: DICHIARATA nel basis del payload quando arriva</div>
+              {contextState === 'not_requested' ? <p className="vsxleg">{t('voldeck.context_not_requested')} · {t('voldeck.explicit_provider')}</p> : <GexProfile gex={data.gex} spot={Number(data.spot_est)} />}
+              <div className="vsxleg">{tr('voldeck.ui_gex_0_dealer_long_gamma_dampened_moves_0_short_gamma_a_105')}</div>
             </div>
           </div>
         </div>

@@ -19,6 +19,7 @@ from datetime import datetime
 from bellomberg.core.llm_client import OpenRouterClient, modello as _modello_llm, somma_usage as _somma_usage
 from bellomberg.storage.memory_db import DB_DIR   # B4 (02/09): heartbeat e rescue sotto la cartella dati
 from bellomberg.core.llm_refusal import refusal_reason as _refusal_reason
+from bellomberg.core.language import capture_language, prompt_for_language, scoped_language
 from bellomberg.agents import agent_tools
 
 
@@ -45,6 +46,9 @@ CACHE_BETA_HEADER = {"anthropic-beta": "extended-cache-ttl-2025-04-11"}
 # listino 24/06/2026). Caso peggiore assoluto (ogni call della run tronca):
 # ~+6 € su una run da 14 € di desk; storico 4 troncature in 8 run → ~+0,05 $/run.
 MAX_TOKENS_SPECIALIST = 16000
+# audit 11/09: testa dell'esito di ogni tool nel tool_log (heartbeat + blackboard archiviata),
+# per l'audit; il modello riceve l'esito intero come prima (TETTO_TOOL_RESULT di chat_tools)
+TOOL_LOG_OUTPUT_MAX = 400
 
 # Il timeout del client SEGUE il cap (review 27/08, finding ALTO per costi/API):
 # a 65-80 tok/s misurati in V9 (la call troncata da 12k e' durata <= 203 s), a
@@ -112,6 +116,11 @@ MAX_TOOL_ITERS_SPECIALIST = 10
 # col marcatore dichiarato (mai un "done (113 chars)" zitto - regola 14/07).
 RETRY_529_BACKOFF_S = (20.0, 60.0)   # pause dei tentativi extra sul solo 529
 SOGLIA_COLLASSO_ANNUNCIO = 800       # end_turn con 0 tool sotto questa soglia = annuncio
+# Testa dei due marcatori che dichiarano «questo round non ha usato i tool». Costante e
+# non letterale copiato: il marcatore generico (round senza tool, 12/09) NON si impila
+# sopra quello del collasso, che dice lo stesso fatto con piu' dettaglio — e il predicato
+# che li tiene insieme dev'essere uno solo (lezione: i letterali copiati si scollegano).
+MARCATORE_COLLASSO = "[COLLASSO ANNUNCIO-SENZA-TOOL"
 
 
 # Gravita' degli status di usage (semantica buchi, PM 15/07): l'aggregato per-agente
@@ -218,6 +227,7 @@ class Blackboard:
     HEARTBEAT_TOOL_LOG_MAX = 50
 
     def __init__(self, memory_db=None, memo_id=None):
+        self.language = capture_language()
         self.data = {}
         self.current_round = 0
         self.tool_log = []
@@ -236,10 +246,16 @@ class Blackboard:
         # agente-round, alimentata da record_usage. DEVE esistere PRIMA del primo
         # heartbeat, che ora la legge per usage_by_specialist/usage_total.
         self.usage_log = []
+        # 12/09 (Fable 5.1, prerequisito 3 del mandato): QUANDO ogni (desk, round) e' stato
+        # scritto, con fuso dichiarato — il Capo lo legge nel prefisso «[ROUND N SENZA
+        # REPORT ... Round M, scritto il ...]» (capo.scegli_report_specialisti). Prima la
+        # blackboard salvava la sola stringa e l'unica data che il Capo vedeva era quella
+        # che il MODELLO scriveva da se' nel titolo. {desk: {round: iso con offset}}.
+        self.orari_report = {}
         self._write_heartbeat()
 
     def record_usage(self, agent, round_n, model, usage, duration_s=None,
-                     api_calls=0, cache_ttl=None, status="ok"):
+                     api_calls=0, cache_ttl=None, status="ok", retry_vuoto=0):
         """Registra token, durata e costo di UN agente-round (voce collaudo #44).
 
         Prima di oggi i token si stampavano e basta: il costo della run era
@@ -306,6 +322,7 @@ class Blackboard:
             cost = None
         mancanti = [k for k in norm if norm[k] is None]
         entry = {
+            "language": self.language,
             "agent": agent, "round": round_n, "model": model,
             "in": norm["in"], "out": norm["out"],
             "cache_read": norm["cache_read"], "cache_write": norm["cache_write"],
@@ -320,6 +337,12 @@ class Blackboard:
             # colonna NULL su tutte le righe. E' l'UNICO campo che dice se il
             # cache_write e' stato pagato 1.25x (5m) o 2.00x (1h).
             "cache_ttl": cache_ttl,
+            # 12/09 (Fable 5.1): 1 se il round ha ritentato una call uscita a max_tokens con
+            # 0 char di testo. `api_calls` somma iterazioni + retry 529 + questo: una riga
+            # con api_calls=2 era identica per un 529 e per un ritentativo a 0 char.
+            # Campo ADDITIVO: memory_db.save_llm_usage lo ignora finche' la colonna
+            # llm_usage.retry_vuoto non esiste (richiesta a parte, memory_db non e' qui).
+            "retry_vuoto": int(retry_vuoto or 0),
             "ts": datetime.now().isoformat(timespec="seconds"),
         }
         with self._lock:
@@ -351,11 +374,13 @@ class Blackboard:
             a = e.get("agent") or "?"
             d = by.setdefault(a, {"in": 0, "out": 0, "cache_read": 0, "cache_write": 0,
                                   "cost_eur": None, "partial": False, "duration_s": None,
-                                  "api_calls": 0, "status": "ok",
+                                  "api_calls": 0, "retry_vuoto": 0, "status": "ok",
                                   "_priced": 0, "_unpriced": 0})
             for k in ("in", "out", "cache_read", "cache_write"):
                 d[k] = d[k] + e[k] if d[k] is not None and e.get(k) is not None else None
             d["api_calls"] += int(e.get("api_calls") or 0)
+            # 12/09: quanti round del desk hanno ritentato una call a 0 char (-> heartbeat/UI)
+            d["retry_vuoto"] += int(e.get("retry_vuoto") or 0)
             if e.get("duration_s") is not None:
                 d["duration_s"] = (d["duration_s"] or 0.0) + float(e["duration_s"])
             if e.get("cost_eur") is None:
@@ -487,6 +512,7 @@ class Blackboard:
             os.makedirs(os.path.dirname(self.HEARTBEAT_PATH), exist_ok=True)
             _usage_by, _usage_tot = self._usage_state()
             state = {
+                "language": self.language,
                 "running": True,
                 "start_time": self.start_time,
                 "current_round": self.current_round,
@@ -569,6 +595,10 @@ class Blackboard:
     def write(self, specialist_name, round_n, report):
         with self._lock:  # il save DB sotto resta FUORI dal lock (retry con sleep 2-6s)
             self.data.setdefault(specialist_name, {})[round_n] = report
+            # 12/09: orario LOCALE della macchina con offset esplicito (il DB usa
+            # datetime('now') = UTC: due orologi diversi, qui il fuso viaggia col dato)
+            self.orari_report.setdefault(specialist_name, {})[round_n] = (
+                datetime.now().astimezone().isoformat(timespec="seconds"))
         # Persist dei report FINALI su DB (semantica storica: round 2 = finalizzato).
         # Il red team gira TRA R1 e R2 (round 1) ma DEVE persistere comunque (voce P1).
         # Ripipeline 15/07: R2 e' SELETTIVO — per chi NON replica in R2 il report
@@ -1297,6 +1327,7 @@ class Specialist:
                              + ". Dichiara la misura mancante; non ricostruirla a memoria.")
         return preamble + "\n\nGo. Use tools. Then write your report."
 
+    @scoped_language
     def run(self, round_n):
         print("\n[" + self.name.upper() + "] Round " + str(round_n) + " start")
         # Una fotografia per round; la prossima chiamata vede eventuali modifiche.
@@ -1372,6 +1403,15 @@ class Specialist:
         _tool_calls_round = 0
         _nudge_collasso_dato = False
         _retry_529 = 0
+        # Audit 11/09 (Fable 5.1, run 10/09 memo #53): UN ritentativo dichiarato quando la
+        # call esce a max_tokens con ZERO char di testo (tutto il tetto speso in ragionamento,
+        # 4 report persi in una run). La troncatura CON testo resta dichiarata e non ritenta.
+        _retry_vuoto = 0
+        _thinking = {"type": "adaptive"}
+        # 12/09 (Fable 5.1, prerequisito 3 del mandato): il ragionamento spento dal
+        # ritentativo si RIPRISTINA dopo quella call — prima restava spento per il resto
+        # del round (recon 12/09 par. 2.3). None = nessun ripristino in sospeso.
+        _thinking_prima = None
 
         while iteration < MAX_TOOL_ITERS_SPECIALIST:
             iteration += 1
@@ -1398,7 +1438,7 @@ class Specialist:
             try:
                 # fatti volatili spostati nel primo messaggio user (v. run()):
                 # il system resta IDENTICO per tutta la run -> cache stabile.
-                _sys = system_round + "\n\n" + SPECIALIST_STYLE_RULES
+                _sys = system_round + "\n\n" + prompt_for_language(SPECIALIST_STYLE_RULES)
                 # P1 26/07: se l'arsenale e' degradato il MODELLO deve saperlo e
                 # dirlo, altrimenti il PM legge un report che tace un buco. Nel
                 # caso sano questa riga non aggiunge nulla e il system resta
@@ -1434,12 +1474,71 @@ class Specialist:
                         response = self.client.messages.create(
                             model=self._model_for_round(round_n),
                             max_tokens=MAX_TOKENS_SPECIALIST,
-                            thinking={"type": "adaptive"},
+                            thinking=_thinking,
                             system=_sys,
                             tools=tools_schema,
                             messages=messages,
                             **_kw,
                         )
+                        # Audit 11/09: stop max_tokens e NESSUN testo visibile = la risposta
+                        # e' tutta ragionamento. Si ritenta UNA volta la STESSA call (stessi
+                        # messaggi) con thinking disabled. La call pagata entra nel conto
+                        # (usage e api_calls); il ritentativo si dichiara a log.
+                        # 12/09 (Fable 5.1, via A del mandato): i TOOL RESTANO DISPONIBILI
+                        # nel ritentativo — con tool_choice=none (com'era) il round ritentato
+                        # era un riassunto a memoria: in R2 senza il proprio R1 in vista,
+                        # per Fundamentals senza get_valuation e quindi senza Excel (recon
+                        # 12/09 par. 2.1). Il modello riceve un nudge DICHIARATO in coda ai
+                        # messaggi (prima rimandava gli stessi messaggi senza una parola).
+                        # Sull'ultima iterazione (_final_forced) i tool restano spenti per
+                        # la regola del report garantito, e il nudge lo dice.
+                        if (getattr(response, "stop_reason", None) == "max_tokens"
+                                and _retry_vuoto < 1
+                                and not any(str(getattr(b, "text", "") or "").strip()
+                                            for b in (getattr(response, "content", None) or []))):
+                            _retry_vuoto += 1
+                            _u0 = getattr(response, "usage", None)
+                            _out0 = getattr(_u0, "output_tokens", None)
+                            print("  [" + self.name + "] WARN: risposta TRONCATA (stop_reason="
+                                  "max_tokens, cap " + str(MAX_TOKENS_SPECIALIST) + " token) con "
+                                  "0 char di testo visibile (output_tokens="
+                                  + (str(_out0) if _out0 is not None else "n.d.")
+                                  + ", tutto ragionamento, call di %.1f s): RITENTO una volta "
+                                    "la stessa call SENZA ragionamento, "
+                                  % (time.perf_counter() - _t_call)
+                                  + ("tool DISABILITATI (limite iterazioni)" if _final_forced
+                                     else "tool disponibili")
+                                  + ", con nudge dichiarato in coda ai messaggi")
+                            try:
+                                _usage = _somma_usage(_usage, _u0)
+                                if _usage.get("tokens_status") == "parziale":
+                                    _usage_unknown = True
+                            except Exception as _ue:
+                                _usage_unknown = True
+                                print("[" + self.name + "] WARN usage non esposto dalla call "
+                                      "troncata: " + str(_ue))
+                            _thinking_prima = _thinking
+                            _thinking = {"type": "disabled"}
+                            _nudge_rv = (
+                                "[RITENTATIVO DICHIARATO] Il primo tentativo di questa risposta "
+                                "non ha prodotto testo: e' uscito al limite di output con tutto "
+                                "il budget speso in ragionamento. Scrivi ORA il report. "
+                                + ("I tool restano DISABILITATI (limite iterazioni raggiunto): "
+                                   "usa i dati gia' raccolti e dichiara n.d. cio' che non hai "
+                                   "potuto verificare."
+                                   if _final_forced else
+                                   "Usa i tool se ti servono numeri: un numero senza [src: tool] "
+                                   "non vale. Se un dato non arriva, dichiaralo n.d."))
+                            _lastm = messages[-1]
+                            if isinstance(_lastm.get("content"), list):
+                                # dopo un giro tool: IN CODA ai tool_result dello stesso
+                                # messaggio user (due user consecutivi = errore API)
+                                _lastm["content"].append({"type": "text", "text": _nudge_rv})
+                            else:
+                                _lastm["content"] = (str(_lastm.get("content") or "")
+                                                     + "\n\n" + _nudge_rv)
+                            _t_call = time.perf_counter()
+                            continue
                         break
                     except Exception as _e_api:
                         _sc = getattr(_e_api, "status_code", None)
@@ -1456,6 +1555,11 @@ class Specialist:
                             time.sleep(_pausa)
                             continue
                         raise
+                # 12/09: il ritentativo e' finito (in un verso o nell'altro): le iterazioni
+                # successive del round tornano al ragionamento di prima.
+                if _thinking_prima is not None:
+                    _thinking = _thinking_prima
+                    _thinking_prima = None
             except Exception as e:
                 print("[" + self.name + "] API error: " + str(e))
                 err_txt = "[ERROR " + self.name + " round " + str(round_n) + "]: " + str(e)
@@ -1472,9 +1576,9 @@ class Specialist:
                     self.blackboard.record_usage(
                         self.name, round_n, self._model_for_round(round_n), _usage,
                         duration_s=round(time.perf_counter() - _t0, 2),
-                        api_calls=iteration + _retry_529,
+                        api_calls=iteration + _retry_529 + _retry_vuoto,
                         cache_ttl=CACHE_TTL if USE_PROMPT_CACHING else None,
-                        status="api_error")
+                        status="api_error", retry_vuoto=_retry_vuoto)
                 except Exception as ue:
                     print("[" + self.name + "] WARN usage non registrato: " + str(ue))
                 return err_txt
@@ -1520,7 +1624,7 @@ class Specialist:
                         "report va scritto, non annunciato.")})
                     continue
                 if _collasso and _nudge_collasso_dato:
-                    _marcatore = ("[COLLASSO ANNUNCIO-SENZA-TOOL (round " + str(round_n)
+                    _marcatore = (MARCATORE_COLLASSO + " (round " + str(round_n)
                                   + "): end_turn con 0 tool e "
                                   + str(len(final_text.strip()))
                                   + " char anche dopo il retry — quanto segue e' un "
@@ -1538,12 +1642,34 @@ class Specialist:
                         tinput = block.input
                         print("  [" + self.name + "] -> " + tname + "(" + str(tinput)[:80] + ")")
                         result = self._execute_meta_tool(tname, tinput)
+                        # Audit 11/09 (Fable 5.1): il tool_log registrava SOLO l'input; per
+                        # ricostruire cosa un desk avesse letto (il «35%» dal web, il «count
+                        # 0» di Polymarket) non c'era nulla. Si conserva la testa dell'esito
+                        # (tetto fisso, dichiarato con `output_tappato`): e' una misura
+                        # per l'audit, non un secondo canale per il modello.
+                        try:
+                            _out_s = json.dumps(result, default=str, ensure_ascii=False)
+                        except Exception:
+                            _out_s = str(result)
                         self.blackboard.tool_log.append({
                             "specialist": self.name, "round": round_n, "tool": tname,
-                            "input": str(tinput)[:200], "time": datetime.now().strftime("%H:%M:%S")
+                            "input": str(tinput)[:200], "time": datetime.now().strftime("%H:%M:%S"),
+                            "output": _out_s[:TOOL_LOG_OUTPUT_MAX],
+                            "output_tappato": len(_out_s) > TOOL_LOG_OUTPUT_MAX,
+                            "output_chars": len(_out_s),
                         })
                         self.blackboard._write_heartbeat()
                         result_str = json.dumps(result, default=str, ensure_ascii=False)
+                        if tname == "get_valuation" and isinstance(result, dict):
+                            # Il dossier acquisito puo' precedere il FV e superare il
+                            # tetto da solo. La vista gia' usata da Capo/red team mette
+                            # esito, gate, buchi e riferimenti prima del dettaglio.
+                            # Blackboard/DB/sidecar conservano il payload integrale.
+                            from bellomberg.valuation.sector_analysis import valuation_results_block
+                            _vp = result.get("data") if isinstance(result.get("data"), dict) else result
+                            result_str = (valuation_results_block({str(tinput.get("ticker") or "n.d."): _vp})
+                                + "\n\nDettaglio sotto, soggetto al tetto tool_result; "
+                                  "snapshot integrale nel sidecar se generato:\n" + result_str)
                         # 20/08 (ok PM): il tetto vive in UN posto solo. Prima era un
                         # letterale qui, uno in red_team.py e la costante in chat_tools
                         # che le viste compatte leggono per decidere se DEGRADARE:
@@ -1575,12 +1701,16 @@ class Specialist:
                     # «risposta TRONCATA (stop_reason=max_tokens» resta: chi legge
                     # il log lo cerca cosi' (analisi delle run V8/V9).
                     _out_tok = getattr(getattr(response, "usage", None), "output_tokens", None)
+                    # audit 11/09: OpenRouter espone anche la quota di ragionamento
+                    # (usage.reasoning_tokens): quando c'e', il log la stampa invece di stimarla
+                    _rt_tok = getattr(getattr(response, "usage", None), "reasoning_tokens", None)
                     print("  [" + self.name + "] WARN: risposta TRONCATA (stop_reason="
                           "max_tokens, cap " + str(MAX_TOKENS_SPECIALIST) + " token): "
                           "output_tokens=" + (str(_out_tok) if _out_tok is not None else "n.d.")
                           + " (ragionamento adattivo + testo), testo visibile "
                           + str(len(final_text))
                           + (" char, call di %.1f s" % (time.perf_counter() - _t_call))
+                          + (", reasoning_tokens=" + str(_rt_tok) if _rt_tok is not None else "")
                           + " — l'analisi potrebbe essere incompleta")
                 # 26/07 (Opus 5, pre-V6): stop_reason="refusal" entra QUI (non e'
                 # end_turn ne' tool_use) con content vuoto -> senza dichiarazione il
@@ -1605,10 +1735,30 @@ class Specialist:
                   + str(MAX_TOOL_ITERS_SPECIALIST) + "): verifiche tool esaurite")
             final_text = ("[REPORT FORZATO AL LIMITE ITERAZIONI (" + str(MAX_TOOL_ITERS_SPECIALIST)
                           + "): verifiche tool esaurite, buchi dichiarati nel testo]\n\n" + final_text)
+        # 12/09 (Fable 5.1, prerequisito 3 del mandato): un round >= 1 chiuso con ZERO
+        # chiamate tool si DICHIARA in testa al testo, nella stessa forma dei marcatori
+        # qui sopra — il testo e' cio' che leggono blackboard, DB, memoria del desk e
+        # Capo (che ha la sua dottrina sul prefisso). Vale per tutti i desk (decisione
+        # orchestratore 12/09). R0 e' ricognizione (fuori perimetro, come il collasso); il
+        # segnaposto «No output produced» non ha numeri da verificare e il marcatore in
+        # testa lo travestirebbe da report per _e_segnaposto (primi 120 char).
+        # Se il testo si apre GIA' con un marcatore che dice la stessa cosa in modo piu'
+        # preciso (il collasso annuncio-senza-tool nomina il round, i caratteri e il retry),
+        # non se ne impila un secondo: due marcatori sullo stesso fatto sono rumore in testa
+        # al report, e la testa e' cio' che il Capo e _e_segnaposto guardano per primo.
+        if final_text and round_n >= 1 and _tool_calls_round == 0 \
+                and not final_text.startswith(MARCATORE_COLLASSO):
+            _marc_nt = ("[ROUND " + str(round_n) + " SENZA TOOL: nessuna chiamata tool in "
+                        "questo round; i numeri non sono verificati con i tool]")
+            print("  [" + self.name + "] " + _marc_nt)
+            final_text = _marc_nt + "\n\n" + final_text
         if not final_text:
             # residuo possibile solo se anche il giro forzato non produce testo
             # (es. API error gestito sopra): resta l'ultimo paracadute dichiarato
             final_text = "[" + self.name + "] No output produced in round " + str(round_n)
+            if _retry_vuoto:
+                final_text += (" (2 tentativi: anche il ritentativo senza ragionamento e' "
+                               "uscito con 0 char di testo)")
 
         self.blackboard.write(self.name, round_n, final_text)
         self.blackboard.mark_specialist_done(self.name)
@@ -1621,12 +1771,13 @@ class Specialist:
         try:
             _entry = self.blackboard.record_usage(
                 self.name, round_n, self._model_for_round(round_n), _usage,
-                duration_s=_duration_s, api_calls=iteration + _retry_529,
+                duration_s=_duration_s, api_calls=iteration + _retry_529 + _retry_vuoto,
                 cache_ttl=CACHE_TTL if USE_PROMPT_CACHING else None,
-                status="usage_unknown" if _usage_unknown else "ok")
+                status="usage_unknown" if _usage_unknown else "ok",
+                retry_vuoto=_retry_vuoto)
         except Exception as ue:
             print("[" + self.name + "] WARN usage non registrato: " + str(ue))
         print(f"  [{self.name}] usage R{round_n}: in={_usage['in'] if _usage['in'] is not None else 'n.d.'} out={_usage['out'] if _usage['out'] is not None else 'n.d.'} "
               f"cache_read={_usage['cache_read'] if _usage['cache_read'] is not None else 'n.d.'} cache_write={_usage['cache_write'] if _usage['cache_write'] is not None else 'n.d.'} "
-              f"({iteration + _retry_529} call API, {_duration_s}s, costo {_fmt_cost((_entry or {}).get('cost_eur'))})")
+              f"({iteration + _retry_529 + _retry_vuoto} call API, {_duration_s}s, costo {_fmt_cost((_entry or {}).get('cost_eur'))})")
         return final_text

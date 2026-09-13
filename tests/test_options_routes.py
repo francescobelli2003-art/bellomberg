@@ -132,3 +132,66 @@ def test_download_bad_request_does_not_launch_worker(client, body):
 
 def test_download_unknown_id_is_404(client):
     assert client.get('/options/download/missing/status', headers=HEADERS).status_code == 404
+
+
+def test_options_authored_variants_roundtrip_on_same_synthetic_snapshot(monkeypatch):
+    from bellomberg.api.language_middleware import LanguageMiddleware
+    from bellomberg.core.language import language_context
+    from bellomberg.portfolio import options_strategy
+    from copy import deepcopy
+    calls = []
+    body = {'spot':64, 'rate':0.02, 'dividend_yield':0, 'elapsed_days':0,
+            'iv_shift':0, 'commission':3.5, 'currency':'USD',
+            'legs':[{'type':'call', 'side':'buy', 'quantity':2, 'strike':64,
+                     'days':30, 'iv':0.25, 'premium':2.5, 'multiplier':20}]}
+    with language_context('it'):
+        cached = options_strategy.simulate_strategy(body)
+        cached['source_text'] = 'Originale provider, non tradurre'
+        cached['quality'] = [vol_surface._surface_text('IV assente', 'Missing IV')]
+    before = deepcopy(cached)
+    def same_snapshot(ticker, **kwargs):
+        calls.append(ticker)
+        return cached
+    monkeypatch.setattr(vol_surface, 'get_expiry_catalog', same_snapshot)
+    app = FastAPI()
+    app.add_middleware(LanguageMiddleware)
+    app.include_router(create_options_router(lambda: None))
+    client = TestClient(app)
+    responses = []
+    for language in ('it', 'en', 'it'):
+        response = client.get('/options/expiry_catalog/DEMO.X', headers={'X-BB-Language':language})
+        assert response.status_code == 200
+        assert response.headers['Content-Language'] == language
+        data = response.json(); responses.append(data)
+        assert data['max_loss'] == pytest.approx(107)
+        assert data['breakevens'] == pytest.approx([66.675])
+        assert data['source_text'] == 'Originale provider, non tradurre'
+        assert data['quality'] == (['IV assente'] if language == 'it' else ['Missing IV'])
+        texts = data['_presentation_v1']['texts']
+        assert any(item['path'] == ['limits',0] for item in texts)
+        assert not any(item['path'] == ['source_text'] for item in texts)
+        assert data['limits'][0].startswith('Opzioni europee' if language == 'it' else 'European options')
+    assert responses[0] == responses[2]
+    assert responses[0]['curve'] == responses[1]['curve']
+    assert responses[0]['heatmap'] == responses[1]['heatmap']
+    assert cached == before
+    assert calls == ['DEMO.X'] * 3
+
+
+@pytest.mark.parametrize('slope', [0.05, -0.05, 0.0, None])
+def test_surface_interpretation_retains_nested_variants_without_recalculation(slope):
+    from bellomberg.core.language import language_context
+    from bellomberg.core.presentation import render_payload
+    with language_context('it'):
+        result = vol_surface._interpret('DEMO', [{'atm_iv':.2, 'rr25':-.04, 'bf25':.02, 'pc_oi_ratio':1.5}],
+            slope, .18, .02, expected_move=5, exp_move_days=30, rv_pct_1y=20,
+            next_earnings='2035-01-10', back_days=60)
+    original = str(result)
+    english = render_payload(result, language='en')
+    assert 'COMPRESSED movement regime' in english
+    assert 'Next earnings expected on 2035-01-10' in english
+    assert 'giorni' not in english and 'regime di movimento' not in english
+    if slope in (0.05, -0.05):
+        assert 'at 60 days' in english
+    assert str(result) == original
+    assert render_payload(result, language='it') == original

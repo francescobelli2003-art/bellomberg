@@ -394,6 +394,35 @@ def negozio_temi_titoli_di_prova(monkeypatch, _temi_titoli_esempio_su_disco):
     monkeypatch.setattr(negozi_privati, "PERCORSO_TEMI_TITOLI", _temi_titoli_esempio_su_disco)
 
 
+@pytest.fixture(autouse=True)
+def preferenze_di_prova(monkeypatch, tmp_path):
+    """13/09 (Claude Opus 5): la LINGUA della suite non la decide chi la lancia.
+    `capture_language()` (src/bellomberg/core/language.py), senza lingua esplicita e senza un
+    contesto attivo, legge `preferences.PREFERENCES_PATH` = `DATA_DIR/preferences.json`
+    (src/bellomberg/storage/preferences.py): la preferenza di RUNTIME di chi lancia la suite.
+    Lo stesso fa `LanguageMiddleware` (src/bellomberg/api/language_middleware.py) per ogni
+    chiamata API senza X-BB-Language. I test che pretendono frasi italiane (tests/test_mandato_pm.py,
+    tests/test_mandato_anteprima.py e gli altri) erano quindi verdi perche' oggi quel file dice
+    «it»: rossi il giorno che il PM salva l'inglese, PreferenceError o 503 se il file si rompe.
+    Qui il file punta a un percorso ASSENTE nel tmp del test: e' lo stato di un clone al primo
+    avvio, che `read_preferences` DICHIARA (`source: compatibility_default`) — uguale a casa e
+    fuori. Chi prova una preferenza salvata ripunta il path a uno suo, come gia' fanno
+    tests/test_api_language.py e tests/test_language_preferences.py: la loro setattr arriva dopo
+    e vince, e il monkeypatch ripristina in ordine inverso.
+    Due strade scartate apposta:
+      - `language_context('it')` autouse: il ContextVar ereditato scavalcherebbe la lettura della
+        preferenza salvata, cioe' proprio il percorso che tests/test_api_language.py misura;
+      - BELLOMBERG_DATA_DIR: sposterebbe anche `DB_PRODUZIONE` e gli alberi della spia (c), che
+        devono guardare i dati VERI.
+    RAGGIO DICHIARATO: vale dai fixture di funzione in poi. Collection, fixture di scope
+    SUPERIORE (sessione, modulo, classe: es. `_mandato_esempio_su_disco`) e sottoprocessi restano
+    fuori: se rendessero frasi leggerebbero ancora il file vero. Oggi quelle fixture lavorano su
+    esempi validi e non ne rendono (lettura del codice, non misura). Sandbox, non tripwire: come
+    (a). La prova: tests/test_preferenze_lingua_di_prova.py."""
+    from bellomberg.storage import preferences
+    monkeypatch.setattr(preferences, "PREFERENCES_PATH", tmp_path / "preferences.json")
+
+
 # ============================================================================
 # (c) SPIA DELLE SCRITTURE SU FILE — TRIPWIRE (22/08 sera-2, voce (1b) del
 #     MASTER). Due fasi, entrambe con l'ok del PM:

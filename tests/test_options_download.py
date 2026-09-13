@@ -393,3 +393,19 @@ def test_resume_after_worker_observed_pause_before_finally_restarts(monkeypatch)
     monkeypatch.setattr(mgr._slots, "release", release_and_resume)
     job = mgr.start("TEST", [exp()]); done = settled(mgr, job["id"])
     assert resumed.is_set() and done["download_complete"] and done["n_contracts"] == 2
+
+@pytest.mark.parametrize("captured", ["it", "en"])
+def test_failed_expiry_error_keeps_date_prefix_in_both_languages(monkeypatch, captured):
+    """13/09 (Claude Opus 5): an f-string flattened the bilingual page error into the language
+    the worker captured, so the status banner stayed in that language after a UI switch."""
+    from bellomberg.core.language import language_context
+    from bellomberg.core.presentation import render_payload
+    expiry = exp()
+    monkeypatch.setattr(provider, "_get", lambda *a: {"results": contracts(expiry) + [None, {"details": {}}]})
+    with language_context(captured):
+        mgr = manager(); job = mgr.start("TEST", [expiry])
+    status = settled(mgr, job["id"])
+    assert status["state"] == "error" and status["output_language"] == captured
+    # The status banner is read in the app language, not in the language the worker captured.
+    assert render_payload(status, language="it")["error"] == f"{expiry}: 2 contratti malformati nella pagina provider"
+    assert render_payload(status, language="en")["error"] == f"{expiry}: 2 malformed contracts in the provider page"

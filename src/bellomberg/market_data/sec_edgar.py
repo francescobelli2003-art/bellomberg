@@ -370,10 +370,107 @@ def get_8k_events(ticker: str, days: int = 30,
 # ============================================================
 # FORM 4 - INSIDER TRADES
 # ============================================================
+# codice di transazione SEC -> azione nei dati (metadata.action: codici, restano tali)
+_AZIONI_FORM4 = {"P": "BUY", "S": "SELL", "A": "GRANT", "M": "OPTION_EX", "D": "DISP"}
+_CODICE_DA_AZIONE = {azione: codice for codice, azione in _AZIONI_FORM4.items()}
+
+# 13/09: la frase del titolo e dello snippet si sceglie PER CODICE. Prima il verbo era uno slot
+# davanti alle azioni e i codici non tradotti (GRANT, OPTION_EX, DISP, la lettera nuda)
+# finivano dentro la frase italiana. I testi seguono la definizione SEC dei codici (Investor
+# Bulletin «Insider Transactions and Forms 3, 4, and 5», che rimanda alle General Instructions
+# del Form 4): M e' «exercise or conversion of derivative security», non solo opzioni; G e' un
+# dono «by or to the insider» e qui la direzione non si legge, quindi la frase e' neutra.
+# Stringhe semplici: message() si costruisce all'uso, nella lingua del giro.
+# codice -> (coda titolo it, coda titolo en, coda snippet it, coda snippet en)
+_FRASI_FORM4 = {
+    "P": ("ACQUISTA {shares} azioni a ${price} (valore ${value})",
+          "BUYS {shares} shares at ${price} (value ${value})",
+          "ACQUISTA azioni il {date}", "BUYS shares on {date}"),
+    "S": ("VENDE {shares} azioni a ${price} (valore ${value})",
+          "SELLS {shares} shares at ${price} (value ${value})",
+          "VENDE azioni il {date}", "SELLS shares on {date}"),
+    "A": ("RICEVE {shares} azioni dalla società (assegnazione, premio o altra acquisizione) "
+          "a ${price} (valore ${value})",
+          "ACQUIRES {shares} shares from the company (grant, award or other acquisition) "
+          "at ${price} (value ${value})",
+          "RICEVE azioni dalla società (assegnazione, premio o altra acquisizione) il {date}",
+          "ACQUIRES shares from the company (grant, award or other acquisition) on {date}"),
+    "M": ("ACQUISISCE {shares} azioni da esercizio o conversione di derivati a ${price} (valore ${value})",
+          "ACQUIRES {shares} shares by exercise or conversion of derivatives at ${price} (value ${value})",
+          "ACQUISISCE azioni da esercizio o conversione di derivati il {date}",
+          "ACQUIRES shares by exercise or conversion of derivatives on {date}"),
+    "D": ("VENDE O TRASFERISCE {shares} azioni alla società a ${price} (valore ${value})",
+          "SELLS OR TRANSFERS {shares} shares back to the company at ${price} (value ${value})",
+          "VENDE O TRASFERISCE azioni alla società il {date}",
+          "SELLS OR TRANSFERS shares back to the company on {date}"),
+    "F": ("USA {shares} azioni ricevute dalla società per pagare prezzo di esercizio o imposte, "
+          "a ${price} (valore ${value})",
+          "USES {shares} shares received from the company to pay exercise price or tax liability, "
+          "at ${price} (value ${value})",
+          "USA azioni ricevute dalla società per pagare prezzo di esercizio o imposte il {date}",
+          "USES shares received from the company to pay exercise price or tax liability on {date}"),
+    "G": ("REGISTRA UNA DONAZIONE (FATTA O RICEVUTA) DI {shares} azioni a ${price} (valore ${value})",
+          "REPORTS A GIFT (MADE OR RECEIVED) OF {shares} shares at ${price} (value ${value})",
+          "REGISTRA UNA DONAZIONE (FATTA O RICEVUTA) DI azioni il {date}",
+          "REPORTS A GIFT (MADE OR RECEIVED) OF shares on {date}"),
+}
+# un codice senza frase dedicata si NOMINA (la definizione e' nelle istruzioni SEC), mai nudo
+_FRASE_FORM4_ALTRO_CODICE = (
+    "REGISTRA UN'OPERAZIONE CON CODICE SEC {code} SU {shares} azioni a ${price} (valore ${value})",
+    "REPORTS A SEC CODE {code} TRANSACTION ON {shares} shares at ${price} (value ${value})",
+    "REGISTRA UN'OPERAZIONE CON CODICE SEC {code} il {date}",
+    "REPORTS A SEC CODE {code} TRANSACTION on {date}")
+# «?» = il documento non porta un transactionCode: si dice, non si mostra il punto di domanda
+_FRASE_FORM4_SENZA_CODICE = (
+    "REGISTRA UN'OPERAZIONE SENZA CODICE DI TRANSAZIONE SU {shares} azioni a ${price} (valore ${value})",
+    "REPORTS A TRANSACTION WITHOUT A TRANSACTION CODE ON {shares} shares at ${price} (value ${value})",
+    "REGISTRA UN'OPERAZIONE SENZA CODICE DI TRANSAZIONE il {date}",
+    "REPORTS A TRANSACTION WITHOUT A TRANSACTION CODE on {date}")
+
+
+def _titolare_form4(xml_text: str):
+    """(titolare, ruolo) del PRIMO reportingOwner di un Form 4.
+
+    13/09: il ruolo si leggeva da officerTitle oppure da <directorIndicator>, un tag che lo
+    schema ownership della SEC NON ha: per un amministratore senza carica esecutiva o per un
+    azionista oltre il 10% il ruolo restava vuoto e il titolo diceva «X () VENDE». I tag veri
+    sono isDirector, isOfficer, isTenPercentOwner, isOther (valori true/false nei filing
+    recenti, 1/0 nei vecchi) piu' officerTitle e otherText, che restano come nella fonte.
+    Piu' flag insieme si uniscono. Nessun ruolo = "" (il titolo non scrive parentesi vuote).
+    Titolare assente = frase nostra che lo dichiara, mai «Unknown» (resta una stringa: chi
+    legge `owner` nei dati non riceve un None)."""
+    from bellomberg.core.presentation import message, join_messages
+    m = re.search(r"<reportingOwner>(.*?)</reportingOwner>", xml_text, re.DOTALL)
+    blocco = m.group(1) if m else xml_text
+
+    def acceso(tag):
+        return (_xml_extract(blocco, tag) or "").strip().lower() in ("1", "true")
+
+    ruoli = []
+    if acceso("isDirector"):
+        ruoli.append(message("amministratore", "director"))
+    titolo = _xml_extract(blocco, "officerTitle")
+    if titolo:
+        ruoli.append(titolo)
+    elif acceso("isOfficer"):
+        ruoli.append(message("dirigente", "officer"))
+    if acceso("isTenPercentOwner"):
+        ruoli.append(message("azionista oltre il 10%", "10% owner"))
+    altro = _xml_extract(blocco, "otherText")
+    if altro:
+        ruoli.append(altro)
+    elif acceso("isOther"):
+        ruoli.append(message("altro rapporto", "other relationship"))
+    titolare = (_xml_extract(blocco, "rptOwnerName")
+                or message("titolare non indicato nel filing", "owner not stated in the filing"))
+    return titolare, join_messages(", ", ruoli)
+
+
 def get_insider_trades(ticker: str, days: int = 30, max_items: int = 30,
                         motivo: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     """Ritorna i Form 4 (insider buy/sell) per un ticker. Parse XML del filing.
     `motivo`: v. get_recent_filings."""
+    from bellomberg.core.presentation import message, error_text
     filings = get_recent_filings(ticker, form_types=["4"], days=days, max_items=max_items,
                                   motivo=motivo)
     trades = []
@@ -403,14 +500,24 @@ def get_insider_trades(ticker: str, days: int = 30, max_items: int = 30,
                             break
                 except Exception:
                     pass
-            if r.status_code != 200:
+            if r.status_code != 200 or "<ownershipDocument" not in r.text:
+                # 13/09: prima qui fermava solo un HTTP diverso da 200. Una pagina 200 SENZA
+                # <ownershipDocument> (l'HTML renderizzato, con l'index.json che non trova
+                # l'XML) arrivava al parse e ne usciva «Unknown», codice «?», 0 azioni: il
+                # pannello mostrava un'operazione mai letta. Ora si salta e si DICHIARA, e lo
+                # stesso vale per l'HTTP diverso da 200, che prima cadeva zitto (regola PM 14/07).
+                _msg = message("Form 4 {url}: documento XML non trovato (HTTP {status}), operazione non letta",
+                               "Form 4 {url}: XML document not found (HTTP {status}), transaction not read",
+                               url=url, status=r.status_code)
+                _log("  " + _msg)
+                if motivo is not None:
+                    motivo.append(_msg)
                 continue
             # Parse minimo: cerchiamo issuerTradingSymbol, reportingOwner.rptOwnerName,
             # transactionDate, transactionShares, transactionPricePerShare, transactionCode (P/S)
             xml_text = r.text
             # Form 4 is often HTML wrap of XML; estraiamo via regex
-            owner = _xml_extract(xml_text, "rptOwnerName") or "Unknown"
-            relation = _xml_extract(xml_text, "officerTitle") or _xml_extract(xml_text, "directorIndicator") or ""
+            owner, relation = _titolare_form4(xml_text)
             # audit/11 §2: un Form 4 ha spesso MOLTE nonDerivativeTransaction (i filing
             # di un insider molto attivo ne hanno decine): prima si leggeva solo la PRIMA -> shares/value
             # sottostimati anche di 10-50x. Ora: tutte le transazioni, aggregate per codice.
@@ -443,7 +550,7 @@ def get_insider_trades(ticker: str, days: int = 30, max_items: int = 30,
                 value_usd = g["value"]
                 price_n = round(value_usd / shares_n, 4) if shares_n else 0.0
                 t_date = g["date"] or f.get("filed_date", "")
-                action = {"P": "BUY", "S": "SELL", "A": "GRANT", "M": "OPTION_EX", "D": "DISP"}.get(t_code, t_code)
+                action = _AZIONI_FORM4.get(t_code, t_code)
                 trades.append({
                     "ticker": ticker,
                     "owner": owner,
@@ -459,7 +566,13 @@ def get_insider_trades(ticker: str, days: int = 30, max_items: int = 30,
                     "url": url,
                 })
         except Exception as e:
-            _log(f"  insider parse error for {ticker}: {e}")
+            # 13/09: prima solo nel log, e la lista vuota si leggeva «nessun insider»
+            _msg = message("Form 4 {url}: errore di lettura ({kind}: {cause}), operazione non letta",
+                           "Form 4 {url}: read error ({kind}: {cause}), transaction not read",
+                           url=f.get("url", ""), kind=type(e).__name__, cause=error_text(e))
+            _log(f"  insider parse error for {ticker}: " + _msg)
+            if motivo is not None:
+                motivo.append(_msg)
             continue
         time.sleep(0.15)  # rate limit politeness
     return trades
@@ -648,6 +761,12 @@ def get_corporate_events_for_portfolio(portfolio_tickers: List[str],
     «nessun evento» oppure «la SEC non ha risposto» — e chi chiamava dichiarava
     all'agente di averla interrogata. `ok_sec` era un letterale, non una misura.
     """
+    from bellomberg.core.presentation import message, error_text
+
+    def display_number(value, spec):
+        english = format(value, spec)
+        return message(english.translate(str.maketrans(",.", ".,")), english)
+
     events = []
     for ticker in portfolio_tickers:
         # 8-K
@@ -655,8 +774,9 @@ def get_corporate_events_for_portfolio(portfolio_tickers: List[str],
             events.append({
                 "ticker": ticker,
                 "type": "8-K",
-                "title": f"{ticker}: 8-K Material Event filed",
+                "title": message("{ticker}: depositato evento rilevante 8-K", "{ticker}: 8-K Material Event filed", ticker=ticker),
                 "snippet": f.get("description", "")[:200],
+                "title_origin": "bellomberg", "snippet_origin": "source", "presentation_languages": ["it", "en"],
                 "date": f.get("filed_date", ""),
                 "url": f.get("url", ""),
                 "importance": 4,
@@ -665,14 +785,21 @@ def get_corporate_events_for_portfolio(portfolio_tickers: List[str],
         # 202-A2b: filing STRUTTURALI (il caso di una DAT del book: aveva un S-1 a maggio - raccolta
         # capitale, LA notizia per una DAT - ma il pannello guardava solo 8-K + Form 4)
         STRUCT_FORMS = {
-            "S-1": ("Registrazione titoli (raccolta capitale)", 5),
-            "S-1/A": ("Registrazione titoli - emendamento", 4),
-            "424B4": ("Prospetto offerta (pricing)", 5),
-            "424B5": ("Prospetto offerta (pricing)", 5),
-            "10-Q": ("Trimestrale 10-Q", 4),
-            "10-K": ("Annuale 10-K", 4),
-            "SC 13D": ("Stake attivista >5%", 5),
-            "SC 13G": ("Stake passivo >5%", 3),
+            "S-1": (message("Registrazione titoli (raccolta capitale)", "Securities registration (capital raising)"), 5),
+            "S-1/A": (message("Registrazione titoli - emendamento", "Securities registration - amendment"), 4),
+            "424B4": (message("Prospetto offerta (prezzo)", "Offering prospectus (pricing)"), 5),
+            "424B5": (message("Prospetto offerta (prezzo)", "Offering prospectus (pricing)"), 5),
+            "10-Q": (message("Trimestrale 10-Q", "Quarterly report 10-Q"), 4),
+            "10-K": (message("Annuale 10-K", "Annual report 10-K"), 4),
+            "SC 13D": (message("Partecipazione attivista >5%", "Activist stake >5%"), 5),
+            "SC 13G": (message("Partecipazione passiva >5%", "Passive stake >5%"), 3),
+            # 13/09: dal 18/12/2024 le Schedule 13D/13G sono XML strutturato (EDGAR Release
+            # 23.4) e l'indice le registra come «SCHEDULE 13D»/«SCHEDULE 13G» (verificato su un
+            # indice EDGAR vero del 2025: «Form SCHEDULE 13G/A»). Con le sole chiavi «SC ...» le
+            # partecipazioni oltre il 5% depositate col nome nuovo sparivano zitte. Le /A
+            # (emendamenti) restano fuori come prima, per entrambi i nomi.
+            "SCHEDULE 13D": (message("Partecipazione attivista >5%", "Activist stake >5%"), 5),
+            "SCHEDULE 13G": (message("Partecipazione passiva >5%", "Passive stake >5%"), 3),
         }
         try:
             for f in get_recent_filings(ticker, form_types=list(STRUCT_FORMS.keys()),
@@ -681,8 +808,11 @@ def get_corporate_events_for_portfolio(portfolio_tickers: List[str],
                 events.append({
                     "ticker": ticker,
                     "type": f.get("form", ""),
-                    "title": f"{ticker}: {f.get('form', '')} - {label}",
-                    "snippet": (f.get("description", "") or label)[:200],
+                    "title": message("{ticker}: {form} - {label}", "{ticker}: {form} - {label}",
+                                     ticker=ticker, form=f.get("form", ""), label=label),
+                    "snippet": f["description"][:200] if f.get("description") else label,
+                    "title_origin": "bellomberg", "snippet_origin": "source" if f.get("description") else "bellomberg",
+                    "presentation_languages": ["it", "en"],
                     "date": f.get("filed_date", ""),
                     "url": f.get("url", ""),
                     "importance": imp,
@@ -690,20 +820,30 @@ def get_corporate_events_for_portfolio(portfolio_tickers: List[str],
         except Exception as e:
             # era `except Exception: pass` — un ramo muto dentro la fonte che
             # il payload dichiara «interrogata» (voce E, 22/08).
-            _msg = f"filing strutturali ({ticker}) error: {type(e).__name__}: {e}"
+            _msg = message("Filing strutturali ({ticker}): errore {kind}: {cause}",
+                           "Structural filings ({ticker}) error: {kind}: {cause}",
+                           ticker=ticker, kind=type(e).__name__, cause=error_text(e))
             _log("  " + _msg)
             if motivo is not None:
                 motivo.append(_msg)
         time.sleep(0.2)
         # Form 4 (top 5 per ticker)
         for t in get_insider_trades(ticker, days=days, max_items=5, motivo=motivo):
-            verb = "ACQUISTA" if t["action"] == "BUY" else ("VENDE" if t["action"] == "SELL" else t["action"])
+            # 13/09: frase per codice SEC (v. _FRASI_FORM4), ruolo senza parentesi vuote e senza
+            # il taglio a 30 caratteri che spezzava a meta' parola un officerTitle della fonte
+            codice = t.get("code") or _CODICE_DA_AZIONE.get(t["action"], t["action"])
+            frasi = (_FRASE_FORM4_SENZA_CODICE if codice == "?"
+                     else _FRASI_FORM4.get(codice, _FRASE_FORM4_ALTRO_CODICE))
+            ruolo = message(" ({relation})", " ({relation})", relation=t["relation"]) if t["relation"] else ""
+            valori = dict(ticker=ticker, owner=t['owner'], ruolo=ruolo, code=codice,
+                          shares=display_number(int(t['shares']), ','), price=display_number(t['price_usd'], '.2f'),
+                          value=display_number(t['value_usd'], ',.0f'), date=t['trade_date'])
             events.append({
                 "ticker": ticker,
                 "type": "Form 4",
-                "title": f"{ticker}: {t['owner']} ({t['relation'][:30]}) {verb} {int(t['shares']):,} azioni "
-                         f"a ${t['price_usd']:.2f} (valore ${t['value_usd']:,.0f})",
-                "snippet": f"Insider {t['owner']} {verb} shares on {t['trade_date']}",
+                "title": message("{ticker}: {owner}{ruolo} " + frasi[0], "{ticker}: {owner}{ruolo} " + frasi[1], **valori),
+                "snippet": message("Insider {owner} " + frasi[2], "Insider {owner} " + frasi[3], **valori),
+                "title_origin": "bellomberg", "snippet_origin": "bellomberg", "presentation_languages": ["it", "en"],
                 "date": t.get("trade_date") or t.get("filed_date", ""),
                 "url": t.get("url", ""),
                 "importance": 5 if t["action"] == "BUY" and t["value_usd"] > 500000 else 3,

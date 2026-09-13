@@ -20,6 +20,8 @@ Convenzioni DICHIARATE (regola no-fallback 14/07):
 - metriche scalari: advanced_metrics.portfolio_metrics (fonte unica; serie e
   allineamento benchmark dichiarati nel suo _source), mai duplicate qui.
 """
+from bellomberg.core.presentation import message as _message, render_payload
+
 import math
 import time
 from datetime import datetime
@@ -182,22 +184,22 @@ def compute_tearsheet(twr_payload: Optional[Dict[str, Any]] = None,
     if not injected and not force and cache_key in _CACHE:
         ent = _CACHE[cache_key]
         if time.time() - ent["ts"] < CACHE_TTL_SEC:
-            return ent["data"]
+            return render_payload(ent["data"])
 
     if twr_payload is None:
         try:
             from bellomberg.portfolio.twr_engine import compute_twr_payload
             twr_payload = compute_twr_payload(force=force)
         except Exception as e:
-            return {"error": f"twr_engine non disponibile: {e}"}
+            return {"error": _message('twr_engine non disponibile: {v0}', 'twr_engine unavailable: {v0}', v0=e)}
     if twr_payload.get("error"):
-        return {"error": "serie TWR ufficiale non disponibile: " + str(twr_payload["error"])}
+        return {"error": _message("serie TWR ufficiale non disponibile: {error}", "Official TWR series unavailable: {error}", error=twr_payload["error"])}
     dates = [str(d)[:10] for d in (twr_payload.get("dates") or [])]
     idx = twr_payload.get("twr_index") or []
     if len(dates) != len(idx) or len(idx) < 2:
-        return {"error": f"serie TWR insufficiente ({len(idx)} punti)"}
+        return {"error": _message('serie TWR insufficiente ({v0} punti)', 'Insufficient TWR series ({v0} points)', v0=len(idx))}
     if any((not isinstance(v, (int, float))) or v != v or v <= 0 for v in idx):
-        return {"error": "twr_index con valori non validi (<=0/NaN): base dati corrotta"}
+        return {"error": _message('twr_index con valori non validi (<=0/NaN): base dati corrotta', 'twr_index contains invalid values (<=0/NaN): corrupt data')}
 
     rets = [idx[t] / idx[t - 1] - 1.0 for t in range(1, len(idx))]
     r_dates = dates[1:]
@@ -220,30 +222,27 @@ def compute_tearsheet(twr_payload: Optional[Dict[str, Any]] = None,
     for w in rolling_windows:
         blk = _rolling(r_dates, rets, int(w), rf_daily)
         if blk is None:
-            notes.append(f"rolling {w}gg: solo {len(rets)} osservazioni (<{w}) "
-                         "-> blocco assente, dichiarato (mai finestre accorciate)")
+            notes.append(_message('rolling {v0}gg: solo {v1} osservazioni (<{v2}) -> blocco assente, dichiarato (mai finestre accorciate)', 'Rolling {v0} days: only {v1} observations (<{v2}) -> block omitted, as declared (windows are never shortened)', v0=w, v1=len(rets), v2=w))
         else:
             rolling[f"w{w}"] = blk
 
     # metriche scalari: fonte unica advanced_metrics (mai duplicate qui)
     if metrics is None:
         if injected:
-            metrics = {"error": "metriche non richieste (iniezione test senza metrics)"}
+            metrics = {"error": _message('metriche non richieste (iniezione test senza metrics)', 'Metrics not requested (test injection without metrics)')}
         else:
             try:
                 from bellomberg.portfolio.advanced_metrics import portfolio_metrics
                 metrics = portfolio_metrics()
             except Exception as e:
-                metrics = {"error": f"advanced_metrics non disponibile: {e}"}
+                metrics = {"error": _message('advanced_metrics non disponibile: {v0}', 'advanced_metrics unavailable: {v0}', v0=e)}
     if metrics.get("error"):
-        notes.append("metriche scalari n.d.: " + str(metrics["error"]))
+        notes.append(_message("metriche scalari n.d.: {error}", "Scalar metrics unavailable: {error}", error=metrics["error"]))
     elif "LEGACY" in str(metrics.get("_source", "")):
         # review 1c (B5): il fallback legacy di advanced_metrics (serie contaminata
         # dai flussi) e' dichiarato solo nel suo _source: qui va urlato, perche'
         # mensili/drawdown restano sul TWR -> due serie DIVERSE nel payload.
-        notes.append("ATTENZIONE: metriche scalari su serie LEGACY (contaminata dai "
-                     "flussi) mentre mensili/drawdown sono sul TWR ufficiale: due "
-                     "serie DIVERSE nello stesso payload — non confrontarle")
+        notes.append(_message('ATTENZIONE: metriche scalari su serie LEGACY (contaminata dai flussi) mentre mensili/drawdown sono sul TWR ufficiale: due serie DIVERSE nello stesso payload — non confrontarle', 'WARNING: scalar metrics use a LEGACY series (affected by cash flows), while monthly returns/drawdowns use official TWR: two DIFFERENT series in the same payload — do not compare them'))
 
     out = {
         "period": {"start": dates[0], "end": dates[-1], "n_trading_days": len(rets)},
@@ -255,19 +254,7 @@ def compute_tearsheet(twr_payload: Optional[Dict[str, Any]] = None,
         "regime_summary": twr_payload.get("regime_summary"),
         "risk_free_used": rf_annual,
         "notes": notes,
-        "basis": ("TEARSHEET sulla serie TWR UFFICIALE (twr_index di twr_engine, "
-                  "transizione di regime gestita); mensili composti dai daily con "
-                  "parzialita' dichiarata (primo mese se la base cade nel mese, "
-                  "ultimo sempre in-corso); rolling solo su finestra piena; "
-                  "drawdown = da massimo a recupero, episodio aperto dichiarato; "
-                  "metriche scalari RIUSATE da advanced_metrics (benchmark SPY-EUR "
-                  "dichiarato li'), niente QuantStats per scelta PM 23/07. NB: "
-                  "durate dei drawdown in GIORNI DI BORSA (non calendario); "
-                  "'current' e' una vista dell'episodio aperto gia' in top (flag "
-                  "open, non doppio conteggio); eventuali null nei rolling = non "
-                  "calcolabile dichiarato; il max_drawdown_pct delle metriche puo' "
-                  "divergere di ~0,1pp dagli episodi qui (arrotondamenti "
-                  "indipendenti dello stesso indice, dichiarato)"),
+        "basis": (_message("TEARSHEET sulla serie TWR UFFICIALE (twr_index di twr_engine, transizione di regime gestita); mensili composti dai daily con parzialita' dichiarata (primo mese se la base cade nel mese, ultimo sempre in-corso); rolling solo su finestra piena; drawdown = da massimo a recupero, episodio aperto dichiarato; metriche scalari RIUSATE da advanced_metrics (benchmark SPY-EUR dichiarato li'), niente QuantStats per scelta PM 23/07. NB: durate dei drawdown in GIORNI DI BORSA (non calendario); 'current' e' una vista dell'episodio aperto gia' in top (flag open, non doppio conteggio); eventuali null nei rolling = non calcolabile dichiarato; il max_drawdown_pct delle metriche puo' divergere di ~0,1pp dagli episodi qui (arrotondamenti indipendenti dello stesso indice, dichiarato)", 'TEARSHEET on the OFFICIAL TWR series (twr_engine twr_index, regime transition handled); monthly returns compounded from daily returns with partial periods declared (first month if the base falls within it; last month always ongoing); rolling metrics only on full windows; drawdown = peak to recovery, open episodes declared; scalar metrics REUSED from advanced_metrics (SPY-EUR benchmark declared there), no QuantStats per PM choice on 23/07. NB: drawdown durations in TRADING DAYS (not calendar days); current is a view of the open episode already in top (open flag, no double counting); any rolling null means explicitly unavailable; metric max_drawdown_pct may differ by ~0.1pp from these episodes (independent rounding of the same index, as declared)')),
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "_source": "portfolio_tearsheet.compute_tearsheet",
     }
@@ -277,7 +264,7 @@ def compute_tearsheet(twr_payload: Optional[Dict[str, Any]] = None,
         for k in [k for k in _CACHE if not k.startswith(f"tearsheet:{today}:")]:
             _CACHE.pop(k, None)
         _CACHE[cache_key] = {"ts": time.time(), "data": out}
-    return out
+    return render_payload(out)
 
 
 if __name__ == "__main__":

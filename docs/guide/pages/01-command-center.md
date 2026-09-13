@@ -25,9 +25,12 @@ research controls. It reads the SQLite book; a watchlist is a separate list.
    [Agents Live](12-agents-live.md).
 
 ## What a new installation shows
-An empty portfolio has no positions or investment track record. Record your
-opening cash and actual trades in [Trade Entry](16-trade-entry.md). Do not create
-invented historical entries merely to make charts look populated.
+An empty portfolio has no positions or investment track record. Before the first
+deposit, cash is explicitly uninitialized; a displayed zero with that warning is
+not a measured balance. Record cash and actual trades in
+[Trade Entry](16-trade-entry.md). For a holding whose purchase history is unknown,
+use its separate **Opening position** workflow and document the balance known
+as of a date. Do not invent historical purchases to populate a chart.
 
 A refresh asks the relevant services for data; it is not a trade or a deposit.
 An unknown quote, missing FX rate or incomplete history can prevent reliable

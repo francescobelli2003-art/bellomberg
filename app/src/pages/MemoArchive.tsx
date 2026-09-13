@@ -1,3 +1,7 @@
+import { useT } from '@/i18n/provider';
+import { t as tr } from '@/i18n/t';
+import { linguaCorrente, localeDi } from '@/i18n/lingua';
+import { leggiDetail } from '@/lib/quota';
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Bellomberg, Memo, Decision, MemoSearchHit, API_BASE } from '@/lib/api';
 import { fmtEUR, fmtNum } from '@/lib/format';
@@ -39,18 +43,29 @@ type Esito = typeof ORD[number];
 
 const dd = (s: string) => {
   const d = new Date(s);
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getFullYear()).slice(2)}`;
+  return Number.isFinite(d.getTime()) ? d.toLocaleDateString(localeDi(linguaCorrente()), {
+    day: '2-digit', month: '2-digit', year: '2-digit',
+  }) : tr('memoarchive.f006');
 };
 const ts = (s: string) => new Date(s).getTime();
 const nome = (p: string) => (p || '').split(/[\\/]/).pop()!.replace(/\.xlsx$/i, '');
 
 /** I file DCF arrivano come stringa JSON. Se non lo e', non si tira a indovinare. */
-function dcfDi(m: Memo): string[] {
+function dcfDi(m: Memo): string[] | null {
   if (!m.dcf_files) return [];
   try {
     const v = JSON.parse(m.dcf_files);
-    return Array.isArray(v) ? v.filter(x => typeof x === 'string') : [];
-  } catch { return []; }
+    return Array.isArray(v) && v.every(x => typeof x === 'string') ? v : null;
+  } catch { return null; }
+}
+
+function dettaglioErrore(e: any): string {
+  return leggiDetail(e?.response?.data?.detail) || leggiDetail(e?.message) || leggiDetail(e);
+}
+function etichettaEsito(status: string): string {
+  const keys = { EXECUTED: 'executed', PARTIAL: 'partial', PENDING: 'pending', SKIPPED: 'skipped', EXPIRED: 'expired' } as const;
+  const key = keys[status as Esito];
+  return key ? tr(`memoarchive.${key}`) : status;
 }
 
 interface Riga { act: string; tick: string; eur: string; timing: string; conf: string; dec: Decision | null }
@@ -73,7 +88,7 @@ function tabellaAzioni(md: string, dec: Decision[]): Riga[] {
     const c = riga.trim().replace(/^\||\|$/g, '').split('|').map(s => s.trim());
     if (c.length < 4) continue;
     if (c.every(x => /^:?-+:?$/.test(x.replace(/\s/g, '')))) continue;
-    if (/^action$/i.test(c[0])) continue;
+    if (/^(?:action|azione)$/i.test(c[0])) continue;
     out.push({
       act: c[0], tick: c[1], eur: c[2] || '', timing: c[3] || '', conf: c[4] || '',
       dec: idx.get(`${(c[1] || '').toUpperCase().trim()}|${(c[0] || '').toUpperCase().trim()}`) || null,
@@ -83,17 +98,19 @@ function tabellaAzioni(md: string, dec: Decision[]): Riga[] {
 }
 
 export default function MemoArchive() {
+  const tr = useT();
   const [memos, setMemos] = useState<Memo[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // conteggio delle run fallite: chiamata a parte, con buco DICHIARATO se
-  // fallisce (non si spaccia "0 fallite" per una misura riuscita)
-  const [righeDb, setRigheDb] = useState<number | null>(null);
+  // Count only row-level evidence within the returned sample. Different
+  // pagination limits cannot establish how many runs failed.
+  const [campione, setCampione] = useState<{ rows: number; excluded: number | null } | null>(null);
   const [righeDbErr, setRigheDbErr] = useState<string | null>(null);
 
   const [dec, setDec] = useState<Decision[]>([]);
   const [decErr, setDecErr] = useState<string | null>(null);
+  const [decLoading, setDecLoading] = useState(true);
 
   const [selId, setSelId] = useState<number | null>(null);
   const [testi, setTesti] = useState<Record<number, string>>({});
@@ -108,34 +125,51 @@ export default function MemoArchive() {
     setLoading(true); setErr(null);
     Bellomberg.memos(50)
       .then(r => {
-        const ms = (r.memos || []).slice().sort((a, b) => ts(b.timestamp) - ts(a.timestamp));
+        if (!Array.isArray(r?.memos)) { setErr(''); return; }
+        const ms = r.memos.slice().sort((a, b) => ts(b.timestamp) - ts(a.timestamp));
         setMemos(ms);
         setSelId(prev => (prev !== null && ms.some(m => m.id === prev)) ? prev : (ms[0]?.id ?? null));
       })
-      .catch(e => setErr(e?.response?.data?.detail || e?.message || String(e)))
+      .catch(e => setErr(dettaglioErrore(e)))
       .finally(() => setLoading(false));
 
-    setRigheDbErr(null);
+    setRigheDbErr(null); setCampione(null);
     Bellomberg.memosAll(200)
-      .then(r => setRigheDb((r.memos || []).length))
-      .catch(e => { setRigheDb(null); setRigheDbErr(e?.response?.data?.detail || e?.message || String(e)); });
+      .then(r => {
+        const rows = r?.memos;
+        if (!Array.isArray(rows)) { setRigheDbErr(''); return; }
+        const declared = rows.every(m => typeof m.has_content === 'boolean' && typeof m.pdf_available === 'boolean');
+        setCampione({ rows: rows.length, excluded: declared ? rows.filter(m => !m.has_content && !m.pdf_available).length : null });
+      })
+      .catch(e => { setCampione(null); setRigheDbErr(dettaglioErrore(e)); });
 
-    setDecErr(null);
+    setDecErr(null); setDecLoading(true);
     Bellomberg.decisions(undefined, 500)
-      .then(r => setDec(r.decisions || []))
-      .catch(e => { setDec([]); setDecErr(e?.response?.data?.detail || e?.message || String(e)); });
+      .then(r => {
+        if (!Array.isArray(r?.decisions)) { setDec([]); setDecErr(''); return; }
+        setDec(r.decisions);
+      })
+      .catch(e => { setDec([]); setDecErr(dettaglioErrore(e)); })
+      .finally(() => setDecLoading(false));
   }, []);
   useEffect(() => { load(); }, [load]);
 
   // il testo integrale si carica al click e resta in cache: 40.987 char sul
   // memo piu' lungo, non si rifà il giro a ogni render
   useEffect(() => {
-    if (selId === null || testi[selId] !== undefined) return;
-    setCaricando(true); setTestoErr(null);
+    setTestoErr(null);
+    if (selId === null || testi[selId] !== undefined) { setCaricando(false); return; }
+    let active = true;
+    setCaricando(true);
     Bellomberg.memoById(selId)
-      .then(m => setTesti(t => ({ ...t, [selId]: m.full_markdown || '' })))
-      .catch(e => setTestoErr(e?.response?.data?.detail || e?.message || String(e)))
-      .finally(() => setCaricando(false));
+      .then(m => {
+        if (!active) return;
+        if (!m || !(typeof m.full_markdown === 'string' || m.full_markdown === null)) { setTestoErr(''); return; }
+        setTesti(t => ({ ...t, [selId]: m.full_markdown || '' }));
+      })
+      .catch(e => { if (active) setTestoErr(dettaglioErrore(e)); })
+      .finally(() => { if (active) setCaricando(false); });
+    return () => { active = false; };
   }, [selId, testi]);
 
   const decPerMemo = useMemo(() => {
@@ -152,15 +186,16 @@ export default function MemoArchive() {
   const md = selId !== null ? testi[selId] : undefined;
   const decSel = (selId !== null && decPerMemo.get(selId)) || [];
 
-  const reso = useMemo(() => md ? rendiMemo(md, ['ACTION TABLE']) : null, [md]);
+  const reso = useMemo(() => md ? rendiMemo(md, ['ACTION TABLE']) : null, [md, tr]);
   const sezioni: MemoSezione[] = reso ? reso.sezioni : (md ? sezioniDi(md) : []);
   const azioni = useMemo(() => md ? tabellaAzioni(md, decSel) : [], [md, decSel]);
   const fonti = useMemo(() => md ? citazioni(md) : [], [md]);
 
-  const totDcf = memos.reduce((s, m) => s + dcfDi(m).length, 0);
-  const totFlag = memos.reduce((s, m) => s + dcfDi(m).filter(f => /_FLAGGED/i.test(f)).length, 0);
+  const dcfInvalid = memos.some(m => dcfDi(m) === null);
+  const totDcf = dcfInvalid ? null : memos.reduce((s, m) => s + dcfDi(m)!.length, 0);
+  const totFlag = dcfInvalid ? null : memos.reduce((s, m) => s + dcfDi(m)!.filter(f => /_FLAGGED/i.test(f)).length, 0);
+  const selDcf = sel ? dcfDi(sel) : [];
   const conEsito = dec.filter(d => d.outcome_pct !== null && d.outcome_pct !== undefined).length;
-  const fallite = righeDb === null ? null : Math.max(0, righeDb - memos.length);
 
   const conta = (ds: Decision[]) => {
     const c: Partial<Record<Esito, number>> = {};
@@ -193,18 +228,18 @@ export default function MemoArchive() {
     return () => window.removeEventListener('keydown', h);
   }, []);
 
-  if (err) {
+  if (err !== null) {
     // Buco DICHIARATO (regola 14/07): un errore backend NON e' "nessun memo"
     // — il false-empty qui invitava a una run del consigliere da ~10 EUR.
     return (
       <div className="obsx f9b">
         <div className="p3">
           <i className="tick tl" /><i className="tick tr" /><i className="tick bl" /><i className="tick br" />
-          <div className="p3h am">Archivio del comitato</div>
+          <div className="p3h am">{tr('memoarchive.f001')}</div>
           <div className="p-3 font-mono text-2xs text-crimson flex items-center gap-2 flex-wrap">
             <AlertOctagon size={13} />
-            <span>ARCHIVIO MEMO NON DISPONIBILE — {err}. I memo salvati NON sono persi: backend non raggiungibile o in errore.</span>
-            <button onClick={load} className="btn btn-cyan ml-auto"><RefreshCw size={11} /> RETRY</button>
+            <span>{tr('memoarchive.f002')} {err || tr('memoarchive.errorUnknown')}{tr('memoarchive.f003')}</span>
+            <button onClick={load} className="btn btn-cyan ml-auto"><RefreshCw size={11} /> {tr('memoarchive.f004')}</button>
           </div>
         </div>
       </div>
@@ -215,23 +250,23 @@ export default function MemoArchive() {
     <div className="obsx f9b">
       {/* ── barra d'assetto ──────────────────────────────────────────── */}
       <div className="bar">
-        <span className="lab">Archivio del comitato</span>
+        <span className="lab">{tr('memoarchive.f001')}</span>
         <span className="sep" />
         <span className="k">Memo</span><span className="v num"><b>{loading ? '…' : memos.length}</b></span>
-        <span className="k">Decisioni</span>
-        <span className="v num">{decErr ? <b className="ko">n.d.</b> : <b>{dec.length}</b>}</span>
-        <span className="k">Modelli DCF</span>
-        <span className="v num"><b>{totDcf}</b>{totFlag > 0 && <> · <span className="ko">{totFlag} flagged</span></>}</span>
-        <span className="k">Run fallite</span>
+        <span className="k">{tr('memoarchive.f005')}</span>
+        <span className="v num">{decErr !== null ? <b className="ko">{tr('memoarchive.f006')}</b> : <b>{decLoading ? '…' : dec.length}</b>}</span>
+        <span className="k">{tr('memoarchive.f007')}</span>
+        <span className="v num"><b title={dcfInvalid ? tr('memoarchive.dcfInvalid') : undefined}>{loading ? '…' : totDcf ?? tr('memoarchive.f006')}</b>{totFlag !== null && totFlag > 0 && <> · <span className="ko">{totFlag} {tr('memoarchive.f008')}</span></>}</span>
+        <span className="k">{tr('memoarchive.excludedLabel')}</span>
         <span className="v num">
-          {righeDbErr ? <b className="ko" title={righeDbErr}>n.d.</b>
-            : fallite === null ? <b>…</b> : <b>{fallite} su {righeDb}</b>}
+          {righeDbErr !== null ? <b className="ko" title={righeDbErr || tr('memoarchive.errorUnknown')}>{tr('memoarchive.f006')}</b>
+            : campione === null ? <b>…</b> : <b>{campione.excluded ?? tr('memoarchive.f006')} {tr('memoarchive.f043')} {campione.rows}</b>}
         </span>
         <span className="sep" />
-        <button className="qcall" onClick={() => setCerca(true)} title="ricerca semantica nell'archivio">
+        <button className="qcall" onClick={() => setCerca(true)} title={tr('memoarchive.f009')}>
           <Search size={12} color="#73829F" />
-          <span className="ph">cerca dentro l’archivio — il testo di tutti i memo</span>
-          <span className="kb">CTRL+MAIUSC+F</span>
+          <span className="ph">{tr('memoarchive.f010')}</span>
+          <span className="kb">{tr('memoarchive.f011')}</span>
         </button>
       </div>
 
@@ -240,11 +275,11 @@ export default function MemoArchive() {
         <div className="cIdx">
           <div className="p3" style={{ flex: 1 }}>
             <i className="tick tl" /><i className="tick tr" /><i className="tick bl" /><i className="tick br" />
-            <div className="p3h">Archivio<span className="side">{loading ? '…' : `${memos.length} LEGGIBILI`}</span></div>
+            <div className="p3h">{tr('memoarchive.f012')}<span className="side">{loading ? '…' : tr('memoarchive.f013', {a: memos.length})}</span></div>
             <div className="scroll" style={{ flex: 1 }}>
-              {loading && <p className="px-3 py-2 text-2xs text-faint">caricamento archivio…</p>}
+              {loading && <p className="px-3 py-2 text-2xs text-faint">{tr('memoarchive.f014')}</p>}
               {!loading && memos.length === 0 &&
-                <p className="px-3 py-2 text-2xs text-faint">Nessun memo ancora. Lancia il consigliere.</p>}
+                <p className="px-3 py-2 text-2xs text-faint">{tr('memoarchive.f015')}</p>}
               {memos.map(m => {
                 const ds = decPerMemo.get(m.id) || [];
                 return (
@@ -253,28 +288,27 @@ export default function MemoArchive() {
                     <div className="mid">
                       <div className="dt">{dd(m.timestamp)}</div>
                       <div className="sub">
-                        {decErr ? 'decisioni n.d.' : `${ds.length} decision${ds.length === 1 ? 'e' : 'i'}`}
+                        {decErr !== null ? tr('memoarchive.f016') : decLoading ? '…' : tr(ds.length === 1 ? 'memoarchive.oneDecision' : 'memoarchive.decisionsCount', { n: ds.length })}
                         {m.pdf_available ? ' · PDF' : ''}
                       </div>
                       {ds.length > 0 && (
-                        <div className="nast" title={ORD.filter(s => conta(ds)[s]).map(s => `${conta(ds)[s]} ${s}`).join(' · ')}>
+                        <div className="nast" title={ORD.filter(s => conta(ds)[s]).map(s => `${conta(ds)[s]} ${etichettaEsito(s)}`).join(' · ')}>
                           {ds.map(d => <i key={d.id} className={`ex-${d.status}`} />)}
                         </div>
                       )}
                     </div>
                     <span className="nv num">
-                      {m.portfolio_nav_eur ? fmtEUR(m.portfolio_nav_eur, false, 0) : <em className="text-faint">NAV n.d.</em>}
+                      {typeof m.portfolio_nav_eur === 'number' && Number.isFinite(m.portfolio_nav_eur) ? fmtEUR(m.portfolio_nav_eur, false, 0) : <em className="text-faint">{tr('memoarchive.f017')}</em>}
                     </span>
                   </div>
                 );
               })}
             </div>
-            {/* le run fallite non stanno in elenco, ma si dichiarano */}
             <div className="vuoti">
-              {righeDbErr
-                ? <>Quante run siano <b>FALLITE</b> non è misurabile adesso: la lettura con <code>include_empty</code> è in errore — {righeDbErr}</>
-                : fallite === null ? <>conteggio delle run fallite in corso…</>
-                : <><b>{fallite} run fallite</b> non sono in questa lista: il backend le filtra con <code>include_empty=false</code> perché hanno meno di 100 caratteri di testo. In DB le righe sono {righeDb}, qui se ne leggono {memos.length}.</>}
+              {righeDbErr !== null ? tr('memoarchive.sampleError', { detail: righeDbErr || tr('memoarchive.errorUnknown') })
+                : campione === null ? tr('memoarchive.sampleLoading')
+                : campione.excluded === null ? tr('memoarchive.sampleUndeclared', { n: campione.rows })
+                : tr('memoarchive.sampleCount', { excluded: campione.excluded, rows: campione.rows })}
             </div>
           </div>
         </div>
@@ -284,11 +318,13 @@ export default function MemoArchive() {
           <div className="p3" style={{ borderLeft: '2px solid rgba(255,165,30,.55)', flex: '0 0 auto' }}>
             <i className="tick tl" /><i className="tick tr" /><i className="tick bl" /><i className="tick br" />
             <div className="p3h am">
-              {sel ? `Memo ${sel.id} · ${sel.title || 's.t.'}` : 'Nessun memo selezionato'}
+              {sel ? `Memo ${sel.id} · ${sel.title || tr('memoarchive.f018')}` : tr('memoarchive.f019')}
+              {sel && <span className="side">{tr(sel.output_language === 'it' ? 'communications.originalOutputIt'
+                : sel.output_language === 'en' ? 'communications.originalOutputEn' : 'communications.originalOutputUnknown')}</span>}
               <span className="side">
-                {!sel ? '' : md === undefined ? 'CARICAMENTO…'
-                  : azioni.length === 0 ? 'NESSUNA ACTION TABLE IN QUESTO MEMO'
-                  : `ACTION TABLE — ${azioni.length} RIGHE, AGGANCIATE ALLE DECISIONI`}
+                {!sel ? '' : testoErr !== null ? tr('memoarchive.f030', { a: testoErr || tr('memoarchive.errorUnknown') }) : md === undefined ? tr('memoarchive.f020')
+                  : azioni.length === 0 ? tr('memoarchive.f021')
+                  : tr('memoarchive.f022', {a: azioni.length})}
               </span>
             </div>
             <div>
@@ -304,7 +340,7 @@ export default function MemoArchive() {
                     <col className="cTm" /><col className="cCf" /><col className="cEs" /><col />
                   </colgroup>
                   <thead><tr>
-                    <th>Azione</th><th>Titolo</th><th>EUR</th><th>Timing</th><th>Conviction</th><th>Esito reale</th><th />
+                    <th>{tr('memoarchive.f023')}</th><th>{tr('memoarchive.f024')}</th><th>EUR</th><th>{tr('memoarchive.f025')}</th><th>{tr('memoarchive.f026')}</th><th>{tr('memoarchive.f027')}</th><th />
                   </tr></thead>
                   <tbody>
                     {azioni.map((a, k) => (
@@ -318,7 +354,7 @@ export default function MemoArchive() {
                           <div className="esito" style={{ color: a.dec ? (a.dec.status === 'EXPIRED' ? '#FF3D60' : '#8D9FC4') : '#73829F' }}>
                             <i className={`ex-${a.dec ? a.dec.status : 'NONE'}`} />
                             {/* mai un esito dedotto: se il join non tiene, si scrive */}
-                            <span>{a.dec ? a.dec.status : 'NON AGGANCIATA'}</span>
+                            <span>{a.dec ? etichettaEsito(a.dec.status) : tr('memoarchive.f028')}</span>
                           </div>
                         </td>
                         <td />
@@ -328,10 +364,10 @@ export default function MemoArchive() {
                 </table>
               ) : (
                 <p className="px-3 py-2 text-2xs text-faint">
-                  {!sel ? 'Scegli un memo dall’archivio.'
-                    : testoErr ? `TESTO DEL MEMO NON DISPONIBILE — ${testoErr}`
-                    : caricando || md === undefined ? 'caricamento del testo…'
-                    : 'Questo memo non ha una ACTION TABLE: il testo qui sotto è comunque integrale.'}
+                  {!sel ? tr('memoarchive.f029')
+                    : testoErr !== null ? tr('memoarchive.f030', {a: testoErr || tr('memoarchive.errorUnknown')})
+                    : caricando || md === undefined ? tr('memoarchive.f031')
+                    : tr('memoarchive.f032')}
                 </p>
               )}
             </div>
@@ -340,7 +376,7 @@ export default function MemoArchive() {
           <div className="body" style={{ flex: 1 }}>
             <div className="p3 rail">
               <i className="tick tl" /><i className="tick tr" /><i className="tick bl" /><i className="tick br" />
-              <div className="p3h">Sezioni<span className="side">{sezioni.length || ''}</span></div>
+              <div className="p3h">{tr('memoarchive.f033')}<span className="side">{sezioni.length || ''}</span></div>
               <div className="scroll" style={{ flex: 1 }}>
                 {sezioni.length === 0 && <p className="px-3 py-2 text-2xs text-faint">—</p>}
                 {sezioni.map(s => (
@@ -354,19 +390,19 @@ export default function MemoArchive() {
             <div className="p3" style={{ flex: 1 }}>
               <i className="tick tl" /><i className="tick tr" /><i className="tick bl" /><i className="tick br" />
               <div className="p3h">
-                Il memo
-                <span className="side">{md ? `${fmtNum(md.length, 0)} CHAR` : ''}</span>
+                {tr('memoarchive.f034')}
+                <span className="side">{md ? tr('memoarchive.f035', {a: fmtNum(md.length, 0)}) : ''}</span>
               </div>
               <div className="scroll" style={{ flex: 1 }} ref={docRef}>
-                {testoErr ? (
+                {testoErr !== null ? (
                   <p className="px-4 py-3 text-2xs text-crimson">
-                    TESTO NON DISPONIBILE — {testoErr}. Il memo non è perso: il PDF resta scaricabile qui accanto.
+                    {tr('memoarchive.f036')} {testoErr || tr('memoarchive.errorUnknown')}{tr('memoarchive.f037')}
                   </p>
                 ) : md === undefined ? (
-                  <p className="px-4 py-3 text-2xs text-faint">caricamento del testo…</p>
+                  <p className="px-4 py-3 text-2xs text-faint">{tr('memoarchive.f031')}</p>
                 ) : md === '' ? (
                   <p className="px-4 py-3 text-2xs text-faint">
-                    Questo memo non ha testo in archivio (<code>full_markdown</code> vuoto): è una run che non ha prodotto il documento.
+                    {tr('memoarchive.f038')}<code>full_markdown</code> {tr('memoarchive.f039')}
                   </p>
                 ) : (
                   <div className="doc">{reso!.nodi}</div>
@@ -380,22 +416,22 @@ export default function MemoArchive() {
         <div className="cDx">
           <div className="p3 cy" style={{ flex: '0 0 auto' }}>
             <i className="tick tl" /><i className="tick tr" /><i className="tick bl" /><i className="tick br" />
-            <div className="p3h" style={{ color: '#29D3F2' }}>Che fine ha fatto questo memo</div>
+            <div className="p3h" style={{ color: '#29D3F2' }}>{tr('memoarchive.f040')}</div>
             <div className="verd">
-              {decErr ? (
-                <p className="text-2xs text-crimson">DECISIONI NON DISPONIBILI — {decErr}</p>
-              ) : decSel.length === 0 ? (
-                <p className="text-2xs text-faint">Nessuna decisione agganciata a questo memo.</p>
+              {decErr !== null ? (
+                <p className="text-2xs text-crimson">{tr('memoarchive.f041')} {decErr || tr('memoarchive.errorUnknown')}</p>
+              ) : decLoading ? <p className="text-2xs text-faint">{tr('memoarchive.f020')}</p> : decSel.length === 0 ? (
+                <p className="text-2xs text-faint">{tr('memoarchive.f042')}</p>
               ) : (
                 <>
-                  <div className="big">{fatte} <em>su {decSel.length}</em></div>
-                  <div className="cap">decisioni eseguite, anche in parte</div>
+                  <div className="big">{fatte} <em>{tr('memoarchive.f043')} {decSel.length}</em></div>
+                  <div className="cap">{tr('memoarchive.f044')}</div>
                   <div className="stk">
                     {ORD.map(s => cSel[s] ? <i key={s} className={`ex-${s}`} style={{ flex: cSel[s] }} /> : null)}
                   </div>
                   <div className="stkleg">
                     {ORD.map(s => cSel[s] ? (
-                      <span key={s}><i className={`ex-${s}`} />{cSel[s]} {s}</span>
+                      <span key={s}><i className={`ex-${s}`} />{cSel[s]} {etichettaEsito(s)}</span>
                     ) : null)}
                   </div>
                 </>
@@ -405,31 +441,31 @@ export default function MemoArchive() {
 
           <div className="p3" style={{ flex: '0 0 auto' }}>
             <i className="tick tl" /><i className="tick tr" /><i className="tick bl" /><i className="tick br" />
-            <div className="p3h">Corredo<span className="side">{sel ? `MEMO ${sel.id}` : ''}</span></div>
+            <div className="p3h">{tr('memoarchive.f045')}<span className="side">{sel ? `MEMO ${sel.id}` : ''}</span></div>
             <div>
-              <div className="kv"><span className="k">NAV alla data</span>
-                <span className="v">{sel?.portfolio_nav_eur ? fmtEUR(sel.portfolio_nav_eur, false, 0)
-                  : <em>n.d. — non registrato per questa run</em>}</span></div>
-              <div className="kv"><span className="k">Esito di mercato</span>
+              <div className="kv"><span className="k">{tr('memoarchive.f046')}</span>
+                <span className="v">{typeof sel?.portfolio_nav_eur === 'number' && Number.isFinite(sel.portfolio_nav_eur) ? fmtEUR(sel.portfolio_nav_eur, false, 0)
+                  : <em>{tr('memoarchive.f047')}</em>}</span></div>
+              <div className="kv"><span className="k">{tr('memoarchive.f048')}</span>
                 {/* outcome_pct e' valorizzato su 0 righe su 193: si dichiara,
                     non si rende come zero (e mai colorato di verde) */}
-                <span className="v"><em>{conEsito === 0
-                  ? `n.d. — outcome_pct valorizzato su 0 righe su ${dec.length}`
-                  : `${conEsito} su ${dec.length} decisioni con esito`}</em></span></div>
-              <div className="kv"><span className="k">Token Capo</span>
-                <span className="v">{(sel?.capo_tokens_in || sel?.capo_tokens_out)
+                <span className="v"><em>{decErr !== null ? tr('memoarchive.f016') : decLoading ? '…' : conEsito === 0
+                  ? tr('memoarchive.f049', {a: dec.length})
+                  : tr('memoarchive.f050', {a: conEsito, b: dec.length})}</em></span></div>
+              <div className="kv"><span className="k">{tr('memoarchive.f051')}</span>
+                <span className="v">{sel && Number.isFinite(sel.capo_tokens_in) && Number.isFinite(sel.capo_tokens_out)
                   ? `${fmtNum(sel!.capo_tokens_in, 0)} in · ${fmtNum(sel!.capo_tokens_out, 0)} out`
-                  : <em>n.d. — non registrati per questa run</em>}</span></div>
-              <div className="kv"><span className="k">Testo</span>
-                <span className="v">{md ? `${fmtNum(md.length, 0)} char · ${sezioni.length} sezioni` : <em>—</em>}</span></div>
-              <div className="kv"><span className="k">Modelli DCF</span>
-                <span className="v">{sel ? dcfDi(sel).length : 0}
-                  {sel && dcfDi(sel).some(f => /_FLAGGED/i.test(f)) &&
-                    ` · ${dcfDi(sel).filter(f => /_FLAGGED/i.test(f)).length} FLAGGED`}</span></div>
-              {sel && dcfDi(sel).map(f => (
+                  : <em>{tr('memoarchive.f052')}</em>}</span></div>
+              <div className="kv"><span className="k">{tr('memoarchive.f053')}</span>
+                <span className="v">{md ? tr('memoarchive.f054', {a: fmtNum(md.length, 0), b: sezioni.length}) : <em>—</em>}</span></div>
+              <div className="kv"><span className="k">{tr('memoarchive.f007')}</span>
+                <span className="v">{selDcf === null ? <em className="text-crimson">{tr('memoarchive.dcfInvalid')}</em> : selDcf.length}
+                  {selDcf?.some(f => /_FLAGGED/i.test(f)) &&
+                    tr('memoarchive.f055', {a: selDcf.filter(f => /_FLAGGED/i.test(f)).length})}</span></div>
+              {selDcf?.map(f => (
                 <div className="file" key={f}>
                   <span className="nm">{nome(f)}</span>
-                  {/_FLAGGED/i.test(f) && <span className="fg">FLAGGED</span>}
+                  {/_FLAGGED/i.test(f) && <span className="fg">{tr('memoarchive.f056')}</span>}
                 </div>
               ))}
               <div className="apri">
@@ -437,15 +473,13 @@ export default function MemoArchive() {
                     un bottone che scompare non dice che il file non c'e' */}
                 {sel?.pdf_available
                   ? <a href={`${API_BASE}/memos/${sel.id}/pdf`} target="_blank" rel="noreferrer">MEMO PDF</a>
-                  : <span className="off">PDF NON DISPONIBILE</span>}
+                  : <span className="off">{tr('memoarchive.f057')}</span>}
                 {sel?.appendix_available
-                  ? <a href={`${API_BASE}/memos/${sel.id}/appendix`} target="_blank" rel="noreferrer">APPENDICE</a>
-                  : <span className="off">NESSUNA APPENDICE</span>}
+                  ? <a href={`${API_BASE}/memos/${sel.id}/appendix`} target="_blank" rel="noreferrer">{tr('memoarchive.f058')}</a>
+                  : <span className="off">{tr('memoarchive.f059')}</span>}
               </div>
               <div className="nota">
-                <b>Aggancio dichiarato:</b> la colonna ESITO nasce dall’incrocio (memo, titolo, azione)
-                fra la ACTION TABLE del memo e le decisioni in archivio. Dove non aggancia scrive
-                NON AGGANCIATA, invece di inventare un esito.
+                <b>{tr('memoarchive.f060')}</b> {tr('memoarchive.f061')}
               </div>
             </div>
           </div>
@@ -453,15 +487,15 @@ export default function MemoArchive() {
           {/* su cosa si regge il memo: censimento dei tag [src: …] */}
           <div className="p3 vi" style={{ flex: 1 }}>
             <i className="tick tl" /><i className="tick tr" /><i className="tick bl" /><i className="tick br" />
-            <div className="p3h vi">Su cosa si regge
+            <div className="p3h vi">{tr('memoarchive.f062')}
               <span className="side">{fonti.length
-                ? `${fonti.reduce((s, f) => s + f.n, 0)} CITAZIONI · ${fonti.length} STRINGHE DISTINTE` : ''}</span>
+                ? tr('memoarchive.f063', {a: fonti.reduce((s, f) => s + f.n, 0), b: fonti.length}) : ''}</span>
             </div>
             <div className="scroll" style={{ flex: 1 }}>
               {md === undefined ? <p className="px-3 py-2 text-2xs text-faint">—</p>
                 : fonti.length === 0 ? (
                   <div className="nota" style={{ borderTop: 0 }}>
-                    Nessun tag <code>[src: …]</code> in questo memo — e la regola di casa dice che ogni cifra ne vuole uno.
+                    {tr('memoarchive.f064')} <code>[src: …]</code> {tr('memoarchive.f065')}
                   </div>
                 ) : fonti.map(f => (
                   <div className="srcrow" key={f.fonte}>
@@ -495,6 +529,7 @@ export default function MemoArchive() {
    ========================================================================== */
 function RicercaMemo({ memos, onChiudi, onApri }:
   { memos: Memo[]; onChiudi: () => void; onApri: (id: number) => void }) {
+  const tr = useT();
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<MemoSearchHit[] | null>(null);
   const [ms, setMs] = useState<number | null>(null);
@@ -514,8 +549,11 @@ function RicercaMemo({ memos, onChiudi, onApri }:
     setCercando(true); setErrS(null);
     const t0 = performance.now();
     Bellomberg.memosSearch(testo, 8)
-      .then(r => { setHits(r.results || []); setSel(0); setMs(Math.round(performance.now() - t0)); })
-      .catch(e => { setHits(null); setErrS(e?.response?.data?.detail || e?.message || String(e)); })
+      .then(r => {
+        if (!Array.isArray(r?.results)) { setHits(null); setErrS(''); return; }
+        setHits(r.results); setSel(0); setMs(Math.round(performance.now() - t0));
+      })
+      .catch(e => { setHits(null); setErrS(dettaglioErrore(e)); })
       .finally(() => setCercando(false));
   }, [q]);
 
@@ -545,8 +583,8 @@ function RicercaMemo({ memos, onChiudi, onApri }:
   return (
     <div className="f9b-scrim" onMouseDown={e => { if (e.target === box) onChiudi(); }} ref={setBox}>
       <div className="f9b-modal" onMouseDown={e => e.stopPropagation()}>
-        <div className="mh">Cerca nell’archivio
-          <span className="side">{memos.length} MEMO LEGGIBILI</span>
+        <div className="mh">{tr('memoarchive.f066')}
+          <span className="side">{memos.length} {tr('memoarchive.f067')}</span>
           <X size={13} style={{ cursor: 'pointer', color: '#73829F' }} onClick={onChiudi} />
         </div>
         <div className="mq">
@@ -557,12 +595,12 @@ function RicercaMemo({ memos, onChiudi, onApri }:
               e.preventDefault();
               if (hits && hits.length) onApri(hits[sel].memo_id); else lancia();
             }}
-            placeholder="che cosa aveva detto il comitato su…" />
+            placeholder={tr('memoarchive.f068')} />
           <span className="ms">
-            {cercando ? 'interrogo l’archivio…'
-              : errS ? <b style={{ color: '#FF3D60' }}>ricerca in errore</b>
-              : hits === null ? 'INVIO per cercare'
-              : <>{hits.length} passi in <b>{ms} ms</b></>}
+            {cercando ? tr('memoarchive.f069')
+              : errS !== null ? <b style={{ color: '#FF3D60' }}>{tr('memoarchive.f070')}</b>
+              : hits === null ? tr('memoarchive.f071')
+              : <>{hits.length} {tr('memoarchive.f072')} <b>{ms} ms</b></>}
           </span>
         </div>
 
@@ -574,11 +612,11 @@ function RicercaMemo({ memos, onChiudi, onApri }:
                   <line x1={ML} x2={Math.max(ML, W - MR)} y1={py(v)} y2={py(v)}
                     stroke={k === 0 ? '#25405A' : '#161F33'} strokeWidth={1} strokeDasharray={k ? '2 4' : undefined} />
                   <text x={ML - 9} y={py(v) + 4} textAnchor="end" fill="#73829F"
-                    fontSize={10} fontWeight={600} fontFamily="JetBrains Mono, monospace">{v.toFixed(3)}</text>
+                    fontSize={10} fontWeight={600} fontFamily="JetBrains Mono, monospace">{fmtNum(v, 3)}</text>
                 </g>
               ))}
               <text x={ML - 9} y={MARGIN_TOP - 5} textAnchor="end" fill="#29D3F2" fontSize={10} fontWeight={700}
-                fontFamily="JetBrains Mono, monospace">PIÙ VICINA</text>
+                fontFamily="JetBrains Mono, monospace">{tr('memoarchive.f073')}</text>
               <line x1={ML} x2={Math.max(ML, W - MR)} y1={yAx} y2={yAx} stroke="#2A3760" strokeWidth={1} />
               {memos.map(m => {
                 const on = colpiti.has(m.id), cx = px(ts(m.timestamp));
@@ -602,7 +640,7 @@ function RicercaMemo({ memos, onChiudi, onApri }:
                     <line x1={cx} x2={cx} y1={cy} y2={yAx - 5} stroke={on ? '#29D3F2' : '#1D4C60'} strokeWidth={on ? 1.4 : 1} />
                     <circle cx={cx} cy={cy} r={on ? 5.5 : 3.6} fill={on ? '#29D3F2' : '#0A0F1C'} stroke="#29D3F2" strokeWidth={1.5} />
                     {on && <text x={cx + 10} y={cy + 4} fill="#74E6FF" fontSize={11} fontWeight={700}
-                      fontFamily="JetBrains Mono, monospace">{h.distance.toFixed(4)}</text>}
+                      fontFamily="JetBrains Mono, monospace">{fmtNum(h.distance, 4)}</text>}
                     <circle cx={cx} cy={cy} r={13} fill="transparent" />
                   </g>
                 );
@@ -610,39 +648,37 @@ function RicercaMemo({ memos, onChiudi, onApri }:
               {/* legenda corta: dentro un SVG una scritta lunga esce e si taglia zitta */}
               <rect x={W - MR + 14} y={MARGIN_TOP} width={9} height={9} fill="#29D3F2" />
               <text x={W - MR + 29} y={MARGIN_TOP + 8} fill="#8D9FC4" fontSize={10} fontWeight={600}
-                fontFamily="JetBrains Mono, monospace">{colpiti.size} memo rispondono</text>
+                fontFamily="JetBrains Mono, monospace">{colpiti.size} {tr('memoarchive.f074')}</text>
               <rect x={W - MR + 14} y={MARGIN_TOP + 19} width={9} height={9} fill="transparent" stroke="#22304F" />
               <text x={W - MR + 29} y={MARGIN_TOP + 27} fill="#8D9FC4" fontSize={10} fontWeight={600}
-                fontFamily="JetBrains Mono, monospace">{memos.length - colpiti.size} memo muti</text>
+                fontFamily="JetBrains Mono, monospace">{memos.length - colpiti.size} {tr('memoarchive.f075')}</text>
             </svg>
           </div>
         )}
 
         <div className="mres">
-          {errS && (
+          {errS !== null && (
             <div className="mvuoto">
-              <b>RICERCA IN ERRORE</b> — {errS}. L’archivio non è perso: i memo restano leggibili
-              dall’indice, è l’indicizzazione semantica a non rispondere.
+              <b>{tr('memoarchive.f076')}</b> — {errS || tr('memoarchive.errorUnknown')}{tr('memoarchive.f077')}
             </div>
           )}
-          {!errS && hits === null && !cercando && (
+          {errS === null && hits === null && !cercando && (
             <div className="mvuoto">
-              Scrivi una domanda e premi INVIO. La ricerca guarda il <b style={{ color: '#8D9FC4' }}>testo</b> dei memo,
-              non i titoli: “copertura FOMC”, “sconto NAV Pershing”, “funding Hyperliquid”.
+              {tr('memoarchive.f078')} <b style={{ color: '#8D9FC4' }}>{tr('memoarchive.f079')}</b> {tr('memoarchive.f080')}
             </div>
           )}
-          {!errS && hits !== null && hits.length === 0 && (
-            <div className="mvuoto">Nessun passo dell’archivio risponde a “{q.trim()}”.</div>
+          {errS === null && hits !== null && hits.length === 0 && (
+            <div className="mvuoto">{tr('memoarchive.f081')}{q.trim()}”.</div>
           )}
-          {!errS && (hits || []).map((h, i) => {
+          {errS === null && (hits || []).map((h, i) => {
             const m = byId.get(h.memo_id);
             return (
               <div key={h.chunk_id} className={`mhit${i === sel ? ' on' : ''}`}
                 onClick={() => setSel(i)} onDoubleClick={() => onApri(h.memo_id)}>
                 <div className="lft">
                   <div className="mm">MEMO {h.memo_id}</div>
-                  <div className="dt">{m ? dd(m.timestamp) : 'run senza testo'}</div>
-                  <div className="ds">{h.distance.toFixed(4)}</div>
+                  <div className="dt">{m ? dd(m.timestamp) : tr('memoarchive.f082')}</div>
+                  <div className="ds">{fmtNum(h.distance, 4)}</div>
                   <div className="rul">
                     <i style={{ width: `${Math.round(100 - (dMax === dMin ? 0 : (h.distance - dMin) / (dMax - dMin)) * 78)}%` }} />
                   </div>
@@ -654,12 +690,12 @@ function RicercaMemo({ memos, onChiudi, onApri }:
         </div>
 
         <div className="mf">
-          <span><b>↑↓</b> scegli</span>
-          <span><b>INVIO</b> apre il memo</span>
-          <span><b>ESC</b> chiude</span>
-          <span><b>CTRL+MAIUSC+F</b> riapre</span>
+          <span><b>↑↓</b> {tr('memoarchive.f083')}</span>
+          <span><b>{tr('memoarchive.f084')}</b> {tr('memoarchive.f085')}</span>
+          <span><b>ESC</b> {tr('memoarchive.f086')}</span>
+          <span><b>{tr('memoarchive.f011')}</b> {tr('memoarchive.f087')}</span>
           <span style={{ marginLeft: 'auto' }}>
-            <b>DISTANZA COSENO</b> — più bassa, più vicina. Non è una percentuale di rilevanza.
+            <b>{tr('memoarchive.f088')}</b> {tr('memoarchive.f089')}
           </span>
         </div>
       </div>

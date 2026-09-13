@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import http from 'http';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { externalWebUrl, isAppDocument, apiPort } from './security';
+import { externalWebUrl, isAppDocument, apiPort, defaultPython } from './security';
 
 // ES Modules polyfill per __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -64,6 +64,7 @@ function pingBackend(): Promise<boolean> {
 
 async function startPythonBackend() {
   try {
+    if (backendOwned && pythonBackend?.exitCode === null) return;
     const alreadyUp = await pingBackend();
     if (alreadyUp) {
       console.log('[Bellomberg] Backend already running on port', API_PORT, '— skipping spawn');
@@ -74,12 +75,24 @@ async function startPythonBackend() {
       backendError('L’installer contiene l’app desktop. Installa il backend Python e imposta BELLOMBERG_BACKEND_DIR e BELLOMBERG_PYTHON, oppure avvia il backend separatamente. Consulta SETUP_APP.md.');
       return;
     }
-    const python = process.env.BELLOMBERG_PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
+    const configuredPython = process.env.BELLOMBERG_PYTHON;
+    const choice = configuredPython
+      ? { python: configuredPython, source: 'BELLOMBERG_PYTHON', tried: [] }
+      : defaultPython(process.platform, PROJECT_ROOT, file => fs.existsSync(file));
+    const python = choice.python;
+    if (configuredPython && /[\\/]/.test(configuredPython)
+      && !fs.existsSync(path.resolve(PROJECT_ROOT, configuredPython))) {
+      backendError('BELLOMBERG_PYTHON non esiste: ' + configuredPython + '. Correggi il percorso dell’interprete.');
+      return;
+    }
     const script = path.join(PROJECT_ROOT, 'bellomberg_api.py');
     if (!fs.existsSync(script)) {
       backendError('Backend non trovato: ' + script + '. Imposta BELLOMBERG_BACKEND_DIR alla cartella del backend installato.');
       return;
     }
+    const interpreter = python + ' (' + choice.source + ')'
+      + (choice.tried.length ? '; ambiente virtuale non trovato: ' + choice.tried.join(', ') : '');
+    console.log('[Bellomberg] Interprete backend:', interpreter);
     const child = spawn(python, [script], {
       cwd: PROJECT_ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -87,17 +100,25 @@ async function startPythonBackend() {
     });
     pythonBackend = child;
     backendOwned = true;
+    let stderrTail = '';
     child.stdout?.on('data', d => console.log('[backend]', d.toString()));
-    child.stderr?.on('data', d => console.error('[backend ERR]', d.toString()));
+    child.stderr?.on('data', d => {
+      stderrTail = (stderrTail + d.toString()).slice(-4096);
+      console.error('[backend ERR]', d.toString());
+    });
     child.once('error', error => {
       if (pythonBackend === child) { pythonBackend = null; backendOwned = false; }
-      backendError('Avvio Python fallito: ' + error.message + '. Controlla BELLOMBERG_PYTHON e le dipendenze del backend.');
+      backendError('Avvio Python fallito: ' + error.message + '. Interprete: ' + interpreter
+        + '. Controlla BELLOMBERG_PYTHON e le dipendenze del backend.');
     });
     child.on('exit', code => {
       console.log('[Bellomberg] backend exited code=', code);
       if (pythonBackend === child) {
         pythonBackend = null; backendOwned = false;
-        backendError('Il backend Python e’ terminato (codice ' + String(code) + '). Controlla i log e riavvia l’app.');
+        const lastError = stderrTail.trim().split(/\r?\n/).pop()?.slice(-500);
+        backendError('Il backend Python e’ terminato (codice ' + String(code) + '). Interprete: ' + interpreter
+          + (lastError ? '. Ultimo errore: ' + lastError : '. Nessun dettaglio ricevuto su stderr.')
+          + '. Controlla i log e riavvia l’app.');
       }
     });
     const deadline = Date.now() + 30000;
@@ -244,8 +265,10 @@ else {
 }
 
 app.on('window-all-closed', () => {
-  stopOwnedBackend();
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin') {
+    stopOwnedBackend();
+    app.quit();
+  }
 });
 
 app.on('before-quit', () => {

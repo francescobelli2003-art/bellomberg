@@ -1,3 +1,4 @@
+import { t as tr } from '@/i18n/t';
 // F7 TRADE ENTRY "LA CASSA" — impianto scelto dal PM 27/07 sui PNG di
 // mockup_f7_trade (opzione A, contro B "il precedente" e C "la forma del libro").
 // Spec: docs/superpowers/specs/2026-07-27-f7-trade-entry-la-cassa-design.md
@@ -23,8 +24,15 @@
 //     cioe' proprio quando la scrittura poteva essere avvenuta.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Bellomberg } from '@/lib/api';
-import type { MovimentoCassa, PortfolioSnapshot, Position } from '@/lib/api';
+import type { Decision, MovimentoCassa, PortfolioSnapshot, Position } from '@/lib/api';
+import { congelaAnteprima, dataTrade, decisioneCompatibile, legameTrade, FrontendTradeError } from '@/lib/trade-entry';
+import type { TradeRequest, TradePreview, TradeResult } from '@/lib/trade-entry';
+import { preparaPosizioneIniziale, congelaPosizioneIniziale, leggiRicevutaPosizione, leggiPosizioniIniziali } from '@/lib/position-opening';
+import type { OpeningDraft, OpeningRecord, OpeningResult } from '@/lib/position-opening';
+import { useLingua, useT } from '@/i18n/provider';
+import { linguaCorrente, localeDi, type Lingua } from '@/i18n/lingua';
 import ConfirmDialog, { ConfirmRow } from '@/components/ConfirmDialog';
 import {
   ENTRA, cambioPer, converti, simula, taglieStoriche, ordinaPerControvalore,
@@ -32,18 +40,17 @@ import {
   prezzoDaBook, perche, esitoMovimento, leggiRifiuto, leggiDataValuta,
 } from '@/lib/cassa';
 import type {
-  Conversione, Discordanza, Esito, EsitoMovimento, Ordine, RifiutoCassa,
-  Simulazione, TradeRiga, Verbo,
+  Discordanza, Esito, EsitoMovimento, Ordine, RifiutoCassa, TradeRiga, Verbo,
 } from '@/lib/cassa';
 import { RefreshCw, Save, AlertOctagon, CheckCircle2, AlertTriangle, HelpCircle } from 'lucide-react';
 import './trade-cassa.css';
 
 const ACTIONS: { v: Verbo; label: string }[] = [
-  { v: 'BUY', label: 'BUY — nuova posizione o aumenta un\'esistente' },
-  { v: 'ADD', label: 'ADD — aumenta una posizione esistente' },
-  { v: 'TRIM', label: 'TRIM — riduce parzialmente' },
-  { v: 'SELL', label: 'SELL — chiude o riduce' },
-  { v: 'DIVIDEND', label: 'DIVIDEND — incasso in contanti, in euro per azione' },
+  { v: 'BUY', get label() { return tr('trade.buy_help'); } },
+  { v: 'ADD', get label() { return tr('trade.add_help'); } },
+  { v: 'TRIM', get label() { return tr('trade.trim_help'); } },
+  { v: 'SELL', get label() { return tr('trade.sell_help'); } },
+  { v: 'DIVIDEND', get label() { return tr('trade.dividend_help'); } },
 ];
 const CURRENCIES = ['EUR', 'USD', 'GBP', 'GBX', 'CHF', 'JPY', 'HKD'];
 const LIMITE_TRADES = 200;
@@ -53,6 +60,9 @@ const ULTIMI_IN_LISTA = 12;
 // LIMITE, quella che vedi e' una finestra e non lo storico — e va detto.
 // (Stessa cura di MovementsPage:35, dove era una ALTA latente.)
 const LIMITE_MOVIMENTI = 200;
+type Notice = string | { render: (translate: ReturnType<typeof useT>) => string };
+const noticeText = (notice: Notice, translate: ReturnType<typeof useT>) =>
+  typeof notice === 'string' ? notice : notice.render(translate);
 
 // ⚠ `fmtNum` di lib/format non forza il raggruppamento, e la locale it-IT usa
 // "min2": 39265 diventa "39.265" ma 8053 resta "8053" — una scala che cambia
@@ -65,17 +75,17 @@ const opz = (min: number, max: number): Intl.NumberFormatOptions => {
   return o as Intl.NumberFormatOptions;
 };
 const num = (v: number | null | undefined, dec = 2): string =>
-  v == null || !isFinite(v) ? 'n.d.' : v.toLocaleString('it-IT', opz(dec, dec));
+  v == null || !isFinite(v) ? tr('trade.na') : v.toLocaleString(localeDi(linguaCorrente()), opz(dec, dec));
 const eur = (v: number | null | undefined, dec = 2): string =>
-  v == null || !isFinite(v) ? 'n.d.' : `${num(v, dec)} €`;
+  v == null || !isFinite(v) ? tr('trade.na') : `${num(v, dec)} €`;
 // quantita' frazionarie (cripto) e prezzi a 4 decimali (dividendi): mai
 // arrotondare, si confermerebbe un numero diverso da quello inviato.
 const exact = (v: number | null | undefined, dec = 8): string =>
-  v == null || !isFinite(v) ? 'n.d.' : v.toLocaleString('it-IT', opz(0, dec));
+  v == null || !isFinite(v) ? tr('trade.na') : v.toLocaleString(localeDi(linguaCorrente()), opz(0, dec));
 const segno = (v: number | null | undefined, dec = 2): string =>
-  v == null || !isFinite(v) ? 'n.d.' : (v > 0 ? '+' : '') + num(v, dec);
+  v == null || !isFinite(v) ? tr('trade.na') : (v > 0 ? '+' : '') + num(v, dec);
 const gg = (iso: string): string =>
-  (iso || '').length >= 10 ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : 'n.d.';
+  (iso || '').length >= 10 ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : tr('trade.na');
 const pct = (f: number): string =>
   (isFinite(f) ? Math.min(100, Math.max(0, f * 100)).toFixed(3) : '0') + '%';
 /** Il giorno di oggi secondo QUESTA macchina, in ISO.
@@ -90,15 +100,11 @@ const oggiISO = (): string => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
-type TradeBody = {
-  ticker: string; action: string; quantita: number; prezzo: number;
-  valuta: string; note?: string; pm_rationale?: string;
-};
 /** ⚠ Si congela il corpo E i numeri derivati: prima «In euro» e «Cassa dopo»
  *  del dialog seguivano lo stato VIVO mentre le altre righe erano congelate,
  *  cioe' due numeri sulla stessa schermata con garanzie diverse. */
 type Pending = {
-  body: TradeBody; conv: Conversione; sim: Simulazione; discorde: Discordanza | null;
+  body: TradeRequest; preview: TradePreview; discorde: Discordanza | null;
 };
 /** Il corpo di POST /cash/movement.
  *  ⚠ `data` viene SEMPRE valorizzata, col giorno che il browser calcola in
@@ -115,6 +121,56 @@ type CorpoMovimento = {
 };
 
 export default function TradeEntryPage() {
+  const t = useT();
+  const [params] = useSearchParams();
+  const initialOpening = params.get('mode') === 'opening';
+  const [mode, setMode] = useState<'trade' | 'opening'>(initialOpening ? 'opening' : 'trade');
+  const [visited, setVisited] = useState({ trade: !initialOpening, opening: initialOpening });
+  const selectedStyle = { background: 'rgba(41,211,242,.10)', color: 'var(--cy)', boxShadow: 'inset 0 -2px 0 0 var(--cy)' };
+  const choose = (value: 'trade' | 'opening') => {
+    setVisited(v => ({ ...v, [value]: true }));
+    setMode(value);
+  };
+  return <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 9 }}>
+    <div className="f7c" style={{ height: 'auto' }}>
+      <div className="verbi" role="group" aria-label={t('trade.mode')} style={{ width: 320 }}>
+        <button type="button" id="f7-mode-trade" aria-pressed={mode === 'trade'} style={mode === 'trade' ? selectedStyle : undefined} onClick={() => choose('trade')}>{t('trade.operation')}</button>
+        <button type="button" id="f7-mode-opening" aria-pressed={mode === 'opening'} style={mode === 'opening' ? selectedStyle : undefined} onClick={() => choose('opening')}>{t('trade.opening')}</button>
+      </div>
+    </div>
+    <div style={{ flex: 1, minHeight: 0, display: mode === 'trade' ? 'block' : 'none' }} aria-hidden={mode !== 'trade'}>
+      {visited.trade && <TradeOperationEntry />}
+    </div>
+    <div style={{ flex: 1, minHeight: 0, display: mode === 'opening' ? 'block' : 'none' }} aria-hidden={mode !== 'opening'}>
+      {visited.opening && <PositionOpeningEntry />}
+    </div>
+  </div>;
+}
+
+/** A field retains its notation until cleared or explicitly filled by the book. */
+function useNumericDraft() {
+  const [raw, setRaw] = useState('');
+  const [inputLanguage, setInputLanguage] = useState<Lingua | null>(null);
+  const change = (value: string, suppliedLanguage?: Lingua) => {
+    setInputLanguage(value.trim() === '' ? null : suppliedLanguage ?? (raw.trim() ? inputLanguage : null) ?? linguaCorrente());
+    setRaw(value);
+  };
+  return [raw, change, inputLanguage ?? linguaCorrente()] as const;
+}
+
+function TradeOperationEntry() {
+  const tr = useT(), language = useLingua();
+  const [searchParams] = useSearchParams();
+  const decisionFromRoute = searchParams.get('decision');
+  const routeConsumed = useRef<string | null>(null);
+  const [decisions, setDecisions] = useState<Decision[]>([]);
+  const [decisionsErr, setDecisionsErr] = useState<string | null>(null);
+  const [selectedDecision, setSelectedDecision] = useState(decisionFromRoute || 'none');
+  const [tradeDay, setTradeDay] = useState('');
+  const [tradeTime, setTradeTime] = useState('');
+  const [preparing, setPreparing] = useState(false);
+  const previewInFlight = useRef(false);
+  const [tradeResult, setTradeResult] = useState<TradeResult | null>(null);
   const [snap, setSnap] = useState<PortfolioSnapshot | null>(null);
   const [posErr, setPosErr] = useState<string | null>(null);
   const [trades, setTrades] = useState<TradeRiga[]>([]);
@@ -125,14 +181,14 @@ export default function TradeEntryPage() {
 
   const [ticker, setTicker] = useState('');
   const [action, setAction] = useState<Verbo>('BUY');
-  const [qty, setQty] = useState('');
-  const [price, setPrice] = useState('');
+  const [qty, setQty, qtyLanguage] = useNumericDraft();
+  const [price, setPrice, priceLanguage] = useNumericDraft();
   const [valuta, setValuta] = useState('EUR');
   const [note, setNote] = useState('');
   const [rationale, setRationale] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
-  const [avviso, setAvviso] = useState<string | null>(null);
+  const [avviso, setAvviso] = useState<Notice | null>(null);
   const [esito, setEsito] = useState<Esito | null>(null);
   const [erroreScrittura, setErroreScrittura] = useState<string | null>(null);
   const [esitoIgnoto, setEsitoIgnoto] = useState<string | null>(null);
@@ -151,7 +207,7 @@ export default function TradeEntryPage() {
    *  di stato va vera in OGNI stato, e «non ce ne sono» non è «non lo so». */
   const [movLetto, setMovLetto] = useState(false);
   const [mvTipo, setMvTipo] = useState<'DEPOSIT' | 'WITHDRAWAL'>('DEPOSIT');
-  const [mvImporto, setMvImporto] = useState('');
+  const [mvImporto, setMvImporto, cashLanguage] = useNumericDraft();
   const [mvData, setMvData] = useState(oggiISO);
   /** il giorno di oggi come lo vede QUESTA macchina, rinfrescato: serve al
    *  dominio della data (niente `2062-08-20`) e non all'invio */
@@ -162,7 +218,7 @@ export default function TradeEntryPage() {
   const mvInVolo = useRef(false);
   const [mvNota, setMvNota] = useState('');
   const [mvInvio, setMvInvio] = useState(false);
-  const [mvAvviso, setMvAvviso] = useState<string | null>(null);
+  const [mvAvviso, setMvAvviso] = useState<Notice | null>(null);
   const [mvEsito, setMvEsito] = useState<EsitoMovimento | null>(null);
   const [mvIgnoto, setMvIgnoto] = useState<string | null>(null);
   /** Il rifiuto E il corpo che lo ha causato, CONGELATI insieme: «Confermo»
@@ -187,14 +243,21 @@ export default function TradeEntryPage() {
   // dato stantio reso come corrente, che e' la regola 14/07 al contrario.
   const carica = useCallback(async () => {
     setLoading(true);
-    const [p, t, f, m] = await Promise.allSettled([
+    const [p, t, f, m, d] = await Promise.allSettled([
       Bellomberg.portfolio(), Bellomberg.trades(LIMITE_TRADES), Bellomberg.fx(),
       Bellomberg.cashMovements(LIMITE_MOVIMENTI),
+      Bellomberg.decisions(undefined, 500),
     ]);
     const testo = (x: unknown) => {
       const e = x as { response?: { data?: { detail?: string } }; message?: string };
       return e?.response?.data?.detail || e?.message || String(x);
     };
+    if (d.status === 'fulfilled' && Array.isArray(d.value?.decisions)) {
+      setDecisions(d.value.decisions); setDecisionsErr(null);
+    } else {
+      setDecisions([]);
+      setDecisionsErr(d.status === 'rejected' ? testo(d.reason) : tr('trade.invalid_decisions'));
+    }
 
     if (p.status === 'fulfilled') { setSnap(p.value); setPosErr(null); }
     else { setSnap(null); setPosErr(testo(p.reason)); }
@@ -219,7 +282,7 @@ export default function TradeEntryPage() {
       if (Array.isArray(d?.movements)) { setMovimenti(d.movements); setMovErr(null); }
       else {
         setMovimenti([]);
-        setMovErr('risposta di forma inattesa: `movements` non è una lista');
+        setMovErr(tr('trade.invalid_movements'));
       }
     } else { setMovimenti([]); setMovErr(testo(m.reason)); }
     setMovLetto(true);
@@ -227,6 +290,16 @@ export default function TradeEntryPage() {
   }, []);
 
   useEffect(() => { carica(); }, [carica]);
+
+  useEffect(() => {
+    if (!decisionFromRoute || routeConsumed.current === decisionFromRoute) return;
+    setSelectedDecision(decisionFromRoute);
+    const d = decisions.find(item => String(item.id) === decisionFromRoute);
+    if (!d) return;
+    routeConsumed.current = decisionFromRoute;
+    setTicker(d.ticker);
+    if (['BUY', 'ADD', 'SELL', 'TRIM'].includes(d.action)) setAction(d.action as Verbo);
+  }, [decisionFromRoute, decisions]);
 
   // ── il verbo: cambiarlo NON deve lasciarsi dietro il prezzo di prima ─────
   // Passando da un prezzo in pence a DIVIDEND, il campo diventa «EUR per azione»:
@@ -241,8 +314,8 @@ export default function TradeEntryPage() {
   };
 
   // ── i numeri scritti a mano ──────────────────────────────────────────────
-  const letturaQty = useMemo(() => leggiNumero(qty), [qty]);
-  const letturaPrice = useMemo(() => leggiNumero(price), [price]);
+  const letturaQty = useMemo(() => leggiNumero(qty, qtyLanguage, language), [qty, qtyLanguage, language]);
+  const letturaPrice = useMemo(() => leggiNumero(price, priceLanguage, language), [price, priceLanguage, language]);
   const qtyN = letturaQty && letturaQty.ok ? letturaQty.valore : NaN;
   const priceN = letturaPrice && letturaPrice.ok ? letturaPrice.valore : NaN;
 
@@ -308,43 +381,58 @@ export default function TradeEntryPage() {
     setTicker(p.ticker);
     setValuta(action === 'DIVIDEND' ? 'EUR' : (p.valuta || 'EUR'));
     // su DIVIDEND il campo e' «EUR per azione»: il prezzo di mercato non c'entra
-    setPrice(action === 'DIVIDEND' ? '' : prezzoDaBook(p));
+    setPrice(action === 'DIVIDEND' ? '' : prezzoDaBook(p), language);
     setQty('');
     setAvviso(null); setEsito(null); setErroreScrittura(null); setEsitoIgnoto(null);
   };
 
   // ── validazione: identica a prima (bugfix #164) ──────────────────────────
-  const submit = (e?: React.FormEvent) => {
+  const submit = async (e?: React.FormEvent) => {
     e?.preventDefault();
+    if (previewInFlight.current || submitting) return;
     setAvviso(null); setEsito(null); setErroreScrittura(null); setEsitoIgnoto(null);
-    if (letturaQty && !letturaQty.ok) { setAvviso(`Quantità: ${letturaQty.motivo}`); return; }
-    if (letturaPrice && !letturaPrice.ok) { setAvviso(`Prezzo: ${letturaPrice.motivo}`); return; }
-    if (!tickerUp || !qty || !price) { setAvviso('Compila ticker, quantità, prezzo'); return; }
-    if (!ordineValido) { setAvviso('Quantità e prezzo devono essere positivi'); return; }
-    if (action !== 'BUY') {
+    setTradeResult(null);
+    if (letturaQty && !letturaQty.ok) { setAvviso({ render: tr => { const n = leggiNumero(qty, qtyLanguage, linguaCorrente()); return tr('trade.quantity_error', {a: n && !n.ok ? n.motivo : ''}); } }); return; }
+    if (letturaPrice && !letturaPrice.ok) { setAvviso({ render: tr => { const n = leggiNumero(price, priceLanguage, linguaCorrente()); return tr('trade.price_error', {a: n && !n.ok ? n.motivo : ''}); } }); return; }
+    if (!tickerUp || !qty || !price) { setAvviso({ render: tr => tr('trade.required_fields') }); return; }
+    if (!ordineValido) { setAvviso({ render: tr => tr('trade.positive_values') }); return; }
+    // Un'operazione datata va validata sul registro cronologico dal backend:
+    // la posizione corrente può essere già chiusa o avere una quantità diversa.
+    if (action !== 'BUY' && !tradeDay.trim()) {
       if (bookAssente) {
-        setAvviso(`Posizioni non caricate${posErr ? ` (${posErr})` : ''}: impossibile validare `
-          + `${action}. Usa AGGIORNA e riprova.`);
+        setAvviso({ render: tr => tr('trade.positions_not_loaded', {a: posErr ? ` (${posErr})` : ''})
+          + tr('trade.refresh_and_retry', {a: action}) });
         return;
       }
       if (!pos) {
-        setAvviso(`Ticker ${tickerUp} non in portfolio: ${action} rifiutato. `
-          + 'Usa BUY per aprire una nuova posizione.');
+        setAvviso({ render: tr => tr('trade.ticker_missing', {a: tickerUp, b: action})
+          + tr('trade.buy_new_position') });
         return;
       }
       if ((action === 'SELL' || action === 'TRIM') && qtyN > pos.quantita) {
-        setAvviso(`Quantità ${exact(qtyN)} superiore a quella posseduta `
-          + `(${exact(pos.quantita)} ${tickerUp})`);
+        setAvviso({ render: tr => tr('trade.quantity_exceeds', {a: exact(qtyN)})
+          + `(${exact(pos.quantita)} ${tickerUp})` });
         return;
       }
     }
-    setPending({
-      body: {
+    previewInFlight.current = true;
+    setPreparing(true);
+    try {
+      const body: TradeRequest = {
         ticker: tickerUp, action, quantita: qtyN, prezzo: priceN, valuta,
         note: note || undefined, pm_rationale: rationale || undefined,
-      },
-      conv, sim, discorde,
-    });
+        data: dataTrade(tradeDay, tradeTime, oggiISO()),
+        ...legameTrade(selectedDecision, decisions, tickerUp, action),
+      };
+      const preview = await Bellomberg.previewTrade(body);
+      setPending({ ...congelaAnteprima(body, preview), discorde });
+    } catch (err) {
+      const e = err as { response?: { data?: { detail?: string } }; message?: string };
+      setAvviso(err instanceof FrontendTradeError ? { render: err.renderMessage } : e?.response?.data?.detail || e?.message || String(err));
+    } finally {
+      previewInFlight.current = false;
+      setPreparing(false);
+    }
   };
 
   const commit = async (p: Pending) => {
@@ -352,6 +440,7 @@ export default function TradeEntryPage() {
     try {
       const r = await Bellomberg.logTrade(p.body);
       setEsito(esitoScrittura(r));
+      setTradeResult(r);
       setErroreScrittura(null); setEsitoIgnoto(null);
       await carica();
       if (p.body.action === 'BUY' || p.body.action === 'SELL') setTicker('');
@@ -360,7 +449,7 @@ export default function TradeEntryPage() {
       const e = err as { response?: { data?: { detail?: string } }; message?: string };
       const testo = e?.response?.data?.detail || e?.message || String(err);
       setEsito(null);
-      // ⚠ una rejection prova il RIFIUTO solo se il server ha RISPOSTO. Su
+      // ⚠ solo un 4xx dichiara il RIFIUTO. Su 5xx,
       // timeout o rete caduta la scrittura puo' essere gia' avvenuta, e dire
       // «non è stato scritto» spinge al doppio invio su una pagina senza annullo.
       if (scritturaRifiutata(err)) { setErroreScrittura(testo); setEsitoIgnoto(null); }
@@ -381,41 +470,56 @@ export default function TradeEntryPage() {
     const b = p.body;
     const div = b.action === 'DIVIDEND';
     const rows: ConfirmRow[] = [
-      { k: 'Azione', v: b.action, tone: (b.action === 'SELL' || b.action === 'TRIM') ? 'crimson' : 'cyan' },
+      { k: tr('trade.action'), v: b.action, tone: (b.action === 'SELL' || b.action === 'TRIM') ? 'crimson' : 'cyan' },
       { k: 'Ticker', v: b.ticker },
-      { k: div ? 'Azioni' : 'Quantità', v: exact(b.quantita) },
-      { k: div ? 'Dividendo/azione' : 'Prezzo', v: `${exact(b.prezzo)} ${b.valuta}` },
-      { k: div ? 'Incasso' : 'Controvalore', v: `${num(b.quantita * b.prezzo)} ${b.valuta}`, tone: 'amber' },
+      { k: div ? tr('trade.shares') : tr('trade.quantity'), v: exact(b.quantita) },
+      { k: div ? tr('trade.dividend_share') : tr('trade.price'), v: `${exact(b.prezzo)} ${b.valuta}` },
+      { k: div ? tr('trade.proceeds') : tr('trade.value'), v: `${num(b.quantita * b.prezzo)} ${b.valuta}`, tone: 'amber' },
     ];
-    rows.push(p.conv.eur != null
-      ? { k: 'In euro', v: eur(p.conv.eur), tone: 'amber' }
-      : { k: 'In euro', v: `non calcolabile: cambio ${b.valuta}→EUR non disponibile`, tone: 'crimson' });
-    rows.push(p.sim.cassaDopo != null
-      ? { k: 'Cassa dopo', v: eur(p.sim.cassaDopo), tone: p.sim.copre === false ? 'crimson' : undefined }
-      : { k: 'Cassa dopo', v: `n.d. — ${perche(p.sim.navMuto || 'book-assente')}` });
+    const v = p.preview;
+    rows.push(
+      { k: tr('trade.trade_date'), v: v.data.replace('T', ' ') + (v.ora_convenzionale ? tr('trade.conventional_time') : '') },
+      { k: tr('trade.cash_change'), v: eur(v.cash_delta_eur), tone: 'amber' },
+      { k: tr('trade.cash_after'), v: eur(v.cash_disponibile_eur), tone: v.cash_disponibile_eur < 0 ? 'crimson' : undefined },
+      { k: tr('trade.applied_fx'), v: `1 ${b.valuta} = ${exact(v.fx.tasso)} EUR · ${v.fx.fonte === 'identity' ? tr('trade.already_euros') : v.fx.fonte === 'storico' ? tr('trade.historical') : tr('trade.current_not_historical')}${v.fx.data ? ' · ' + v.fx.data : ''}` },
+      { k: tr('trade.decision'), v: v.link_origin === 'explicit' ? `#${v.decisione?.id} · ${v.decisione?.status}`
+        : v.link_origin === 'none' ? tr('trade.manual_no_decision') : tr('trade.unknown_link_full') },
+    );
+    if (v.fx.nota) rows.push({ k: tr('trade.fx_note'), v: v.fx.nota, tone: 'amber' });
+    if (v.cassa_nota) rows.push({ k: tr('trade.cash_note'), v: v.cassa_nota });
+    if (v.guardia_note) rows.push({ k: tr('trade.price_check'), v: v.guardia_note, tone: 'amber' });
+    if (v.decisione?.nota) rows.push({ k: tr('trade.decision_status'), v: v.decisione.nota });
+    if (v.ricalcolo) {
+      const r = v.ricalcolo;
+      rows.push(
+        { k: tr('trade.current_qty'), v: `${exact(r.prima.quantita)} → ${exact(r.dopo.quantita)}` },
+        { k: tr('trade.position_opened'), v: `${r.prima.data_apertura || tr('trade.na')} → ${r.dopo.data_apertura || tr('trade.na')}` },
+        { k: tr('trade.current_cost'), v: `${exact(r.prima.prezzo_medio)} → ${exact(r.dopo.prezzo_medio)} ${r.valuta}` },
+        { k: tr('trade.realized'), v: `${num(r.prima.realized)} → ${num(r.dopo.realized)} ${r.valuta}` },
+        { k: tr('trade.successive_trades'), v: r.trade_successivi.length ? r.trade_successivi.map(id => `#${id}`).join(', ') : tr('trade.nothing_to_recalculate') },
+      );
+      (r.note || []).forEach(nota => rows.push({ k: tr('trade.recalculation'), v: nota, tone: 'amber' }));
+    }
     // ⚠ i due avvisi che contano entravano nel form e NON nel dialog: l'ultima
     // schermata prima di una scrittura irreversibile era muta sull'errore che
     // costa di piu'.
     if (p.discorde) {
       rows.push({
-        k: 'Valuta',
-        v: `${b.ticker} in book è quotata in ${p.discorde.valutaBook}, stai scrivendo `
-          + `${p.discorde.valutaScelta}` + (p.discorde.fattoreCento ? ' — differiscono per 100' : ''),
+        k: tr('trade.currency'),
+        v: tr('trade.currency_mismatch', {a: b.ticker, b: p.discorde.valutaBook})
+          + `${p.discorde.valutaScelta}` + (p.discorde.fattoreCento ? tr('trade.hundred_difference') : ''),
         tone: 'crimson',
       });
     }
-    if (p.sim.caricoMuto === 'valuta-discorde') {
-      rows.push({ k: 'Prezzo di carico dopo', v: 'non definito (sommerebbe due valute)', tone: 'crimson' });
-    }
-    if (b.pm_rationale) rows.push({ k: 'Motivo', v: b.pm_rationale });
-    if (b.note) rows.push({ k: 'Nota', v: b.note });
+    if (b.pm_rationale) rows.push({ k: tr('trade.reason'), v: b.pm_rationale });
+    if (b.note) rows.push({ k: tr('trade.note'), v: b.note });
     return rows;
   };
 
   // ── frecce sui verbi: roving tabindex, e l'indice parte da chi ha il fuoco ─
   // ══ IL LIBRETTO DELLA CASSA ═══════════════════════════════════════════
-  const letturaImporto = useMemo(() => leggiNumero(mvImporto), [mvImporto]);
-  const letturaData = useMemo(() => leggiDataValuta(mvData, mvOggi), [mvData, mvOggi]);
+  const letturaImporto = useMemo(() => leggiNumero(mvImporto, cashLanguage, language), [mvImporto, cashLanguage, language]);
+  const letturaData = useMemo(() => leggiDataValuta(mvData, mvOggi), [mvData, mvOggi, language]);
   const importoN = letturaImporto && letturaImporto.ok ? letturaImporto.valore : NaN;
   const dataISO = letturaData && letturaData.ok ? letturaData.iso : null;
 
@@ -533,10 +637,10 @@ export default function TradeEntryPage() {
   const inviaMovimento = (e: React.FormEvent) => {
     e.preventDefault();
     setMvAvviso(null); setMvEsito(null); setMvRifiuto(null); setMvIgnoto(null);
-    if (!letturaImporto) { setMvAvviso('Scrivi l\'importo del movimento.'); return; }
-    if (!letturaImporto.ok) { setMvAvviso(`Importo: ${letturaImporto.motivo}`); return; }
+    if (!letturaImporto) { setMvAvviso({ render: tr => tr('trade.write_movement_amount') }); return; }
+    if (!letturaImporto.ok) { setMvAvviso({ render: tr => { const n = leggiNumero(mvImporto, cashLanguage, linguaCorrente()); return tr('trade.amount_error', {a: n && !n.ok ? n.motivo : ''}); } }); return; }
     if (letturaData && !letturaData.ok) {
-      setMvAvviso(`Data valuta: ${letturaData.motivo}`); return;
+      setMvAvviso({ render: tr => { const date = leggiDataValuta(mvData, mvOggi); return tr('trade.value_date_error', {a: date && !date.ok ? date.motivo : ''}); } }); return;
     }
     const corpo: CorpoMovimento = { tipo: mvTipo, importo_eur: letturaImporto.valore };
     if (dataISO) corpo.data = dataISO;
@@ -647,13 +751,13 @@ export default function TradeEntryPage() {
         <div className="rq">
           <span className="sq tl" /><span className="sq br" />
           <div className="ph a">
-            <h1>// il tagliando</h1>
-            <span className="side">scrive nel portafoglio ufficiale</span>
+            <h1>{tr('trade.ticket_title')}</h1>
+            <span className="side">{tr('trade.ticket_subtitle')}</span>
           </div>
           <div className="pb" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
 
-              <div className="verbi" role="radiogroup" aria-label="Tipo di operazione"
+              <div className="verbi" role="radiogroup" aria-label={tr('trade.trade_type')}
                    onKeyDown={verbiKeyDown}>
                 {ACTIONS.map(a => (
                   <button key={a.v} type="button" role="radio" aria-checked={a.v === action}
@@ -667,19 +771,19 @@ export default function TradeEntryPage() {
                 <div className="campo largo">
                   <label htmlFor="f7-tk">Ticker</label>
                   <div className="box">
-                    <input id="f7-tk" value={ticker} placeholder="Ticker esatto del broker"
+                    <input id="f7-tk" value={ticker} placeholder={tr('trade.exact_ticker')}
                            autoComplete="off"
                            onChange={e => setTicker(e.target.value.toUpperCase())} />
                     <span className="suf">
-                      {bookAssente ? '' : pos ? 'IN BOOK' : tickerUp ? 'NUOVO' : ''}
+                      {bookAssente ? '' : pos ? 'IN BOOK' : tickerUp ? tr('trade.new') : ''}
                     </span>
                   </div>
                   <div className={'aiuto' + (bookAssente && tickerUp ? ' male' : '')}>
                     {bookAssente
-                      ? (tickerUp ? 'book non caricato: non posso dire se ce l\'hai già' : ' ')
+                      ? (tickerUp ? tr('trade.book_not_loaded') : ' ')
                       : pos
-                        ? `${exact(pos.quantita)} titoli a carico ${num(pos.prezzo_medio)} ${pos.valuta}`
-                        : tickerUp ? 'non è fra le posizioni attive' : ' '}
+                        ? tr('trade.holding_cost', {a: exact(pos.quantita), b: num(pos.prezzo_medio), c: pos.valuta})
+                        : tickerUp ? tr('trade.not_active') : ' '}
                   </div>
                 </div>
 
@@ -687,14 +791,15 @@ export default function TradeEntryPage() {
                     il separatore decimale non della sua locale — `158,50` diventa
                     `15850`, senza badInput. Misurato sull'app viva. */}
                 <div className="campo">
-                  <label htmlFor="f7-qt">{action === 'DIVIDEND' ? 'Azioni' : 'Quantità'}</label>
+                  <label htmlFor="f7-qt">{action === 'DIVIDEND' ? tr('trade.shares') : tr('trade.quantity')}</label>
                   <div className={'box' + (letturaQty && !letturaQty.ok ? ' rotto' : '')}>
                     <input id="f7-qt" className="num" type="text" inputMode="decimal"
+                           title={tr('numeri.grafia_richiesta', { esempio: qtyLanguage === 'it' ? '1.234,56' : '1,234.56' })}
                            autoComplete="off" value={qty}
-                           placeholder={action === 'DIVIDEND' ? 'es. 1900' : 'es. 10'}
+                           placeholder={action === 'DIVIDEND' ? tr('trade.example_shares') : tr('trade.example_qty')}
                            aria-invalid={!!(letturaQty && !letturaQty.ok)}
                            onChange={e => setQty(e.target.value)} />
-                    <span className="suf">TITOLI</span>
+                    <span className="suf">{tr('trade.shares_upper')}</span>
                   </div>
                   {letturaQty && !letturaQty.ok && (
                     <div className="aiuto male">{letturaQty.motivo}</div>
@@ -703,12 +808,13 @@ export default function TradeEntryPage() {
 
                 <div className="campo">
                   <label htmlFor="f7-pz">
-                    {action === 'DIVIDEND' ? 'EUR per azione' : 'Prezzo'}
+                    {action === 'DIVIDEND' ? tr('trade.euro_per_share') : tr('trade.price')}
                   </label>
                   <div className={'box' + (letturaPrice && !letturaPrice.ok ? ' rotto' : '')}>
                     <input id="f7-pz" className="num" type="text" inputMode="decimal"
+                           title={tr('numeri.grafia_richiesta', { esempio: priceLanguage === 'it' ? '1.234,56' : '1,234.56' })}
                            autoComplete="off" value={price}
-                           placeholder={action === 'DIVIDEND' ? 'es. 0,87' : 'es. 158,50'}
+                           placeholder={action === 'DIVIDEND' ? tr('trade.example_dividend') : tr('trade.example_price')}
                            aria-invalid={!!(letturaPrice && !letturaPrice.ok)}
                            onChange={e => setPrice(e.target.value)} />
                     <span className="suf">{action === 'DIVIDEND' ? 'EUR' : valuta}</span>
@@ -718,21 +824,21 @@ export default function TradeEntryPage() {
                   ) : pos && pos.prezzo_live != null && action !== 'DIVIDEND' ? (
                     <div className="aiuto">
                       live {num(pos.prezzo_live)} {pos.valuta}
-                      {ordineValido && ` · ${segno((priceN / pos.prezzo_live - 1) * 100)}% dal live`}
+                      {ordineValido && tr('trade.distance_live', {a: segno((priceN / pos.prezzo_live - 1) * 100)})}
                     </div>
                   ) : <div className="aiuto">&nbsp;</div>}
                 </div>
 
                 <div className="campo largo">
-                  <label htmlFor="f7-vl">Valuta</label>
+                  <label htmlFor="f7-vl">{tr('trade.currency')}</label>
                   <div className="box">
                     <select id="f7-vl" value={valuta} disabled={action === 'DIVIDEND'}
                             onChange={e => setValuta(e.target.value)}>
                       {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                     <span className="suf">
-                      {action === 'DIVIDEND' ? 'EUR PER I DIVIDENDI'
-                        : cambio.fonte === 'assente' ? 'CAMBIO ASSENTE'
+                      {action === 'DIVIDEND' ? tr('trade.dividends_euro')
+                        : cambio.fonte === 'assente' ? tr('trade.fx_absent_upper')
                           : `1 ${valuta} = ${num(cambio.tasso, 6)} EUR`}
                     </span>
                   </div>
@@ -740,12 +846,47 @@ export default function TradeEntryPage() {
               </div>
 
               {/* ── LA CATENA DEL CAMBIO ── */}
+              <div className="campi">
+                <div className="campo">
+                  <label htmlFor="f7-data">{tr('trade.optional_date')}</label>
+                  <input id="f7-data" className="testo" type="date" min="2000-01-01" max={oggiISO()}
+                    value={tradeDay} onChange={e => setTradeDay(e.target.value)} />
+                  <div className="aiuto">{tr('trade.date_help')}</div>
+                </div>
+                <div className="campo">
+                  <label htmlFor="f7-ora">{tr('trade.optional_time')}</label>
+                  <input id="f7-ora" className="testo" type="time" step="1"
+                    value={tradeTime} onChange={e => setTradeTime(e.target.value)} />
+                </div>
+              </div>
+              <div className="campo">
+                <label htmlFor="f7-decisione">{tr('trade.decision_link')}</label>
+                <div className="box">
+                  <select id="f7-decisione" value={selectedDecision}
+                    onChange={e => setSelectedDecision(e.target.value)}>
+                    <option value="none">{tr('trade.manual_no_decision')}</option>
+                    <option value="unknown">{tr('trade.unknown_link')}</option>
+                    {!['none', 'unknown'].includes(selectedDecision)
+                      && !decisions.some(d => String(d.id) === selectedDecision && decisioneCompatibile(d, tickerUp, action))
+                      && <option value={selectedDecision}>#{selectedDecision} {tr('trade.incompatible_option')}</option>}
+                    {decisions.filter(d => decisioneCompatibile(d, tickerUp, action)).map(d => (
+                      <option key={d.id} value={String(d.id)}>#{d.id} · {d.action} {d.ticker} · {d.timestamp.slice(0, 10)} · {d.status}
+                        {d.esecuzione ? tr('trade.executed_amount', {a: eur(d.esecuzione.eur), b: d.esecuzione.inferito ? tr('trade.inferred') : ''}) : ''}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className={'aiuto' + (decisionsErr ? ' male' : '')}>
+                  {decisionsErr ? tr('trade.decisions_unavailable', {a: decisionsErr})
+                    : tr('trade.decision_help')}
+                </div>
+              </div>
+              {tradeDay && <div className="avv giallo"><span>{tr('trade.dated_trade_help')}</span></div>}
               <div className="catena">
                 <div className="oggi">
                   {sim.valido
-                    ? <>La conferma, prima, mostrava solo questo →{' '}
+                    ? <>{tr('trade.estimate_current')}{' '}
                         <b>{num(conv.locale)} {valuta}</b></>
-                    : 'Scrivi quantità e prezzo: qui compare quanto costa davvero'}
+                    : tr('trade.write_to_estimate')}
                 </div>
                 {sim.valido && (
                   <>
@@ -764,86 +905,73 @@ export default function TradeEntryPage() {
                         </>
                       ) : (
                         <span className="rotta">
-                          × <b>cambio {valuta}→EUR non disponibile</b>: il controvalore in
-                          euro non è calcolabile qui
+                          × <b>{tr('trade.fx_word')} {valuta}{tr('trade.eur_unavailable')}</b>{tr('trade.eur_not_calculable_here')}
                         </span>
                       )}
                     </div>
                     <span className="src">
-                      {cambio.fonte === 'nativa' && 'L\'ordine è già in euro.'}
-                      {cambio.fonte === 'portafoglio' && <>Cambio dal campo <b>fx_to_eur</b> del
-                        payload del portafoglio, a precisione piena — è lo stesso che il backend
-                        usa per scalare la cassa. Può essere <b>ricalcolato</b> al momento della
-                        scrittura: il saldo che torna può differire di centesimi.</>}
-                      {cambio.fonte === 'fx' && <>Cambio da <b>GET /fx</b>, che lo arrotonda a
-                        sei decimali: su valute piccole il backend userà un valore leggermente
-                        diverso quando scala la cassa.</>}
-                      {cambio.fonte === 'assente' && <>Nessuna fonte ha un cambio {valuta}→EUR:
-                        né il payload del portafoglio né GET /fx
-                        {ratesErr ? ` (${ratesErr})` : ''}. <b>Nessun cambio inventato.</b></>}
+                      {cambio.fonte === 'nativa' && tr('trade.order_in_euros')}
+                      {cambio.fonte === 'portafoglio' && <>{tr('trade.portfolio_fx_help')}</>}
+                      {cambio.fonte === 'fx' && <>{tr('trade.service_fx_help')}</>}
+                      {cambio.fonte === 'assente' && <>{tr('trade.no_fx_source')} {valuta}{tr('trade.no_fx_payload')}
+                        {ratesErr ? ` (${ratesErr})` : ''}. <b>{tr('trade.no_invented_fx')}</b></>}
                     </span>
                   </>
                 )}
               </div>
 
               <div className="campo">
-                <label htmlFor="f7-rz">Perché lo stai facendo</label>
+                <label htmlFor="f7-rz">{tr('trade.why_trade')}</label>
                 <textarea id="f7-rz" rows={2} value={rationale}
-                          placeholder="es. medio ancora: sotto 3.850 il divario col NAV torna oltre il 30%"
+                          placeholder={tr('trade.rationale_example')}
                           onChange={e => setRationale(e.target.value)} />
               </div>
               <div className="campo">
-                <label htmlFor="f7-nt">Nota</label>
-                <input id="f7-nt" className="testo" value={note} placeholder="testo libero"
+                <label htmlFor="f7-nt">{tr('trade.note')}</label>
+                <input id="f7-nt" className="testo" value={note} placeholder={tr('trade.free_text')}
                        onChange={e => setNote(e.target.value)} />
               </div>
 
               {/* ── AVVISI ── */}
               {discorde && (
                 <div className="avv giallo"><span className="ic">▲</span>
-                  <span><b>Valuta diversa da quella in book.</b> {tickerUp} è quotata
-                    in {discorde.valutaBook}, hai scelto {discorde.valutaScelta}
-                    {discorde.fattoreCento && <> — <b>differiscono per 100</b></>}.
-                    Non blocca: controlla il prezzo.</span></div>
+                  <span><b>{tr('trade.currency_differs')}</b> {tickerUp} {tr('trade.quoted_in')} {discorde.valutaBook}{tr('trade.you_chose')} {discorde.valutaScelta}
+                    {discorde.fattoreCento && <> — <b>{tr('trade.factor_hundred')}</b></>}{tr('trade.check_price')}</span></div>
               )}
               {sim.caricoMuto && sim.caricoMuto !== 'ordine-incompleto' && (
                 <div className="avv viola"><span className="ic">⊘</span>
-                  <span><b>Il prezzo di carico dopo non è definito</b>
+                  <span><b>{tr('trade.cost_after_unknown')}</b>
                     {' — '}{perche(sim.caricoMuto,
                       discorde ? [discorde.valutaBook, discorde.valutaScelta] : undefined)}.
-                    {sim.caricoMuto === 'valuta-discorde' && <> La riga resta dichiarata,
-                      non stimata. <b>Attenzione</b>: il backend, quando scrive, la media
-                      lo stesso — senza controllare la valuta.</>}</span></div>
+                    {sim.caricoMuto === 'valuta-discorde' && <> {tr('trade.no_mixed_currency_average')}</>}</span></div>
               )}
               {sfora && (
                 <div className="avv rosso"><span className="ic">▲</span>
-                  <span><b>Non copre: mancano {eur(sim.mancano)}.</b> Registri comunque —
-                    in Trade Entry si scrive un ordine <b>già eseguito</b> al broker.</span></div>
+                  <span><b>{tr('trade.not_covered_shortfall')} {eur(sim.mancano)}.</b> {tr('trade.already_executed_intro')} <b>{tr('trade.already_executed')}</b> {tr('trade.at_broker')}</span></div>
               )}
               {!sfora && sim.valido && sim.cassaDopo != null && (
                 <div className="avv calmo"><span className="ic">≡</span>
                   <span>
-                    {entra ? <>Copre: restano <b>{eur(sim.cassaDopo)}</b></>
-                      : <>La cassa <b>sale</b> a <b>{eur(sim.cassaDopo)}</b></>}
-                    {volte != null && <> · questo ordine vale <b>{num(volte, 1)}×</b> la
-                      tua taglia mediana</>}.</span></div>
+                    {entra ? <>{tr('trade.covered_remaining')} <b>{eur(sim.cassaDopo)}</b></>
+                      : <>{tr('trade.the_cash')} <b>{tr('trade.rises')}</b> {tr('trade.to')} <b>{eur(sim.cassaDopo)}</b></>}
+                    {volte != null && <> {tr('trade.order_multiple')} <b>{num(volte, 1)}×</b> {tr('trade.median_size')}</>}.</span></div>
               )}
               {sim.valido && entra && sim.copre === null && (
                 <div className="avv viola"><span className="ic">⊘</span>
-                  <span><b>Capienza non verificabile</b> — {cassa == null
-                    ? 'la cassa non è nel payload del portafoglio'
-                    : 'il controvalore in euro non è calcolabile'}.</span></div>
+                  <span><b>{tr('trade.capacity_unknown')}</b> — {cassa == null
+                    ? tr('trade.cash_missing_payload')
+                    : tr('trade.euro_value_unknown')}.</span></div>
               )}
               {avviso && (
                 <div className="avv rosso"><span className="ic"><AlertOctagon size={12} /></span>
-                  <span>{avviso}</span></div>
+                  <span>{noticeText(avviso, tr)}</span></div>
               )}
 
-              <button type="submit" disabled={submitting}
+              <button type="submit" disabled={submitting || preparing}
                       className={'spara' + (sfora ? ' sfora' : '')}>
                 {submitting ? <RefreshCw size={11} className="animate-spin" /> : <Save size={11} />}
-                {submitting ? 'SCRITTURA…'
-                  : `REGISTRA ${action}${conv.eur != null && sim.valido ? ' · ' + eur(conv.eur) : ''}`}
+                {submitting ? tr('trade.writing') : preparing ? tr('trade.checking')
+                  : tr('trade.check_confirm', {a: action})}
               </button>
             </form>
 
@@ -852,44 +980,35 @@ export default function TradeEntryPage() {
                  style={{ outline: 'none' }}>
               {erroreScrittura && (
                 <div className="avv rosso"><span className="ic"><AlertOctagon size={12} /></span>
-                  <span><b>Il trade NON è stato scritto</b> — il backend ha risposto e ha
-                    rifiutato.<span className="verbatim">{erroreScrittura}</span></span></div>
+                  <span><b>{tr('trade.trade_not_written')}</b> {tr('trade.backend_rejected')}<span className="verbatim">{erroreScrittura}</span></span></div>
               )}
               {esitoIgnoto && (
                 <div className="avv viola"><span className="ic"><HelpCircle size={12} /></span>
-                  <span><b>Esito sconosciuto.</b> La richiesta è partita e la risposta non è
-                    arrivata: il trade <b>potrebbe essere stato scritto</b>. Controlla i
-                    movimenti <b>prima</b> di riprovare, o registreresti due volte lo
-                    stesso ordine.<span className="verbatim">{esitoIgnoto}</span></span></div>
+                  <span><b>{tr('trade.unknown_outcome')}</b> {tr('trade.request_sent_no_confirmation')} <b>{tr('trade.may_be_written')}</b>{tr('trade.check_movements')} <b>{tr('trade.before')}</b> {tr('trade.retry_duplicate_warning')}<span className="verbatim">{esitoIgnoto}</span></span></div>
               )}
               {esito && !esito.riconosciuta && (
                 <div className="avv viola"><span className="ic"><HelpCircle size={12} /></span>
-                  <span><b>Risposta non riconosciuta</b>: non porta né <code>ok</code> né
-                    <code> trade_id</code>. Non posso dire se il trade è stato scritto —
-                    controlla i movimenti.</span></div>
+                  <span><b>{tr('trade.unrecognized_response')}</b>{tr('trade.has_neither')} <code>ok</code> {tr('trade.nor')}
+                    <code> trade_id</code>{tr('trade.cannot_assert_trade')}</span></div>
               )}
               {esito && esito.riconosciuta && esito.stato === 'aggiornata' && (
                 <div className="avv verde"><span className="ic"><CheckCircle2 size={12} /></span>
-                  <span>Trade <b>#{esito.tradeId}</b> registrato · cassa
-                    disponibile <b>{eur(esito.cassa)}</b>.</span></div>
+                  <span>Trade <b>#{esito.tradeId}</b> {tr('trade.recorded_available_cash')} <b>{eur(esito.cassa)}</b>.</span></div>
               )}
               {esito && esito.riconosciuta && esito.stato === 'aggiornata-con-nota' && (
                 <div className="avv giallo"><span className="ic"><AlertTriangle size={12} /></span>
-                  <span>Trade <b>#{esito.tradeId}</b> registrato · cassa
-                    <b> {eur(esito.cassa)}</b>, <b>ma il backend ha allegato una nota</b>:
+                  <span>Trade <b>#{esito.tradeId}</b> {tr('trade.recorded_cash')}
+                    <b> {eur(esito.cassa)}</b>, <b>{tr('trade.backend_note_attached')}</b>:
                     <span className="verbatim">« {esito.nota} »</span></span></div>
               )}
               {esito && esito.riconosciuta && esito.stato === 'non-aggiornata' && (
                 <div className="avv giallo"><span className="ic"><AlertTriangle size={12} /></span>
-                  <span>Trade <b>#{esito.tradeId}</b> registrato, <b>ma la cassa NON è stata
-                    aggiornata</b>. Il backend dice:
+                  <span>Trade <b>#{esito.tradeId}</b> {tr('trade.recorded_comma')} <b>{tr('trade.cash_not_updated')}</b>{tr('trade.backend_says_dot')}
                     <span className="verbatim">« {esito.nota} »</span></span></div>
               )}
               {esito && esito.riconosciuta && esito.stato === 'muta' && (
                 <div className="avv giallo"><span className="ic"><AlertTriangle size={12} /></span>
-                  <span>Trade <b>#{esito.tradeId}</b> registrato, <b>ma la cassa non risulta
-                    aggiornata</b> e il backend non ha detto perché. Controllala a mano prima
-                    del prossimo ordine.</span></div>
+                  <span>Trade <b>#{esito.tradeId}</b> {tr('trade.recorded_comma')} <b>{tr('trade.cash_update_not_shown')}</b> {tr('trade.cash_missing_reason')}</span></div>
               )}
               {/* GUARDIA PREZZI: ortogonale allo stato cassa — la scrittura è
                   passata, ma il prezzo è lontano dall'ultimo riferimento (fra
@@ -897,10 +1016,22 @@ export default function TradeEntryPage() {
                   del PM era muto (ponte NUOVO 01/08, changelog (61)). */}
               {esito && esito.riconosciuta && esito.guardia && (
                 <div className="avv giallo"><span className="ic"><AlertTriangle size={12} /></span>
-                  <span><b>GUARDIA PREZZI</b> — il trade è scritto, ma il prezzo è lontano
-                    dal riferimento. Il backend dice:
+                  <span><b>{tr('trade.price_guard')}</b> {tr('trade.price_guard_explanation')}
                     <span className="verbatim">« {esito.guardia} »</span></span></div>
               )}
+              {tradeResult?.data && <div className="avv calmo"><span>
+                {tr('trade.date_prefix')} <b>{tradeResult.data.replace('T', ' ')}</b>
+                {tradeResult.ora_convenzionale && tr('trade.conventional_time')}.
+                {' '}{tr('trade.link_prefix')} {tradeResult.link_origin === 'explicit' ? tr('trade.decision_id', {a: tradeResult.decisione?.id ?? tr('trade.na')})
+                  : tradeResult.link_origin === 'none' ? tr('trade.manual_link') : tr('trade.not_declared')}.
+                {tradeResult.fx && <> {tr('trade.fx_prefix')} {exact(tradeResult.fx.tasso)} · {tr(tradeResult.fx.fonte === 'identity' ? 'trade.already_euros' : tradeResult.fx.fonte === 'storico' ? 'trade.historical' : 'trade.current_not_historical')}.
+                  {' '}{tradeResult.fx.nota}</>}
+                {tradeResult.ricalcolo && <> {tr('trade.successive_checked')} {tradeResult.ricalcolo.trade_successivi.length}.
+                  {' '}{tradeResult.ricalcolo.note?.join(' ')}</>}
+              </span></div>}
+              {tradeResult?.performance_note && <div className="avv giallo"><span>
+                {tr('trade.trade_recorded')} {tradeResult.performance_note}
+              </span></div>}
             </div>
           </div>
         </div>
@@ -915,24 +1046,24 @@ export default function TradeEntryPage() {
         <div className="rq lb-rq">
           <span className="sq tl" /><span className="sq br" />
           <div className="ph a">
-            <h2>// il libretto della cassa</h2>
+            <h2>{tr('trade.cashbook_title')}</h2>
             {/* ⚠ «N movimenti a registro» era falso in due stati: prima della
                 prima lettura (N=0 su un registro mai letto) e quando N è il
                 TETTO chiesto, non il totale — che questa pagina non ha. */}
             <span className="side">
-              {!movLetto ? 'registro in lettura…'
-                : movErr ? 'registro non letto'
+              {!movLetto ? tr('trade.register_loading')
+                : movErr ? tr('trade.register_unread')
                   : finestraPiena
-                    ? `almeno ${movimenti.length} movimenti · cassa ${cassa != null ? eur(cassa) : 'n.d.'}`
-                    : `${movimenti.length} ${movimenti.length === 1 ? 'movimento reso' : 'movimenti resi'}`
-                      + ` · cassa ${cassa != null ? eur(cassa) : 'n.d.'}`}
+                    ? tr('trade.at_least_movements', {a: movimenti.length, b: cassa != null ? eur(cassa) : tr('trade.na')})
+                    : `${movimenti.length} ${movimenti.length === 1 ? tr('trade.one_movement_shown') : tr('trade.many_movements_shown')}`
+                      + tr('trade.cash_fragment', {a: cassa != null ? eur(cassa) : tr('trade.na')})}
             </span>
           </div>
           <div className="pb lb">
             <form onSubmit={inviaMovimento}>
               <div className="verbi cassa" role="radiogroup"
-                   aria-label="Versamento o prelievo" onKeyDown={mvKeyDown}>
-                {([['DEPOSIT', 'VERSA'], ['WITHDRAWAL', 'PRELEVA']] as const).map(([t, l]) => (
+                   aria-label={tr('trade.deposit_or_withdraw')} onKeyDown={mvKeyDown}>
+                {([['DEPOSIT', tr('trade.deposit_verb')], ['WITHDRAWAL', tr('trade.withdraw_verb')]] as const).map(([t, l]) => (
                   <button key={t} type="button" role="radio" aria-checked={t === mvTipo}
                           tabIndex={t === mvTipo ? 0 : -1}
                           onClick={() => {
@@ -947,11 +1078,12 @@ export default function TradeEntryPage() {
                     `12.345,67` in en-GB diventerebbe un altro numero. */}
                 {/* ⚠ ogni onChange BUTTA il rifiuto pendente: v. `scordaRifiuto` */}
                 <div className="campo largo">
-                  <label htmlFor="f7-mv-imp">Importo</label>
+                  <label htmlFor="f7-mv-imp">{tr('trade.amount')}</label>
                   <div className={'box' + (letturaImporto && !letturaImporto.ok ? ' rotto' : '')}>
                     <input id="f7-mv-imp" ref={mvImportoRef} className="num" type="text"
+                           title={tr('numeri.grafia_richiesta', { esempio: cashLanguage === 'it' ? '1.234,56' : '1,234.56' })}
                            inputMode="decimal"
-                           autoComplete="off" value={mvImporto} placeholder="es. 1.234,56"
+                           autoComplete="off" value={mvImporto} placeholder={tr('trade.amount_example')}
                            aria-invalid={!!(letturaImporto && !letturaImporto.ok)}
                            onChange={e => { setMvImporto(e.target.value); scordaRifiuto(); }} />
                     <span className="suf">EUR</span>
@@ -960,16 +1092,16 @@ export default function TradeEntryPage() {
                     + ((letturaImporto && !letturaImporto.ok) || prelievoScoperto ? ' male' : '')}>
                     {letturaImporto && !letturaImporto.ok ? letturaImporto.motivo
                       : prelievoScoperto
-                        ? `il prelievo supera la cassa (${eur(cassa)}): il backend lo RIFIUTA`
+                        ? tr('trade.withdrawal_refused', {a: eur(cassa)})
                         : previsioneCredibile
-                          ? `se passa, la cassa va da ${eur(cassa)} a ${eur(cassaDopoMovimento)}`
-                          : cassa == null ? 'cassa non disponibile: la capienza non è verificabile'
+                          ? tr('trade.cash_prediction', {a: eur(cassa), b: eur(cassaDopoMovimento)})
+                          : cassa == null ? tr('trade.cash_capacity_unavailable')
                             : ' '}
                   </div>
                 </div>
 
                 <div className="campo">
-                  <label htmlFor="f7-mv-dt">Data valuta</label>
+                  <label htmlFor="f7-mv-dt">{tr('trade.value_date')}</label>
                   <div className={'box' + (letturaData && !letturaData.ok ? ' rotto' : '')}>
                     <input id="f7-mv-dt" className="num" type="text" inputMode="numeric"
                            autoComplete="off" value={mvData} placeholder={mvOggi}
@@ -982,26 +1114,26 @@ export default function TradeEntryPage() {
                   </div>
                   <div className={'aiuto' + (letturaData && !letturaData.ok ? ' male' : '')}>
                     {letturaData && !letturaData.ok ? letturaData.motivo
-                      : 'decide in che giorno il flusso entra nel TWR'}
+                      : tr('trade.flow_date_help')}
                   </div>
                 </div>
 
                 <div className="campo">
-                  <label htmlFor="f7-mv-nt">Causale</label>
+                  <label htmlFor="f7-mv-nt">{tr('trade.description')}</label>
                   <div className="box">
                     <input id="f7-mv-nt" type="text" autoComplete="off" value={mvNota}
-                           placeholder="bonifico dal conto corrente"
+                           placeholder={tr('trade.bank_transfer_example')}
                            onChange={e => { setMvNota(e.target.value); scordaRifiuto(); }} />
                   </div>
                   {/* «verbatim» era falso: la causale passa da .trim() e una
                       fatta di soli spazi non viene spedita affatto. */}
-                  <div className="aiuto">finisce in <code>note</code>, senza gli spazi ai bordi</div>
+                  <div className="aiuto">{tr('trade.stored_in')} <code>note</code>{tr('trade.trimmed_edges')}</div>
                 </div>
               </div>
 
               {mvAvviso && (
                 <div className="avv rosso"><span className="ic">✕</span>
-                  <span>{mvAvviso}</span></div>
+                  <span>{noticeText(mvAvviso, tr)}</span></div>
               )}
 
               {/* L'ANTICIPO DELLA GUARDIA: la riga gemella esiste già. Non
@@ -1009,9 +1141,7 @@ export default function TradeEntryPage() {
                   sorpresa, che è il motivo per cui questo impianto esiste. */}
               {gemella && !mvRifiuto && (
                 <div className="avv giallo"><span className="ic">⚠</span>
-                  <span><b>Questa riga esiste già</b> (id={gemella.id}): stessa data,
-                    stesso tipo, stesso importo — è evidenziata nel registro qui sotto.
-                    Il backend la rifiuterà a meno di confermare.</span></div>
+                  <span><b>{tr('trade.row_exists')}</b> (id={gemella.id}{tr('trade.duplicate_row_explanation')}</span></div>
               )}
 
               {/* `disabled` sul solo invio in volo: dal momento che ogni
@@ -1020,8 +1150,8 @@ export default function TradeEntryPage() {
               <button type="submit" className="spara"
                       disabled={mvInvio || !!mvRifiuto}>
                 <Save size={13} />
-                {mvInvio ? 'INVIO…'
-                  : mvTipo === 'DEPOSIT' ? 'REGISTRA IL VERSAMENTO' : 'REGISTRA IL PRELIEVO'}
+                {mvInvio ? tr('trade.sending')
+                  : mvTipo === 'DEPOSIT' ? tr('trade.record_deposit') : tr('trade.record_withdrawal')}
               </button>
             </form>
 
@@ -1032,11 +1162,11 @@ export default function TradeEntryPage() {
                 ci entrava affatto). Così, in più, i BOTTONI non stanno dentro
                 una region che alcuni lettori rileggono a ogni mutazione. */}
             <div className="lb-annuncio" role="status" aria-live="polite">
-              {mvRifiuto ? `Movimento rifiutato. ${mvRifiuto.rifiuto.motivo}`
-                : mvIgnoto ? 'Esito ignoto: il server non ha risposto.'
+              {mvRifiuto ? tr('trade.movement_rejected_reason', {a: mvRifiuto.rifiuto.motivo})
+                : mvIgnoto ? tr('trade.server_no_response')
                   : mvEsito ? (mvEsito.riconosciuta
-                    ? `Movimento ${mvEsito.movimentoId} a registro.`
-                    : 'Risposta non riconosciuta.') : ''}
+                    ? tr('trade.movement_recorded_id', {a: mvEsito.movimentoId})
+                    : tr('trade.unrecognized_response_dot')) : ''}
             </div>
             <div className="lb-esito">
               {mvRifiuto && (
@@ -1045,13 +1175,13 @@ export default function TradeEntryPage() {
                     <span className="ic"><AlertTriangle size={12} /></span>
                     <span>
                       <b>{mvRifiuto.rifiuto.quale === 'duplicato'
-                        ? 'Già a registro: stessa data, stesso tipo, stesso importo.'
+                        ? tr('trade.duplicate_registered')
                         : mvRifiuto.rifiuto.quale === 'soglia'
                         /* la cifra NON si ricopia: `CASH_SOGLIA_CONFERMA_EUR`
                            è policy modificabile (memory_db.py:906) e vive in un
                            posto solo. Il numero vero lo porta il verbatim. */
-                          ? 'Sopra la soglia che chiede conferma.'
-                          : 'Movimento rifiutato.'}</b>{' '}
+                          ? tr('trade.threshold_confirmation')
+                          : tr('trade.movement_rejected')}</b>{' '}
                       {/* ⚠ «NON è stato scritto» solo dove il backend lo
                           GARANTISCE (422/401). Su un 500 dopo l'INSERT o su un
                           503 post-commit affermarlo manda il PM a riprovare,
@@ -1059,11 +1189,10 @@ export default function TradeEntryPage() {
                           bottone qui sotto — che quella guardia la spegne — fa
                           entrare il doppio movimento. */}
                       {mvRifiuto.rifiuto.nonScritto
-                        ? <>Il movimento <b>NON</b> è stato scritto.</>
-                        : <>Il backend ha risposto <b>HTTP {mvRifiuto.rifiuto.status}</b>:{' '}
-                          <b>non posso dire</b> se la riga sia stata scritta — controlla
-                          il registro qui sotto prima di riprovare.</>}
-                      {' '}Il backend dice:
+                        ? <>{tr('trade.the_movement')} <b>{tr('trade.not_upper')}</b> {tr('trade.was_recorded')}</>
+                        : <>{tr('trade.backend_responded')} <b>HTTP {mvRifiuto.rifiuto.status}</b>:{' '}
+                          <b>{tr('trade.cannot_say')}</b> {tr('trade.check_register_before_retry')}</>}
+                      {' '}{tr('trade.backend_says')}
                       <span className="verbatim">« {mvRifiuto.rifiuto.motivo} »</span>
                     </span>
                   </div>
@@ -1074,24 +1203,22 @@ export default function TradeEntryPage() {
                       <div className="lb-conf">
                         <button type="button" className="spara" onClick={confermaMovimento}
                                 disabled={mvInvio}>
-                          {mvInvio ? 'INVIO…' : 'CONFERMO, È VOLUTO'}
+                          {mvInvio ? tr('trade.sending') : tr('trade.confirm_intentional')}
                         </button>
                         <button type="button" className="lb-ann" ref={mvAnnullaRef}
                                 onClick={() => {
                                   setMvRifiuto(null);
                                   mvImportoRef.current?.focus();
                                 }} disabled={mvInvio}>
-                          ANNULLA
+                          {tr('trade.cancel_caps')}
                         </button>
                       </div>
                       {/* La chiave è UNA per DUE guardie (memory_db.py:958 e
                           :964): chi conferma deve sapere che spegne anche
                           l'altra. Dirlo è la resa decisa dal PM il 20/08. */}
                       <div className="gate">
-                        confermando riparte lo <b>stesso</b> movimento con{' '}
-                        <code>conferma=true</code>, che spegne <b>entrambe</b> le guardie
-                        scavalcabili — il duplicato <b>e</b> quella sull'importo.
-                        È una chiave sola.
+                        {tr('trade.confirm_resends')} <b>{tr('trade.same')}</b> {tr('trade.movement_with')}{' '}
+                        <code>conferma=true</code>{tr('trade.disables')} <b>{tr('trade.both')}</b> {tr('trade.overridable_checks')} <b>{tr('trade.and')}</b> {tr('trade.amount_guard_too')}
                       </div>
                     </>
                   )}
@@ -1100,9 +1227,9 @@ export default function TradeEntryPage() {
 
               {mvIgnoto && (
                 <div className="avv viola"><span className="ic"><HelpCircle size={12} /></span>
-                  <span><b>Esito ignoto</b>: il server non ha risposto, quindi{' '}
-                    <b>non so</b> se il movimento sia stato scritto. <b>Sto rileggendo</b>{' '}
-                    il registro qui sotto: se la riga compare, è passato.
+                  <span><b>{tr('trade.unknown_outcome_short')}</b>{tr('trade.server_no_reply_so')}{' '}
+                    <b>{tr('trade.do_not_know')}</b> {tr('trade.whether_movement_written')} <b>{tr('trade.reading_again')}</b>{' '}
+                    {tr('trade.register_check_row')}
                     <span className="verbatim">{mvIgnoto}</span></span></div>
               )}
 
@@ -1115,20 +1242,17 @@ export default function TradeEntryPage() {
                         : mvEsito.stato === 'muta' ? <HelpCircle size={12} />
                           : <AlertTriangle size={12} />}</span>
                     <span>
-                      <b>Movimento {mvEsito.movimentoId} a registro.</b>{' '}
+                      <b>{tr('trade.movement')} {mvEsito.movimentoId} {tr('trade.recorded_dot')}</b>{' '}
                       {/* i quattro stati hanno quattro rami: prima
                           `aggiornata-con-nota` cadeva in quello che afferma
                           l'OPPOSTO («la cassa non è stata aggiornata») */}
                       {mvEsito.stato === 'aggiornata'
-                        ? <>Cassa aggiornata: <b>{eur(mvEsito.cassa)}</b>.</>
+                        ? <>{tr('trade.cash_updated')} <b>{eur(mvEsito.cassa)}</b>.</>
                         : mvEsito.stato === 'aggiornata-con-nota'
-                          ? <>Cassa aggiornata a <b>{eur(mvEsito.cassa)}</b>, ma con una
-                            nota del backend.</>
+                          ? <>{tr('trade.cash_updated_to')} <b>{eur(mvEsito.cassa)}</b>{tr('trade.with_backend_note')}</>
                           : mvEsito.stato === 'muta'
-                            ? <>La risposta <b>non porta la cassa</b>: il registro è scritto,
-                              ma il valore nuovo non è dichiarato.</>
-                            : <>La cassa <b>non</b> è stata aggiornata: registro e cassa
-                              operativa <b>divergono</b>.</>}
+                            ? <>{tr('trade.the_response')} <b>{tr('trade.no_cash_in_response')}</b>{tr('trade.register_written_value_unknown')}</>
+                            : <>{tr('trade.the_cash')} <b>{tr('trade.not')}</b> {tr('trade.cash_register_diverge')} <b>{tr('trade.diverge')}</b>.</>}
                       {mvEsito.nota && (
                         <span className="verbatim">« {mvEsito.nota} »</span>
                       )}
@@ -1136,9 +1260,8 @@ export default function TradeEntryPage() {
                   </div>
                 ) : (
                   <div className="avv viola"><span className="ic"><HelpCircle size={12} /></span>
-                    <span><b>Risposta non riconosciuta</b>: non porta né <code>ok</code> né{' '}
-                      <code>movement_id</code>. Non affermo che sia scritto né che non lo
-                      sia — controlla il registro qui sotto.</span></div>
+                    <span><b>{tr('trade.unrecognized_response')}</b>{tr('trade.has_neither')} <code>ok</code> {tr('trade.nor')}{' '}
+                      <code>movement_id</code>{tr('trade.cannot_assert_movement')}</span></div>
                 )
               )}
             </div>
@@ -1146,13 +1269,11 @@ export default function TradeEntryPage() {
             {/* ── LE RIGHE GIÀ SCRITTE ── */}
             <div className="lbm">
               {!movLetto ? (
-                <div className="vuoto">Lettura del registro in corso…</div>
+                <div className="vuoto">{tr('trade.reading_register')}</div>
               ) : movErr ? (
-                <div className="vuoto">Registro non letto: <b>{movErr}</b>. Il modulo
-                  qui sopra resta usabile, ma senza le righe non posso dirti se una
-                  terna è già a registro.</div>
+                <div className="vuoto">{tr('trade.register_unread_prefix')} <b>{movErr}</b>{tr('trade.unread_register_help')}</div>
               ) : movimenti.length === 0 ? (
-                <div className="vuoto">Nessun movimento di cassa a registro.</div>
+                <div className="vuoto">{tr('trade.no_cash_movements')}</div>
               ) : (
                 movimenti.map(m => {
                   const dupe = gemella != null && m.id === gemella.id;
@@ -1167,8 +1288,8 @@ export default function TradeEntryPage() {
                   // confronta i centesimi, quindi due righe diverse di un
                   // centesimo si vedono identiche. Qui sta nel title e
                   // nell'aria-label, insieme all'anno che `gg()` non rende.
-                  const esatto = val == null ? 'importo n.d.'
-                    : `${m.date} · ${m.type === 'DEPOSIT' ? 'versamento' : 'prelievo'}`
+                  const esatto = val == null ? tr('trade.amount_na')
+                    : `${m.date} · ${m.type === 'DEPOSIT' ? tr('trade.deposit_lower') : tr('trade.withdrawal_lower')}`
                       + ` ${verso}${num(Math.abs(val))} €`;
                   return (
                     <div className={'uo' + (dupe ? ' qui' : '')} key={m.id}
@@ -1177,7 +1298,7 @@ export default function TradeEntryPage() {
                          title={esatto + (m.note ? `\n${m.note}` : '')}>
                       <span className="dt num">{gg(m.date)}</span>
                       <span className="tk">
-                        {m.type === 'DEPOSIT' ? 'VERSAMENTO' : 'PRELIEVO'}</span>
+                        {m.type === 'DEPOSIT' ? tr('trade.deposit_upper') : tr('trade.withdrawal_upper')}</span>
                       <span className="ba">
                         {movimentoMax > 0 && val != null && (
                           <i className={dupe ? 'q' : undefined}
@@ -1185,11 +1306,11 @@ export default function TradeEntryPage() {
                         )}
                       </span>
                       <span className="ev num">
-                        {val == null ? <span className="nd">importo n.d.</span>
+                        {val == null ? <span className="nd">{tr('trade.amount_na')}</span>
                           : <>{verso}{eur(Math.abs(val), 0)}</>}
                       </span>
                       <span className="ev num fl">
-                        {cum != null ? `flussi ${eur(cum, 0)}` : 'flussi n.d.'}
+                        {cum != null ? tr('trade.flows_value', {a: eur(cum, 0)}) : tr('trade.flows_na')}
                       </span>
                     </div>
                   );
@@ -1202,18 +1323,14 @@ export default function TradeEntryPage() {
                 sopra numeri che senza di lei sono falsi. */}
             {movLetto && !movErr && finestraPiena && (
               <div className="gate">
-                le righe rese sono <b>{movimenti.length}</b>, cioè esattamente il tetto
-                chiesto: se il registro ne ha di più vecchie <b>non le vedo</b>, e la
-                colonna flussi parte da metà storia.
+                {tr('trade.rows_shown')} <b>{movimenti.length}</b>{tr('trade.window_at_limit')} <b>{tr('trade.cannot_see_older')}</b>{tr('trade.flows_partial')}
               </div>
             )}
             {/* La colonna dice «flussi» e non «saldo» perché il saldo cassa NON
                 è ricostruibile da qui: anche i trade la muovono. Sulla rosa
                 quella colonna dava una cifra incompatibile col versamento. */}
             <div className="gate">
-              <b>flussi</b> = cumulato dei versamenti e prelievi <b>resi qui sotto</b>.
-              Non è il saldo di cassa: anche i trade la muovono, e in questo registro
-              non ci sono.
+              <b>{tr('trade.flows')}</b> {tr('trade.cumulative_deposit_withdrawal')} <b>{tr('trade.shown_below')}</b>{tr('trade.flows_not_cash')}
             </div>
           </div>
         </div>
@@ -1221,76 +1338,72 @@ export default function TradeEntryPage() {
         {/* ── PRIMA → DOPO ── */}
         <div className="rq">
           <div className="ph c">
-            <h2>// prima → dopo</h2>
+            <h2>{tr('trade.before_after')}</h2>
             <span className="side">
-              {sim.valutazione === 'eseguito-proxy' ? 'valutato al prezzo che hai scritto'
-                : 'simulazione sul book vivo'}
+              {sim.valutazione === 'eseguito-proxy' ? tr('trade.valued_entered_price')
+                : tr('trade.live_book_simulation')}
             </span>
           </div>
           <div className="pb">
             {!sim.valido ? (
               <div className="t-no" style={{ fontSize: 12 }}>
-                La simulazione compare quando ticker, quantità e prezzo sono scritti.
+                {tr('trade.simulation_needs_inputs')}
               </div>
             ) : (
               <>
                 <div className="pd">
-                  <Riga k="Cassa" a={eur(sim.cassaPrima)} b={eur(sim.cassaDopo)}
+                  <Riga k={tr('trade.cash')} a={eur(sim.cassaPrima)} b={eur(sim.cassaDopo)}
                         muto={sim.cassaDopo == null}
                         dl={sim.cassaDopo != null && sim.cassaPrima != null
-                          ? segno(sim.cassaDopo - sim.cassaPrima) + ' €' : 'n.d.'}
+                          ? segno(sim.cassaDopo - sim.cassaPrima) + ' €' : tr('trade.na')}
                         verso={entra ? 1 : -1} grosso sfora={sfora} />
-                  <Riga k={`Titoli ${tickerUp}`}
-                        a={sim.qtaPrima != null ? exact(sim.qtaPrima) : 'n.d.'}
+                  <Riga k={tr('trade.ticker_shares', {a: tickerUp})}
+                        a={sim.qtaPrima != null ? exact(sim.qtaPrima) : tr('trade.na')}
                         b={sim.qtaMuta ? '—' : exact(sim.qtaDopo)}
                         muto={!!sim.qtaMuta}
                         dl={sim.qtaMuta ? perche(sim.qtaMuta)
                           : (sim.qtaDopo != null && sim.qtaPrima != null
                             ? (sim.qtaDopo - sim.qtaPrima > 0 ? '+' : '') + exact(sim.qtaDopo - sim.qtaPrima)
-                            : 'n.d.')}
+                            : tr('trade.na'))}
                         verso={0} />
-                  <Riga k="Prezzo di carico"
-                        a={sim.caricoPrima != null ? `${num(sim.caricoPrima)} ${pos?.valuta || ''}` : 'n.d.'}
+                  <Riga k={tr('trade.cost_basis')}
+                        a={sim.caricoPrima != null ? `${num(sim.caricoPrima)} ${pos?.valuta || ''}` : tr('trade.na')}
                         b={sim.caricoMuto ? '—' : `${num(sim.caricoDopo)} ${pos?.valuta || valuta}`}
                         muto={!!sim.caricoMuto}
                         dl={sim.caricoMuto
                           ? perche(sim.caricoMuto,
                             discorde ? [discorde.valutaBook, discorde.valutaScelta] : undefined)
-                          : sim.caricoInvariato ? 'invariato'
+                          : sim.caricoInvariato ? tr('trade.unchanged')
                             : (sim.caricoDopo != null && sim.caricoPrima != null
-                              ? segno(sim.caricoDopo - sim.caricoPrima) : 'nuovo carico')}
+                              ? segno(sim.caricoDopo - sim.caricoPrima) : tr('trade.new_cost'))}
                         verso={sim.caricoDopo != null && sim.caricoPrima != null
                           ? Math.sign(sim.caricoDopo - sim.caricoPrima) : 0} />
-                  <Riga k="Peso in titoli"
-                        a={sim.pesoPrima != null ? num(sim.pesoPrima) + '%' : 'n.d.'}
+                  <Riga k={tr('trade.securities_weight')}
+                        a={sim.pesoPrima != null ? num(sim.pesoPrima) + '%' : tr('trade.na')}
                         b={sim.pesoMuto ? '—' : num(sim.pesoDopo) + '%'}
                         muto={!!sim.pesoMuto}
                         dl={sim.pesoMuto ? perche(sim.pesoMuto)
                           : (sim.pesoDopo != null && sim.pesoPrima != null
-                            ? segno(sim.pesoDopo - sim.pesoPrima) + ' pt' : 'n.d.')}
+                            ? segno(sim.pesoDopo - sim.pesoPrima) + ' pt' : tr('trade.na'))}
                         verso={0} />
                   <Riga k="NAV" a={eur(sim.navPrima, 0)}
                         b={sim.navMuto ? '—' : eur(sim.navDopo, 0)}
                         muto={!!sim.navMuto}
                         dl={sim.navMuto ? perche(sim.navMuto)
                           : (sim.navDelta != null
-                            ? (Math.abs(sim.navDelta) < 0.005 ? 'invariato' : segno(sim.navDelta) + ' €')
-                            : 'n.d.')}
+                            ? (Math.abs(sim.navDelta) < 0.005 ? tr('trade.unchanged') : segno(sim.navDelta) + ' €')
+                            : tr('trade.na'))}
                         verso={sim.navDelta != null ? -Math.sign(sim.navDelta) : 0} />
                 </div>
                 <div className="avv calmo" style={{ marginTop: 8 }}>
                   <span className="ic">≡</span>
                   <span>
-                    È una <b>simulazione</b>. La cassa si muove al prezzo che hai <b>scritto</b>;
-                    i titoli sono valutati{' '}
-                    {sim.valutazione === 'mercato' ? <>al <b>prezzo di mercato</b></>
+                    {tr('trade.this_is_a')} <b>{tr('trade.simulation')}</b>{tr('trade.cash_moves_entered')} <b>{tr('trade.entered')}</b>{tr('trade.securities_valued')}{' '}
+                    {sim.valutazione === 'mercato' ? <>{tr('trade.at')} <b>{tr('trade.market_price')}</b></>
                       : sim.valutazione === 'eseguito-proxy'
-                        ? <>al <b>prezzo che hai scritto</b>, perché per un nome nuovo non c'è
-                          ancora un prezzo di mercato</>
-                        : <>— manca il prezzo per valutarli</>}.
-                    {' '}Il NAV cambia della differenza fra i due, non resta fermo per
-                    definizione. Il carico dopo è <b>la nostra aritmetica</b>: di norma coincide
-                    con quella del backend, ma non è promesso.
+                        ? <>{tr('trade.at')} <b>{tr('trade.entered_price')}</b>{tr('trade.new_name_no_market_price')}</>
+                        : <>{tr('trade.no_price_valuation')}</>}.
+                    {' '}{tr('trade.nav_difference')} <b>{tr('trade.our_arithmetic')}</b>{tr('trade.backend_usually_matches')}
                   </span>
                 </div>
               </>
@@ -1301,20 +1414,19 @@ export default function TradeEntryPage() {
         {/* ── GLI ULTIMI ORDINI ── */}
         <div className="rq cresce">
           <div className="ph">
-            <h2>// gli ultimi ordini che hai scritto</h2>
-            <span className="side">stessa scala del binario</span>
+            <h2>{tr('trade.recent_orders')}</h2>
+            <span className="side">{tr('trade.same_scale')}</span>
           </div>
           <div className="pb scorre nopad">
             {tradesErr ? (
-              <div className="vuoto">Storico non disponibile: <b>{tradesErr}</b>. Il binario
-                resta valido, ma senza le taglie di confronto.</div>
+              <div className="vuoto">{tr('trade.history_unavailable_prefix')} <b>{tradesErr}</b>{tr('trade.history_comparison_missing')}</div>
             ) : ultimi.length === 0 ? (
-              <div className="vuoto">Nessun movimento in archivio.</div>
+              <div className="vuoto">{tr('trade.no_archived_movements')}</div>
             ) : (
               <>
                 {sim.valido && (
                   <div className="uo qui">
-                    <span className="dt">ORA</span>
+                    <span className="dt">{tr('trade.now')}</span>
                     <span className="tk">{tickerUp}</span>
                     <span className="ba">
                       {delta != null && scala != null && (
@@ -1335,7 +1447,7 @@ export default function TradeEntryPage() {
                     </span>
                     <span className="ev num">
                       {t.eur != null ? eur(t.eur, 0)
-                        : <span className="nd">cambio {t.valuta} n.d.</span>}
+                        : <span className="nd">{tr('trade.fx_word')} {t.valuta} {tr('trade.na')}</span>}
                     </span>
                   </div>
                 ))}
@@ -1352,34 +1464,31 @@ export default function TradeEntryPage() {
         <div className="rq" style={{ flex: '0 0 214px' }}>
           <span className="sq tl" /><span className="sq br" />
           <div className="ph a">
-            <h2>// la cassa</h2>
+            <h2>{tr('trade.cash_title')}</h2>
             <span className="side">
-              {bookAssente ? 'portafoglio non caricato'
-                : cassa != null ? `${eur(cassa)} · dal campo cash_disponibile_eur`
-                  : 'cash_disponibile_eur non è nel payload'}
+              {bookAssente ? tr('trade.portfolio_not_loaded')
+                : cassa != null ? tr('trade.cash_source_field', {a: eur(cassa)})
+                  : tr('trade.cash_field_absent')}
             </span>
             <button type="button" className="mini" onClick={carica} aria-busy={loading}>
-              <RefreshCw size={10} className={loading ? 'animate-spin' : ''} /> AGGIORNA
+              <RefreshCw size={10} className={loading ? 'animate-spin' : ''} /> {tr('trade.refresh')}
             </button>
           </div>
           <div className="pb">
             {posErr ? (
               <div className="vuoto">
-                <span><b>Portafoglio non disponibile</b> — {posErr}.<br />
-                  Il binario non si disegna: senza la cassa la capienza non è verificabile.
-                  Non è detto che il book sia vuoto.</span>
+                <span><b>{tr('trade.portfolio_unavailable')}</b> — {posErr}.<br />
+                  {tr('trade.cashbar_missing_book')}</span>
               </div>
             ) : cassa == null ? (
               <div className="vuoto">
-                <span><b>La cassa non è nel payload</b> (<code>cash_disponibile_eur</code>{' '}
-                  assente o non numerico): la capienza <b>non è verificabile</b> e il binario
-                  non si disegna. Un binario vuoto si leggerebbe come «zero».</span>
+                <span><b>{tr('trade.cash_payload_absent')}</b> (<code>cash_disponibile_eur</code>{' '}
+                  {tr('trade.missing_nonnumeric_capacity')} <b>{tr('trade.cannot_verify')}</b> {tr('trade.empty_bar_looks_zero')}</span>
               </div>
             ) : cassa <= 0 ? (
               <div className="vuoto">
-                <span><b>{cassa === 0 ? 'La cassa è a zero' : `Sei in scoperto di ${eur(-cassa)}`}</b>
-                  {' '}— è una <b>misura</b>, non un dato mancante: il binario non ha una
-                  larghezza da disegnare. Ogni acquisto qui sotto risulterà scoperto.</span>
+                <span><b>{cassa === 0 ? tr('trade.zero_cash') : tr('trade.overdraft', {a: eur(-cassa)})}</b>
+                  {' '}{tr('trade.is_a_measurement')} <b>{tr('trade.measurement')}</b>{tr('trade.zero_bar_explanation')}</span>
               </div>
             ) : scala != null ? (
               <>
@@ -1389,7 +1498,7 @@ export default function TradeEntryPage() {
                       <div className="morso"
                            style={{ left: pct(pezzo.da), width: pct(pezzo.largo) }} />
                       <div className="etm">
-                        {sfora ? 'NON COPRE' : entra ? 'QUESTO ORDINE ESCE' : 'QUESTO ORDINE ENTRA'}
+                        {sfora ? tr('trade.not_covered') : entra ? tr('trade.order_outflow') : tr('trade.order_inflow')}
                         <b className="num">{entra ? '−' : '+'}{eur(delta)}</b>
                       </div>
                     </>
@@ -1397,22 +1506,22 @@ export default function TradeEntryPage() {
                   <div className="resto">
                     <span className="num">
                       {sfora && sim.mancano != null
-                        ? <>mancano {eur(sim.mancano)}</>
+                        ? <>{tr('trade.shortfall')} {eur(sim.mancano)}</>
                         : <>{eur(pezzo ? sim.cassaDopo : cassa)}{' '}
                           <span className="t-no" style={{ fontSize: 10 }}>
-                            {pezzo ? (entra ? 'RESTANO' : 'IN CASSA DOPO') : 'IN CASSA'}</span></>}
+                            {pezzo ? (entra ? tr('trade.remaining_upper') : tr('trade.cash_after_upper')) : tr('trade.cash_upper')}</span></>}
                     </span>
                   </div>
                 </div>
 
                 <div className="tacche" ref={tacchePista} onKeyDown={taccheKeyDown}
-                     role="group" aria-label="Le taglie dei tuoi ordini già scritti">
+                     role="group" aria-label={tr('trade.order_sizes_label')}>
                   {taglie.misurate.map((t, i) => (
                     <button key={`${t.data}-${t.ticker}-${i}`} type="button" className="tc"
                             tabIndex={i === taccaSel ? 0 : -1}
                             style={{ left: pct((t.eur as number) / scala) }}
-                            aria-label={`${t.ticker} ${t.action} del ${gg(t.data)}, `
-                              + `${num(t.locale)} ${t.valuta}, pari a ${eur(t.eur)}`}
+                            aria-label={tr('trade.order_date_fragment', {a: t.ticker, b: t.action, c: gg(t.data)})
+                              + tr('trade.equivalent_eur_fragment', {a: num(t.locale), b: t.valuta, c: eur(t.eur)})}
                             onMouseEnter={() => setTaccaHover(i)}
                             onMouseLeave={() => setTaccaHover(null)}
                             onFocus={() => { setTaccaFuoco(i); setTaccaSel(i); }}
@@ -1422,7 +1531,7 @@ export default function TradeEntryPage() {
                     <>
                       <span className="rif" style={{ left: pct(taglie.mediana / scala) }} />
                       <span className="lb" style={{ left: pct(taglie.mediana / scala) }}>
-                        MEDIANA {num(taglie.mediana, 0)} €
+                        {tr('trade.median_upper')} {num(taglie.mediana, 0)} €
                       </span>
                     </>
                   )}
@@ -1430,7 +1539,7 @@ export default function TradeEntryPage() {
                     <>
                       <span className="rif" style={{ left: pct(taglie.massimo / scala) }} />
                       <span className="lb" style={{ left: pct(taglie.massimo / scala) }}>
-                        IL TUO MASSIMO {num(taglie.massimo, 0)} €
+                        {tr('trade.your_maximum')} {num(taglie.massimo, 0)} €
                       </span>
                     </>
                   )}
@@ -1442,11 +1551,11 @@ export default function TradeEntryPage() {
                       <div className={'tip ' + lato} role="tooltip"
                            style={{ left: pct(f) }}>
                         <b>{t.ticker} · {t.action}</b>
-                        <div className="kv"><span>quando</span>
+                        <div className="kv"><span>{tr('trade.when')}</span>
                           <span className="num">{t.data.slice(0, 10)}</span></div>
-                        <div className="kv"><span>controvalore</span>
+                        <div className="kv"><span>{tr('trade.value_lower')}</span>
                           <span className="num">{num(t.locale)} {t.valuta}</span></div>
-                        <div className="kv"><span>in euro</span>
+                        <div className="kv"><span>{tr('trade.in_euros')}</span>
                           <span className="num">{eur(t.eur)}</span></div>
                       </div>
                     );
@@ -1455,22 +1564,19 @@ export default function TradeEntryPage() {
 
                 <div className="leg">
                   <i><span className={'sw mo' + (pezzo && !entra ? ' in' : '')} />
-                    {entra ? 'quanto esce' : 'quanto entra'}
-                    {delta != null && <> — <b>{num((delta / scala) * 100, 1)}%</b> della scala</>}</i>
-                  <i><span className="sw tc" />i tuoi <b>{taglie.misurate.length}</b> ordini già
-                    scritti, convertiti in EUR coi cambi di oggi</i>
-                  <i><span className="sw md" />mediana e massimo</i>
-                  <i>la larghezza intera è {entra || !pezzo ? 'la cassa di adesso'
-                    : 'la cassa DOPO l\'ordine'}<span className="t-et">: {eur(scala)}</span></i>
+                    {entra ? tr('trade.outflow_size') : tr('trade.inflow_size')}
+                    {delta != null && <> — <b>{num((delta / scala) * 100, 1)}%</b> {tr('trade.of_scale')}</>}</i>
+                  <i><span className="sw tc" />{tr('trade.your')} <b>{taglie.misurate.length}</b> {tr('trade.historic_orders_current_fx')}</i>
+                  <i><span className="sw md" />{tr('trade.median_maximum')}</i>
+                  <i>{tr('trade.full_width')} {entra || !pezzo ? tr('trade.cash_now')
+                    : tr('trade.cash_after_order')}<span className="t-et">: {eur(scala)}</span></i>
                   {fuoriScala > 0 && (
-                    <i className="gate"><b>{fuoriScala}</b> ordini più grandi della scala:
-                      disegnati a fondo corsa</i>
+                    <i className="gate"><b>{fuoriScala}</b> {tr('trade.orders_beyond_scale')}</i>
                   )}
                   {taglie.senzaCambio > 0 && (
-                    <i className="gate"><b>{taglie.senzaCambio}</b> ordini senza tacca: nessun
-                      cambio per {taglie.scoperte.join(', ')}</i>
+                    <i className="gate"><b>{taglie.senzaCambio}</b> {tr('trade.orders_no_marker')} {taglie.scoperte.join(', ')}</i>
                   )}
-                  {tradesErr && <i className="gate">storico non disponibile: nessuna tacca</i>}
+                  {tradesErr && <i className="gate">{tr('trade.history_no_markers')}</i>}
                 </div>
               </>
             ) : null}
@@ -1480,36 +1586,35 @@ export default function TradeEntryPage() {
         {/* ── IL BOOK ── */}
         <div className="rq cresce">
           <div className="ph">
-            <h2>// il book</h2>
+            <h2>{tr('trade.book_title')}</h2>
             <span className="side">
-              {bookAssente ? 'non disponibile'
-                : `ordinato per controvalore — ${book.fuoriPosto}/${book.righe.length} righe `
-                  + 'arrivano in un altro ordine'}
-              {book.senzaValore > 0 && ` · ${book.senzaValore} senza controvalore, in coda`}
+              {bookAssente ? tr('trade.unavailable')
+                : tr('trade.sorted_value', {a: book.fuoriPosto, b: book.righe.length})
+                  + tr('trade.different_order')}
+              {book.senzaValore > 0 && tr('trade.missing_value_at_end', {a: book.senzaValore})}
             </span>
           </div>
           <div className="pb scorre nopad">
             <table>
               <thead>
                 <tr>
-                  <th>Ticker</th><th>Val</th><th className="r">Qtà</th>
-                  <th className="r">Carico</th><th className="r">Live</th>
-                  <th className="r">Controvalore</th><th className="r">Peso</th>
-                  <th className="r">P&amp;L</th><th className="r">Scarto</th>
+                  <th>Ticker</th><th>{tr('trade.currency_short')}</th><th className="r">{tr('trade.quantity_short')}</th>
+                  <th className="r">{tr('trade.cost_short')}</th><th className="r">Live</th>
+                  <th className="r">{tr('trade.value')}</th><th className="r">{tr('trade.weight')}</th>
+                  <th className="r">P&amp;L</th><th className="r">{tr('trade.rank_change')}</th>
                 </tr>
               </thead>
               <tbody>
                 {posErr ? (
                   <tr><td colSpan={9} className="d" style={{ textAlign: 'center', padding: 22 }}>
-                    POSIZIONI NON DISPONIBILI — {posErr}. Il book non è detto sia vuoto:
-                    backend in errore, usa AGGIORNA.
+                    {tr('trade.positions_unavailable_upper')} {posErr}{tr('trade.book_error_refresh')}
                   </td></tr>
                 ) : loading && book.righe.length === 0 ? (
                   <tr><td colSpan={9} style={{ textAlign: 'center', padding: 22 }}>
-                    caricamento posizioni…</td></tr>
+                    {tr('trade.positions_loading')}</td></tr>
                 ) : book.righe.length === 0 ? (
                   <tr><td colSpan={9} style={{ textAlign: 'center', padding: 22 }}>
-                    Nessuna posizione. Usa BUY per aprire la prima.</td></tr>
+                    {tr('trade.no_position_buy')}</td></tr>
                 ) : book.righe.map(r => (
                   <tr key={r.pos.ticker}
                       className={r.pos.ticker.toUpperCase() === tickerUp ? 'mira' : undefined}>
@@ -1518,17 +1623,17 @@ export default function TradeEntryPage() {
                           SPAZIO, e uno spazio battuto per scorrere sovrascriveva
                           in silenzio il modulo che stavi compilando */}
                       <button type="button" className="usa"
-                              aria-label={`Usa ${r.pos.ticker} nel tagliando`}
+                              aria-label={tr('trade.use_ticker', {a: r.pos.ticker})}
                               onClick={() => selectPosition(r.pos)}>{r.pos.ticker}</button>
                     </td>
                     <td className="num">{r.pos.valuta}</td>
                     <td className="r num">{exact(r.pos.quantita)}</td>
                     <td className="r num">{num(r.pos.prezzo_medio)}</td>
-                    <td className="r num">{r.pos.prezzo_live != null ? num(r.pos.prezzo_live) : 'n.d.'}</td>
+                    <td className="r num">{r.pos.prezzo_live != null ? num(r.pos.prezzo_live) : tr('trade.na')}</td>
                     <td className="r num d">{eur(r.pos.valore_mercato, 0)}</td>
-                    <td className="r num">{r.peso != null ? num(r.peso) + '%' : 'n.d.'}</td>
+                    <td className="r num">{r.peso != null ? num(r.peso) + '%' : tr('trade.na')}</td>
                     <td className="r num">
-                      {r.pos.pl_pct == null ? 'n.d.' : (
+                      {r.pos.pl_pct == null ? tr('trade.na') : (
                         <span className={r.pos.pl_pct > 0 ? 'pos' : r.pos.pl_pct < 0 ? 'neg' : 'pari'}>
                           {segno(r.pos.pl_pct)}%
                         </span>
@@ -1550,22 +1655,214 @@ export default function TradeEntryPage() {
       {pending && (
         <ConfirmDialog
           open
-          tone={pending.sim.copre === false || pending.discorde ? 'crimson' : 'amber'}
-          title="Registrare il trade nel portafoglio ufficiale?"
-          intro="Il movimento entra nel portafoglio e fa ricalcolare posizioni e P/L."
+          tone={pending.preview.cash_disponibile_eur < 0 || pending.discorde ? 'crimson' : 'amber'}
+          title={tr('trade.confirm_trade_title')}
+          intro={tr('trade.confirm_trade_intro')}
           rows={pendingRows(pending)}
-          warn={(pending.sim.copre === false
-            ? `NON COPRE: mancano ${eur(pending.sim.mancano)} rispetto alla cassa disponibile. ` : '')
-            + 'La scrittura tocca DUE archivi: il movimento e le posizioni in '
-            + 'data/consigliere.db, e la cassa in portfolio.json. L\'app non ha una funzione '
-            + 'di annullo: una correzione va fatta a mano su ENTRAMBI.'}
-          confirmLabel={`REGISTRA ${pending.body.action}`}
+          warn={(pending.preview.cash_disponibile_eur < 0
+            ? tr('trade.confirm_shortfall', {a: eur(pending.preview.cash_disponibile_eur)}) : '')
+            + tr('trade.preview_expiry', {a: pending.preview.expires_in_seconds})
+            + tr('trade.confirm_register_change')
+            + tr('trade.confirm_atomic_no_undo')}
+          confirmLabel={tr('trade.record_action', {a: pending.body.action})}
+          cancelLabel={tr('trade.cancel')}
           onConfirm={() => { const p = pending; setPending(null); commit(p); }}
           onCancel={() => setPending(null)}
         />
       )}
     </div>
   );
+}
+
+const emptyOpening = (): OpeningDraft => ({ ticker: '', nome: '', quantita: '', prezzo_medio: '',
+  valuta: 'EUR', giorno: '', ora: '', precisione: 'day', provenienza: '', nota: '' });
+type FrozenOpening = ReturnType<typeof congelaPosizioneIniziale>;
+const errorDetail = (error: unknown): string => {
+  const e = error as { response?: { data?: { detail?: unknown } }; message?: string };
+  const detail = e?.response?.data?.detail ?? e?.message ?? String(error);
+  return typeof detail === 'string' ? detail : JSON.stringify(detail);
+};
+const errorNotice = (error: unknown): Notice => error instanceof FrontendTradeError
+  ? { render: error.renderMessage } : errorDetail(error);
+
+/** Independent channel: the only network calls here are opening-position endpoints. */
+function PositionOpeningEntry() {
+  const t = useT(), language = useLingua();
+  const [draft, setDraft] = useState<OpeningDraft>(emptyOpening);
+  const [inputLanguages, setInputLanguages] = useState<Partial<Record<'quantita' | 'prezzo_medio', Lingua>>>({});
+  const [pending, setPending] = useState<FrozenOpening | null>(null);
+  const [busy, setBusy] = useState<'preview' | 'write' | null>(null);
+  const inFlight = useRef(false);
+  const [validationAttempted, setValidationAttempted] = useState(false);
+  const [failure, setFailure] = useState<{ kind: 'preview' | 'rejected' | 'uncertain'; detail: Notice } | null>(null);
+  const [receipt, setReceipt] = useState<OpeningResult | null>(null);
+  const [sent, setSent] = useState<FrozenOpening | null>(null);
+  const [rows, setRows] = useState<OpeningRecord[] | null>(null);
+  const [listError, setListError] = useState<Notice | null>(null);
+  const [reading, setReading] = useState(false);
+  const [viewed, setViewed] = useState<OpeningRecord | null>(null);
+  const [readback, setReadback] = useState<{ ok: boolean; detail?: Notice } | null>(null);
+  const statusRef = useRef<HTMLDivElement>(null);
+  const locked = !!receipt || failure?.kind === 'uncertain';
+  const frozen = locked || !!pending || !!busy;
+  const format = (value: number | null) => value == null ? t('trade.opening_na')
+    : value.toLocaleString(localeDi(language), { maximumSignificantDigits: 21, useGrouping: true });
+  const parsed = useMemo(() => {
+    try { return { body: preparaPosizioneIniziale(draft, language, oggiISO(), inputLanguages), error: null }; }
+    catch (error) { return { body: null, error: errorDetail(error) }; }
+  }, [draft, language, inputLanguages]);
+  const change = <K extends keyof OpeningDraft>(key: K, value: OpeningDraft[K]) => {
+    if (frozen) return;
+    if (key === 'quantita' || key === 'prezzo_medio') {
+      const numericKey = key as 'quantita' | 'prezzo_medio';
+      setInputLanguages(old => ({ ...old,
+        [numericKey]: String(value).trim() === '' ? undefined : draft[numericKey].trim() ? old[numericKey] ?? language : language }));
+    }
+    setDraft(old => ({ ...old, [key]: value })); setFailure(null);
+  };
+  const refresh = useCallback(async () => {
+    setReading(true);
+    try { setRows(leggiPosizioniIniziali(await Bellomberg.openingPositions())); setListError(null); }
+    catch (error) { setRows(null); setListError(errorNotice(error)); }
+    finally { setReading(false); }
+  }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { if (receipt || failure) statusRef.current?.focus(); }, [receipt, failure]);
+  const preview = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (inFlight.current || frozen) return;
+    setValidationAttempted(true);
+    if (!parsed.body) return;
+    const body = { ...parsed.body };
+    inFlight.current = true; setBusy('preview'); setFailure(null);
+    try { setPending(congelaPosizioneIniziale(body, await Bellomberg.previewOpeningPosition(body))); }
+    catch (error) { setFailure({ kind: 'preview', detail: errorNotice(error) }); }
+    finally { inFlight.current = false; setBusy(null); }
+  };
+  const commit = async (value: FrozenOpening) => {
+    if (inFlight.current || locked) return;
+    inFlight.current = true; setBusy('write'); setPending(null); setSent(value);
+    try { setReceipt(leggiRicevutaPosizione(value.body, await Bellomberg.createOpeningPosition(value.body))); setFailure(null); }
+    catch (error) { setFailure({ kind: scritturaRifiutata(error) ? 'rejected' : 'uncertain', detail: errorNotice(error) }); }
+    finally { inFlight.current = false; setBusy(null); }
+    // A failed read never changes a committed write into an uncertain one.
+    void refresh();
+  };
+  const readTicker = async (ticker: string) => {
+    setReadback(null);
+    try {
+      const value = await Bellomberg.openingPosition(ticker);
+      const row = leggiPosizioniIniziali({ openings: [value?.opening] })[0];
+      if (row.ticker !== ticker) throw new FrontendTradeError(() => tr('trade.opening_list_invalid'));
+      setViewed(row); setReadback({ ok: true });
+    } catch (error) { setReadback({ ok: false, detail: errorNotice(error) }); }
+  };
+  const balanceRows = (value: OpeningRecord | FrozenOpening['preview']['opening']): ConfirmRow[] => [
+    { k: t('trade.opening_ticker'), v: value.ticker },
+    { k: t('trade.opening_qty'), v: format(value.quantita) },
+    { k: t('trade.opening_cost'), v: `${format(value.prezzo_medio)} ${value.valuta}` },
+    { k: t('trade.opening_date'), v: value.as_of.replace('T', ' ') },
+    { k: t('trade.opening_precision'), v: t(value.precisione_data === 'day' ? 'trade.opening_day' : 'trade.opening_second') },
+    { k: t('trade.opening_acquisition'), v: t('trade.opening_unknown'), tone: 'amber' },
+    { k: t('trade.opening_source'), v: value.provenienza },
+    ...(value.nome ? [{ k: t('trade.opening_name'), v: value.nome }] : []),
+    ...(value.nota ? [{ k: t('trade.opening_note'), v: value.nota }] : []),
+  ];
+  const receiptRecord = viewed ?? receipt?.opening;
+  return <div className="f7c" data-opening-entry>
+    <div className="colonna sx">
+      <div className="rq">
+        <div className="ph a"><h1>{t('trade.opening_title')}</h1><span className="side">{t('trade.opening_side')}</span></div>
+        <div className="pb">
+          <p className="gate">{t('trade.opening_intro')}</p>
+          <form onSubmit={preview}>
+            <fieldset disabled={frozen} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+              <div className="campi">
+                <div className="campo"><label htmlFor="f7-op-ticker">{t('trade.opening_ticker')}</label>
+                  <input id="f7-op-ticker" className="testo" autoComplete="off" value={draft.ticker} onChange={e => change('ticker', e.target.value)} /></div>
+                <div className="campo"><label htmlFor="f7-op-name">{t('trade.opening_name')}</label>
+                  <input id="f7-op-name" className="testo" value={draft.nome} onChange={e => change('nome', e.target.value)} /></div>
+                <div className="campo"><label htmlFor="f7-op-qty">{t('trade.opening_qty')}</label>
+                  <input id="f7-op-qty" className="testo num" type="text" inputMode="decimal" autoComplete="off" value={draft.quantita}
+                    title={t('numeri.grafia_richiesta', { esempio: (inputLanguages.quantita ?? language) === 'it' ? '1.234,56' : '1,234.56' })}
+                    onChange={e => change('quantita', e.target.value)} /></div>
+                <div className="campo"><label htmlFor="f7-op-cost">{t('trade.opening_cost')}</label>
+                  <input id="f7-op-cost" className="testo num" type="text" inputMode="decimal" autoComplete="off" value={draft.prezzo_medio}
+                    title={t('numeri.grafia_richiesta', { esempio: (inputLanguages.prezzo_medio ?? language) === 'it' ? '1.234,56' : '1,234.56' })}
+                    onChange={e => change('prezzo_medio', e.target.value)} /></div>
+                <div className="campo"><label htmlFor="f7-op-currency">{t('trade.opening_currency')}</label>
+                  <div className="box"><select id="f7-op-currency" value={draft.valuta} onChange={e => change('valuta', e.target.value)}>
+                    {CURRENCIES.map(currency => <option key={currency}>{currency}</option>)}
+                  </select></div></div>
+                <div className="campo"><label htmlFor="f7-op-day">{t('trade.opening_date')}</label>
+                  <input id="f7-op-day" className="testo" type="date" min="2000-01-01" max={oggiISO()} value={draft.giorno} onChange={e => change('giorno', e.target.value)} /></div>
+                <div className="campo"><label htmlFor="f7-op-precision">{t('trade.opening_precision')}</label>
+                  <div className="box"><select id="f7-op-precision" value={draft.precisione} onChange={e => change('precisione', e.target.value as OpeningDraft['precisione'])}>
+                    <option value="day">{t('trade.opening_day')}</option><option value="second">{t('trade.opening_second')}</option>
+                  </select></div></div>
+                {draft.precisione === 'second' && <div className="campo"><label htmlFor="f7-op-time">{t('trade.opening_time')}</label>
+                  <input id="f7-op-time" className="testo" type="time" step="1" value={draft.ora} onChange={e => change('ora', e.target.value)} /></div>}
+              </div>
+              <div className="campo"><label htmlFor="f7-op-source">{t('trade.opening_source')}</label>
+                <input id="f7-op-source" className="testo" value={draft.provenienza} placeholder={t('trade.opening_source_example')} onChange={e => change('provenienza', e.target.value)} /></div>
+              <div className="campo"><label htmlFor="f7-op-note">{t('trade.opening_note')}</label>
+                <textarea id="f7-op-note" rows={2} value={draft.nota} onChange={e => change('nota', e.target.value)} /></div>
+              <p className="aiuto">{t('trade.opening_zero')}</p>
+            </fieldset>
+            {validationAttempted && parsed.error && <div className="avv rosso" role="alert">{parsed.error}</div>}
+            <button type="submit" className="spara" disabled={frozen}><Save size={12} />
+              {t(busy === 'preview' ? 'trade.opening_checking' : busy === 'write' ? 'trade.opening_writing' : 'trade.opening_preview')}</button>
+          </form>
+          <div ref={statusRef} tabIndex={-1} role="status" aria-live="polite" style={{ outline: 'none' }}>
+            {failure && <div className={'avv ' + (failure.kind === 'uncertain' ? 'viola' : 'rosso')}>
+              <span>{failure.kind !== 'preview' && <b>{t(failure.kind === 'uncertain' ? 'trade.opening_uncertain' : 'trade.opening_rejected')}</b>}
+                <span className="verbatim">{noticeText(failure.detail, t)}</span></span></div>}
+            {receipt && <div className="avv verde"><span>{t('trade.opening_saved')} · #{receipt.opening.id} · {receipt.opening.ticker}</span></div>}
+            {receipt?.performance_note && <div className="avv giallo"><span>{receipt.performance_note}</span></div>}
+            {locked && <p className="gate">{t('trade.opening_locked')}</p>}
+          </div>
+          {sent && <button type="button" className="mini" onClick={() => void readTicker(sent.body.ticker)}>{t('trade.opening_readback')} · {sent.body.ticker}</button>}
+          {readback && <div className={'avv ' + (readback.ok ? 'verde' : 'rosso')} role="status">
+            {t(readback.ok ? 'trade.opening_readback_ok' : 'trade.opening_readback_error')}{readback.detail && ` · ${noticeText(readback.detail, t)}`}</div>}
+          {receipt && <button type="button" className="mini" onClick={() => {
+            setDraft(emptyOpening()); setInputLanguages({}); setReceipt(null); setSent(null); setViewed(null); setReadback(null); setFailure(null); setValidationAttempted(false);
+          }}>{t('trade.opening_next')}</button>}
+          <div className="avv calmo"><span>{t('trade.opening_effects')}</span></div>
+          <div className="avv giallo"><span>{t('trade.opening_coverage')}</span></div>
+        </div>
+      </div>
+    </div>
+    <div className="colonna dx">
+      {receiptRecord && <div className="rq" data-opening-receipt>
+        <div className="ph c"><h2>{t('trade.opening_receipt')} #{receiptRecord.id}</h2></div>
+        <div className="pb"><table><tbody>
+          {[...balanceRows(receiptRecord), { k: t('trade.opening_created'), v: receiptRecord.created_at }].map(row =>
+            <tr key={row.k}><th>{row.k}</th><td style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{row.v}</td></tr>)}
+        </tbody></table><p className="gate">{t('trade.opening_coverage')}</p></div>
+      </div>}
+      <div className="rq cresce">
+        <div className="ph"><h2>{t('trade.opening_register')}</h2>
+          <button type="button" className="mini" disabled={reading} onClick={() => void refresh()}>{t('trade.opening_refresh')}</button></div>
+        <div className="pb scorre" aria-busy={reading}>
+          {reading && <p>{t('trade.opening_loading')}</p>}
+          {listError && <div className="avv rosso">{t('trade.opening_read_error')}: {noticeText(listError, t)}</div>}
+          {rows?.length === 0 && <p>{t('trade.opening_empty')}</p>}
+          {rows?.map(row => <div className="rq" key={row.id}>
+            <div className="ph"><span>{row.ticker} · {format(row.quantita)} {row.valuta}</span>
+              <button type="button" className="mini" onClick={() => void readTicker(row.ticker)}>{t('trade.opening_view')} #{row.id}</button></div>
+            <div className="pb">{t('trade.opening_date')}: {row.as_of.replace('T', ' ')}<br />{row.provenienza}</div>
+          </div>)}
+        </div>
+      </div>
+    </div>
+    {pending && <ConfirmDialog open title={t('trade.opening_confirm_title')} intro={t('trade.opening_effects')}
+      rows={[...balanceRows(pending.preview.opening),
+        { k: t('trade.opening_cash_delta'), v: `${format(pending.preview.cash_delta_eur)} EUR` },
+        { k: t('trade.opening_cash_after'), v: pending.preview.cash_disponibile_eur == null ? t('trade.opening_na') : `${format(pending.preview.cash_disponibile_eur)} EUR` }]}
+      warn={t('trade.opening_frozen', { seconds: pending.preview.expires_in_seconds }) + ' ' + t('trade.opening_coverage')}
+      confirmLabel={t('trade.opening_confirm')} cancelLabel={t('trade.cancel')}
+      onCancel={() => setPending(null)} onConfirm={() => void commit(pending)} />}
+  </div>;
 }
 
 // ── la riga di PRIMA → DOPO ─────────────────────────────────────────────────

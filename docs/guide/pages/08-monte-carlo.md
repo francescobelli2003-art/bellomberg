@@ -20,6 +20,12 @@ scenario analysis. It does not execute trades.
 5. Hover the chart to inspect the bands and compare downside as well as central
    outcomes. Keep the assumptions with any conclusion you record.
 
+Each scenario row keeps the numeric format selected when that row was added.
+Changing interface language preserves the entered text and its interpretation,
+including when you continue editing it. Check the field's format hint and the
+parsed amount; ambiguous input is rejected. The language switch alone does not
+run a simulation or change an existing result.
+
 ## What the chart means
 A percentile band is conditional on the chosen model and its inputs. It is not
 a confidence statement that the future must follow those paths. Historical

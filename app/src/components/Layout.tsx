@@ -1,13 +1,16 @@
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
+import { version as appVersion } from '../../package.json';
 import {
   LayoutDashboard, FileText, MessageSquare, CheckSquare, ClipboardList,
   Settings as SettingsIcon, TrendingUp, Activity, Zap, Cpu, Wallet, Newspaper, PieChart, LineChart, Waves, Radar, ArrowLeftRight, Globe, Star, FileSpreadsheet
 } from 'lucide-react';
 import { Bellomberg } from '@/lib/api';
 import SettingsPanel from './SettingsPanel';
+import { useLingua, useT } from '@/i18n/provider';
+import { fmtDataBreve, fmtOra, fmtNum } from '@/lib/format';
 
-import { PAGE_DESTINATIONS, SETTINGS_DESTINATION } from '../lib/navigation';
+import { PAGE_DESTINATIONS, SETTINGS_DESTINATION, localizeDestination } from '../lib/navigation';
 
 const icons: Record<string, typeof LayoutDashboard> = {
   dashboard: LayoutDashboard, performance: LineChart, watchlist: Star,
@@ -16,7 +19,6 @@ const icons: Record<string, typeof LayoutDashboard> = {
   chat: MessageSquare, agents: Activity, progress: TrendingUp, memos: FileText,
   decisions: CheckSquare, trades: Wallet, movements: ArrowLeftRight, mandato: ClipboardList,
 };
-const nav = PAGE_DESTINATIONS.map(entry => ({ ...entry, icon: icons[entry.id] }));
 const KEY_SETTINGS = SETTINGS_DESTINATION.key;
 
 function useNow(intervalMs = 1000) {
@@ -33,8 +35,8 @@ const fmtModel = (m: string) =>
   m.replace('claude-', '').replace(/-\d{8}$/, '').toUpperCase().replace(/-/g, ' ');
 
 function useTelemetry() {
-  const [tel, setTel] = useState<{ engine: string; agents: string; running: boolean; ok: boolean }>(
-    { engine: '...', agents: '...', running: false, ok: true });
+  const [tel, setTel] = useState<{ engine: string | null; engineMissing: boolean; total: number | null; done: number | null; running: boolean; ok: boolean }>(
+    { engine: null, engineMissing: false, total: null, done: null, running: false, ok: true });
   useEffect(() => {
     let mounted = true;
     // Mai un 8 inventato: senza payload il conteggio è n.d. (regola 14/07)
@@ -47,9 +49,9 @@ function useTelemetry() {
       const eng = r.engines;
       const m = eng?.committee_r1_r2 ? fmtModel(eng.committee_r1_r2)
         : eng?.committee_r1_r2_error ? 'ERR: ' + eng.committee_r1_r2_error
-        : 'N.D. (RIAVVIO BACKEND)';
-      if (mounted) setTel(t => ({ ...t, engine: m, agents: total != null ? total + ' READY' : 'N.D.' }));
-    }).catch(() => { if (mounted) setTel(t => ({ ...t, engine: 'OFFLINE', agents: 'N.D.', ok: false })); });
+        : null;
+      if (mounted) setTel(t => ({ ...t, engine: m, engineMissing: m === null, total }));
+    }).catch(() => { if (mounted) setTel(t => ({ ...t, engine: 'OFFLINE', total: null, ok: false })); });
     const poll = async () => {
       try {
         const live = await Bellomberg.agentsLive();
@@ -58,9 +60,9 @@ function useTelemetry() {
           const st = live.specialist_status || {};
           const done = Object.values(st).filter(v => v === 'done').length;
           const tot = Object.keys(st).length || total;
-          setTel(t => ({ ...t, agents: done + '/' + (tot != null ? tot : 'n.d.') + ' RUN', running: true, ok: true }));
+          setTel(t => ({ ...t, done, total: tot, running: true, ok: true }));
         } else {
-          setTel(t => ({ ...t, agents: total != null ? total + ' READY' : 'N.D.', running: false, ok: true }));
+          setTel(t => ({ ...t, done: null, total, running: false, ok: true }));
         }
       } catch { if (mounted) setTel(t => ({ ...t, ok: false })); }
     };
@@ -174,6 +176,8 @@ function marketStatus(now: Date) {
 }
 
 export default function Layout({ children }: { children: React.ReactNode }) {
+  const language = useLingua(), t = useT();
+  const nav = PAGE_DESTINATIONS.map(entry => ({ ...localizeDestination(entry, language), icon: icons[entry.id] }));
   const now = useNow();
   const health = useBackendHealth();
   const { fx, fxAt, fxErr } = useFx();
@@ -220,8 +224,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
      difetti che non esistono. */
   const dietro = cfgOpen ? { 'data-inerte': '', 'aria-hidden': true } : {};
 
-  const timeStr = now.toLocaleTimeString('it-IT', { hour12: false });
-  const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
+  const timeStr = fmtOra(now, language);
+  const dateStr = fmtDataBreve(now, language);
   const tzOffset = now.getTimezoneOffset();
 
   return (
@@ -236,7 +240,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="flex items-center gap-2.5 px-3 border-r border-border bg-bg">
           <span className="inline-block w-2 h-2 bg-amber" style={{ boxShadow: '0 0 8px rgba(255,165,30,0.55)' }} />
           <span className="text-amber font-bold tracking-[0.28em] text-glow-amber">BELLOMBERG</span>
-          <span className="text-faint text-3xs tracking-[0.2em]">v0.9 OBSIDIAN</span>
+          <span className="text-faint text-3xs tracking-[0.2em]">v{appVersion} OBSIDIAN</span>
         </div>
 
         <div className="flex items-center gap-3 px-4 border-r border-border">
@@ -252,10 +256,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <button
           onClick={() => window.dispatchEvent(new Event('bb:palette'))}
           className="flex-1 flex items-center gap-2.5 px-4 mx-3 my-1.5 bg-bg border border-border hover:border-amber-deep hover:bg-panel transition-colors cursor-pointer text-left group"
-          title="Command palette (Ctrl+K)">
+          title={t('shell.palette')}>
           <span className="text-amber font-bold">&#10095;</span>
           <span className="text-faint group-hover:text-muted transition-colors tracking-wider">
-            CERCA TICKER &middot; PAGINE &middot; AZIONI
+            {t('shell.search')}
           </span>
           <span className="ml-auto text-faint text-3xs border border-border px-1.5 py-0.5 tracking-wider">CTRL+K</span>
         </button>
@@ -281,11 +285,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <button
           onClick={() => setCfgOpen(o => !o)}
           title={guasti == null
-            ? 'IMPOSTAZIONI (F11) — stato dei lavori automatici NON LEGGIBILE (backend in errore)'
+            ? t('shell.settings_unknown', { key: KEY_SETTINGS })
             : guasti > 0
-              ? `IMPOSTAZIONI (F11) — ${guasti} lavoro automatico NON riuscito`
-              : `IMPOSTAZIONI (${KEY_SETTINGS})`}
-          aria-label="Impostazioni"
+              ? t('shell.settings_failed', { key: KEY_SETTINGS, n: guasti })
+              : `${t('shell.settings')} (${KEY_SETTINGS})`}
+          aria-label={t('shell.settings')}
           aria-expanded={cfgOpen}
           className={'relative flex items-center gap-2 px-3.5 border-l border-border transition-colors ' +
             (cfgOpen ? 'text-amber bg-amber/10' : 'text-text-dim hover:text-amber hover:bg-bg-elev')}>
@@ -307,9 +311,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </header>
 
       {/* ===== TIER 2: module bar orizzontale (niente sidebar: questo e' un terminale) ===== */}
-      <nav {...dietro} aria-label="Moduli Bellomberg" className="h-10 flex items-stretch border-b border-border bg-bg shrink-0 font-mono overflow-x-auto overflow-y-hidden">
+      <nav {...dietro} aria-label={t('shell.modules')} className="h-10 flex items-stretch border-b border-border bg-bg shrink-0 font-mono overflow-x-auto overflow-y-hidden">
         {nav.map(({ to, short, label, group, icon: Icon, key }, index) => (
-          <NavLink key={to} to={to} title={`${key} ? ${label} ? ${group}`}
+          <NavLink key={to} to={to} title={`${key} · ${label} · ${group}`}
             className={({ isActive }) =>
               'relative flex items-center gap-1.5 px-3 text-2xs tracking-wider whitespace-nowrap transition-colors border-r border-border/50 ' +
               (index > 0 && nav[index - 1].group !== group ? 'border-l-2 border-l-amber/25 ' : '') +
@@ -320,7 +324,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <span>{short}</span>
           </NavLink>
         ))}
-        <button onClick={() => setCfgOpen(true)} title={`${KEY_SETTINGS} ? Impostazioni`}
+        <button onClick={() => setCfgOpen(true)} title={`${KEY_SETTINGS} · ${t('shell.settings')}`}
           className="ml-auto flex items-center gap-1.5 px-3 text-2xs tracking-wider whitespace-nowrap border-l-2 border-amber/25 text-text-dim hover:text-amber hover:bg-bg-elev">
           <span className="text-3xs text-muted tabular-nums">{KEY_SETTINGS.slice(1)}</span>
           <SettingsIcon size={12} /><span>CONFIG</span>
@@ -336,7 +340,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="flex-1 flex items-center overflow-hidden gap-5">
           {Object.entries(fx).length === 0 ? (
             <span className={fxErr ? 'text-crimson' : 'text-faint'}>
-              {fxErr ? 'FX NON DISPONIBILE — backend in errore' : 'awaiting fx feed...'}
+              {fxErr ? t('shell.fx_error') : t('shell.fx_waiting')}
             </span>
           ) : (
             Object.entries(fx).map(([c, r]) => {
@@ -345,7 +349,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <span key={c} className="flex items-center gap-1.5">
                   <span className="text-muted">{c}/EUR</span>
                   <span className="text-cyan tabular-nums">
-                    {safe ? r.toFixed(c === 'GBX' ? 5 : 4) : '-'}
+                    {safe ? fmtNum(r, c === 'GBX' ? 5 : 4) : '-'}
                   </span>
                 </span>
               );
@@ -353,7 +357,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           )}
         </div>
         {fxErr && fxAt != null ? (
-          <span className="text-amber text-3xs uppercase tracking-wider" title="ultimo aggiornamento FX riuscito: le quote nel nastro sono STANTIE">
+          <span className="text-amber text-3xs uppercase tracking-wider" title={t('shell.fx_stale')}>
             FX STALE {Math.max(1, Math.round((now.getTime() - fxAt) / 60000))}M
           </span>
         ) : (
@@ -373,23 +377,25 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <footer {...dietro} className="h-7 border-t border-border bg-bg-elev flex items-center text-3xs font-mono text-faint px-3 gap-5 shrink-0">
         <span className="text-amber-deep uppercase tracking-widest">[ Bellomberg &middot; Obsidian ]</span>
         <span className="flex items-center gap-1.5">
-          <span className="text-faint uppercase">Engine</span>
-          <span className="text-cyan">{tel.engine}</span>
+          <span className="text-faint uppercase">{t('shell.engine')}</span>
+          <span className="text-cyan">{tel.engineMissing ? t('shell.engine_restart') : tel.engine ?? '…'}</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="text-faint uppercase">Agents</span>
-          <span className={tel.running ? 'text-emerald' : 'text-amber'}>{tel.agents}</span>
+          <span className="text-faint uppercase">{t('shell.agents')}</span>
+          <span className={tel.running ? 'text-emerald' : 'text-amber'}>{tel.running
+            ? `${tel.done}/${tel.total ?? t('shell.unavailable')} RUN`
+            : tel.total == null ? t('shell.unavailable') : `${tel.total} ${t('shell.ready')}`}</span>
         </span>
         <span className="flex items-center gap-1">
           {tel.running
-            ? <span className="text-emerald flex items-center gap-1"><Zap size={9} /> RUN LIVE</span>
+            ? <span className="text-emerald flex items-center gap-1"><Zap size={9} /> {t('shell.live_run')}</span>
             : tel.ok
               ? <span className="text-cyan flex items-center gap-1"><Zap size={9} /> ONLINE</span>
               : <span className="text-crimson">OFFLINE</span>}
         </span>
-        <span>SESSION {now.toISOString().slice(0,10)}</span>
+        <span>{t('shell.session')} {now.toISOString().slice(0,10)}</span>
         <span className="flex-1 text-right text-muted uppercase tracking-[0.15em]">
-          Workspace locale &middot; Dati live &middot; F1-F19 &middot; CTRL+K
+          {t('shell.workspace')}
         </span>
       </footer>
 

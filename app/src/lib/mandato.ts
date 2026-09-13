@@ -1,3 +1,7 @@
+import { linguaCorrente, type Lingua } from '../i18n/lingua.js';
+import { analizzaNumero } from '../i18n/numeri.js';
+import { traduci } from '../i18n/t.js';
+
 export const BLOCCHI_MANDATO = ['profilo', 'rischio', 'sizing', 'cassa', 'disciplina', 'opzioni', 'note'] as const;
 export type BloccoMandato = typeof BLOCCHI_MANDATO[number];
 
@@ -19,30 +23,16 @@ export interface StatoMandato {
   impronta: string | null; dichiarato_il: string | null;
   campi: Record<string, CampoMandato>; errori: string[]; esempio: ValoriMandato | null;
 }
-export interface AnteprimaMandato { testo: string; impronta: string; origine: string }
+export interface AnteprimaMandato { testo: string; impronta: string; origine: string; output_language?: Lingua }
 export type LetturaMandato = { ok: true; valore: number | null } | { ok: false; motivo: string };
 
-export function leggiNumeroMandato(s: string, campo: Pick<CampoMandato, 'tipo'|'obbligatorio'|'intervallo'>): LetturaMandato {
-  const t = (s || '').trim().replace(/\s/g, '');
-  if (!t) return campo.obbligatorio ? { ok: false, motivo: 'campo obbligatorio' } : { ok: true, valore: null };
-  if (!/^[0-9.,]+$/.test(t)) return { ok: false, motivo: 'usa solo cifre, virgola o punto' };
-  const virgole = (t.match(/,/g) || []).length, punti = (t.match(/\./g) || []).length;
-  if (virgole > 1) return { ok: false, motivo: 'più di una virgola' };
-  let normalizzato = t;
-  if (virgole === 1) {
-    if (punti && !/^[1-9]\d{0,2}(\.\d{3})*,\d+$/.test(t)) return { ok: false, motivo: 'separatori in posizione ambigua' };
-    normalizzato = t.replace(/\./g, '').replace(',', '.');
-  } else if (punti === 1) {
-    const [intero, decimali] = t.split('.');
-    if (decimali.length === 3 && intero !== '0') return { ok: false, motivo: `${t} è ambiguo: usa la virgola per i decimali` };
-  } else if (punti > 1) {
-    if (!/^[1-9]\d{0,2}(\.\d{3})+$/.test(t)) return { ok: false, motivo: 'punti in posizione non valida' };
-    normalizzato = t.replace(/\./g, '');
-  }
-  const valore = Number(normalizzato);
-  if (!Number.isFinite(valore)) return { ok: false, motivo: 'non è un numero' };
-  if ((campo.tipo === 'int' || campo.tipo === 'intervallo_int') && !Number.isInteger(valore)) return { ok: false, motivo: 'serve un numero intero' };
-  if (campo.intervallo && (valore < campo.intervallo[0] || valore > campo.intervallo[1])) return { ok: false, motivo: `deve essere fra ${campo.intervallo[0]} e ${campo.intervallo[1]}` };
+export function leggiNumeroMandato(s: string, campo: Pick<CampoMandato, 'tipo'|'obbligatorio'|'intervallo'>, lingua: Lingua = linguaCorrente(), linguaMessaggio: Lingua = lingua): LetturaMandato {
+  const letto = analizzaNumero(s, lingua, linguaMessaggio);
+  if (letto == null) return campo.obbligatorio ? { ok: false, motivo: traduci(linguaMessaggio, 'numeri.obbligatorio') } : { ok: true, valore: null };
+  if (!letto.ok) return letto;
+  const { valore } = letto;
+  if ((campo.tipo === 'int' || campo.tipo === 'intervallo_int') && !Number.isInteger(valore)) return { ok: false, motivo: traduci(linguaMessaggio, 'numeri.intero') };
+  if (campo.intervallo && (valore < campo.intervallo[0] || valore > campo.intervallo[1])) return { ok: false, motivo: traduci(linguaMessaggio, 'numeri.intervallo', { min: campo.intervallo[0], max: campo.intervallo[1] }) };
   return { ok: true, valore };
 }
 
@@ -80,7 +70,7 @@ export function coperturaCampo(nome: string): { etichetta: string; nota: string;
 
 // Nome pubblico della voce sessionStorage, condiviso fra salvataggio e recupero.
 export const CHIAVE_BOZZA_MANDATO = 'bellomberg_mandato_bozza_v1';
-export interface BozzaMandato { baseImpronta: string | null; form: Record<string, unknown>; metadati?: Record<string, unknown>; salvataIl: string }
+export interface BozzaMandato { baseImpronta: string | null; form: Record<string, unknown>; metadati?: Record<string, unknown>; salvataIl: string; inputLanguage?: Lingua; formatoPresunto?: boolean }
 export function leggiBozza(): BozzaMandato | null { try { const x = JSON.parse(sessionStorage.getItem(CHIAVE_BOZZA_MANDATO) || 'null'); return x && typeof x === 'object' && x.form ? x as BozzaMandato : null; } catch { return null; } }
 export function salvaBozza(bozza: BozzaMandato): void { try { sessionStorage.setItem(CHIAVE_BOZZA_MANDATO, JSON.stringify(bozza)); } catch {} }
 export function eliminaBozza(): void { try { sessionStorage.removeItem(CHIAVE_BOZZA_MANDATO); } catch {} }

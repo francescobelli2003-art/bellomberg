@@ -20,6 +20,8 @@ Convenzione anti-hallucination: ogni risultato ha _source e _timestamp;
 errori ritornati come {"error": ...}, mai eccezioni propagate.
 """
 from bellomberg.core.paths import PROJECT_ROOT
+from bellomberg.core.language import scoped_language
+from bellomberg.core.presentation import error_text, message
 import os
 from datetime import datetime
 from typing import Dict, Any, Optional, List
@@ -41,6 +43,7 @@ except Exception:
 # 1) GEX — Gamma Exposure (richiede Polygon Options)
 # ============================================================
 
+@scoped_language
 def compute_gex(ticker: str, max_expiries: int = 5,
                 days_window: int = 45) -> Dict[str, Any]:
     """Dealer Gamma Exposure aggregata sulle expiry entro days_window giorni.
@@ -54,11 +57,11 @@ def compute_gex(ticker: str, max_expiries: int = 5,
     try:
         from bellomberg.market_data.polygon_data import polygon_available, get_option_expirations, get_options_chain
         if not polygon_available():
-            return {"error": "POLYGON_API_KEY mancante o non attiva", "_source": src}
+            return {"error": message("POLYGON_API_KEY mancante o non attiva", "POLYGON_API_KEY missing or inactive"), "_source": src}
 
         exp = get_option_expirations(ticker)
         if exp.get("error"):
-            return {"error": f"expirations: {exp['error']}", "_source": src}
+            return {"error": message("scadenze: {reason}", "expirations: {reason}", reason=exp['error']), "_source": src}
         today = datetime.now().date()
         chosen: List[str] = []
         for e in exp.get("expirations", []):
@@ -71,7 +74,7 @@ def compute_gex(ticker: str, max_expiries: int = 5,
             if len(chosen) >= max_expiries:
                 break
         if not chosen:
-            return {"error": f"nessuna expiry entro {days_window} giorni", "_source": src}
+            return {"error": message("nessuna expiry entro {days} giorni", "no expiry within {days} days", days=days_window), "_source": src}
 
         spot = None
         by_strike: Dict[float, Dict[str, float]] = {}
@@ -111,10 +114,17 @@ def compute_gex(ticker: str, max_expiries: int = 5,
                     spot = float(strike)
 
         if not by_strike:
-            return {"error": "chain senza gamma/OI utilizzabili", "_source": src}
+            return {"error": message("chain senza gamma/OI utilizzabili", "chain has no usable gamma/OI"), "_source": src}
+        spot_method = "atm_call_strike"
         if spot is None:
             ks = sorted(by_strike.keys())
             spot = ks[len(ks) // 2]  # fallback: strike mediano
+            spot_method = "median_strike"
+        spot_note = (message("Spot proxy: strike call con delta vicino a 0,5; non è una quotazione del sottostante.",
+                             "Spot proxy: call strike with delta near 0.5; this is not an underlying quote.")
+                     if spot_method == "atm_call_strike" else
+                     message("Spot proxy: strike mediano, non essendoci una call con delta vicino a 0,5; non è una quotazione del sottostante.",
+                             "Spot proxy: median strike because no call has delta near 0.5; this is not an underlying quote."))
 
         scale = 100.0 * spot * spot * 0.01  # dollar gamma per 1% move
         profile = []
@@ -148,15 +158,18 @@ def compute_gex(ticker: str, max_expiries: int = 5,
         # Regime: priorità a spot vs gamma flip (zero gamma level); il GEX netto
         # totale resta come misura di intensità. Evita label contraddittorie.
         gamma_pos = (spot > flip) if flip is not None else (net_gex > 0)
-        regime = ("POSITIVO (spot sopra il gamma flip): dealer comprano i dip e "
-                  "vendono i rally -> mercato compresso, mean-reversion, vol venduta"
-                  if gamma_pos else
-                  "NEGATIVO (spot sotto il gamma flip): dealer amplificano i "
-                  "movimenti -> accelerazioni, momentum, vol comprata")
+        regime_basis = (message("spot sopra il gamma flip", "spot above the gamma flip") if gamma_pos else
+                        message("spot sotto il gamma flip", "spot below the gamma flip")) if flip is not None else message("GEX netto; flip non disponibile", "net GEX; flip unavailable")
+        regime = (message("POSITIVO ({basis}): dealer comprano i dip e vendono i rally -> mercato compresso, mean-reversion, vol venduta",
+                          "POSITIVE ({basis}): dealers buy dips and sell rallies -> compressed market, mean reversion, volatility sold", basis=regime_basis)
+                  if gamma_pos else message("NEGATIVO ({basis}): dealer amplificano i movimenti -> accelerazioni, momentum, vol comprata",
+                                             "NEGATIVE ({basis}): dealers amplify moves -> acceleration, momentum, volatility bought", basis=regime_basis))
 
         return {
             "ticker": ticker.upper(),
             "spot_est": spot,
+            "spot_method": spot_method,
+            "spot_note": spot_note,
             "expiries_used": chosen,
             "n_contracts": n_contracts,
             "net_gex_usd_per_1pct": round(net_gex, 0),
@@ -167,18 +180,18 @@ def compute_gex(ticker: str, max_expiries: int = 5,
             "put_call_oi_ratio": round(tot_put_oi / tot_call_oi, 3) if tot_call_oi else None,
             "gamma_flip_strike": flip,
             "spot_vs_flip": (None if flip is None else
-                             ("sopra il flip (gamma positivo)" if spot > flip
-                              else "sotto il flip (gamma negativo)")),
+                             (message("sopra il flip (gamma positivo)", "above the flip (positive gamma)") if spot > flip
+                              else message("sotto il flip (gamma negativo)", "below the flip (negative gamma)"))),
             "regime": regime,
-            "note": "OI e put/call ratio calcolati sui contratti con greeks validi "
+            "note": message("OI e put/call ratio calcolati sui contratti con greeks validi "
                     "nello snapshot delayed (i deep-OTM senza quote sono esclusi: "
-                    "gamma trascurabile)",
+                    "gamma trascurabile)", "OI and put/call ratio use contracts with valid greeks in the delayed snapshot (deep-OTM contracts without quotes are excluded: negligible gamma)"),
             "top_strikes": profile_top,
             "_source": src,
             "_timestamp": datetime.now().isoformat(),
         }
     except Exception as e:
-        return {"error": str(e), "_source": src}
+        return {"error": error_text(e), "_source": src}
 
 
 # ============================================================
@@ -211,13 +224,14 @@ def _cot_net(row: Dict[str, Any], prefix: str) -> Optional[int]:
     return None
 
 
+@scoped_language
 def get_cot_positioning(market: str = "ES", weeks: int = 52) -> Dict[str, Any]:
     """Posizionamento CFTC TFF (settimanale, gratis): Dealer / Asset Manager /
     Leveraged Funds net su un future. Include variazione WoW e percentile 1y
     del net Leveraged Funds (estremi = segnale contrarian)."""
     src = "CFTC publicreporting.cftc.gov (TFF futures-only)"
     if not REQ_OK:
-        return {"error": "requests non disponibile", "_source": src}
+        return {"error": message("requests non disponibile", "requests unavailable"), "_source": src}
     name = COT_MARKET_ALIASES.get((market or "").upper().strip(), market.upper().strip())
     try:
         params = {
@@ -233,7 +247,7 @@ def get_cot_positioning(market: str = "ES", weeks: int = 52) -> Dict[str, Any]:
             return {"error": f"HTTP {r.status_code}", "_body": r.text[:200], "_source": src}
         rows = r.json()
         if not rows:
-            return {"error": f"nessun mercato TFF matcha '{name}'", "_source": src}
+            return {"error": message("nessun mercato TFF matcha '{name}'", "no TFF market matches '{name}'", name=name), "_source": src}
 
         # Fix #177: il LIKE matcha anche varianti (es. MICRO E-MINI S&P 500).
         # Tieni SOLO lo stesso identico contratto: match esatto se esiste,
@@ -252,7 +266,7 @@ def get_cot_positioning(market: str = "ES", weeks: int = 52) -> Dict[str, Any]:
             dedup.append(x)
         rows = dedup[:int(weeks)]  # taglio a 'weeks' DOPO filtro esatto + dedup (audit/11)
         if not rows:
-            return {"error": f"nessuna riga per contratto '{target}'", "_source": src}
+            return {"error": message("nessuna riga per contratto '{target}'", "no rows for contract '{target}'", target=target), "_source": src}
 
         latest, prev = rows[0], (rows[1] if len(rows) > 1 else None)
         cats = {"dealer": "dealer", "asset_manager": "asset_mgr", "leveraged_funds": "lev_money"}
@@ -277,21 +291,22 @@ def get_cot_positioning(market: str = "ES", weeks: int = 52) -> Dict[str, Any]:
                            if nets_now.get(k) is not None and nets_prev.get(k) is not None},
             "leveraged_funds_net_percentile_1y": pctile,
             "reading": (None if pctile is None else
-                        ("ESTREMO LONG (>90° pct): crowded, rischio squeeze ribassista — contrarian bearish" if pctile >= 90 else
-                         "ESTREMO SHORT (<10° pct): crowded short, fuel per squeeze rialzista — contrarian bullish" if pctile <= 10 else
-                         "posizionamento non estremo")),
+                        (message("ESTREMO LONG (≥90° pct): crowded, rischio squeeze ribassista — contrarian bearish", "EXTREME LONG (≥90th pct): crowded, downside squeeze risk — contrarian bearish") if pctile >= 90 else
+                         message("ESTREMO SHORT (≤10° pct): crowded short, fuel per squeeze rialzista — contrarian bullish", "EXTREME SHORT (≤10th pct): crowded short, upside squeeze fuel — contrarian bullish") if pctile <= 10 else
+                         message("posizionamento non estremo", "positioning is not extreme"))),
             "n_weeks_history": len(rows),
             "_source": src,
             "_timestamp": datetime.now().isoformat(),
         }
     except Exception as e:
-        return {"error": str(e), "_source": src}
+        return {"error": error_text(e), "_source": src}
 
 
 # ============================================================
 # 3) VIX term structure
 # ============================================================
 
+@scoped_language
 def get_vix_term_structure() -> Dict[str, Any]:
     """VIX9D / VIX / VIX3M / VIX6M: contango = regime calmo (carry per vol seller),
     backwardation = stress (domanda di protezione immediata)."""
@@ -308,18 +323,18 @@ def get_vix_term_structure() -> Dict[str, Any]:
             except Exception:
                 continue
         if "vix_30d" not in out:
-            return {"error": "VIX non scaricabile", "_source": src}
+            return {"error": message("VIX non scaricabile", "VIX download unavailable"), "_source": src}
         v, v3 = out.get("vix_30d"), out.get("vix_3m")
         ratio = round(v / v3, 3) if (v and v3) else None
         state = (None if ratio is None else
-                 ("CONTANGO (normale): curva ascendente, carry positivo per vol seller"
+                 (message("CONTANGO (normale): curva ascendente, carry positivo per vol seller", "CONTANGO (normal): upward curve, positive carry for volatility sellers")
                   if ratio < 0.97 else
-                  "BACKWARDATION (stress): domanda di protezione immediata, regime risk-off"
-                  if ratio > 1.03 else "FLAT: transizione di regime, attenzione"))
+                  message("BACKWARDATION (stress): domanda di protezione immediata, regime risk-off", "BACKWARDATION (stress): demand for immediate protection, risk-off regime")
+                  if ratio > 1.03 else message("FLAT: transizione di regime, attenzione", "FLAT: regime transition, caution")))
         return {**out, "vix_vix3m_ratio": ratio, "term_structure": state,
                 "_source": src, "_timestamp": datetime.now().isoformat()}
     except Exception as e:
-        return {"error": str(e), "_source": src}
+        return {"error": error_text(e), "_source": src}
 
 
 if __name__ == "__main__":

@@ -36,6 +36,8 @@ import time
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 from bellomberg.core.paths import DATA_DIR, EXAMPLES_DIR
+from bellomberg.core.language import text as _ui_text, current_language, scoped_language, language_context
+from bellomberg.core.presentation import message as _message, join_messages, error_text, render_payload
 
 PERCORSO_MANDATO = str(DATA_DIR / "mandato_pm.json")
 ESEMPIO_MANDATO = str(EXAMPLES_DIR / "mandato_pm.example.json")
@@ -201,20 +203,14 @@ class MandatoMancante(Exception):
 
     def _testo(self) -> str:
         if self.causa == "assente":
-            return ("mandato del PM assente: %s non esiste — compila la pagina Mandato (F18), oppure copia "
-                    "%s in data/mandato_pm.json e dichiaraci i TUOI valori (campi vuoti = il comitato non parte)"
-                    % (self.percorso, os.path.basename(ESEMPIO_MANDATO)))
+            return (_message_fmt('mandato del PM assente: %s non esiste — compila la pagina Mandato (F18), oppure copia %s in data/mandato_pm.json e dichiaraci i TUOI valori (campi vuoti = il comitato non parte)', 'PM mandate absent: %s does not exist — complete Mandate (F18), or copy %s to data/mandato_pm.json and declare YOUR values (empty fields prevent committee execution)', (self.percorso, os.path.basename(ESEMPIO_MANDATO))))
         if self.causa == "illeggibile":
-            return ("mandato del PM illeggibile (%s): %s — JSON non valido: correggi il file o risalvalo "
-                    "dalla pagina Mandato (F18)" % (self.percorso, self.dettaglio))
+            return (_message_fmt('mandato del PM illeggibile (%s): %s — JSON non valido: correggi il file o risalvalo dalla pagina Mandato (F18)', 'PM mandate unreadable (%s): %s — invalid JSON: correct the file or save it again from Mandate (F18)', (self.percorso, self.dettaglio)))
         if self.causa == "in_uso":
-            return ("mandato del PM in uso (%s): un altro processo lo sta scrivendo (%s) — riprova fra un "
-                    "istante" % (self.percorso, self.dettaglio))
+            return (_message_fmt('mandato del PM in uso (%s): un altro processo lo sta scrivendo (%s) — riprova fra un istante', 'PM mandate in use (%s): another process is writing it (%s) — retry shortly', (self.percorso, self.dettaglio)))
         if self.causa == "esempio":
-            return ("il profilo di esempio del repo (%s) non si legge: %s — il checkout e' rotto, non il tuo "
-                    "mandato" % (self.percorso, self.dettaglio))
-        return ("mandato del PM incompleto o non valido (%s): %d campi da sistemare — %s — compilali "
-                "nella pagina Mandato (F18)" % (self.percorso, len(self.campi), self.dettaglio))
+            return (_message_fmt("il profilo di esempio del repo (%s) non si legge: %s — il checkout e' rotto, non il tuo mandato", 'The repository example profile (%s) cannot be read: %s — the checkout is broken, not your mandate', (self.percorso, self.dettaglio)))
+        return (_message_fmt('mandato del PM incompleto o non valido (%s): %d campi da sistemare — %s — compilali nella pagina Mandato (F18)', 'PM mandate incomplete or invalid (%s): %d fields need attention — %s — complete them in Mandate (F18)', (self.percorso, len(self.campi), self.dettaglio)))
 
 
 # --------------------------------------------------------------------------- schema e validazione
@@ -227,9 +223,18 @@ def campi_vuoti() -> Dict[str, Any]:
     return out
 
 
+_FIELD_DESCRIPTIONS_EN = {'tipo_investimento': 'Investment horizon: long_term (years), medio_termine (months), trading (weeks).', 'stile': 'concentrato = accepts concentrated convictions; diversificato = no name above its cap.', 'orizzonte_anni': 'Average holding period of a position.', 'valuta_base': 'Currency used to measure wealth (ISO code: EUR, USD, GBP...).', 'broker': 'Broker used (information only).', 'residenza_fiscale': 'Country of tax residence (informs the UCITS and vehicle preference).', 'mercati_accessibili': 'Accessible exchanges, in order of preference: the first is the home exchange (how to buy from there).', 'preferenza_ucits': 'Prefers UCITS ETFs/funds (.MI/.L/.DE) for tax efficiency.', 'leva_ammessa': 'The committee may propose leveraged instruments or margin.', 'short_ammesso': 'The committee may propose short positions.', 'volatilita_target_pct': 'Target annual portfolio volatility.', 'var99_1g_pct': 'Maximum accepted one-day loss (VaR 99%), as a percentage of wealth.', 'drawdown_max_pct': 'Maximum accepted peak-to-trough portfolio drawdown.', 'stress_gfc_pct': 'Maximum accepted loss in a 2008-type stress (GFC replay), as a percentage of NAV.', 'drawdown_bilaterale': 'Assess drawdowns from both sides: possible buying opportunity or selling signal, never an automatic sale.', 'drawdown_significativo_pct': 'Decline from the 52-week high that counts as significant and triggers the two-sided assessment.', 'base_single_pct': 'Reference single-stock weight before volatility and correlation adjustments.', 'cap_single_pct': 'Maximum single-stock weight.', 'base_veicolo_pct': 'Reference weight of an already diversified vehicle (ETF, fund, holding company).', 'cap_veicolo_pct': 'Maximum diversified-vehicle weight.', 'cap_settore_pct': 'Cap on the combined weight of single stocks in the same sector.', 'limite_minimo_pct': 'Adjustments cannot go below this weight (engine floor).', 'posizione_minima_pct': 'Below this threshold, a reduction or available room does not justify action (in line).', 'size_nuova_posizione_pct': 'Typical NEW-position weight (minimum–maximum).', 'max_posizioni': 'Maximum number of portfolio positions.', 'top3_max_pct': 'Maximum combined weight of the three largest positions.', 'cassa_tipica_pct': 'Typical cash holding (minimum–maximum).', 'cassa_max_senza_giustificazione_pct': 'Above this cash range, idle cash requires justification with a dated risk.', 'cassa_minima_pct': 'Cash floor: replenish cash below it.', 'politica_impiego': 'Cash deployment: prudent (only with a catalyst), neutral, aggressive (deployment bias).', 'impiego_default_pct': 'Default share of cash to deploy in the absence of dated risks (minimum–maximum).', 'impiego_finestra_settimane': 'Weeks for deploying that share (minimum–maximum).', 'taglio_max_senza_condizioni_pct': 'Position reduction permitted without the additional conditions (minimum–maximum).', 'taglio_con_condizioni_oltre_pct': 'Beyond this reduction, ALL enabled conditions must hold.', 'condizioni_taglio_oltre': 'Conditions for a large reduction: negative 12-month Sharpe, no catalyst within 90 days, disproved thesis.', 'riproporre_skipped': 'Revisit a skipped decision if the thesis holds (never increase it after two skips).', 'pair_trade_per_memo': 'Maximum pair trades in one memo (0 = none).', 'caccia_globale': 'Search for new ideas WITHOUT geographical restrictions (Japan, India, Brazil, Gulf, frontier markets).', 'nuove_idee_per_memo': 'NEW candidates per memo (outside the book, not repeated proposals), minimum–maximum; 0–0 means the section is not required.', 'rotazione_settoriale': 'No anchoring to existing sectors: reduce a sector with a deteriorated thesis and reallocate the capital.', 'sfidare_le_view': 'The PM’s views are not orders: challenge them with numbers when the evidence contradicts them.', 'opzioni_abilitate': 'The committee may propose option structures.', 'strumenti_ammessi': 'Allowed structures (required when options are enabled).', 'budget_premio_pct': 'Maximum option premium expenditure.', 'note_per_il_comitato': 'Information for the committee: preferred areas, exclusions and personal constraints.', 'aree_gradite': 'Preferred areas, countries or themes (one item per line).', 'esclusioni': 'Excluded sectors, countries or instruments (one item per line).'}
+_UNITS_EN = {'anni': 'years', '% annua': '% annually', '% del patrimonio': '% of wealth', '% del NAV': '% of NAV', "% dell'investito": '% of invested assets', '% del capitale': '% of capital', 'posizioni': 'positions', '% della cassa': '% of cash', 'settimane': 'weeks', '% della posizione': '% of the position', 'per memo': 'per memo', 'candidati': 'candidates'}
+
+
 def descrizione_campi() -> Dict[str, Dict[str, Any]]:
     """Lo schema per la pagina e per il file di esempio (una copia, JSON-compatibile)."""
-    return {n: dict(c) for n, c in CAMPI.items()}
+    out = {n: dict(c) for n, c in CAMPI.items()}
+    for n, c in out.items():
+        c["descrizione"] = _message(c["descrizione"], _FIELD_DESCRIPTIONS_EN[n])
+        if c["unita"] and c["unita"] != "%":
+            c["unita"] = _message(c["unita"], _UNITS_EN[c["unita"]])
+    return out
 
 
 def profilo_esempio() -> Dict[str, Any]:
@@ -252,14 +257,14 @@ def _canonico(v: Any) -> Any:
 def _fmt_conteggio(v: Any) -> str:
     """[2, 3] -> «2-3 candidati»; [0, 3] -> «fino a 3 candidati» (un minimo a zero non e' un obbligo)."""
     a, b = v
-    return ("fino a %s candidati" % _fmt(b)) if a == 0 else (_fmt_int(v) + " candidati")
+    return (_ui_text('fino a %s candidati', 'up to %s candidates') % _fmt(b)) if a == 0 else (_fmt_int(v) + _ui_text(' candidati', ' candidates'))
 
 
 def _fmt(v: Any) -> str:
     """Un numero come lo scrive il PM: 12 -> «12», 0.25 -> «0,25», 2.5 -> «2,5»."""
     if _numero(v) and float(v) == int(v):
         return str(int(v))
-    return ("%g" % v).replace(".", ",")
+    return ("%g" % v).replace(".", "," if current_language() == "it" else ".")
 
 
 def _fmt_int(v: Any) -> str:
@@ -268,82 +273,86 @@ def _fmt_int(v: Any) -> str:
     return _fmt(a) if a == b else _fmt(a) + "-" + _fmt(b)
 
 
+def _message_fmt(italian, english, values):
+    return _message(italian % render_payload(values, language="it"),
+                    english % render_payload(values, language="en"))
+
+
 def _valida_campo(nome: str, c: Dict[str, Any], v: Any) -> Tuple[Any, Optional[str]]:
     """(valore normalizzato, errore). None = campo vuoto: errore solo se obbligatorio."""
     t = c["tipo"]
     vuoto = v is None or (isinstance(v, str) and t in ("testo",) and v == "")
     if vuoto:
         if c["obbligatorio"]:
-            return None, "%s: mancante (obbligatorio)" % nome
+            return None, _message_fmt("%s: mancante (obbligatorio)", '%s: missing (required)', nome)
         return ("" if t == "testo" else [] if t in ("lista", "lista_testo") else None), None
     lo, hi = (c["intervallo"] or (None, None))
     if t == "scelta":
         if v not in c["scelte"]:
-            return None, "%s: valore %r non ammesso (scelte: %s)" % (nome, v, ", ".join(c["scelte"]))
+            return None, _message_fmt("%s: valore %r non ammesso (scelte: %s)", '%s: value %r is not allowed (choices: %s)', (nome, v, ", ".join(c["scelte"])))
         return v, None
     if t == "bool":
         if not isinstance(v, bool):
-            return None, "%s: atteso si/no (true/false), trovato %r" % (nome, v)
+            return None, _message_fmt("%s: atteso si/no (true/false), trovato %r", '%s: expected yes/no (true/false), got %r', (nome, v))
         return v, None
     if t == "int":
         if not (isinstance(v, int) and not isinstance(v, bool)):
-            return None, "%s: atteso un intero, trovato %r" % (nome, v)
+            return None, _message_fmt("%s: atteso un intero, trovato %r", '%s: expected an integer, got %r', (nome, v))
         if not (lo <= v <= hi):
-            return None, "%s: %s fuori dall'intervallo %s-%s" % (nome, _fmt(v), _fmt(lo), _fmt(hi))
+            return None, _message_fmt("%s: %s fuori dall'intervallo %s-%s", '%s: %s outside the range %s-%s', (nome, _fmt(v), _fmt(lo), _fmt(hi)))
         return v, None
     if t in ("num", "pct"):
         if not _numero(v):
-            return None, "%s: atteso un numero, trovato %r" % (nome, v)
+            return None, _message_fmt("%s: atteso un numero, trovato %r", '%s: expected a number, got %r', (nome, v))
         if not (lo <= v <= hi):
-            return None, "%s: %s fuori dall'intervallo %s-%s" % (nome, _fmt(v), _fmt(lo), _fmt(hi))
+            return None, _message_fmt("%s: %s fuori dall'intervallo %s-%s", '%s: %s outside the range %s-%s', (nome, _fmt(v), _fmt(lo), _fmt(hi)))
         return _canonico(v), None
     if t in ("intervallo_pct", "intervallo_int"):
         ok = (isinstance(v, (list, tuple)) and len(v) == 2 and all(_numero(x) for x in v)
               and (t == "intervallo_pct" or all(isinstance(x, int) for x in v)))
         if not ok:
-            return None, "%s: atteso un intervallo [minimo, massimo], trovato %r" % (nome, v)
+            return None, _message_fmt("%s: atteso un intervallo [minimo, massimo], trovato %r", '%s: expected a range [minimum, maximum], got %r', (nome, v))
         a, b = v
         if not (lo <= a <= b <= hi):
-            return None, ("%s: intervallo [%s, %s] non valido (minimo <= massimo, entrambi fra %s e %s)"
-                          % (nome, _fmt(a), _fmt(b), _fmt(lo), _fmt(hi)))
+            return None, (_message_fmt("%s: intervallo [%s, %s] non valido (minimo <= massimo, entrambi fra %s e %s)", '%s: invalid range [%s, %s] (minimum <= maximum, both between %s and %s)', (nome, _fmt(a), _fmt(b), _fmt(lo), _fmt(hi))))
         return [_canonico(a), _canonico(b)], None
     if t == "lista":
         if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
-            return None, "%s: attesa una lista di codici, trovato %r" % (nome, v)
+            return None, _message_fmt("%s: attesa una lista di codici, trovato %r", '%s: expected a list of codes, got %r', (nome, v))
         fuori = [x for x in v if x not in c["scelte"]]
         if fuori:
-            return None, "%s: %s fuori dal vocabolario (%s)" % (nome, ", ".join(fuori), ", ".join(c["scelte"]))
+            return None, _message_fmt("%s: %s fuori dal vocabolario (%s)", '%s: %s outside the allowed vocabulary (%s)', (nome, ", ".join(fuori), ", ".join(c["scelte"])))
         if len(set(v)) != len(v):
-            return None, "%s: voci ripetute" % nome
+            return None, _message_fmt("%s: voci ripetute", '%s: duplicate entries', nome)
         if c["obbligatorio"] and not v:
-            return None, "%s: lista vuota (obbligatorio)" % nome
+            return None, _message_fmt("%s: lista vuota (obbligatorio)", '%s: empty list (required)', nome)
         return list(v), None
     if t == "lista_testo":
         if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
-            return None, "%s: attesa una lista di testi, trovato %r" % (nome, v)
+            return None, _message_fmt("%s: attesa una lista di testi, trovato %r", '%s: expected a list of text entries, got %r', (nome, v))
         if len(v) > 50 or any(len(x) > 200 for x in v):
-            return None, "%s: al massimo 50 voci da 200 caratteri" % nome
+            return None, _message_fmt("%s: al massimo 50 voci da 200 caratteri", '%s: up to 50 entries of 200 characters', nome)
         if any("{MANDATO:" in x for x in v):
-            return None, "%s: il testo non puo' contenere «{MANDATO:» (e' il segnaposto dei prompt)" % nome
+            return None, _message_fmt("%s: il testo non puo' contenere «{MANDATO:» (e' il segnaposto dei prompt)", '%s: text cannot contain «{MANDATO:» (the prompt placeholder)', nome)
         return [x.strip() for x in v if x.strip()], None
     if t == "interruttori":
         if not isinstance(v, dict) or set(v) != set(c["scelte"]) or not all(isinstance(x, bool) for x in v.values()):
-            return None, "%s: attesi gli interruttori %s (si/no ciascuno), trovato %r" % (nome, ", ".join(c["scelte"]), v)
+            return None, _message_fmt("%s: attesi gli interruttori %s (si/no ciascuno), trovato %r", '%s: expected switches %s (yes/no each), got %r', (nome, ", ".join(c["scelte"]), v))
         return {k: bool(v[k]) for k in c["scelte"]}, None
     if t == "testo":
         if not isinstance(v, str):
-            return None, "%s: atteso un testo, trovato %r" % (nome, v)
+            return None, _message_fmt("%s: atteso un testo, trovato %r", '%s: expected text, got %r', (nome, v))
         if len(v) > (c["massimo_char"] or MAX_CHAR_TESTO):
-            return None, "%s: %d caratteri, il massimo e' %d" % (nome, len(v), c["massimo_char"] or MAX_CHAR_TESTO)
+            return None, _message_fmt("%s: %d caratteri, il massimo e' %d", '%s: %d characters, maximum %d', (nome, len(v), c["massimo_char"] or MAX_CHAR_TESTO))
         if "{MANDATO:" in v:
             # review 05/09: passava valida e faceva sollevare `compila` («segnaposto rimasti») al Capo
-            return None, "%s: il testo non puo' contenere «{MANDATO:» (e' il segnaposto dei prompt)" % nome
+            return None, _message_fmt("%s: il testo non puo' contenere «{MANDATO:» (e' il segnaposto dei prompt)", '%s: text cannot contain «{MANDATO:» (the prompt placeholder)', nome)
         return v.strip(), None
     if t == "valuta":
         if not (isinstance(v, str) and re.fullmatch(r"[A-Z]{3}", v.strip().upper())):
-            return None, "%s: atteso un codice ISO di tre lettere (EUR, USD...), trovato %r" % (nome, v)
+            return None, _message_fmt("%s: atteso un codice ISO di tre lettere (EUR, USD...), trovato %r", '%s: expected a three-letter ISO code (EUR, USD...), got %r', (nome, v))
         return v.strip().upper(), None
-    return None, "%s: tipo %r sconosciuto" % (nome, t)
+    return None, _message_fmt("%s: tipo %r sconosciuto", '%s: unknown type %r', (nome, t))
 
 
 def vol_annua_implicita(var99_1g_pct: Optional[float]) -> Optional[float]:
@@ -375,21 +384,21 @@ def valida(grezzo: Any) -> Tuple[Dict[str, Any], List[str]]:
     errori: List[str] = []
     m: Dict[str, Any] = {"versione": VERSIONE_SCHEMA, "dichiarato_il": None, "origine": None}
     if not isinstance(grezzo, dict):
-        return m, ["mandato: atteso un oggetto JSON con i blocchi %s" % ", ".join(BLOCCHI)]
+        return m, [_message_fmt("mandato: atteso un oggetto JSON con i blocchi %s", 'mandato: expected a JSON object with sections %s', ", ".join(BLOCCHI))]
     m["dichiarato_il"] = grezzo.get("dichiarato_il")
     m["origine"] = grezzo.get("origine")
     ver = grezzo.get("versione")
     if ver is not None and ver != VERSIONE_SCHEMA:
-        errori.append("versione: schema %r non supportato (atteso %d)" % (ver, VERSIONE_SCHEMA))
+        errori.append(_message_fmt("versione: schema %r non supportato (atteso %d)", 'versione: schema %r not supported (expected %d)', (ver, VERSIONE_SCHEMA)))
     if m["dichiarato_il"] is not None and not (isinstance(m["dichiarato_il"], str)
                                                 and _data_it(m["dichiarato_il"]) != "data n.d."):
-        errori.append("dichiarato_il: attesa una data AAAA-MM-GG, trovato %r" % (m["dichiarato_il"],))
+        errori.append(_message_fmt("dichiarato_il: attesa una data AAAA-MM-GG, trovato %r", 'dichiarato_il: expected a YYYY-MM-DD date, got %r', (m["dichiarato_il"],)))
     for b in BLOCCHI:
         blocco = grezzo.get(b)
         if blocco is None:
             blocco = {}
         if not isinstance(blocco, dict):
-            errori.append("%s: atteso un oggetto con i campi del blocco" % b)
+            errori.append(_message_fmt("%s: atteso un oggetto con i campi del blocco", '%s: expected an object containing the section fields', b))
             blocco = {}
         m[b] = {}
         for n, c in CAMPI.items():
@@ -401,7 +410,7 @@ def valida(grezzo: Any) -> Tuple[Dict[str, Any], List[str]]:
             m[b][n] = val
         ignoti = sorted(k for k in blocco if k not in m[b] and not k.startswith("_"))
         if ignoti:
-            errori.append("%s: campi sconosciuti %s" % (b, ", ".join(ignoti)))
+            errori.append(_message_fmt("%s: campi sconosciuti %s", '%s: unknown fields %s', (b, ", ".join(ignoti))))
     # 06/09 (lotto B, difetto 2 della coda di A2): al PRIMO LIVELLO niente spariva ne'
     # restava — spariva e basta, e con esso il `_nota` di provenienza del file del PM.
     # Le chiavi «_» sono meta (provenienza, commenti), non valori: si CONSERVANO, e non
@@ -414,26 +423,26 @@ def valida(grezzo: Any) -> Tuple[Dict[str, Any], List[str]]:
     ignoti_top = sorted(k for k in grezzo
                         if k not in CHIAVI_PRIMO_LIVELLO and not k.startswith("_"))
     if ignoti_top:
-        errori.append("mandato: campi sconosciuti di primo livello %s" % ", ".join(ignoti_top))
+        errori.append(_message_fmt("mandato: campi sconosciuti di primo livello %s", 'mandato: unknown top-level fields %s', ", ".join(ignoti_top)))
     if errori:
         return m, errori
 
     # coerenze fra campi (solo su valori gia' validi, cosi' ogni errore nomina un campo)
     s, r, k, d, o = m["sizing"], m["rischio"], m["cassa"], m["disciplina"], m["opzioni"]
     if s["base_single_pct"] > s["cap_single_pct"]:
-        errori.append("base_single_pct: la baseline (%s) supera il cap single (%s)" % (_fmt(s["base_single_pct"]), _fmt(s["cap_single_pct"])))
+        errori.append(_message_fmt("base_single_pct: la baseline (%s) supera il cap single (%s)", 'base_single_pct: baseline (%s) exceeds the single-stock cap (%s)', (_fmt(s["base_single_pct"]), _fmt(s["cap_single_pct"]))))
     if s["base_veicolo_pct"] > s["cap_veicolo_pct"]:
-        errori.append("base_veicolo_pct: la baseline (%s) supera il cap veicolo (%s)" % (_fmt(s["base_veicolo_pct"]), _fmt(s["cap_veicolo_pct"])))
+        errori.append(_message_fmt("base_veicolo_pct: la baseline (%s) supera il cap veicolo (%s)", 'base_veicolo_pct: baseline (%s) exceeds the vehicle cap (%s)', (_fmt(s["base_veicolo_pct"]), _fmt(s["cap_veicolo_pct"]))))
     if s["limite_minimo_pct"] > s["base_single_pct"]:
-        errori.append("limite_minimo_pct: il pavimento (%s) supera la baseline single (%s)" % (_fmt(s["limite_minimo_pct"]), _fmt(s["base_single_pct"])))
+        errori.append(_message_fmt("limite_minimo_pct: il pavimento (%s) supera la baseline single (%s)", 'limite_minimo_pct: floor (%s) exceeds the single-stock baseline (%s)', (_fmt(s["limite_minimo_pct"]), _fmt(s["base_single_pct"]))))
     if s["posizione_minima_pct"] > s["cap_single_pct"]:
-        errori.append("posizione_minima_pct: la soglia (%s) supera il cap single (%s)" % (_fmt(s["posizione_minima_pct"]), _fmt(s["cap_single_pct"])))
+        errori.append(_message_fmt("posizione_minima_pct: la soglia (%s) supera il cap single (%s)", 'posizione_minima_pct: threshold (%s) exceeds the single-stock cap (%s)', (_fmt(s["posizione_minima_pct"]), _fmt(s["cap_single_pct"]))))
     if s["top3_max_pct"] is not None and s["top3_max_pct"] < s["cap_single_pct"]:
-        errori.append("top3_max_pct: il peso delle prime tre (%s) e' sotto il cap di una singola (%s)" % (_fmt(s["top3_max_pct"]), _fmt(s["cap_single_pct"])))
+        errori.append(_message_fmt("top3_max_pct: il peso delle prime tre (%s) e' sotto il cap di una singola (%s)", 'top3_max_pct: combined top-three weight (%s) is below the single-stock cap (%s)', (_fmt(s["top3_max_pct"]), _fmt(s["cap_single_pct"]))))
     if r["var99_1g_pct"] > r["drawdown_max_pct"]:
-        errori.append("var99_1g_pct: il VaR a un giorno (%s) supera il drawdown massimo (%s)" % (_fmt(r["var99_1g_pct"]), _fmt(r["drawdown_max_pct"])))
+        errori.append(_message_fmt("var99_1g_pct: il VaR a un giorno (%s) supera il drawdown massimo (%s)", 'var99_1g_pct: one-day VaR (%s) exceeds maximum drawdown (%s)', (_fmt(r["var99_1g_pct"]), _fmt(r["drawdown_max_pct"]))))
     if r["var99_1g_pct"] > r["stress_gfc_pct"]:
-        errori.append("var99_1g_pct: il VaR a un giorno (%s) supera la perdita massima nello stress (%s)" % (_fmt(r["var99_1g_pct"]), _fmt(r["stress_gfc_pct"])))
+        errori.append(_message_fmt("var99_1g_pct: il VaR a un giorno (%s) supera la perdita massima nello stress (%s)", 'var99_1g_pct: one-day VaR (%s) exceeds maximum stress loss (%s)', (_fmt(r["var99_1g_pct"]), _fmt(r["stress_gfc_pct"]))))
     # 06/09 (lotto B, difetto 3): il VaR dichiarato e il target di volatilita' parlavano di
     # due portafogli diversi senza che niente lo dicesse. La banda e' LARGA per decisione
     # del PM: si rifiuta solo l'incoerenza grossa, non una prudenza dichiarata al ribasso.
@@ -449,25 +458,22 @@ def valida(grezzo: Any) -> Tuple[Dict[str, Any], List[str]]:
     # portafoglio» senza precisare. Sono trattati come la stessa base.
     _vol_var = vol_annua_implicita(r["var99_1g_pct"])
     if _vol_var is not None and _vol_var > r["volatilita_target_pct"] * BANDA_VOL_SU_VAR:
-        errori.append("volatilita_target_pct: il VaR dichiarato (%s%%) implica una volatilita' annua del %s%%, oltre %s volte il target dichiarato (%s%%): alza il target o abbassa il VaR"
-                      % (_fmt(r["var99_1g_pct"]), _fmt(round(_vol_var, 1)),
-                         _fmt(BANDA_VOL_SU_VAR), _fmt(r["volatilita_target_pct"])))
+        errori.append(_message_fmt("volatilita_target_pct: il VaR dichiarato (%s%%) implica una volatilita' annua del %s%%, oltre %s volte il target dichiarato (%s%%): alza il target o abbassa il VaR", 'volatilita_target_pct: declared VaR (%s%%) implies annual volatility of %s%%, above %s times the declared target (%s%%): raise the target or lower VaR', (_fmt(r["var99_1g_pct"]), _fmt(round(_vol_var, 1)),
+                         _fmt(BANDA_VOL_SU_VAR), _fmt(r["volatilita_target_pct"]))))
     # 06/09 (lotto B, difetto 4): uno stress «2008» E' un drawdown, quindi non puo' stare
     # sopra il drawdown massimo dichiarato. UGUALI e' lecito di proposito: e' il profilo di
     # esempio del repo (20 e 20), e la regola stretta lo rifiuterebbe facendo cadere la
     # fixture di sessione che lo salva, cioe' l'intera suite. Misurato prima di scriverla.
     if r["drawdown_max_pct"] < r["stress_gfc_pct"]:
-        errori.append("drawdown_max_pct: il drawdown massimo (%s) sta sotto la perdita nello stress (%s): uno stress e' un drawdown"
-                      % (_fmt(r["drawdown_max_pct"]), _fmt(r["stress_gfc_pct"])))
+        errori.append(_message_fmt("drawdown_max_pct: il drawdown massimo (%s) sta sotto la perdita nello stress (%s): uno stress e' un drawdown", 'drawdown_max_pct: maximum drawdown (%s) is below stress loss (%s): a stress is a drawdown', (_fmt(r["drawdown_max_pct"]), _fmt(r["stress_gfc_pct"]))))
     if not o["opzioni_abilitate"] and (o["strumenti_ammessi"] or o["budget_premio_pct"] is not None):
-        errori.append("strumenti_ammessi: opzioni disabilitate ma strumenti o budget dichiarati: svuotali o abilita le opzioni")
+        errori.append(_message("strumenti_ammessi: opzioni disabilitate ma strumenti o budget dichiarati: svuotali o abilita le opzioni", 'strumenti_ammessi: options disabled but structures or budget declared: clear them or enable options'))
     if k["cassa_minima_pct"] is not None and k["cassa_minima_pct"] > k["cassa_tipica_pct"][0]:
-        errori.append("cassa_minima_pct: la minima (%s) supera la banda tipica (%s)" % (_fmt(k["cassa_minima_pct"]), _fmt_int(k["cassa_tipica_pct"])))
+        errori.append(_message_fmt("cassa_minima_pct: la minima (%s) supera la banda tipica (%s)", 'cassa_minima_pct: minimum (%s) exceeds the typical range (%s)', (_fmt(k["cassa_minima_pct"]), _fmt_int(k["cassa_tipica_pct"]))))
     if d["taglio_max_senza_condizioni_pct"][1] > d["taglio_con_condizioni_oltre_pct"]:
-        errori.append("taglio_max_senza_condizioni_pct: il taglio libero (%s) supera la soglia delle condizioni (%s)"
-                      % (_fmt_int(d["taglio_max_senza_condizioni_pct"]), _fmt(d["taglio_con_condizioni_oltre_pct"])))
+        errori.append(_message_fmt("taglio_max_senza_condizioni_pct: il taglio libero (%s) supera la soglia delle condizioni (%s)", 'taglio_max_senza_condizioni_pct: unconditional reduction (%s) exceeds the conditions threshold (%s)', (_fmt_int(d["taglio_max_senza_condizioni_pct"]), _fmt(d["taglio_con_condizioni_oltre_pct"]))))
     if o["opzioni_abilitate"] and not o["strumenti_ammessi"]:
-        errori.append("strumenti_ammessi: vuoto con le opzioni abilitate: scegli almeno uno strumento")
+        errori.append(_message("strumenti_ammessi: vuoto con le opzioni abilitate: scegli almeno uno strumento", 'strumenti_ammessi: empty with options enabled: choose at least one structure'))
     return m, errori
 
 
@@ -484,7 +490,7 @@ def _origine(m: Dict[str, Any]) -> str:
     except (OSError, ValueError, KeyError, TypeError) as e:
         raise MandatoMancante(ESEMPIO_MANDATO, "esempio", "%s: %s" % (type(e).__name__, str(e)[:120]))
     if err:
-        raise MandatoMancante(ESEMPIO_MANDATO, "esempio", "profilo di esempio non valido: " + "; ".join(err)[:200])
+        raise MandatoMancante(ESEMPIO_MANDATO, "esempio", _ui_text("profilo di esempio non valido: ", "invalid example profile: ") + "; ".join(err)[:200])
     return "esempio" if _valori(m) == _valori(es) else "personalizzato"
 
 
@@ -514,7 +520,7 @@ def _esempio_per_api() -> Dict[str, Any]:
     _normalizzato, errori = valida(esempio)
     if errori:
         raise MandatoMancante(ESEMPIO_MANDATO, "esempio",
-                              "profilo di esempio non valido: " + "; ".join(errori)[:200],
+                              _ui_text("profilo di esempio non valido: ", "invalid example profile: ") + "; ".join(errori)[:200],
                               errori=errori)
     return copy.deepcopy(esempio)
 
@@ -540,7 +546,7 @@ def carica(path: Optional[str] = None) -> Dict[str, Any]:
         raise MandatoMancante(p, "in_uso", "PermissionError dopo 3 tentativi: %s" % str(ultimo)[:120])
     m, errori = valida(grezzo)
     if errori:
-        raise MandatoMancante(p, "incompleto", "; ".join(errori),
+        raise MandatoMancante(p, "incompleto", join_messages("; ", errori),
                               campi=_campi_obbligatori_vuoti(grezzo),
                               valori=grezzo, errori=errori)
     m["origine"] = _origine(m)
@@ -582,14 +588,14 @@ def stato_per_api(path: Optional[str] = None) -> Tuple[Dict[str, Any], Optional[
         corpo["esempio"] = _esempio_per_api()
     except MandatoMancante as e:
         corpo["causa"] = e.causa
-        corpo["dettaglio"] = str(e)
+        corpo["dettaglio"] = error_text(e)
         corpo["errori"] = list(e.errori)
         return corpo, "esempio"
     try:
         m = carica(path)
     except MandatoMancante as e:
         corpo["causa"] = e.causa
-        corpo["dettaglio"] = str(e)
+        corpo["dettaglio"] = error_text(e)
         corpo["campi_mancanti"] = list(e.campi)
         corpo["valori"] = copy.deepcopy(e.valori)
         corpo["errori"] = list(e.errori)
@@ -599,13 +605,14 @@ def stato_per_api(path: Optional[str] = None) -> Tuple[Dict[str, Any], Optional[
     return corpo, None
 
 
+@scoped_language
 def anteprima(grezzo: Any) -> Dict[str, Any]:
     """Valida un mandato e rende il testo esatto dei modelli, senza scrivere su disco."""
     m, errori = valida(grezzo)
     if errori:
-        raise ValueError("\n".join(errori))
+        raise ValueError(join_messages("\n", errori))
     m["origine"] = _origine(m)
-    return {"testo": blocco_prompt(m), "impronta": impronta(m), "origine": m["origine"]}
+    return {"testo": blocco_prompt(m), "impronta": impronta(m), "origine": m["origine"], "output_language": current_language()}
 
 
 def dichiarato(path: Optional[str] = None) -> bool:
@@ -636,7 +643,7 @@ def salva(mandato: Dict[str, Any], path: Optional[str] = None) -> Dict[str, Any]
     p = path or PERCORSO_MANDATO
     m, errori = valida(mandato)
     if errori:
-        raise ValueError("mandato non valido: " + "; ".join(errori))
+        raise ValueError(join_messages("", [_message("mandato non valido: ", "invalid mandate: "), join_messages("; ", errori)]))
     m["versione"] = VERSIONE_SCHEMA
     m["dichiarato_il"] = date.today().isoformat()
     m["origine"] = _origine(m)
@@ -674,7 +681,10 @@ def scrivi_esempio(path: Optional[str] = None) -> str:
     out: Dict[str, Any] = {"_leggimi": LEGGIMI, "versione": es["versione"], "dichiarato_il": None, "origine": None}
     for b in BLOCCHI:
         out[b] = es[b]
-    out["_campi"] = descrizione_campi()
+    # 13/09: il file di esempio committato e' italiano; senza contesto le descrizioni uscivano
+    # nella preferenza salvata da chi lancia il generatore
+    with language_context("it"):
+        out["_campi"] = descrizione_campi()
     out["_esempio"] = {b: dict(ESEMPIO[b]) for b in BLOCCHI}
     _scrivi_atomico(p, json.dumps(out, ensure_ascii=False, indent=2) + "\n")
     return p
@@ -697,56 +707,61 @@ def _data_it(iso: Optional[str]) -> str:
 
 
 def intestazione(m: Dict[str, Any]) -> str:
-    riga = "MANDATO DEL PM (dichiarato il %s, impronta %s)" % (_data_it(m.get("dichiarato_il")), impronta(m)[:8])
+    riga = _ui_text("MANDATO DEL PM (dichiarato il %s, impronta %s)", 'PM MANDATE (declared on %s, fingerprint %s)') % (_data_it(m.get("dichiarato_il")), impronta(m)[:8])
     if m.get("origine") == "esempio":
-        riga += " — PROFILO DI ESEMPIO, NON PERSONALIZZATO: l'utente non ha ancora dichiarato il suo mandato"
+        riga += _ui_text(" — PROFILO DI ESEMPIO, NON PERSONALIZZATO: l'utente non ha ancora dichiarato il suo mandato", ' — EXAMPLE PROFILE, NOT PERSONALIZED: the user has not yet declared their own mandate')
     return riga
 
 
 def riga_senza_mandato() -> str:
-    return ("MANDATO NON DICHIARATO: nessuna preferenza del PM va assunta (cassa, concentrazione, tagli, "
-            "opzioni, caccia globale); dillo nel testo e invita a compilare la pagina Mandato (F18).")
+    return (_ui_text("MANDATO NON DICHIARATO: nessuna preferenza del PM va assunta (cassa, concentrazione, tagli, "
+            "opzioni, caccia globale); dillo nel testo e invita a compilare la pagina Mandato (F18).", 'MANDATE NOT DECLARED: do not assume any PM preference (cash, concentration, reductions, options, global search); say so and invite the user to complete Mandate (F18).'))
 
 
 # --------------------------------------------------------------------------- le frasi per i modelli
 
 def _si_no(v: bool) -> str:
-    return "si" if v else "no"
+    return _ui_text("si", "yes") if v else "no"
 
 
 def _tipo_frase(tipo: str) -> str:
-    return {"long_term": "LONG-TERM", "medio_termine": "a MEDIO TERMINE",
-            "trading": "con orizzonte di TRADING"}[tipo]
+    return {"long_term": "LONG-TERM", "medio_termine": _ui_text('a MEDIO TERMINE', 'MEDIUM-TERM'),
+            "trading": _ui_text('con orizzonte di TRADING', 'with a TRADING horizon')}[tipo]
 
 
 def _view_frase(tipo: str) -> str:
-    return {"long_term": "long-term", "medio_termine": "di medio termine", "trading": "di trading"}[tipo]
+    return {"long_term": "long-term", "medio_termine": _ui_text('di medio termine', 'medium-term'), "trading": _ui_text('di trading', 'trading')}[tipo]
+
+
+def _city(code):
+    translated = {"MI":"Milan","L":"London","DE":"Frankfurt","FRA":"Frankfurt","PA":"Paris","BR":"Brussels","SW":"Zurich","SA":"Sao Paulo"}
+    return _ui_text(PIAZZE[code], translated.get(code, PIAZZE[code]))
 
 
 def _piazza_di_casa(m: Dict[str, Any]) -> str:
     codici = m["profilo"]["mercati_accessibili"]
-    return PIAZZE[codici[0]] if codici else "casa"
+    return _city(codici[0]) if codici else _ui_text("casa", "home")
 
 
 def _piazze(m: Dict[str, Any]) -> str:
-    return ", ".join("%s (%s)" % (PIAZZE[c], c) for c in m["profilo"]["mercati_accessibili"])
+    return ", ".join("%s (%s)" % (_city(c), c) for c in m["profilo"]["mercati_accessibili"])
 
 
 def _sez_profilo_rischio(m: Dict[str, Any]) -> str:
     p, r, s = m["profilo"], m["rischio"], m["sizing"]
-    stile = "CONCENTRATO sulle conviction" if p["stile"] == "concentrato" else "DIVERSIFICATO"
+    stile = _ui_text('CONCENTRATO sulle conviction', 'CONCENTRATED convictions') if p["stile"] == "concentrato" else _ui_text('DIVERSIFICATO', 'DIVERSIFIED')
     righe = [
-        "PROFILO DEL PM: investe %s (orizzonte %d anni), book %s; valuta base %s; mercati accessibili: %s; "
-        "preferenza UCITS: %s; broker: %s; residenza fiscale: %s; leva: %s; short: %s."
+        _ui_text("PROFILO DEL PM: investe %s (orizzonte %d anni), book %s; valuta base %s; mercati accessibili: %s; "
+        "preferenza UCITS: %s; broker: %s; residenza fiscale: %s; leva: %s; short: %s.", 'PM PROFILE: invests %s (%d-year horizon), %s book; base currency %s; accessible markets: %s; UCITS preference: %s; broker: %s; tax residence: %s; leverage: %s; short: %s.')
         % (_tipo_frase(p["tipo_investimento"]), p["orizzonte_anni"], stile, p["valuta_base"], _piazze(m),
            _si_no(p["preferenza_ucits"]), p["broker"] or "n.d.", p["residenza_fiscale"] or "n.d.",
-           "ammessa" if p["leva_ammessa"] else "NON ammessa", "ammesso" if p["short_ammesso"] else "NON ammesso"),
-        "RISCHIO ACCETTATO: volatilita' target %s%% annua; VaR 99%% a 1 giorno max %s%% del patrimonio; "
-        "drawdown massimo %s%%; perdita massima in uno stress tipo 2008: %s%% del NAV."
+           _ui_text('ammessa', 'allowed') if p["leva_ammessa"] else _ui_text('NON ammessa', 'NOT allowed'), _ui_text('ammesso', 'allowed') if p["short_ammesso"] else _ui_text('NON ammesso', 'NOT allowed')),
+        _ui_text("RISCHIO ACCETTATO: volatilita' target %s%% annua; VaR 99%% a 1 giorno max %s%% del patrimonio; "
+        "drawdown massimo %s%%; perdita massima in uno stress tipo 2008: %s%% del NAV.", 'RISK ACCEPTED: target volatility %s%% annually; maximum one-day VaR 99%% %s%% of wealth; maximum drawdown %s%%; maximum loss in a 2008-type stress: %s%% of NAV.')
         % (_fmt(r["volatilita_target_pct"]), _fmt(r["var99_1g_pct"]), _fmt(r["drawdown_max_pct"]), _fmt(r["stress_gfc_pct"])),
-        "SIZING: single-stock baseline %s%% / cap %s%% dell'investito; veicoli diversificati %s%% / cap %s%%; "
+        _ui_text("SIZING: single-stock baseline %s%% / cap %s%% dell'investito; veicoli diversificati %s%% / cap %s%%; "
         "cap di settore %s%% (sui single-stock); pavimento %s%%; posizione minima %s%% del NAV; nuove posizioni "
-        "%s%% del capitale; max posizioni: %s; peso massimo delle prime tre: %s."
+        "%s%% del capitale; max posizioni: %s; peso massimo delle prime tre: %s.", 'SIZING: single-stock baseline %s%% / cap %s%% of invested assets; diversified vehicles %s%% / cap %s%%; sector cap %s%% (single stocks); floor %s%%; minimum position %s%% of NAV; new positions %s%% of capital; maximum positions: %s; maximum top-three weight: %s.')
         % (_fmt(s["base_single_pct"]), _fmt(s["cap_single_pct"]), _fmt(s["base_veicolo_pct"]), _fmt(s["cap_veicolo_pct"]),
            _fmt(s["cap_settore_pct"]), _fmt(s["limite_minimo_pct"]), _fmt(s["posizione_minima_pct"]),
            _fmt_int(s["size_nuova_posizione_pct"]),
@@ -756,13 +771,13 @@ def _sez_profilo_rischio(m: Dict[str, Any]) -> str:
     n = m["note"]
     extra = []
     if n["aree_gradite"]:
-        extra.append("aree gradite: " + "; ".join(n["aree_gradite"]))
+        extra.append(_ui_text("aree gradite: ", 'preferred areas: ') + "; ".join(n["aree_gradite"]))
     if n["esclusioni"]:
-        extra.append("ESCLUSIONI (mai proporle): " + "; ".join(n["esclusioni"]))
+        extra.append(_ui_text("ESCLUSIONI (mai proporle): ", 'EXCLUSIONS (never propose them): ') + "; ".join(n["esclusioni"]))
     if n["note_per_il_comitato"]:
-        extra.append("note del PM: " + n["note_per_il_comitato"])
+        extra.append(_ui_text("note del PM: ", 'PM notes: ') + n["note_per_il_comitato"])
     if extra:
-        righe.append("NOTE DEL PM PER IL COMITATO: " + " | ".join(extra) + ".")
+        righe.append(_ui_text("NOTE DEL PM PER IL COMITATO: ", 'PM NOTES FOR THE COMMITTEE: ') + " | ".join(extra) + ".")
     return "\n".join(righe)
 
 
@@ -771,50 +786,50 @@ def _sez_cassa(m: Dict[str, Any]) -> str:
     tipica, oltre = _fmt_int(k["cassa_tipica_pct"]), _fmt_int(k["cassa_max_senza_giustificazione_pct"])
     quota, sett = _fmt_int(k["impiego_default_pct"]), _fmt_int(k["impiego_finestra_settimane"])
     size = _fmt_int(s["size_nuova_posizione_pct"])
-    importante = "importante" if k["cassa_tipica_pct"][0] >= LIQUIDITA_IMPORTANTE_DA_PCT else "contenuta"
+    importante = _ui_text('importante', 'substantial') if k["cassa_tipica_pct"][0] >= LIQUIDITA_IMPORTANTE_DA_PCT else _ui_text('contenuta', 'modest')
     pol = k["politica_impiego"]
     if pol == "aggressiva":
-        testa = "## GESTIONE DEL CASH (regola attiva, BIAS AL DEPLOYMENT)"
-        apertura = ("Il PM ha una liquidita' %s (tipicamente %s%% del capitale) e VUOLE METTERLA A LAVORO. "
-                    "Il cash fermo che rende zero e' un costo opportunita', non un porto sicuro. In ogni memo DEVI:"
+        testa = _ui_text("## GESTIONE DEL CASH (regola attiva, BIAS AL DEPLOYMENT)", '## CASH MANAGEMENT (active rule, DEPLOYMENT BIAS)')
+        apertura = (_ui_text("Il PM ha una liquidita' %s (tipicamente %s%% del capitale) e VUOLE METTERLA A LAVORO. "
+                    "Il cash fermo che rende zero e' un costo opportunita', non un porto sicuro. In ogni memo DEVI:", 'The PM holds %s cash (typically %s%% of capital) and WANTS TO PUT IT TO WORK. Idle cash earning zero has an opportunity cost; it is not a safe harbour. In every memo you MUST:')
                     % (importante, tipica))
-        due = ("2. DEFAULT AGGRESSIVO: in assenza di un rischio imminente PRECISO e DATATO (es. una riunione FOMC "
+        due = (_ui_text("2. DEFAULT AGGRESSIVO: in assenza di un rischio imminente PRECISO e DATATO (es. una riunione FOMC "
                "tra 5 giorni, un dato CPI dopodomani), proponi un deployment DECISO del cash — orientativamente "
-               "il %s%% della liquidita' disponibile messa al lavoro nelle prossime %s settimane su piu' idee."
+               "il %s%% della liquidita' disponibile messa al lavoro nelle prossime %s settimane su piu' idee.", '2. AGGRESSIVE DEFAULT: without a PRECISE and DATED imminent risk (for example an FOMC meeting in 5 days or CPI in two days), propose DECISIVE cash deployment: roughly %s%% of available cash over the next %s weeks across several ideas.')
                % (quota, sett))
-        tre = ("3. Il DRY POWDER (cash tenuto fermo) e' l'ECCEZIONE che va GIUSTIFICATA, non il default. Se vuoi "
+        tre = (_ui_text("3. Il DRY POWDER (cash tenuto fermo) e' l'ECCEZIONE che va GIUSTIFICATA, non il default. Se vuoi "
                "tenere liquidita' oltre il %s%%, devi nominare il rischio specifico e datato che giustifica "
-               "l'attesa, e dire a quali livelli di prezzo dispiegheresti." % oltre)
+               "l'attesa, e dire a quali livelli di prezzo dispiegheresti.", '3. DRY POWDER (retained cash) is the EXCEPTION requiring JUSTIFICATION, not the default. To hold cash above %s%%, name the specific dated risk justifying the wait and the prices at which you would deploy.') % oltre)
     elif pol == "neutra":
-        testa = "## GESTIONE DEL CASH (regola attiva, IMPIEGO NEUTRO)"
-        apertura = ("Il PM tiene una liquidita' %s (tipicamente %s%% del capitale) e la impiega quando le idee "
-                    "lo meritano. Il cash fermo ha un costo opportunita', ma non e' un errore in se'. In ogni memo DEVI:"
+        testa = _ui_text("## GESTIONE DEL CASH (regola attiva, IMPIEGO NEUTRO)", '## CASH MANAGEMENT (active rule, NEUTRAL DEPLOYMENT)')
+        apertura = (_ui_text("Il PM tiene una liquidita' %s (tipicamente %s%% del capitale) e la impiega quando le idee "
+                    "lo meritano. Il cash fermo ha un costo opportunita', ma non e' un errore in se'. In ogni memo DEVI:", 'The PM holds %s cash (typically %s%% of capital) and deploys it when ideas merit it. Idle cash has an opportunity cost, but is not inherently a mistake. In every memo you MUST:')
                     % (importante, tipica))
-        due = ("2. DEFAULT NEUTRO: proponi un deployment del cash proporzionato alle idee con catalyst datato — "
+        due = (_ui_text("2. DEFAULT NEUTRO: proponi un deployment del cash proporzionato alle idee con catalyst datato — "
                "orientativamente il %s%% della liquidita' disponibile nelle prossime %s settimane — e se le idee "
-               "non ci sono, dichiara che il cash resta fermo e perche'." % (quota, sett))
-        tre = ("3. Il DRY POWDER e' legittimo, ma oltre il %s%% va MOTIVATO: nomina il rischio o l'assenza di idee "
-               "che giustifica l'attesa, e di' a quali livelli di prezzo dispiegheresti." % oltre)
+               "non ci sono, dichiara che il cash resta fermo e perche'.", '2. NEUTRAL DEFAULT: propose deployment proportional to ideas with dated catalysts: roughly %s%% of available cash over the next %s weeks. If no ideas qualify, declare that cash remains idle and explain why.') % (quota, sett))
+        tre = (_ui_text("3. Il DRY POWDER e' legittimo, ma oltre il %s%% va MOTIVATO: nomina il rischio o l'assenza di idee "
+               "che giustifica l'attesa, e di' a quali livelli di prezzo dispiegheresti.", '3. DRY POWDER is legitimate, but above %s%% it needs JUSTIFICATION: name the risk or absence of ideas justifying the wait and the prices at which you would deploy.') % oltre)
     else:
-        testa = "## GESTIONE DEL CASH (regola attiva, PRUDENZA)"
-        apertura = ("Il PM tiene una liquidita' %s (tipicamente %s%% del capitale) e la impiega con PRUDENZA: "
-                    "il cash fermo e' una scelta legittima, non un costo da azzerare. In ogni memo DEVI:"
+        testa = _ui_text("## GESTIONE DEL CASH (regola attiva, PRUDENZA)", '## CASH MANAGEMENT (active rule, PRUDENCE)')
+        apertura = (_ui_text("Il PM tiene una liquidita' %s (tipicamente %s%% del capitale) e la impiega con PRUDENZA: "
+                    "il cash fermo e' una scelta legittima, non un costo da azzerare. In ogni memo DEVI:", 'The PM holds %s cash (typically %s%% of capital) and deploys it PRUDENTLY: retaining cash is legitimate, not a cost to eliminate. In every memo you MUST:')
                     % (importante, tipica))
-        due = ("2. DEFAULT PRUDENTE: il cash si impiega solo su idee con catalyst datato e tesi sopra la soglia — "
+        due = (_ui_text("2. DEFAULT PRUDENTE: il cash si impiega solo su idee con catalyst datato e tesi sopra la soglia — "
                "orientativamente non oltre il %s%% della liquidita' disponibile nelle prossime %s settimane; "
-               "in assenza di idee, il cash resta fermo e lo dichiari." % (quota, sett))
-        tre = ("3. Il DRY POWDER e' il default: oltre il %s%% di liquidita' di' comunque a quali livelli di "
-               "prezzo dispiegheresti." % oltre)
+               "in assenza di idee, il cash resta fermo e lo dichiari.", '2. PRUDENT DEFAULT: deploy cash only into ideas with dated catalysts and a thesis above the threshold: roughly no more than %s%% of available cash over the next %s weeks. Without ideas, cash remains idle; declare it.') % (quota, sett))
+        tre = (_ui_text("3. Il DRY POWDER e' il default: oltre il %s%% di liquidita' di' comunque a quali livelli di "
+               "prezzo dispiegheresti.", '3. DRY POWDER is the default: above %s%% cash, still state the prices at which you would deploy.') % oltre)
     righe = [testa, apertura,
-             "1. Dichiarare esplicitamente quanto cash c'e' e che percentuale del capitale rappresenta.",
+             _ui_text("1. Dichiarare esplicitamente quanto cash c'e' e che percentuale del capitale rappresenta.", '1. Explicitly state available cash and its percentage of total capital.'),
              due, tre,
-             "4. Ragiona in deployment plan esplicito: quanto questa settimana, su quali idee e con quali size, "
+             _ui_text("4. Ragiona in deployment plan esplicito: quanto questa settimana, su quali idee e con quali size, "
              "quanto come munizione per i ribassi e a quali livelli. Le size delle nuove posizioni devono essere "
-             "materiali (tipicamente " + size + "% del capitale ciascuna"
-             + (", non 0,5%" if s["size_nuova_posizione_pct"][0] > 0.5 else "") + ")."]
+             "materiali (tipicamente ", '4. Present an explicit deployment plan: how much this week, into which ideas and at which weights, and how much to reserve for declines at specified prices. New-position weights must be material (typically ') + size + _ui_text("% del capitale ciascuna", '% of capital each')
+             + (_ui_text(", non 0,5%", ', not 0.5%') if s["size_nuova_posizione_pct"][0] > 0.5 else "") + ")."]
     if k["cassa_minima_pct"] is not None:
-        righe.append("5. CASSA MINIMA del mandato: mai sotto il %s%% del capitale; sotto quella soglia non si "
-                     "impiega, si ricostituisce." % _fmt(k["cassa_minima_pct"]))
+        righe.append(_ui_text("5. CASSA MINIMA del mandato: mai sotto il %s%% del capitale; sotto quella soglia non si "
+                     "impiega, si ricostituisce.", '5. MANDATED MINIMUM CASH: never below %s%% of capital; below that threshold, replenish cash instead of deploying it.') % _fmt(k["cassa_minima_pct"]))
     return "\n".join(righe)
 
 
@@ -831,22 +846,22 @@ def _sez_trim(m: Dict[str, Any]) -> str:
     libero = _fmt_int(d["taglio_max_senza_condizioni_pct"])
     righe = []
     if accese:
-        righe.append("Una raccomandazione di tagliare una posizione di PIU' del %s%% richiede %s condizion%s simultanee:"
-                     % (soglia, _IN_LETTERE[len(accese)], "e" if len(accese) == 1 else "i")
+        righe.append(_ui_text("Una raccomandazione di tagliare una posizione di PIU' del %s%% richiede %s condizion%s simultanee:", 'A recommendation to reduce a position by MORE than %s%% requires %s simultaneous condition%s:')
+                     % (soglia, _ui_text(_IN_LETTERE[len(accese)], {1:"ONE",2:"TWO",3:"THREE"}[len(accese)]), _ui_text("e", "") if len(accese) == 1 else _ui_text("i", "s"))
                      if len(accese) > 1 else
-                     "Una raccomandazione di tagliare una posizione di PIU' del %s%% richiede UNA condizione:" % soglia)
+                     _ui_text("Una raccomandazione di tagliare una posizione di PIU' del %s%% richiede UNA condizione:", 'A recommendation to reduce a position by MORE than %s%% requires ONE condition:') % soglia)
         for i, c in enumerate(accese, 1):
-            righe.append("%d. %s" % (i, _NOMI_CONDIZIONI[c]))
-        righe.append(("Se ne manca anche una sola, il taglio massimo e' %s%%." if len(accese) > 1
-                      else "Se manca, il taglio massimo e' %s%%.") % libero
-                     + " La size e' inversamente proporzionale ai catalyst pendenti.")
+            righe.append("%d. %s" % (i, _ui_text(_NOMI_CONDIZIONI[c], {"sharpe_12m_negativo":"Negative Sharpe over 12+ months", "nessun_catalyst_90g":"ZERO catalysts expected within 90 days", "tesi_smentita":"Original thesis empirically disproved"}[c])))
+        righe.append((_ui_text("Se ne manca anche una sola, il taglio massimo e' %s%%.", 'If even one is missing, the maximum reduction is %s%%.') if len(accese) > 1
+                      else _ui_text("Se manca, il taglio massimo e' %s%%.", 'If it is missing, the maximum reduction is %s%%.')) % libero
+                     + _ui_text(" La size e' inversamente proporzionale ai catalyst pendenti.", ' Position size is inversely proportional to pending catalysts.'))
     else:
-        righe.append("Un taglio oltre il %s%% non richiede condizioni aggiuntive (mandato del PM): resta obbligatoria "
+        righe.append(_ui_text("Un taglio oltre il %s%% non richiede condizioni aggiuntive (mandato del PM): resta obbligatoria "
                      "la motivazione coi numeri e l'ingaggio della tesi; senza, il taglio massimo e' %s%%. La size e' "
-                     "inversamente proporzionale ai catalyst pendenti." % (soglia, libero))
+                     "inversamente proporzionale ai catalyst pendenti.", 'A reduction above %s%% requires no additional conditions (PM mandate): a quantified rationale and engagement with the thesis remain mandatory; without them, maximum reduction is %s%%. Position size is inversely proportional to pending catalysts.') % (soglia, libero))
     if r["drawdown_bilaterale"]:
         righe.append(
-            "VALUTAZIONE BILATERALE DEL DRAWDOWN (regola del PM, obbligatoria): un drawdown NON e' di per se' un motivo "
+            _ui_text("VALUTAZIONE BILATERALE DEL DRAWDOWN (regola del PM, obbligatoria): un drawdown NON e' di per se' un motivo "
             "di vendita — puo' essere sia un'opportunita' di acquisto che un segnale di vendita; considerarlo solo come "
             "vendita porterebbe a vendere sempre ai minimi e perdere il rimbalzo. TRIGGER (unico, vale per tutti): OGNI "
             "proposta di riduzione (TRIM/SELL/HEDGE sul nome) su una posizione in drawdown significativo (indicativamente "
@@ -856,85 +871,85 @@ def _sez_trim(m: Dict[str, Any]) -> str:
             "view %s del PM) — e spiegare coi numeri perche' l'uscita vince. Lo Sharpe trailing e' un'autopsia del "
             "passato: da solo puo' APRIRE la proposta di trim, mai chiuderla. BILATERALE VUOL DIRE BILATERALE: l'errore "
             "simmetrico — tenere o mediare un titolo con tesi ROTTA (value trap, disposition effect) — e' altrettanto "
-            "vietato. Non stai difendendo i hold: stai pesando ENTRAMBI i lati coi numeri, e poi scegli."
+            "vietato. Non stai difendendo i hold: stai pesando ENTRAMBI i lati coi numeri, e poi scegli.", 'TWO-SIDED DRAWDOWN ASSESSMENT (mandatory PM rule): a drawdown is NOT itself a reason to sell; it may be either a buying opportunity or a selling signal. Treating it only as a sale would systematically sell lows and miss rebounds. ONE TRIGGER for everyone: EVERY proposed reduction (TRIM/SELL/HEDGE on the name) of a position in significant drawdown (indicatively >%s%% from its 52-week high) OR justified by backward-looking metrics (trailing Sharpe/maxDD/momentum, cluster track record). The decision thesis must ALSO argue the other side: why this level might be a buying point (mean reversion, key levels, NAV discount for CEFs, the PM’s %s view), then explain with numbers why exit wins. Trailing Sharpe describes the past: alone it may OPEN a trim proposal, never settle it. TWO-SIDED MEANS TWO-SIDED: the symmetric error, holding or averaging a name with a BROKEN thesis (value trap, disposition effect), is equally forbidden. Do not defend holds automatically: weigh BOTH sides with numbers, then choose.')
             % (_fmt(r["drawdown_significativo_pct"]), _view_frase(m["profilo"]["tipo_investimento"])))
     else:
-        righe.append("DRAWDOWN: il PM non ha dichiarato la regola bilaterale: un drawdown si valuta coi numeri, senza "
-                     "automatismi ne' in acquisto ne' in vendita; una tesi ROTTA (value trap) resta un motivo di uscita.")
+        righe.append(_ui_text("DRAWDOWN: il PM non ha dichiarato la regola bilaterale: un drawdown si valuta coi numeri, senza "
+                     "automatismi ne' in acquisto ne' in vendita; una tesi ROTTA (value trap) resta un motivo di uscita.", 'DRAWDOWN: the PM has not declared the two-sided rule. Assess drawdowns using numbers without automatic buying or selling; a BROKEN thesis (value trap) remains an exit reason.'))
     return "\n".join(righe)
 
 
 def _sez_pair(m: Dict[str, Any]) -> str:
     n = m["disciplina"]["pair_trade_per_memo"]
     if n == 0:
-        return ("NESSUN pair trade nel memo (mandato del PM): la sezione 6 lo dichiara in una riga e non propone "
-                "coppie.")
+        return (_ui_text("NESSUN pair trade nel memo (mandato del PM): la sezione 6 lo dichiara in una riga e non propone "
+                "coppie.", 'NO pair trades in the memo (PM mandate): section 6 states this in one line and proposes no pairs.'))
     if n == 1:
-        return "UN solo pair trade per memo, con una VERA tesi di valore relativo (stesso settore/industria/paese/fattore)."
-    return ("Al massimo DUE pair trade per memo, ognuno con una VERA tesi di valore relativo (stesso "
-            "settore/industria/paese/fattore).")
+        return _ui_text("UN solo pair trade per memo, con una VERA tesi di valore relativo (stesso settore/industria/paese/fattore).", 'Only ONE pair trade per memo, with a REAL relative-value thesis (same sector/industry/country/factor).')
+    return (_ui_text("Al massimo DUE pair trade per memo, ognuno con una VERA tesi di valore relativo (stesso "
+            "settore/industria/paese/fattore).", 'At most TWO pair trades per memo, each with a REAL relative-value thesis (same sector/industry/country/factor).'))
 
 
 def _sez_opzioni(m: Dict[str, Any]) -> str:
     o = m["opzioni"]
-    testa = "## DISCIPLINA SULLE OPZIONI"
+    testa = _ui_text("## DISCIPLINA SULLE OPZIONI", '## OPTIONS DISCIPLINE')
     if not o["opzioni_abilitate"]:
-        return (testa + "\nIl PM NON usa opzioni: nessuna struttura in opzioni nel memo; la sezione 4 legge il tape "
-                "(IV, skew, gamma) solo come informazione sul posizionamento.")
+        return (testa + _ui_text("\nIl PM NON usa opzioni: nessuna struttura in opzioni nel memo; la sezione 4 legge il tape "
+                "(IV, skew, gamma) solo come informazione sul posizionamento.", '\nThe PM does NOT use options: no option structures in the memo; section 4 reads the tape (IV, skew, gamma) only as positioning information.'))
     a = set(o["strumenti_ammessi"])
     voci = []
     if "long_call_catalyst" in a:
-        voci.append("LONG CALL con catalyst NOMINATO e DATATO")
+        voci.append(_ui_text("LONG CALL con catalyst NOMINATO e DATATO", 'LONG CALL with a NAMED and DATED catalyst'))
     if {"put_hedge", "put_spread"} & a:
-        cosa = ("PUT o PUT SPREAD" if {"put_hedge", "put_spread"} <= a
+        cosa = (_ui_text("PUT o PUT SPREAD", 'PUT or PUT SPREAD') if {"put_hedge", "put_spread"} <= a
                 else "PUT" if "put_hedge" in a else "PUT SPREAD")
-        voci.append(cosa + " come copertura del portafoglio su una finestra di rischio identificata")
+        voci.append(cosa + _ui_text(" come copertura del portafoglio su una finestra di rischio identificata", ' as a portfolio hedge for an identified risk window'))
     if {"covered_call", "cash_secured_put"} & a:
-        cosa = ("COVERED CALL o CASH-SECURED PUT" if {"covered_call", "cash_secured_put"} <= a
+        cosa = (_ui_text("COVERED CALL o CASH-SECURED PUT", 'COVERED CALL or CASH-SECURED PUT') if {"covered_call", "cash_secured_put"} <= a
                 else "COVERED CALL" if "covered_call" in a else "CASH-SECURED PUT")
-        voci.append(cosa + " su posizioni esistenti")
+        voci.append(cosa + _ui_text(" su posizioni esistenti", ' on existing positions'))
     if "short_premium_nudo" in a:
-        voci.append("VENDITA DI PREMIO NUDA (short premium) solo con margine e rischio dichiarati")
+        voci.append(_ui_text("VENDITA DI PREMIO NUDA (short premium) solo con margine e rischio dichiarati", 'NAKED SHORT PREMIUM only with declared margin and risk'))
     if "straddle_strangle" in a:
-        voci.append("STRADDLE/STRANGLE solo su eventi datati con volatilita' implicita sotto la realizzata")
-    solo = "Solo: " + ", ".join("(%d) %s" % (i, v) for i, v in enumerate(voci, 1)) + "."
-    vietati = ["call vertical", "ratio spread", "butterfly", "condor", "speculazione binaria"]
+        voci.append(_ui_text("STRADDLE/STRANGLE solo su eventi datati con volatilita' implicita sotto la realizzata", 'STRADDLE/STRANGLE only around dated events with implied volatility below realized volatility'))
+    solo = _ui_text("Solo: ", 'Only: ') + ", ".join("(%d) %s" % (i, v) for i, v in enumerate(voci, 1)) + "."
+    vietati = ["call vertical", "ratio spread", "butterfly", "condor", _ui_text("speculazione binaria", 'binary speculation')]
     if "short_premium_nudo" not in a:
-        vietati.append("vendita di premio nuda")
+        vietati.append(_ui_text("vendita di premio nuda", 'naked short premium'))
     if "straddle_strangle" not in a:
         vietati.append("straddle/strangle")
     if o["budget_premio_pct"] is not None:
-        solo += " Premio complessivo in opzioni: al massimo il %s%% del patrimonio." % _fmt(o["budget_premio_pct"])
-    return "\n".join([testa, solo, "NON ammesso: " + ", ".join(vietati) + "."])
+        solo += _ui_text(" Premio complessivo in opzioni: al massimo il %s%% del patrimonio.", ' Total option premiums: at most %s%% of wealth.') % _fmt(o["budget_premio_pct"])
+    return "\n".join([testa, solo, _ui_text("NON ammesso: ", 'NOT allowed: ') + ", ".join(vietati) + "."])
 
 
 def _sez_caccia(m: Dict[str, Any]) -> str:
     d = m["disciplina"]
     lo, hi = d["nuove_idee_per_memo"]
-    righe = ["## ROTAZIONE SETTORIALE + CACCIA GLOBALE (mandato del PM)"]
+    righe = [_ui_text("## ROTAZIONE SETTORIALE + CACCIA GLOBALE (mandato del PM)", '## SECTOR ROTATION + GLOBAL SEARCH (PM mandate)')]
     if d["rotazione_settoriale"]:
-        righe.append("- NIENTE ANCORAGGIO AI SETTORI DEL BOOK: se la tesi di un SETTORE si e' degradata (driver esaurito, "
+        righe.append(_ui_text("- NIENTE ANCORAGGIO AI SETTORI DEL BOOK: se la tesi di un SETTORE si e' degradata (driver esaurito, "
                      "catalyst passati a vuoto, track record scorekeeper negativo sul cluster), devi DIRLO e proporre il "
                      "TRIM esplicito del cluster — dentro la Disciplina degli Alleggerimenti qui sotto — indicando la "
                      "destinazione del capitale liberato. Tenere un settore \"perche' c'e' gia'\" e' un errore di processo, "
-                     "non una posizione.")
+                     "non una posizione.", '- NO ANCHORING TO CURRENT SECTORS: if a SECTOR thesis deteriorates (exhausted driver, failed catalysts, negative cluster scorekeeper record), SAY SO and propose an explicit cluster TRIM within the Reduction Discipline below, naming the destination of the released capital. Keeping a sector just because it is already held is a process error, not a position.'))
     if hi > 0:
-        dove = ("SENZA vincolo di geografia — USA/Europa ma anche Giappone, India, Brasile, Indonesia, Vietnam, Golfo, "
-                "LatAm e mercati di frontiera" if d["caccia_globale"]
-                else "dai mercati accessibili al PM (%s)" % _piazze(m))
-        righe.append("- SEZIONE OBBLIGATORIA \"NUOVE IDEE DAL MONDO\": ogni memo deve avere %s che NON sono nel "
+        dove = (_ui_text("SENZA vincolo di geografia — USA/Europa ma anche Giappone, India, Brasile, Indonesia, Vietnam, Golfo, "
+                "LatAm e mercati di frontiera", 'WITHOUT geographical restrictions: USA/Europe and also Japan, India, Brazil, Indonesia, Vietnam, Gulf, LatAm and frontier markets') if d["caccia_globale"]
+                else _ui_text("dai mercati accessibili al PM (%s)", 'from the PM’s accessible markets (%s)') % _piazze(m))
+        righe.append(_ui_text("- SEZIONE OBBLIGATORIA \"NUOVE IDEE DAL MONDO\": ogni memo deve avere %s che NON sono nel "
                      "book e NON sono riproposte, pescati dagli specialisti %s. Per ciascuno: tesi in 2 righe con numeri "
                      "[src: tool], catalyst datato, COME si compra da %s (ADR, UCITS, listino accessibile) e il rischio "
                      "specifico del paese (FX, governance, liquidita'). Se gli specialisti non hanno prodotto candidati "
                      "%sdegni, la sezione DICHIARA il buco (\"nessuna idea nuova sopra la soglia questa settimana: ecco cosa "
-                     "e' stato scartato e perche'\") — mai riempirla con riproposte travestite."
+                     "e' stato scartato e perche'\") — mai riempirla con riproposte travestite.", '- MANDATORY "NEW IDEAS FROM THE WORLD" SECTION: every memo must include %s OUTSIDE the book and NOT repeated proposals, sourced by specialists %s. For each: a two-line thesis with [src: tool] numbers, a dated catalyst, HOW to buy from %s (ADR, UCITS, accessible listing), and country-specific risk (FX, governance, liquidity). If specialists have not produced worthy %scandidates, DECLARE the gap ("no new idea above the threshold this week: here is what was rejected and why"); never fill it with disguised repeat proposals.')
                      % (_fmt_conteggio(d["nuove_idee_per_memo"]), dove, _piazza_di_casa(m),
-                        "globali " if d["caccia_globale"] else ""))
+                        _ui_text("globali ", 'global ') if d["caccia_globale"] else ""))
     else:
-        righe.append("- SEZIONE \"NUOVE IDEE DAL MONDO\" NON richiesta dal mandato: la sezione 5-bis lo dichiara in una riga.")
+        righe.append(_ui_text("- SEZIONE \"NUOVE IDEE DAL MONDO\" NON richiesta dal mandato: la sezione 5-bis lo dichiara in una riga.", '- "NEW IDEAS FROM THE WORLD" is NOT required by the mandate: section 5-bis declares this in one line.'))
     if not d["rotazione_settoriale"]:
         # review 05/09: il test era `len(righe) == 1`, mai vero — la rotazione spenta restava muta
-        righe.append("- Il PM non chiede rotazione settoriale: i settori del book si valutano tesi per tesi.")
+        righe.append(_ui_text("- Il PM non chiede rotazione settoriale: i settori del book si valutano tesi per tesi.", '- The PM does not request sector rotation: assess current sectors thesis by thesis.'))
     return "\n".join(righe)
 
 
@@ -942,60 +957,61 @@ def _sez_5bis(m: Dict[str, Any]) -> str:
     d = m["disciplina"]
     lo, hi = d["nuove_idee_per_memo"]
     if hi == 0:
-        return "## 5-bis. Nuove Idee dal Mondo (una riga: il mandato del PM non richiede candidati nuovi)"
-    dove = ("GLOBALI — anche EM/frontiera — della caccia globale" if d["caccia_globale"]
-            else "dai mercati accessibili al PM")
+        return _ui_text("## 5-bis. Nuove Idee dal Mondo (una riga: il mandato del PM non richiede candidati nuovi)", '## 5-bis. New Ideas from the World (one line: the PM mandate does not require new candidates)')
+    dove = (_ui_text("GLOBALI — anche EM/frontiera — della caccia globale", 'GLOBAL — including EM/frontier — from the global search') if d["caccia_globale"]
+            else _ui_text("dai mercati accessibili al PM", 'from the PM’s accessible markets'))
     quanti = _fmt_conteggio(d["nuove_idee_per_memo"])
-    quanti = ("i " + quanti) if lo > 0 else quanti
-    return ("## 5-bis. Nuove Idee dal Mondo (300-500 parole: %s %s, ognuno con numeri [src], catalyst "
+    quanti = (_ui_text("i ", 'the ') + quanti) if lo > 0 else quanti
+    return (_ui_text("## 5-bis. Nuove Idee dal Mondo (300-500 parole: %s %s, ognuno con numeri [src], catalyst "
             "datato, come si compra da %s e rischio paese; se niente sopra la soglia, dichiara il buco e cosa e' "
-            "stato scartato)" % (quanti, dove, _piazza_di_casa(m)))
+            "stato scartato)", '## 5-bis. New Ideas from the World (300-500 words: %s %s, each with [src] numbers, a dated catalyst, how to buy from %s and country risk; if none qualify, declare the gap and what was rejected)') % (quanti, dove, _piazza_di_casa(m)))
 
 
 def _sez_skipped(m: Dict[str, Any]) -> str:
     if m["disciplina"]["riproporre_skipped"]:
-        return ("Le decisioni SKIPPED non sono rifiuti definitivi: significano \"non eseguita QUESTA settimana\". Se la "
+        return (_ui_text("Le decisioni SKIPPED non sono rifiuti definitivi: significano \"non eseguita QUESTA settimana\". Se la "
                 "tesi regge, RIPROPONILE esplicitamente (a size invariata o ridotta), ricordando che era gia' stata "
                 "suggerita. MA: se dalla memoria risulta gia' proposta e skippata PIU' DI UNA VOLTA (stesso ticker "
                 "e stessa azione), NON riproporla MAGGIORATA — lo skip ripetuto e' un segnale del PM: dichiara il "
                 "disaccordo nella sezione della decisione, chiedi una decisione esplicita, e presentala declassata (size "
                 "ridotta o RESEARCH a 0). Lasciala cadere solo a tesi decaduta, dichiarandolo. Se la finestra di memoria "
-                "e' troppo corta per contare gli skip, dillo.")
-    return ("Le decisioni SKIPPED NON si ripropongono (mandato del PM): una proposta saltata cade; se torna, e' con "
+                "e' troppo corta per contare gli skip, dillo.", 'SKIPPED decisions are not final rejections: they mean "not executed THIS week". If the thesis holds, explicitly PROPOSE THEM AGAIN at the same or lower weight, recalling the prior suggestion. BUT: if memory shows the same ticker and action proposed and skipped MORE THAN ONCE, do NOT INCREASE the repeated proposal. Repeated skipping is a PM signal: declare disagreement in the decision section, request an explicit decision, and downgrade it (reduced weight or RESEARCH at 0). Drop it only when the thesis expires, and say so. If the memory window is too short to count skips, declare that limitation.'))
+    return (_ui_text("Le decisioni SKIPPED NON si ripropongono (mandato del PM): una proposta saltata cade; se torna, e' con "
             "una tesi NUOVA dichiarata come tale, mai maggiorata. Se la finestra di memoria e' troppo corta per "
-            "riconoscere uno skip, dillo.")
+            "riconoscere uno skip, dillo.", 'SKIPPED decisions are NOT repeated (PM mandate): a skipped proposal lapses; if it returns, present an explicitly NEW thesis, never an increased weight. If the memory window is too short to recognize a skip, declare that limitation.'))
 
 
 def _sez_sfida(m: Dict[str, Any]) -> str:
     if m["disciplina"]["sfidare_le_view"]:
-        return ("- Le view NON sono ordini: il PM vuole essere sfidato. Se i dati smentiscono una sua view, dillo "
-                "apertamente e coi numeri — il compiacimento e' un errore di processo quanto ignorarla.")
-    return ("- Le view del PM sono vincolanti salvo tesi smentita coi numeri: se i dati le contraddicono, dillo coi "
-            "numeri e lascia a lui la decisione.")
+        return (_ui_text("- Le view NON sono ordini: il PM vuole essere sfidato. Se i dati smentiscono una sua view, dillo "
+                "apertamente e coi numeri — il compiacimento e' un errore di processo quanto ignorarla.", '- Views are NOT orders: the PM wants to be challenged. If data contradict a view, say so openly with numbers; agreeing to please is as much a process error as ignoring it.'))
+    return (_ui_text("- Le view del PM sono vincolanti salvo tesi smentita coi numeri: se i dati le contraddicono, dillo coi "
+            "numeri e lascia a lui la decisione.", '- The PM’s views are binding unless disproved with numbers: if data contradict them, present the numbers and leave the decision to the PM.'))
 
 
 def _sez_profilo_tesi(m: Dict[str, Any]) -> str:
     p = m["profilo"]
-    stile = ("e accetta concentrazione sulle conviction" if p["stile"] == "concentrato"
-             else "e vuole un book DIVERSIFICATO (nessuna conviction sopra i cap)")
+    stile = (_ui_text("e accetta concentrazione sulle conviction", 'and accepts concentrated convictions') if p["stile"] == "concentrato"
+             else _ui_text("e vuole un book DIVERSIFICATO (nessuna conviction sopra i cap)", 'and wants a DIVERSIFIED book (no conviction above its cap)'))
     if m["rischio"]["drawdown_bilaterale"]:
-        coda = ("un drawdown va valutato in modo BILATERALE (puo' essere opportunita' di acquisto O segnale di "
+        coda = (_ui_text("un drawdown va valutato in modo BILATERALE (puo' essere opportunita' di acquisto O segnale di "
                 "vendita); trattarlo solo come vendita = vendere ai minimi e perdere il rimbalzo. Vale anche l'errore "
                 "SIMMETRICO: difendere un hold su tesi ROTTA (value trap) e' altrettanto vietato — bilaterale = pesare "
-                "entrambi i lati.")
+                "entrambi i lati.", 'assess a drawdown from BOTH SIDES (buying opportunity OR selling signal); treating it only as a sale means selling lows and missing rebounds. The SYMMETRIC error also applies: defending a hold with a BROKEN thesis (value trap) is equally forbidden. Two-sided means weighing both sides.'))
     else:
-        coda = ("un drawdown si valuta coi numeri, senza automatismi ne' in acquisto ne' in vendita; una tesi ROTTA "
-                "(value trap) resta un motivo di uscita.")
-    due = "2. Il PM investe %s %s: %s\n" % (_tipo_frase(p["tipo_investimento"]), stile, coda)
+        coda = (_ui_text("un drawdown si valuta coi numeri, senza automatismi ne' in acquisto ne' in vendita; una tesi ROTTA "
+                "(value trap) resta un motivo di uscita.", 'assess drawdowns with numbers, without automatic buying or selling; a BROKEN thesis (value trap) remains an exit reason.'))
+    due = _ui_text("2. Il PM investe %s %s: %s\n", '2. The PM invests %s %s: %s\n') % (_tipo_frase(p["tipo_investimento"]), stile, coda)
     if m["disciplina"]["sfidare_le_view"]:
-        tre = ("3. Le view NON sono ordini: se i dati le smentiscono, dillo apertamente — il PM vuole essere sfidato, "
-               "non assecondato.\n")
+        tre = (_ui_text("3. Le view NON sono ordini: se i dati le smentiscono, dillo apertamente — il PM vuole essere sfidato, "
+               "non assecondato.\n", '3. Views are NOT orders: if data contradict them, say so openly. The PM wants to be challenged, not appeased.\n'))
     else:
-        tre = ("3. Le view del PM sono vincolanti salvo tesi smentita coi numeri: se i dati le contraddicono, dillo "
-               "coi numeri e lascia a lui la decisione.\n")
+        tre = (_ui_text("3. Le view del PM sono vincolanti salvo tesi smentita coi numeri: se i dati le contraddicono, dillo "
+               "coi numeri e lascia a lui la decisione.\n", '3. The PM’s views are binding unless disproved with numbers: if data contradict them, present the numbers and leave the decision to the PM.\n'))
     return due + tre
 
 
+@scoped_language
 def sezioni(m: Dict[str, Any]) -> Dict[str, str]:
     """Il testo di ogni pezzo del mandato, deterministico dai campi. Le chiavi sono i segnaposto
     `{MANDATO:<chiave>}` che i prompt portano al posto delle frasi cablate di ieri."""
@@ -1025,20 +1041,21 @@ def _condizione_tesi(m: Dict[str, Any]) -> str:
     accese = [c for c in CONDIZIONI_TAGLIO if m["disciplina"]["condizioni_taglio_oltre"][c]]
     if "tesi_smentita" not in accese:
         return ""
-    return " (e' la condizione %d della Disciplina)" % (accese.index("tesi_smentita") + 1)
+    return _ui_text(" (e' la condizione %d della Disciplina)", ' (this is condition %d of the Discipline)') % (accese.index("tesi_smentita") + 1)
 
 
+@scoped_language
 def blocco_prompt(m: Dict[str, Any]) -> str:
     """Il mandato INTERO per i desk, il red team, la chat e l'anteprima della pagina: quello che
     vedi e' quello che l'AI riceve."""
     s = sezioni(m)
     return "\n".join([
         s["intestazione"], s["profilo_rischio"], "", s["cassa"], "",
-        "## DISCIPLINA DEGLI ALLEGGERIMENTI (TRIM)", s["trim"], "",
-        "## DISCIPLINA DEL PAIR TRADE", s["pair"], "",
+        _ui_text("## DISCIPLINA DEGLI ALLEGGERIMENTI (TRIM)", '## REDUCTION DISCIPLINE (TRIM)'), s["trim"], "",
+        _ui_text("## DISCIPLINA DEL PAIR TRADE", '## PAIR TRADE DISCIPLINE'), s["pair"], "",
         s["opzioni"], "", s["caccia"], "",
-        "## DECISIONI SALTATE", s["skipped"], "",
-        "## LE VIEW DEL PM", s["sfida"],
+        _ui_text("## DECISIONI SALTATE", '## SKIPPED DECISIONS'), s["skipped"], "",
+        _ui_text("## LE VIEW DEL PM", '## THE PM’S VIEWS'), s["sfida"],
     ])
 
 
@@ -1067,7 +1084,7 @@ def compila_o_dichiara(template: str, m: Optional[Dict[str, Any]]) -> str:
     def _sost(match):
         if match.group(1) == "intestazione":
             return riga_senza_mandato()
-        return "(mandato non dichiarato: nessuna regola del PM in questa sezione)"
+        return _ui_text("(mandato non dichiarato: nessuna regola del PM in questa sezione)", '(mandate not declared: no PM rule in this section)')
     return SEGNAPOSTO.sub(_sost, template)
 
 
@@ -1082,48 +1099,48 @@ def frase_cassa_runtime(m: Dict[str, Any], cash_eur: float, nav_eur: float, mkt_
     tipica = _fmt_int(k["cassa_tipica_pct"])
     lo, hi = k["impiego_default_pct"]
     sett = _fmt_int(k["impiego_finestra_settimane"])
-    righe = ["Cash liquido da impiegare: EUR {:,.0f} ({:.0f}% del capitale totale di EUR {:,.0f}). Il valore di "
-             "mercato investito e' EUR {:,.0f}.".format(cash_eur, cash_pct, nav_eur, mkt_eur)]
+    righe = [_ui_text("Cash liquido da impiegare: EUR {:,.0f} ({:.0f}% del capitale totale di EUR {:,.0f}). Il valore di "
+             "mercato investito e' EUR {:,.0f}.",'Available cash to deploy: EUR {:,.0f} ({:.0f}% of total capital of EUR {:,.0f}). Invested market value is EUR {:,.0f}.').format(cash_eur, cash_pct, nav_eur, mkt_eur)]
     if not cassa_misurata or nav_eur <= 0:
-        righe.append("CAPITALE NON MISURATO: il mandato non da' nessun giudizio sul cash in questo giro (ne' "
-                     "«fermo» ne' «da impiegare»); dichiara il buco nel memo e dimensiona sul capitale investito.")
+        righe.append(_ui_text("CAPITALE NON MISURATO: il mandato non da' nessun giudizio sul cash in questo giro (ne' "
+                     "«fermo» ne' «da impiegare»); dichiara il buco nel memo e dimensiona sul capitale investito.",'CAPITAL NOT MEASURED: the mandate makes no cash judgment this time (neither idle nor to deploy); declare the gap in the memo and size against invested capital.'))
         return "\n".join(righe)
     pct = _fmt(round(cash_pct, 1))   # nel giudizio un decimale: 34,6% non e' «35% contro 35-45%»
     piano = "EUR {:,.0f}-{:,.0f}".format(cash_eur * lo / 100.0, cash_eur * hi / 100.0)
     if cash_pct >= k["cassa_tipica_pct"][0]:
         if k["politica_impiego"] == "aggressiva":
             righe.append(
-                "QUESTO E' MOLTO CASH FERMO. Le tue proposte di acquisto devono impiegare il capitale in modo "
+                _ui_text("QUESTO E' MOLTO CASH FERMO. Le tue proposte di acquisto devono impiegare il capitale in modo "
                 "PROPORZIONATO: con {}% di liquidita' non ha senso proporre solo aggiunte briciola (sotto il {}% "
                 "del capitale, la size minima di una nuova posizione nel mandato). Dimensiona le nuove posizioni e gli "
                 "incrementi in relazione al cash disponibile, salvo che il regime di mercato imponga esplicitamente "
                 "prudenza (in quel caso DICHIARA perche' tieni il cash fermo). Tratta il cash come una decisione "
                 "attiva, non come un residuo. Con EUR {:,.0f} di cash, un piano da EUR {:,.0f} e' troppo timido: "
-                "pensa in termini di {} impiegati nelle prossime {} settimane salvo controindicazioni esplicite."
+                "pensa in termini di {} impiegati nelle prossime {} settimane salvo controindicazioni esplicite.",'THIS IS SUBSTANTIAL IDLE CASH. Proposed purchases must deploy capital PROPORTIONALLY: with {}% cash, proposing only tiny additions (below {}% of capital, the mandated minimum new-position size) does not make sense. Size new positions and additions relative to available cash, unless the market regime explicitly requires prudence (then DECLARE why you retain cash). Treat cash as an active decision, not a residual. With EUR {:,.0f} cash, a EUR {:,.0f} plan is too timid: think of {} deployed over the next {} weeks unless there are explicit contraindications.')
                 .format(pct, _fmt(m["sizing"]["size_nuova_posizione_pct"][0]), cash_eur,
                         cash_eur * (lo / 2.0) / 100.0, piano, sett))
         elif k["politica_impiego"] == "neutra":
             righe.append(
-                "CASSA NELLA BANDA TIPICA o sopra ({}% contro {}%). Il mandato e' NEUTRO: proponi un deployment "
+                _ui_text("CASSA NELLA BANDA TIPICA o sopra ({}% contro {}%). Il mandato e' NEUTRO: proponi un deployment "
                 "proporzionato alle idee con catalyst datato — orientativamente {} nelle prossime {} settimane — e se "
-                "non ci sono idee sopra la soglia, dichiara che il cash resta fermo e perche'."
+                "non ci sono idee sopra la soglia, dichiara che il cash resta fermo e perche'.",'CASH WITHIN OR ABOVE THE TYPICAL RANGE ({}% versus {}%). The mandate is NEUTRAL: propose deployment proportional to ideas with dated catalysts, roughly {} over the next {} weeks. If no ideas qualify, declare that cash remains idle and explain why.')
                 .format(pct, tipica, piano, sett))
         else:
             righe.append(
-                "CASSA NELLA BANDA TIPICA o sopra ({}% contro {}%). Il mandato e' di PRUDENZA: proponi impieghi "
+                _ui_text("CASSA NELLA BANDA TIPICA o sopra ({}% contro {}%). Il mandato e' di PRUDENZA: proponi impieghi "
                 "solo su idee con catalyst datato e tesi sopra la soglia (al massimo {} nelle prossime {} settimane); "
-                "altrimenti dichiara che il cash resta fermo, ed e' una scelta legittima."
+                "altrimenti dichiara che il cash resta fermo, ed e' una scelta legittima.",'CASH WITHIN OR ABOVE THE TYPICAL RANGE ({}% versus {}%). The mandate is PRUDENT: deploy only into ideas with dated catalysts and a thesis above the threshold (at most {} over the next {} weeks); otherwise declare that retaining cash is a legitimate choice.')
                 .format(pct, tipica, piano, sett))
     else:
         righe.append(
-            "CASSA SOTTO LA BANDA TIPICA del mandato ({}% contro {}%): non c'e' «cash fermo» da mettere al lavoro. "
+            _ui_text("CASSA SOTTO LA BANDA TIPICA del mandato ({}% contro {}%): non c'e' «cash fermo» da mettere al lavoro. "
             "Dimensiona ogni proposta sul cash vero (EUR {:,.0f}) e dichiara che la munizione e' limitata invece di "
-            "gonfiare le size; il piano cash del BLUF dice quanto resta."
+            "gonfiare le size; il piano cash del BLUF dice quanto resta.",'CASH BELOW THE MANDATED TYPICAL RANGE ({}% versus {}%): there is no idle cash to deploy. Size each proposal against actual cash (EUR {:,.0f}) and declare that reserves are limited instead of inflating weights; the BLUF cash plan states the remainder.')
             .format(pct, tipica, cash_eur))
     if k["cassa_minima_pct"] is not None and cash_pct < k["cassa_minima_pct"]:
         righe.append(
-            "CASSA SOTTO LA MINIMA DICHIARATA ({}%): nessun impiego; le proposte devono ricostituire la cassa "
-            "(TRIM/SELL dove la tesi lo regge) o restare HOLD, dichiarandolo.".format(_fmt(k["cassa_minima_pct"])))
+            _ui_text("CASSA SOTTO LA MINIMA DICHIARATA ({}%): nessun impiego; le proposte devono ricostituire la cassa "
+            "(TRIM/SELL dove la tesi lo regge) o restare HOLD, dichiarandolo.",'CASH BELOW THE DECLARED MINIMUM ({}%): no deployment; proposals must replenish cash (TRIM/SELL where justified by the thesis) or remain HOLD, stating this explicitly.').format(_fmt(k["cassa_minima_pct"])))
     return "\n".join(righe)
 
 
