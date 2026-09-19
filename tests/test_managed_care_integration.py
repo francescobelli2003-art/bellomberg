@@ -109,7 +109,8 @@ def test_real_adapter_reaches_workbook_and_sidecar(tmp_path, monkeypatch, kind, 
     assert sidecar['snapshot_id'] == result['snapshot_id'] == bundle['snapshot_id']
     assert sidecar['managed_care'] == result['managed_care']
     wb = load_workbook(result['path'], data_only=True)
-    assert wb.worksheets[0]['B2'].value == 'UTILIZZABILE'
+    assert wb.worksheets[0].title == 'Summary'
+    assert wb['Metodo e dati']['B2'].value == 'UTILIZZABILE'
     assert wb['Managed care']['B2'].value == pytest.approx(result['fair_value_base'])
     assert wb['Qualita e revisioni'].max_column >= count + 3
     wb.close()

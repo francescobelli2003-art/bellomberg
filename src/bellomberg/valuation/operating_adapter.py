@@ -100,8 +100,9 @@ def segment_guidance_issues(revenue, *, historical_revenue, revenue_growth, peri
                 or not _segment_sources(proof['sources']) or not _text(proof['derivation']) or not whole_year):
             issues.append(name+': base osservata richiesta (historical, fonti URL e locator, derivazione, anno intero chiuso alla data valore)')
         growth,evidence=item['growth'],item['growth_evidence']
-        if not isinstance(growth,list) or len(growth)!=len(periods) or any(not _finite(value) or value<=-1 for value in growth):
-            issues.append(name+': crescita finita > -100% richiesta per ogni periodo')
+        if not isinstance(growth,list) or len(growth)!=len(periods) or any(
+                not _finite(value) or value < -1 or (value == -1 and item['role'] != 'consolidation') for value in growth):
+            issues.append(name+': crescita finita > -100% richiesta per ogni periodo; solo consolidation puo azzerarsi esplicitamente a -100%')
         if not isinstance(evidence,list) or len(evidence)!=len(periods):
             issues.append(name+': evidenza di crescita richiesta per ogni periodo')
             continue
@@ -222,12 +223,14 @@ def generate_operating(bundle, *, output_dir, metadata):
             if not isclose(bridged,terminal['normalized_ebit'],rel_tol=1e-9,abs_tol=1e-8):
                 problem('terminal_bridge',scenario+': EBIT normalizzato non riconciliato a ultimo periodo/ciclo/scadenze/ricerca')
             try:
-                fv=_dcf_value(spec,numbers['ufcf'],sc['wacc'],sc['terminal_growth'],
-                              ebit_terminal=terminal['normalized_ebit'],ronic=sc['terminal_ronic'],tax_term=sc['tax_rate'][-1])
+                valuation_bridge=_dcf_value(spec,numbers['ufcf'],sc['wacc'],sc['terminal_growth'],
+                              ebit_terminal=terminal['normalized_ebit'],ronic=sc['terminal_ronic'],
+                              tax_term=sc['tax_rate'][-1],return_details=True)
             except ArithmeticError as exc:
                 problem('wacc',scenario+': sconto non definito: '+str(exc))
                 continue
-            results[scenario]={'fair_value_per_share':fv,'rows':numbers,'wacc':sc['wacc'],
+            results[scenario]={'fair_value_per_share':valuation_bridge['fair_value_per_share'],
+                'rows':numbers,'valuation_bridge':valuation_bridge,'wacc':sc['wacc'],
                 'terminal_growth':sc['terminal_growth'],'terminal_ronic':sc['terminal_ronic'],
                 'terminal_bridge':terminal,'value_basis':'equity'}
     return finish_documented(bundle,bound,results,metadata=metadata,output_dir=output_dir,engine='operating')

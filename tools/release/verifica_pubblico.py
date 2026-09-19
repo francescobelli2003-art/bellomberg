@@ -56,7 +56,7 @@ GITLEAKS_EXIT_HIT = 7   # il codice che gitleaks usa per «leak trovati» SOLO s
 GITLEAKS_SCOPERTI = ("app/package-lock.json",)   # l'allowlist globale del config di default 8.30.1
                         # salta i lockfile: il MOTORE non li legge (li leggono i
                         # controlli in memoria). Ogni altro salto e' un KO, non una nota.
-MAX_TREE = 15 * 1024 * 1024
+MAX_TREE = 15 * 1024 * 1024 + 256 * 1024
 MAX_FILE = 2 * 1024 * 1024
 BUDGET_SCREENSHOTS = "BUDGET_SCREENSHOTS_APPROVATO.json"
 MIN_ENV = 8

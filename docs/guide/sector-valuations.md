@@ -11,6 +11,62 @@ Runtime activation and metadata migration are separate operations.
 
 ## Common record contract
 
+### Shared research standard
+
+New continuing-business models target **ten explicit annual periods in bear, base
+and bull**, for every ticker and installation. This includes FCFF, banks,
+insurance, managed care and regulated networks, using each method's own earnings,
+cash and capital schedules. The calendar record's rationale must explain a
+different horizon. Extend the horizon if the company has not reached a defensible
+steady state. Finite assets follow their documented economic life; NAV uses a
+dated asset/claims snapshot, and SOTP respects each component's method.
+
+Use company-specific historical statements, the latest dated guidance and
+comparable consensus where available. Separate management guidance from analyst
+judgment after its expiry. Explain growth through volumes, prices, product mix,
+capacity, competition and contracts; reconcile it with margins, investment,
+depreciation and working capital. Bear and bull require distinct economic cases,
+not just a change in WACC. Missing evidence remains unavailable.
+
+The final explicit year must reconcile with continuing earnings, reinvestment,
+incremental returns and cash generation. A longer spreadsheet alone does not
+repair an abrupt terminal transition. Report terminal dependence and sensitivities.
+Ten years is a research target, never an automatic forecast or a sector growth rate.
+
+### Linked Excel models
+
+Complete usable documented cases generate linked scenario workbooks for every
+corporate method in the table below. Blue numeric inputs are local simulations;
+changes flow through operating schedules, capital/cash ledgers and valuation.
+Structural dates, rights and accounting conventions stay fixed to the acquired
+contract. Invalid or missing numeric inputs produce `n.d.` and a failed check.
+Model Checks preserves the original engine result and identifies simulations.
+Editing Excel never changes an approved record or writes back to the application.
+
+FCFF includes a revenue build, reinvestment, terminal bridge, rate/growth sensitivity
+and implied stable earnings. Sector workbooks retain their own economics: legal
+capital for financials, RAB for networks, asset/claims NAV, finite project cash
+flows, or conditional development outcomes with dilution. Managed care uses its
+explicit sourced terminal-equity contract; it has no inferred perpetual-growth
+input. Holding models embed the child schedules in the same file and reconcile
+ownership, funding calls, settlement claims and parent costs.
+
+Source History, Source Guidance and Source Consensus expose data already acquired
+in the valuation snapshot with dates and provider status. They do not fetch data,
+guess units, align incompatible periods or treat a missing source as an estimate.
+This is a common public generator, not a company-specific spreadsheet template.
+Unusable cases remain declared snapshots with acquisition/review tasks; workbook
+formulas cannot override the application's valuation gates.
+
+An explicitly documented consolidation elimination may reach zero with a -100%
+change and remain zero thereafter. Operating segments still require growth above
+-100%. This does not infer or insert an undisclosed residual.
+
+The machine-readable `analysis_standard` is included in method requirements and
+documented valuation results. Its horizon assessment does not approve assumptions
+or change the fair value. Existing approved sets remain immutable: a short or
+outdated set requires an explicit revision and review, not automatic extension.
+
 Supply `method_records` to `get_valuation` or `build_dcf_model`, or return the same
 records from the injectable `method_inputs` provider. Existing filings, statements,
 guidance and consensus remain available in the acquisition snapshot. An analyst

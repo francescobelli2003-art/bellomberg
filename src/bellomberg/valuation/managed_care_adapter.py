@@ -267,6 +267,8 @@ def generate_managed_care(bundle, *, output_dir, metadata):
     from .market_quote import build_market_quote
     result['market_quote'] = build_market_quote(bundle, quotation, {s: result.get('fair_value_' + s) for s in SCENARIOS})
     result = normalize_valuation_payload(result, expected_decision=bundle['decision'], as_of=bundle['case']['as_of'])
+    from .analysis_standard import assess_standard
+    result['analysis_standard'] = assess_standard(result)
     if not result['valuation_usability']['usable']:
         result['ok'] = False
         result['error'] = 'Managed care: FV n.d.; ' + '; '.join(result['valuation_usability']['reasons'])
@@ -329,7 +331,12 @@ def build_managed_care_workbook(payload, output_dir):
             for cell in row:
                 if isinstance(cell.value, str):
                     cell.data_type = 's'
-        # There are no duplicated valuation formulas or hidden live-input claims.
+    from .managed_care_formulas import apply_managed_care_formulas
+    apply_managed_care_formulas(wb, payload)
+    from .documented_analysis import present_analysis
+    from .sourcebook_presentation import present_sourcebook
+    present_sourcebook(wb, payload)
+    present_analysis(wb, payload)
     wb.save(path)
     wb.close()
     return str(path)

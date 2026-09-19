@@ -110,6 +110,16 @@ def test_segment_order_is_not_an_economic_difference(tmp_path):
     assert result["valuation_usability"]["usable"], result["analytical_quality"]
 
 
+def test_explicit_consolidation_elimination_can_reach_zero_without_residual_proxy(tmp_path):
+    build = segment_build()
+    build['segments'][1]['growth'] = [34. / 50. - 1, 27.4 / 34. - 1]
+    build['segments'][2]['growth'] = [-1., 0.]
+    result = calculate(segment_records(build), tmp_path)
+    assert result['valuation_usability']['usable'], result['analytical_quality']
+    assert result['calculation_details']['scenarios']['base']['rows']['revenue'] == pytest.approx([100.,100.])
+    assert result['fair_value_base'] == pytest.approx(14.13)
+
+
 def test_july_june_years_use_derived_growth_without_calendar_defaults(tmp_path):
     rows = segment_records()
     periods = [{"start": "2026-07-01", "end": "2027-06-30"},

@@ -300,8 +300,9 @@ def get_method_requirements(method_id: str) -> dict[str, Any]:
     """Return an isolated input schema; an unregistered method is an explicit error."""
     if not isinstance(method_id, str) or method_id not in _METHODS:
         raise ValueError(f"unknown method: {method_id!r}")
+    from .analysis_standard import forecast_standard
     return {"method_id": method_id, "method_version": _METHODS[method_id].get("method_version", "1"), "registry_version": REGISTRY_VERSION,
-            **deepcopy(_METHODS[method_id]["requirements"])}
+            **deepcopy(_METHODS[method_id]["requirements"]), "analysis_standard": forecast_standard(method_id)}
 
 
 def is_record_method(decision):

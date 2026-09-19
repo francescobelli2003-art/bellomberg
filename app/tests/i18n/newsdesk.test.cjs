@@ -142,7 +142,9 @@ test('summary metadata and generated SEC text are not mislabelled as original pr
 });
 
 test('calendar numbers follow locale while provider numeric strings and titles stay verbatim', () => {
-  const view = retainedPage({ view: 'desk', econ: [{ date: new Date().toISOString().slice(0, 10), country: 'US', importance: 5, title: 'Original release title', previous: 1234.5, estimate: '1,234.50 provider text', actual: 0 }] });
+  // Keep the event inside the default upcoming-week filter across UTC/local midnight.
+  const eventDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const view = retainedPage({ view: 'desk', econ: [{ date: eventDate, country: 'US', importance: 5, title: 'Original release title', previous: 1234.5, estimate: '1,234.50 provider text', actual: 0 }] });
   const it = view.render('it'), en = view.render('en');
   assert.match(it, /1\.234,5/); assert.match(en, /1,234\.5/);
   for (const html of [it, en]) { assert.match(html, /1,234\.50 provider text/); assert.match(html, /Original release title/); }

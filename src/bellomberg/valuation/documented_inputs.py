@@ -191,6 +191,8 @@ def finish_documented(bundle, bound, scenarios, *, metadata, output_dir, engine)
     from .market_quote import build_market_quote
     result['market_quote']=build_market_quote(bundle,quote,{s:result.get('fair_value_'+s) for s in SCENARIOS})
     result=normalize_valuation_payload(result,expected_decision=bundle['decision'],as_of=bundle['case']['as_of'])
+    from .analysis_standard import assess_standard
+    result['analysis_standard']=assess_standard(result)
     if not result['valuation_usability']['usable']:
         result['ok']=False
         result['error']='FV n.d.; '+'; '.join([p['reason'] for p in issues]+result['valuation_usability']['reasons'])
@@ -202,7 +204,7 @@ def finish_documented(bundle, bound, scenarios, *, metadata, output_dir, engine)
 
 @scoped_language
 def build_documented_workbook(payload, output_dir):
-    """Immutable numeric snapshot, shared quality sheets; no second formula engine."""
+    """Preserve the engine baseline; expose linked schedules for complete FCFF cases."""
     from openpyxl import Workbook
     from .dcf_quality_sheet import append_quality_sheet, append_sector_quality_sheet
     directory=Path(output_dir); directory.mkdir(parents=True,exist_ok=True)
@@ -229,5 +231,44 @@ def build_documented_workbook(payload, output_dir):
         for row in sheet:
             for cell in row:
                 if isinstance(cell.value,str): cell.data_type='s'
+    if payload['method'] == 'operating_fcff':
+        from .documented_presentation import present_operating
+        from .documented_formulas import operating_formula_ready, apply_operating_formulas
+        present_operating(wb, payload)
+        if operating_formula_ready(payload):
+            apply_operating_formulas(wb, payload)
+        else:
+            from .documented_presentation import _line
+            _line(wb['Summary'], 5, _lt('BOZZA: formule non attivate; dati o risultati del motore incompleti/non utilizzabili.',
+                                      'DRAFT: formulas unavailable; engine data or results incomplete/unusable.'), 6, True, height=42)
+    if payload['method'] == 'regulated_rab':
+        from .rab_formulas import apply_rab_formulas
+        apply_rab_formulas(wb, payload)
+    elif payload['method'] == 'property_nav':
+        from .property_formulas import apply_property_formulas
+        apply_property_formulas(wb, payload)
+    elif payload['method'] in ('fund_nav', 'digital_asset_nav'):
+        from .nav_formulas import apply_nav_formulas
+        apply_nav_formulas(wb, payload)
+    elif payload['method'] == 'bank_residual_income':
+        from .bank_formulas import apply_bank_formulas
+        apply_bank_formulas(wb, payload)
+    elif payload['method'] in ('insurance_pc_distributable_equity', 'insurance_life_distributable_equity'):
+        from .insurance_formulas import apply_insurance_formulas
+        apply_insurance_formulas(wb, payload)
+    elif payload['method'] in ('resources_asset_dcf', 'property_development_fcff'):
+        from .finite_formulas import apply_finite_formulas
+        apply_finite_formulas(wb, payload)
+    elif payload['method'] == 'mixed_business_sotp':
+        from .sotp_formulas import apply_sotp_formulas
+        apply_sotp_formulas(wb, payload)
+    elif payload['method'] == 'development_rnpv':
+        from .development_formulas import apply_development_formulas
+        apply_development_formulas(wb, payload)
+    if payload['method'] == payload.get('valuation_decision', {}).get('method_id'):
+        from .sourcebook_presentation import present_sourcebook
+        present_sourcebook(wb, payload)
+        from .documented_analysis import present_analysis
+        present_analysis(wb, payload)
     wb.save(path); wb.close()
     return str(path)

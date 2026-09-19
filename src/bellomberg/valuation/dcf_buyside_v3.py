@@ -366,6 +366,18 @@ def _scenario_numbers(spec, sc, last_rev, nwc0=None):
         ufcf = ebit - tax + da_tan + da_int - capex - capdev - d_nwc
         rows["revenue"].append(rev); rows["ebitda"].append(ebitda)
         rows["ebit"].append(ebit); rows["ufcf"].append(ufcf)
+        if documented:
+            # Publish the actual engine steps so the workbook can tie out every bridge.
+            for key, value in {
+                'cost_of_sales': rev - gp, 'gross_profit': gp,
+                'research_expense': rev * sc['rnd_pct'][t],
+                'selling_general_expense': rev * sc['sga_pct'][t],
+                'capitalized_development': capdev, 'tangible_depreciation': da_tan,
+                'cash_tax': tax, 'nopat': ebit - tax, 'capex': capex,
+                'working_capital': nwc, 'working_capital_change': d_nwc,
+                'net_reinvestment': capex + capdev + d_nwc - da_tan - da_int,
+            }.items():
+                rows.setdefault(key, []).append(value)
     return rows
 
 
@@ -447,7 +459,8 @@ def _shares_used(spec):
 
 
 def _dcf_value(spec, ufcf, wacc, g, exit_multiple=None, ebitda_terminal=None,
-               ebit_terminal=None, ronic=None, tax_term=None, *, terminal_value=None):
+               ebit_terminal=None, ronic=None, tax_term=None, *, terminal_value=None,
+               return_details=False):
     """Fair value per share. Parita' A3+A5 (13/07, audit/09): mid-year convention
     parametrica (spec['mid_year'], default True = standard banking) e TV opzionale
     a exit multiple (EV/EBITDA x EBITDA terminale) in alternativa al Gordon.
@@ -480,6 +493,18 @@ def _dcf_value(spec, ufcf, wacc, g, exit_multiple=None, ebitda_terminal=None,
     sh = _shares_used(spec)
     if sh <= 0:
         return None
+    if return_details:
+        return {
+            'discount_periods': periods, 'discount_rate': wacc,
+            'discount_factors': [present_value([1.], [t], wacc) for t in periods],
+            'discounted_cash_flows': [present_value([cf], [t], wacc) for cf, t in zip(ufcf, periods)],
+            'pv_explicit_cash_flows': pv, 'terminal_value': tv,
+            'pv_terminal_value': tv / (1 + wacc) ** terminal_period,
+            'enterprise_value': ev, 'net_debt': net_debt,
+            'equity_adjustments': sum(a['value_m'] for a in _bridge_adjustments(spec)),
+            'equity_value': eq, 'diluted_shares': sh, 'fair_value_per_share': eq / sh,
+            'terminal_share_of_ev': (tv / (1 + wacc) ** terminal_period) / ev if ev else None,
+        }
     return eq / sh if spec.get('documented_inputs') is True else round(eq / sh, 2)
 
 
