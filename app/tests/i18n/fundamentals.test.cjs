@@ -206,3 +206,23 @@ test('an archive read failure preserves its original detail without manufacturin
     assert.doesNotMatch(html, /0 con FV utilizzabile|0 with usable FV|Nessun modello\.|No models\./);
   }
 });
+
+
+test('quality labels translate documented states while retaining machine codes and valuation guards', () => {
+  for (const [status, it, en] of [
+    ['DOCUMENTATA', 'documentata', 'documented'],
+    ['INCOMPLETA', 'incompleta', 'incomplete'],
+    ['BOZZA_AUTOMATICA', 'bozza automatica', 'automatic draft'],
+    ['SYNTHETIC_UNKNOWN', 'SYNTHETIC_UNKNOWN', 'SYNTHETIC_UNKNOWN'],
+    [undefined, 'non verificata', 'unverified'],
+  ]) {
+    const model = fixture(); model.analytical_quality.status = status;
+    const before = structuredClone(model), render = retained(model);
+    for (const [language, label] of [['it', it], ['en', en]]) {
+      const html = render(language);
+      assert.match(html, new RegExp('(?:Quality:|Qualita:) ' + label));
+      if (status !== 'DOCUMENTATA') assert.doesNotMatch(html, /1,234\.56|1\.234,56/);
+    }
+    assert.deepEqual(model, before);
+  }
+});

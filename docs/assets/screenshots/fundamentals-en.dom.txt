@@ -1,0 +1,131 @@
+BELLOMBERG
+v0.8.0 OBSIDIAN
+NY
+LN
+MI
+HK
+❯
+SEARCH TICKERS · PAGES · ACTIONS
+CTRL+K
+API
+LIVE
+13 SEP 2026
+10:11:40
+UTC+2
+F19
+01
+DASH
+02
+PERF
+03
+FAVS
+04
+MKT
+05
+NEWS
+06
+FUND
+07
+FCTR
+08
+MTC
+09
+VOLS
+10
+EDGE
+11
+CHAT
+12
+LIVE
+13
+SCORE
+14
+MEMO
+15
+DECN
+16
+TRADE
+17
+MOVES
+18
+MNDT
+19
+CONFIG
+F6 // FUNDAMENTALS
+|
+USD/EUR
+0.9000
+GBP/EUR
+1.2000
+GBX/EUR
+0.01200
+CHF/EUR
+1.0500
+JPY/EUR
+0.0060
+HKD/EUR
+0.1154
+FX 60S
+BELLOMBERG <VAL> — VALUATION MODELS
+1 with usable FV · 1 to complete or verify
+TICKER	FV	PX	MODEL UPSIDE	VALIDATION	REVISION
+DEMO.A ◄	55.90	49.00	+14.1%	OK	11/09 08:30
+DEMO.B	n/a	51.00	—	BLOCK	11/09 08:10
+DEMO.A · ENGINE OPERATING COMPANY
+
+Original model text · language unknown
+
+Method: operating_fcff · integrated
+
+Economic profile selected from sourced business/instrument evidence Operating cash generation and reinvestment support enterprise FCFF valuation.
+
+Current registry descriptors · English
+
+Operating cash generation and reinvestment support enterprise FCFF valuation.
+
+Common adapter consumes documented records; each case still requires supported economics, complete data and the usability gate.
+
+Quality: documented · data: complete
+
+Cash-flow and price cutoff: 2026-09-10
+
+Documented scenario valuation at opening balances/quotation cutoff; regenerate to change assumptions.
+
+55.90fair value
+MODEL PRICE
+49.00 · 10/09/2026
+MODEL UPSIDE
++14.1%
+OBSERVED PRICE
+50.00 EUR · recent observation
+2026-09-11T15:30:00Z
+Source: https://example.invalid/demo/quotes/DEMO.A · DEMO · reported delay 0 min
+BASE UPSIDE VS OBSERVED PRICE
++11.8%
+Historical FV without rollforward. Sanity uses model price; freshness uses weekdays, without holiday calendars.
+DCF SCENARIOS
+bear 36.33 · base 55.90 · bull 63.25
+RECORDED THESIS
+11/09/2026 08:30
+REASON FOR LATEST REVISION (VARIANT VIEW)
+
+bear: DEMO case: revenue +1% and +2%, gross margin 39%, WACC 9%.
+base: DEMO case: revenue +4% and +5%, gross margin 42%, WACC 8.5%.
+bull: DEMO case: revenue +7% and +8%, gross margin 43%, capex 5.5%.
+
+OPEN EXCEL
+
+One current model per security: the run creates it for new names and revises it when guidance, thesis or conditions change. FV is available when data, method and quality are verified. BLOCK or missing data requires completion of the analysis.
+
+[ BELLOMBERG · OBSIDIAN ]
+ENGINE
+SYNTHETIC DEMO
+AGENTS
+4/6 RUN
+RUN IN PROGRESS
+SESSION 2026-09-13
+WORKSPACE · F1–F19 · CTRL+K
+DEMO · SYNTHETIC DATA
+
+DOCUMENTATION FORM VALUES
+

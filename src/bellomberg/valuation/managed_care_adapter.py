@@ -259,11 +259,13 @@ def generate_managed_care(bundle, *, output_dir, metadata):
         severity = max((c['severity'] for c in checks.values()), key={'OK': 0, 'WARN': 1, 'BLOCK': 2}.get)
         result['sanity'] = {**checks['base'], 'severity': severity, 'method_id': METHOD,
                             'exclude_from_action_table': severity == 'BLOCK', 'scenario_checks': checks}
-        # Price and FV share the ledger cutoff, not an implicitly current quote.
+        # Model upside and sanity share the ledger cutoff; observed quote is separate.
         result['upside_pct'] = checks['base'].get('upside_pct')
     else:
         result['sanity'] = {'status': 'incomplete', 'severity': 'BLOCK', 'method_id': METHOD,
                             'exclude_from_action_table': True, 'headline': 'Capitale, dati o documentazione incompleti: FV n.d.'}
+    from .market_quote import build_market_quote
+    result['market_quote'] = build_market_quote(bundle, quotation, {s: result.get('fair_value_' + s) for s in SCENARIOS})
     result = normalize_valuation_payload(result, expected_decision=bundle['decision'], as_of=bundle['case']['as_of'])
     if not result['valuation_usability']['usable']:
         result['ok'] = False
@@ -297,6 +299,8 @@ def build_managed_care_workbook(payload, output_dir):
             [_xt('Base valutazione'), payload.get('valuation_basis')], [_xt('Modifica ipotesi'), _xt('Rigenerare il bundle e i controlli; questo file conserva il calcolo alla generazione.')]]
     for row in rows:
         ws.append(row)
+    from bellomberg.reporting.valuation_quote import append_market_quote_rows
+    append_market_quote_rows(ws, payload.get('market_quote'), usable=payload['valuation_usability']['usable'])
     for scenario, data in payload['managed_care'].get('scenarios', {}).items():
         ws.append([scenario, payload.get('fair_value_' + scenario)])
         for label, table in (('Conto economico', data.get('rows', [])), ('Capitale e parent', data.get('capital', {}).get('rows', []))):

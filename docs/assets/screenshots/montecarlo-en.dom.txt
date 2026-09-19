@@ -1,0 +1,241 @@
+BELLOMBERG
+v0.8.0 OBSIDIAN
+NY
+LN
+MI
+HK
+❯
+SEARCH TICKERS · PAGES · ACTIONS
+CTRL+K
+API
+LIVE
+13 SEP 2026
+10:11:40
+UTC+2
+F19
+01
+DASH
+02
+PERF
+03
+FAVS
+04
+MKT
+05
+NEWS
+06
+FUND
+07
+FCTR
+08
+MTC
+09
+VOLS
+10
+EDGE
+11
+CHAT
+12
+LIVE
+13
+SCORE
+14
+MEMO
+15
+DECN
+16
+TRADE
+17
+MOVES
+18
+MNDT
+19
+CONFIG
+F8 // MONTE CARLO
+|
+USD/EUR
+0.9000
+GBP/EUR
+1.2000
+GBX/EUR
+0.01200
+CHF/EUR
+1.0500
+JPY/EUR
+0.0060
+HKD/EUR
+0.1154
+FX 60S
+// MONTE CARLO
+METHOD
+FHS · GARCH + residual bootstrap
+Block bootstrap
+Parametric Student-t (legacy)
+DRIFT
+zero (neutral)
+shrinkage 0.3x
+historical (biased)
+LOOKBACK
+1 year
+2 years
+5 years
+10 years
+STRESS
+none
+GFC 2008
+COVID 2020
+shock −3σ
+HORIZON
+1 month
+3 months
+6 months
+1 year
+2 years
+PATHS
+3,000 (fast)
+10,000
+25,000
+50,000 (slow)
+SIMULATE
+// WHAT-IF WORKBENCH · PORTFOLIO MODIFICATIONS
+NONE — SIMULATE THE PORTFOLIO AS IS
+ADD
+REMOVE
+TRIM
+Each modification uses actual euro amounts. The before/after comparison appears below after the simulation.
+// STARTING VALUE
+11 SEPT 2026 · 23:10
+€6,000.00
+INVESTED NAV · 2 ASSETS IN SIMULATION · CALCULATION BASIS
+EXPECTED
+-0.13%
+MEDIAN
+-0.94%
+VOLATILITY
+12.25%
+SHARPE
+-0.01
+// THE THESIS
+HORIZON 252D
+WHERE YOU FINISH (MEDIAN)
+-0.94%
+€5,944 · half of simulations finish above, half below
+DRAWDOWN ALONG THE WAY (MEDIAN)
+-12.60%
+half of simulations reach at least this loss before reaching the horizon
+// PROBABILITIES
+OVER 10,000 PATHS
+any loss
+53.21%
+loss over 10%
+21.23%
+loss over 20%
+3.80%
+gain over 10%
+19.95%
+gain over 20%
+5.63%
+// PATH SCOPE
+64 POINTS · 7 BANDS · 200 TRACES OUT OF 10,000 · 11 SEPT 2026 · 23:10
+5k
+6k
+7k
+8k
+43
+85
+127
+168
+210
+252
+TRADING DAYS FROM START
+SIMULATED NAV · EUROS
+VaR 95 -18.85% · €4,869
+ES 95 -22.87% · €4,628
+ES 99 -28.69% · €4,279
+STARTING VALUE €6,000.00
+P95
+€7,245
+P75
+€6,467
+P50
+€5,944
+P25
+€5,487
+P5
+€4,869
+p5–p95
+p10–p90
+p25–p75
+median
+200 traces out of 10,000 simulated
+THE BANDS REPRESENT ALL 10,000 PATHS · THE 200 TRACES ARE A SAMPLE [1]
+// TERMINAL DISTRIBUTION
+48 BINS
+P95
+€7,245
+P50
+€5,944
+P5
+€4,869
+HOVER OVER BARS TO READ THE BIN · LONGER = MORE SIMULATIONS
+TAILS OUTSIDE WINDOW: 44 SIMS OUT OF 10,000 (0.44%)
+// NAV AT HORIZON
+252D · 1Y
+PERCENTILE	SIMULATED NAV	VS START
+P95	€7,245	+20.76%
+P90	€6,951	+15.85%
+P75	€6,467	+7.79%
+P50	€5,944	-0.94%
+P25	€5,487	-8.56%
+P10	€5,085	-15.24%
+P5	€4,869	-18.85%
+// CONSISTENT RISK
+HORIZON 1Y · LOSS IN % AND EUROS
+VAR 95%
+-18.85%
+threshold exceeded in 5% of cases
+VAR 99%
+-25.41%
+exceeded in 1% of cases
+CF-VAR 99%
+-25.49%
+adjusted for skewness and tails
+ES 95%
+-22.87%
+mean of the worst 5% · -€1,372
+ES 99%
+-28.69%
+mean of the worst 1% · -€1,721
+MAX DD P5
+-23.72%
+worst drawdown: 1 case in 20
+// DEPTH
+MAX DRAWDOWN
+0%
+-6.57%
+p95
+-12.60%
+MEDIAN
+-23.72%
+p5
+maximum drawdown reached BEFORE the horizon
+// ENGINE NOTES
+[1] Method. Filtered Historical Simulation (GARCH + bootstrap residuals) - bank-grade · drift zero (neutral) · stress none · 10,000 paths · lookback 5Y · calibration over 1304 observations.
+[3] Returns basis. LOCAL currency per asset (FX not converted, as declared): *_eur fields scale on EUR NAV
+[ BELLOMBERG · OBSIDIAN ]
+ENGINE
+SYNTHETIC DEMO
+AGENTS
+4/6 RUN
+RUN IN PROGRESS
+SESSION 2026-09-13
+WORKSPACE · F1–F19 · CTRL+K
+DEMO · SYNTHETIC DATA
+
+DOCUMENTATION FORM VALUES
+: fhs
+: zero
+: 5
+: none
+: 252
+: 10000

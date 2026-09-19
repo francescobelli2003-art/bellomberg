@@ -24,21 +24,33 @@ PAGES = [
     ("06-fundamentals", "Fundamentals", "Leggere le ipotesi dietro un valore"),
     ("07-factor-lab", "Factor Lab", "Esposizioni comuni e qualita del campione"),
     ("08-monte-carlo", "Monte Carlo", "Confrontare scenari, senza eseguire ordini"),
-    ("09-vol-deck", "Vol Deck", "Scadenze, greche e laboratorio strategie"),
+    ("09-vol-deck", "Vol Deck", "Una mappa coordinata; dettaglio su richiesta."),
     ("10-edge-scanner", "Edge Scanner", "Segnali da verificare"),
     ("11-agent-chat", "Agent Chat", "Una domanda, la prospettiva dello specialista"),
     ("12-agents-live", "Agents Live", "Seguire il lavoro del comitato"),
-    ("13-agent-progress", "Progressi agenti", "Score salvati, incertezza e lezioni"),
+    ("13-agent-progress", "Progressi agenti", "Misure, perimetro e lezioni separati."),
     ("14-memo-archive", "Memo Archive", "La storia della ricerca"),
     ("15-decisions", "Decisioni", "La tua risposta alle proposte del comitato"),
     ("16-trade-entry", "Trade Entry", "Registrare operazioni gia eseguite"),
     ("17-movements", "Movimenti", "Registro delle operazioni e della cassa"),
-    ("18-mandate-journal", "Mandato e Diario", "Le tue regole e la storia delle tue tesi"),
+    ("18-mandate-journal", "Mandato e Diario", "Regole di investimento, con effetto e verifica in vista."),
     ("19-settings", "Impostazioni", "Stato del sistema e copie di sicurezza"),
 ]
 NAV_SHORT = ["DASH", "PERF", "FAVS", "MKT", "NEWS", "FUND", "FCTR",
              "MTC", "VOLS", "EDGE", "CHAT", "LIVE", "SCORE", "MEMO",
              "DECN", "TRADE", "MOVES", "MNDT", "CONFIG"]
+# Pages redrawn on the 12/09 layouts show the heading the app renders (h1 and intro of the Italian
+# catalogue, subtitle in PAGES); the destination name stays in <title>.
+APP_TITLES = {9: "Atlante della volatilità", 13: "Risultati con evidenza"}
+# Button styles of the pages redrawn on the 12/09 layouts: (fill, stroke, text colour, weight).
+BUTTONS = {
+    "primary": (GOLD, GOLD, "#15120d", 600),
+    "secondary": ("#15243a", LINE, TEXT, 500),
+    "pressed": ("#242016", "#7e6742", GOLD, 600),
+    "outline": ("#151b24", "#637088", TEXT, 400),
+    "journal": ("#17202e", "#3a4860", "#d4deef", 500),
+    "banner": ("#10242b", "#46707b", "#8eeaff", 500),
+}
 
 
 class Canvas:
@@ -74,7 +86,7 @@ class Canvas:
         self.items.append('</g>')
         self.line(0, 132, 1280, 132)
         self.main = True
-        self.text(248, 102, title, 30, TEXT, 650)
+        self.text(248, 102, APP_TITLES.get(index, title), 30, TEXT, 650)
         self.text(248, 132, subtitle, 16, MUTED)
         self.text(248, 794, "DEMO  /  Illustration only. Not a screenshot, recommendation or measured result.", 12, MUTED)
 
@@ -104,6 +116,29 @@ class Canvas:
     def tag(self, x, y, label, width=140, color=GOLD):
         self.rect(x, y, width, 30, "#24303c", 4)
         self.text(x + 12, y + 20, label, 13, color, 600)
+
+    def button(self, x, y, label, width, style="secondary", height=26, size=12, disabled=None):
+        """A command drawn as the app styles it; `disabled` is the opacity the page's CSS gives it."""
+        fill, stroke, color, weight = BUTTONS[style]
+        if disabled:
+            self.items.append(f'<g opacity="{disabled}">')
+        self.rect(x, y, width, height, fill, 4, stroke)
+        self.text(x + width / 2, y + height / 2 + size * 0.36, label, size, color, weight, "middle")
+        if disabled:
+            self.items.append("</g>")
+
+    def field(self, x, y, label, value, width, unit="", height=22, size=13):
+        """Labelled input: label above, value inside the box, unit at the right edge."""
+        self.text(x, y, label, 11, MUTED)
+        self.rect(x, y + 4, width, height, BG, 3, LINE)
+        baseline = y + 4 + height / 2 + size * 0.36
+        self.text(x + 6, baseline, value, size, TEXT)
+        if unit:
+            self.text(x + width - 6, baseline, unit, 11, MUTED, anchor="end")
+
+    def dot(self, x, y, r, fill, stroke=None, width=2):
+        x, y = self.position(x, y)
+        self.items.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="{fill}"' + (f' stroke="{stroke}" stroke-width="{width}"' if stroke else "") + "/>")
 
     def lines(self, x, y, lines, size=15, color=MUTED, gap=26):
         for i, item in enumerate(lines):
@@ -267,31 +302,114 @@ def draw(index: int) -> Canvas:
         c.text(730, 653, "Book attuale", 16, GOLD)
         c.text(620, 705, "Percentili sintetici, non una promessa sul futuro.", 15, MUTED)
     elif index == 9:
-        c.tag(248, 160, "Ticker: SYN-A", 200)
-        c.tag(458, 160, "CATALOGO", 155)
-        c.tag(875, 160, "Chain–Strategie", 190)
-        c.panel(248, 208, 1004, 140, "Scadenze e copertura")
-        for k, (label, state, col) in enumerate([("0 DTE", "Fuori mesh", MUTED), ("14 DTE", "Caricata", CYAN), ("35 DTE", "Parziale", GOLD), ("63 DTE", "Errore fonte", RED)]):
-            x = 268 + k * 242
-            c.tag(x, 259, label, 215, col)
-            c.text(x + 8, 316, state, 14, col)
-        c.panel(248, 368, 412, 390, "Gambe • DEMO")
-        c.table(268, 435, ["Lato", "Tipo", "Strike", "Premio"], [
-            ["Buy", "Call", "100", "6"],
-            ["Sell", "Call", "110", "2"],
-        ], [84, 88, 86, 104], 47)
-        c.lines(268, 604, ["Dati sintetici: moltiplicatore 100", "Premio per unita • stessa scadenza", "", "Greche: ispeziona ogni contratto", "Fonti e timestamp restano separati"], 14, gap=27)
-        c.panel(680, 368, 572, 390, "Laboratorio strategie")
-        for yy in (455, 505, 555, 605):
-            c.line(713, yy, 1217, yy)
-        c.line(713, 555, 1217, 555, MUTED)
-        c.poly([(713,635),(895,635),(1060,441),(1217,441)], GOLD, 4)
-        c.poly([(713,624),(780,619),(846,603),(913,561),(980,510),(1046,473),(1113,457),(1217,452)], CYAN, 3)
-        c.poly([(713,616),(810,595),(907,557),(1004,510),(1101,480),(1217,466)], MUTED, 2, dash="7 5")
-        c.text(713, 674, "Scadenza", 14, GOLD)
-        c.text(813, 674, "Scenario", 14, CYAN)
-        c.text(908, 674, "Oggi teorico", 14, MUTED)
-        c.text(713, 716, "BSM europeo • costi iniziali • nessun ordine", 14, MUTED)
+        # Layout of 12/09 (VolSurfacePage.tsx, VolWorkbench.tsx): Sottostante and Catalogo in the header,
+        # four exclusive tabs, provenance and figures above every tab once a surface exists, the
+        # coverage notice outside Acquisizione. One state: a complete download whose 0-1 DTE expiry
+        # stays out of the mesh, then the Laboratorio tab with two manual legs already simulated.
+        c.text(1000, 90, "Sottostante", 13, MUTED)
+        c.rect(1000, 98, 128, 30, "#0b1017", 0, "#637088")
+        c.text(1010, 118, "SYN-A", 14)
+        c.button(1136, 98, "Catalogo", 116, "secondary", 30, 13)
+        for x, label, width in [(248, "Acquisizione", 92), (350, "Strumenti", 76), (436, "Chain", 54), (500, "Laboratorio", 88)]:
+            c.button(x, 158, label, width, "pressed" if label == "Laboratorio" else "secondary", 30, 13)
+        c.line(248, 206, 1252, 206)
+        c.text(248, 232, "SYN-A", 18, TEXT, 600)
+        for x, item in [(318, "Spot 100.0"), (386, "fonte spot DEMO"), (486, "istante DEMO"), (576, "smoothing DEMO")]:
+            c.text(x, 231, item, 12, MUTED)
+        c.line(248, 244, 1252, 244)
+        c.line(248, 322, 1252, 322)
+        for k, (label, value, sub) in enumerate([
+            ("IV ATM · prima scadenza", "21.7%", "Scadenza B"),
+            ("Struttura", "Contango", "2.1 pt · front → 60 giorni"),
+            ("Celle mancanti nel campione", "3", "I buchi restano vuoti"),
+            ("Contesto", "Non richiesto", "Azione provider esplicita"),
+        ]):
+            x = 248 + k * 251
+            if k:
+                c.line(x, 244, x, 322)
+            c.text(x + 16, 265, label, 13, MUTED)
+            c.text(x + 16, 294, value, 22, TEXT, 500)
+            c.text(x + 16, 313, sub, 12, MUTED)
+        # Coverage notice (VolWorkbench.tsx:273-284): the download is complete, the surface is not.
+        c.rect(248, 334, 1004, 48, "#211e18")
+        c.rect(248, 334, 2.5, 48, GOLD)
+        c.text(264, 353, "Copertura dell’ultima superficie: 3/4 curve · 1 escluse · 0 errori · mesh incompleto", 13, TEXT)
+        c.text(264, 372, "Scadenza A · esclusa — 0–1 DTE o scadenza passata: consulta la chain, non il mesh interpolato", 13, GOLD)
+        c.button(1102, 343, "Copertura e fonti", 136, "secondary", 30, 13)
+        c.rect(248, 394, 1004, 386, PANEL, 5, LINE)
+        c.text(266, 420, "Disegna la strategia", 17, TEXT, 600)
+        c.text(266, 439, "SYN-A · laboratorio teorico locale. Nessun ordine viene inviato.", 12, MUTED)
+        c.rect(1060, 404, 178, 24, "#172b3b", 12, "#426078")
+        c.text(1149, 420, "Black–Scholes–Merton · europeo", 11, "#c3dce9", 400, "middle")
+        c.line(248, 450, 1252, 450)
+        c.rect(249, 451, 311, 328, "#0d1727")
+        c.line(560, 450, 560, 780)
+        c.text(262, 474, "Gambe", 14, TEXT, 600)
+        c.text(312, 474, "2/12", 12, MUTED)
+        c.button(470, 458, "+ Manuale", 78, "secondary", 24, 12)
+        names = ["Strike", "Premio / unità", "Contratti", "Moltiplicatore", "Giorni a scadenza", "IV %"]
+        for k, (head, side, head_fill, head_color, values) in enumerate([
+            ("↗ Gamba 1", "Compra", "#133334", "#94e0d0", ["100", "6", "1", "100", "90", "30"]),
+            ("↙ Gamba 2", "Vendi", "#33273b", "#e3b2d0", ["110", "2", "1", "100", "90", "27"]),
+        ]):
+            top = 490 + k * 144
+            c.rect(262, top, 284, 136, "#132237", 6, "#2f4a60")
+            c.rect(262, top, 284, 19, head_fill, 6)
+            c.text(272, top + 14, head, 12, head_color, 600)
+            for j, choice in enumerate((side, "Call")):
+                c.rect(272 + j * 136, top + 24, 128, 19, BG, 3, LINE)
+                c.text(280 + j * 136, top + 38, choice, 12)
+                c.text(394 + j * 136, top + 38, "▾", 11, MUTED, anchor="end")
+            for j, (label, value) in enumerate(zip(names, values)):
+                c.field(272 + (j % 3) * 92, top + 57 + (j // 3) * 37, label, value, 84, height=19, size=12)
+            c.line(262, top + 121, 546, top + 121, "#2b3e59")
+            c.text(272, top + 131, "Ipotesi modificata nel laboratorio (non quota corrente).", 10, MUTED)
+        for k, (label, value, unit) in enumerate([("Spot iniziale", "100", "USD"), ("Prezzo scenario", "105", "USD"),
+                                                  ("Tempo trascorso", "30", "giorni"), ("Shock IV", "0", "punti %")]):
+            c.field(578 + k * 166, 470, label, value, 154, unit)
+        c.text(578, 522, "La forma del rendimento", 16, TEXT, 600)
+        c.text(578, 538, "Payoff a 90 giorni e valore teorico intermedio", 11, MUTED)
+        c.text(1236, 522, "USD", 12, MUTED, anchor="end")
+        # P&L in USD of the two legs above (price, at expiry, today, scenario after 30 days, no IV shock),
+        # read once from the app's local laboratory and written here: this script calculates nothing.
+        curve = [(60, -400, -399.9, -400.0), (64.67, -400, -399.4, -400.0), (70, -400, -396.7, -399.5),
+                 (74.67, -400, -388.6, -397.2), (80, -400, -364.5, -386.3), (84.67, -400, -321.7, -359.0),
+                 (90, -400, -240.2, -291.2), (94.67, -400, -140.3, -191.2), (100, -400, -3.2, -36.6),
+                 (104, 0, 105.3, 93.1), (104.67, 66.7, 123.2, 114.8), (110, 600, 258.6, 277.5),
+                 (114.67, 600, 358.9, 393.0), (120, 600, 447.6, 486.7), (124.67, 600, 502.9, 538.2),
+                 (130, 600, 545.0, 571.5), (134.67, 600, 568.0, 586.5), (140, 600, 583.5, 594.6)]
+        left, right, top, bottom, low, high = 622, 1232, 552, 650, -520, 720
+        def at(price, pnl):
+            return (left + (price - 60) / 80 * (right - left), top + (high - pnl) / (high - low) * (bottom - top))
+        for tick in (720, 410, 100, -210, -520):
+            c.line(left, at(60, tick)[1], right, at(60, tick)[1], "#26364f", 1, "2 5")
+            c.text(left - 8, at(60, tick)[1] + 4, str(tick), 11, MUTED, anchor="end")
+        for k, label in enumerate(["60,0", "73,3", "86,7", "100,0", "113,3", "126,7", "140,0"]):
+            c.text(left + (right - left) * k / 6, 666, label, 11, MUTED, anchor="middle")
+        c.line(left, at(60, 0)[1], right, at(60, 0)[1], "#7689a6")
+        c.line(at(104, 0)[0], top, at(104, 0)[0], bottom, "#9b804f", 1, "3 5")
+        c.poly([at(p, today) for p, _, today, _ in curve], "#91a2ba", 1.6, dash="5 5")
+        c.poly([at(p, expiry) for p, expiry, _, _ in curve], GOLD, 3)
+        c.poly([at(p, scenario) for p, _, _, scenario in curve], CYAN, 2.5)
+        c.dot(*at(104, 0), 4, GOLD)
+        for x, label, color in [(578, "A scadenza", GOLD), (670, "Scenario teorico", CYAN), (792, "Oggi teorico", "#91a2ba")]:
+            c.line(x, 682, x + 15, 682, color, 2)
+            c.text(x + 20, 686, label, 11, MUTED)
+        c.text(1236, 686, "Prezzo sottostante (USD)", 11, MUTED, anchor="end")
+        c.line(578, 698, 1236, 698)
+        c.line(578, 742, 1236, 742)
+        for k, (label, value, unit, color) in enumerate([("Esborso iniziale", "400,00", "USD", TEXT),
+                                                         ("P&L scenario", "125,54", "USD a 105,00", "#8cdcc5"),
+                                                         ("Profitto max a scadenza", "600,00", "USD", TEXT),
+                                                         ("Perdita max a scadenza", "400,00", "USD", TEXT)]):
+            x = 578 + k * 165
+            if k:
+                c.line(x - 10, 704, x - 10, 736)
+            c.text(x, 715, label, 11, MUTED)
+            c.text(x, 735, value, 15, color, 600)
+            c.text(x + 50, 735, unit, 11, MUTED)
+        c.button(578, 752, "Simula strategia", 118, "primary", 24, 12)
+        c.text(710, 768, "Solo calcolo locale · nessun provider o modello AI", 12, MUTED)
     elif index == 10:
         c.tag(248, 164, "Tutte le categorie", 230)
         c.tag(490, 164, "Forza minima", 200, MUTED)
@@ -335,26 +453,116 @@ def draw(index: int) -> Canvas:
         c.panel(796, 298, 456, 460, "Registro recente • DEMO")
         c.lines(818, 378, ["10:01  Avvio ricerca", "10:02  Macro: fonti lette", "10:03  Options: fonte non disponibile", "10:04  Fundamentals: analisi in corso", "", "La presenza di un memo non prova", "che ogni chiamata sia riuscita."], 15, gap=43)
     elif index == 13:
-        c.tag(248, 162, "Agente: Quant", 230)
-        c.tag(490, 162, "Run: DEMO C", 210, MUTED)
-        c.panel(248, 214, 622, 344, "Hit rate e intervallo di incertezza • DEMO")
-        for yy in (302, 366, 430, 494):
-            c.line(278, yy, 840, yy)
-        pts=[(335,418),(485,378),(785,346)]
-        for x, y in pts:
-            c.line(x, y-63, x, y+63, MUTED, 3)
-            c.line(x-9, y-63, x+9, y-63, MUTED, 3)
-            c.line(x-9, y+63, x+9, y+63, MUTED, 3)
-            c.rect(x-5,y-5,10,10,CYAN,5)
-        c.poly(pts[:2], CYAN, 3)
-        c.text(646, 422, "Dato assente", 13, GOLD, anchor="middle")
-        for x,label in [(335,"A"),(485,"B"),(635,"—"),(785,"C")]:
-            c.text(x,527,"Run "+label,13,MUTED,anchor="middle")
-        c.panel(890, 214, 362, 344, "Leggere lo score")
-        c.lines(912, 291, ["Campione e orizzonte", "Intervallo Wilson 95%", "Delta: solo coorti comparabili", "Nessun punteggio inventato", "", "Lo storico puo avere buchi."], 15, gap=40)
-        c.panel(248, 578, 1004, 180, "Lezione salvata • DEMO")
-        c.lines(270, 646, ["Separare un'ipotesi di miglioramento da una modifica applicata e misurata.",
-                           "Una riflessione salvata non e fine-tuning e non prova causalita."], 17, gap=35)
+        # Layout of 12/09 (AgentProgressPage.tsx, agent-progress.css): roster in the order of
+        # score_history.AGENTS, Rilevazione selector, figures, evidence tabs, the opened chart with the
+        # exact reading of the pointed run (13/09, drawn where the stylesheet places it) and the run
+        # register. Invented values; qualities as score_history._point assigns them (below
+        # SMALL_SAMPLE_N = 10 a sample is small; a desk absent from the scorecard is a missing measure).
+        c.button(1128, 96, "Aggiorna dati", 124, "secondary", 30, 13)
+        c.line(248, 146, 1252, 146)
+        c.line(248, 176, 1252, 176)
+        c.text(248, 166, "✓", 13, GOLD, 600)
+        c.text(262, 166, "4 run registrate nella finestra", 12, MUTED)
+        c.text(452, 166, "Prima registrazione nella finestra: data DEMO", 12, MUTED)
+        c.text(740, 166, "Fonte: SQLite agent_score_history + scorekeeper", 12, MUTED)
+        c.rect(248, 184, 1004, 28, "#17222b")
+        c.rect(248, 184, 2.5, 28, GOLD)
+        c.text(262, 203, "Misura corrente disponibile · separata dallo storico · data DEMO", 13, "#b4dae0")
+        c.text(248, 236, "Agenti e ruoli", 14, TEXT, 600)
+        c.text(430, 236, "Ultima misura", 11, MUTED, anchor="end")
+        c.line(248, 246, 430, 246)
+        for k, (name, score, role, sample) in enumerate([
+            ("Capo / Comitato", "65,0%", "Sintesi e decisioni collettive", "n=40 · Misura disponibile"),
+            ("Macro", "n.d.", "Regime economico e liquidità", "n=n.d. · Misura assente"),
+            ("Fundamentals", "58,3%", "Valutazioni e tesi societarie", "n=24 · Misura disponibile"),
+            ("Quant", "62,5%", "Rischio, fattori e sizing", "n=8 · Campione piccolo"),
+            ("Options", "50,0%", "Volatilità e flussi opzioni", "n=12 · Misura disponibile"),
+            ("Crypto", "n.d.", "Mercati digitali e derivati", "n=n.d. · Misura assente"),
+            ("Event Desk", "61,1%", "Catalyst, notizie e geopolitica", "n=18 · Misura disponibile"),
+            ("Red Team", "—", "Revisione critica del comitato", "Ruolo senza score direzionale"),
+            ("Reflection", "—", "Lezioni per la run successiva", "Ruolo senza score direzionale"),
+            ("Action extractor", "—", "Estrazione delle decisioni", "Ruolo senza score direzionale"),
+        ]):
+            y = 266 + k * 51
+            if k == 0:
+                c.rect(248, y - 18, 182, 51, "#2b251b")
+                c.rect(248, y - 18, 2.5, 51, GOLD)
+            c.text(256, y, name, 13, TEXT, 600)
+            c.text(426, y, score, 13, TEXT, anchor="end")
+            c.text(256, y + 15, role, 11, MUTED)
+            c.text(256, y + 29, sample, 11, MUTED)
+            c.line(248, y + 33, 430, y + 33)
+        c.text(450, 246, "Capo / Comitato", 20, TEXT, 600)
+        c.text(450, 266, "Sintesi e decisioni collettive", 13, MUTED)
+        c.text(1064, 232, "Rilevazione", 11, MUTED)
+        c.rect(1064, 238, 188, 26, "#101827", 4, LINE)
+        c.text(1074, 256, "Ultima disponibile", 12)
+        c.text(1244, 256, "▾", 11, MUTED, anchor="end")
+        c.text(450, 292, "Il Capo mostra il risultato collettivo delle decisioni del comitato; non una performance individuale isolata.", 12, MUTED)
+        c.rect(450, 304, 514, 146, "#11161e", 4, LINE)
+        c.text(468, 324, "Hit rate direzionale", 12, MUTED)
+        c.text(468, 362, "65,0%", 36, GOLD, 500)
+        c.text(570, 362, "26 esiti corretti / 40 call", 12, MUTED)
+        c.text(468, 388, "Intervallo al 95%", 12, MUTED)
+        c.text(468, 410, "49,5–77,9%", 17, TEXT, 500)
+        c.text(570, 410, "Wilson · ampiezza = incertezza", 12, MUTED)
+        bar = lambda value: 790 + 156 * value / 100
+        c.line(bar(0), 402, bar(100), 402, "#50617b", 1, "5 5")
+        c.line(bar(49.5), 402, bar(77.9), 402, GOLD, 2)
+        c.line(bar(65.0), 397, bar(65.0), 407, GOLD, 1)
+        c.text(bar(0), 418, "0", 10, MUTED)
+        c.text(bar(50), 418, "50", 10, MUTED, anchor="middle")
+        c.text(bar(100), 418, "100%", 10, MUTED, anchor="end")
+        c.text(468, 440, "Edge medio", 12, MUTED)
+        c.text(570, 440, "1,2%", 17, TEXT, 500)
+        c.text(620, 440, "Rendimento nella direzione della call", 12, MUTED)
+        c.rect(984, 304, 268, 146, "#11161e", 4, LINE)
+        c.text(1002, 324, "Si può confrontare?", 12, MUTED)
+        c.text(1002, 360, "Non confrontabile", 19, GOLD, 600)
+        c.lines(1002, 388, ["Campione, orizzonte, metodo o qualità", "diversi: delta non confrontabile"], 12, MUTED, 16)
+        c.text(450, 470, "Misura disponibile", 12, MUTED)
+        c.text(560, 470, "Misurato: data DEMO", 12, MUTED)
+        c.text(680, 470, "Fonte: scorekeeper / agent_score_history", 12, MUTED)
+        c.line(450, 509, 1252, 509)
+        for x, label in [(450, "Rilevazioni"), (534, "Per azione"), (612, "Per fiducia"), (692, "Singole call"), (778, "Attività")]:
+            c.text(x, 500, label, 14, GOLD if x == 450 else TEXT, 600 if x == 450 else 400)
+        c.line(450, 509, 516, 509, GOLD, 2)
+        c.text(450, 532, "Hit rate nel tempo", 14, TEXT, 600)
+        c.text(1252, 532, "Asse orizzontale: sequenza delle run", 12, MUTED, anchor="end")
+        left, right, top, bottom = 489, 1227, 556, 644
+        level = lambda value: top + (100 - value) / 100 * (bottom - top)
+        runs = [left + (right - left) * k / 3 for k in range(4)]
+        for value in (0, 25, 50, 75, 100):
+            c.line(left, level(value), right, level(value), "#50617b" if value == 50 else "#223045", 1, "5 5" if value == 50 else "")
+            c.text(left - 8, level(value) + 4, f"{value}%", 12, MUTED, anchor="end")
+        # Reading line on run #4, the selected run's 95% interval, then the points: #1-#2 share cohort
+        # and method (joined), #3 has no measurement (below the axis), #4 is not comparable with #3.
+        c.line(runs[3], top, runs[3], bottom, "#50617b", 1, "5 5")
+        c.line(runs[0], level(62.5), runs[1], level(62.5), GOLD, 2)
+        c.line(runs[3], level(49.5), runs[3], level(77.9), "#b7d9ee", 2)
+        for value in (49.5, 77.9):
+            c.line(runs[3] - 6, level(value), runs[3] + 6, level(value), "#b7d9ee", 2)
+        c.dot(runs[0], level(62.5), 4, GOLD, "#102337")
+        c.dot(runs[1], level(62.5), 4, GOLD, "#102337")
+        c.dot(runs[2], bottom + 8, 4, "none", "#c69670")
+        c.dot(runs[3], level(65.0), 6, "#e8f7ff", GOLD)
+        for x, label in zip(runs, ["#1", "#2", "#3", "#4"]):
+            c.text(x, 670, label, 12, MUTED, anchor="middle")
+        c.rect(495, 549, 468, 24, "#11161e")
+        c.text(502, 565, "Memo 4 • 65,0% • n=40 • data DEMO · Intervallo al 95% 49,5–77,9% · Misura disponibile", 12)
+        c.dot(452, 690, 3.5, GOLD)
+        c.text(460, 694, "Misura salvata", 12, MUTED)
+        c.line(560, 690, 575, 690, GOLD, 2)
+        c.text(580, 694, "Stessa coorte e metodo", 12, MUTED)
+        c.text(740, 694, "Barra verticale: intervallo al 95% della selezione", 12, MUTED)
+        c.text(450, 722, "Registro delle run", 14, TEXT, 600)
+        c.text(1252, 722, "Ultime 4 registrate", 12, MUTED, anchor="end")
+        for x, head in [(458, "Memo"), (560, "Completata"), (760, "Hit rate Capo / Comitato"), (1010, "Call")]:
+            c.text(x, 742, head, 12, MUTED)
+        c.line(450, 750, 1252, 750)
+        c.rect(450, 751, 802, 24, "#25291f")
+        for x, value, color in [(458, "#4 ↗", GOLD), (560, "data DEMO", TEXT), (760, "65,0%", TEXT), (1010, "40", TEXT)]:
+            c.text(x, 768, value, 13, color)
     elif index == 14:
         c.panel(248, 164, 290, 594, "Archivio memo")
         for k, (title, desc) in enumerate([("Run DEMO C","Sintesi disponibile"),("Run DEMO B","Testo + PDF"),("Run DEMO A","Solo testo")]):
@@ -417,21 +625,140 @@ def draw(index: int) -> Canvas:
             ["Evento C","SELL","Demo equity B","400 EUR"],
         ],[218,206,296,200],60)
     elif index == 18:
-        c.tag(248,160,"Mandato",160,MUTED)
-        c.tag(420,160,"Diario",145)
-        c.panel(248,210,286,548,"Le tue note")
-        c.tag(268,270,"+ Nuova nota",245)
-        c.text(268,352,"Demo equity A",19,GOLD,600)
-        c.lines(268,384,["Tesi titolo • versione 3","Origine: utente","", "Scenario macro", "Nota • versione 1", "", "Mostra archiviate"],15,gap=38)
-        c.panel(554,210,698,548,"Tesi e revisioni • DEMO")
-        c.text(578,279,"La condizione che cambia la tesi",24,TEXT,600)
-        c.text(578,312,"SYN-A   •   Tesi titolo   •   Versione 3",14,GOLD)
-        c.lines(578,365,["La societa e inventata. Il testo illustra un metodo:", "", "Tesi: spiegare quale ipotesi sto facendo.", "Evidenza: distinguere fatti e interpretazioni.", "Invalidazione: scrivere cosa mi farebbe cambiare idea.", "", "Le note non vengono inviate automaticamente agli agenti."],16,gap=33)
-        c.line(578,610,1227,610)
-        c.text(578,647,"Storico: v1 → v2 → v3",16,MUTED)
-        c.tag(578,689,"Salva versione",185)
-        c.tag(780,689,"Cronologia",150,MUTED)
-        c.tag(947,689,"Archivia",140,MUTED)
+        # The two tabs are exclusive in the app (MandatoPage.tsx): two separate views, each in one
+        # possible state. Mandato: a saved personalised mandate, a recoverable draft of undeclared number
+        # format not yet restored, section Rischio open. Values of the public example profile
+        # (mandato_pm.py ESEMPIO), badges of lib/mandato.ts, field order of the schema.
+        c.text(248, 164, "Mandato", 15, GOLD, 600)
+        c.text(320, 164, "Diario", 15, MUTED)
+        c.line(248, 173, 1252, 173)
+        c.line(248, 173, 296, 173, GOLD, 2)
+        c.text(248, 193, "Formato dei numeri della bozza: italiano (1.234,56).", 12, MUTED)
+        c.button(1044, 179, "Compila con profilo di esempio", 208, "outline", 22, 12)
+        c.rect(248, 207, 1004, 40, "#10242b", 0, "#295d6a")
+        c.text(262, 223, "BOZZA RECUPERABILE", 12, "#8eeaff", 700)
+        c.text(370, 223, "· data DEMO · Il formato dei numeri di questa bozza non è dichiarato o non è riconosciuto:", 12, "#8eeaff")
+        c.text(262, 240, "il ripristino la legge in formato italiano (1.234,56). Verifica i numeri prima di salvare.", 12, "#8eeaff")
+        c.button(1004, 215, "RIPRISTINA ESPLICITAMENTE", 172, "banner", 24, 11)
+        c.button(1182, 215, "SCARTA", 62, "banner", 24, 11)
+        c.rect(248, 256, 172, 178, "#11161e", 4, "#354052")
+        c.text(260, 277, "Sezioni del mandato", 13, TEXT, 600)
+        for k, name in enumerate(["Profilo", "Rischio", "Dimensionamento", "Cassa", "Disciplina", "Opzioni", "Note"]):
+            y = 300 + k * 19
+            if k == 1:
+                c.rect(250, y - 13, 168, 18, "#2b251b")
+                c.rect(250, y - 13, 1.6, 18, "#efbb66")
+            c.text(260, y, f"{k + 1:02d}", 12, "#aeb9ca")
+            c.text(282, y, name, 12, "#efbb66" if k == 1 else TEXT)
+            c.text(410, y, "✓", 12, "#83cfd2", anchor="end")
+        c.text(436, 277, "02", 17, "#ffa51e", 600)
+        c.text(462, 277, "Rischio", 17, TEXT, 600)
+        for k, (label, width, badge, badge_width, color, border, description, bounds, value, unit) in enumerate([
+            ("Volatilità obiettivo", 88, "Validazione", 62, "#75dff3", "#2a5f69", "Volatilita' annua del portafoglio che cerca.",
+             "Obbligatorio · Intervallo ammesso: 5–60", "15", "% annua"),
+            ("VaR al 99% · un giorno", 109, "Motore", 40, "#5de4b7", "#286653", "Perdita massima a un giorno che accetta (VaR 99%), in % del patrimonio.",
+             "Obbligatorio · Intervallo ammesso: 0.5–15", "2", "% del patrimonio"),
+            ("Perdita massima dal picco", 124, "Validazione", 62, "#75dff3", "#2a5f69", "Drawdown massimo dal picco che accetta sul portafoglio.",
+             "Obbligatorio · Intervallo ammesso: 5–70", "20", "%"),
+        ]):
+            y = 302 + k * 45
+            c.text(436, y, label, 13, TEXT, 600)
+            c.text(438 + width, y - 3, "*", 11, "#ffa51e")
+            c.rect(450 + width, y - 12, badge_width, 16, "none", 0, border)
+            c.text(454 + width, y, badge, 11, color)
+            c.text(436, y + 15, description, 11, MUTED)
+            c.text(436, y + 28, bounds, 10, MUTED)
+            c.rect(790, y - 11, 64, 24, "#0b1017", 0, "#637088")
+            c.text(798, y + 5, value, 13)
+            c.text(860, y + 5, unit, 11, MUTED)
+        c.rect(956, 256, 296, 178, "#11161e", 4, "#354052")
+        c.text(972, 278, "Testo per il comitato", 13, TEXT, 600)
+        c.text(1238, 278, "DA VALIDARE", 12, "#ffa51e", 600, "end")
+        c.lines(972, 304, ["Compila i sette blocchi e chiedi l’anteprima.", "Il testo apparirà qui solo dopo la",
+                           "validazione del server."], 12, "#cad3de", 18)
+        c.line(972, 372, 1238, 372)
+        c.text(972, 392, "IMPRONTA", 11, MUTED)
+        c.text(1032, 392, "DEMO", 13, "#83cfd2", 600)
+        c.text(972, 412, "data DEMO · Personalizzato", 11, MUTED)
+        c.rect(248, 442, 1004, 32, "#151b24")
+        c.line(248, 442, 1252, 442, "#637088")
+        c.text(264, 463, "Nessuna modifica da salvare", 13, MUTED)
+        c.button(848, 446, "Scarta modifiche", 116, "outline", 24, 12)
+        c.button(972, 446, "Verifica e apri anteprima", 168, "outline", 24, 12)
+        c.button(1148, 446, "Salva mandato", 96, "primary", 24, 12, disabled=0.5)
+        # Diario (JournalPage.tsx): note 12 edited and not saved. The app disables what would lose or
+        # bypass the draft: Archivia nota and Usa questa versione come bozza. Three versions, all loaded.
+        c.line(248, 488, 1252, 488, MUTED, 1, "4 6")
+        c.text(248, 512, "Mandato", 15, MUTED)
+        c.text(320, 512, "Diario", 15, GOLD, 600)
+        c.line(248, 521, 1252, 521)
+        c.line(320, 521, 360, 521, GOLD, 2)
+        title = "La condizione che cambia la tesi"
+        body = ["Società inventata: il testo illustra un metodo, non una view.",
+                "Separa i fatti osservati dall'ipotesi e da ciò che la smentirebbe."]
+        c.text(248, 542, "Le tue note", 14, TEXT, 600)
+        c.button(248, 550, "Nuova nota", 84, "primary", 24, 12)
+        c.text(248, 592, "Cerca nel Diario", 11, MUTED)
+        c.rect(248, 597, 198, 22, BG, 3, LINE)
+        c.text(256, 612, "Titolo, ticker o testo", 12, "#6d7886")
+        for x, label, value in [(248, "Mostra", "Note attive"), (351, "Tipo", "Tutti i tipi")]:
+            c.text(x, 636, label, 11, MUTED)
+            c.rect(x, 641, 95, 22, BG, 3, LINE)
+            c.text(x + 7, 656, value, 12)
+            c.text(x + 89, 656, "▾", 11, MUTED, anchor="end")
+        c.line(248, 674, 446, 674)
+        c.text(248, 692, "SYN-A", 12, "#f3bf78")
+        c.text(446, 692, "v3", 11, MUTED, anchor="end")
+        c.text(248, 709, title, 13, "#efbb66", 600)
+        c.text(248, 724, "data DEMO", 12, "#9aa9c2")
+        c.line(248, 732, 446, 732)
+        c.text(248, 750, "Nota macro", 12, "#f3bf78")
+        c.text(446, 750, "v1", 11, MUTED, anchor="end")
+        c.text(248, 767, "Uno scenario da osservare", 13, TEXT, 600)
+        c.rect(466, 530, 524, 246, "#0e121a", 6, "#354052")
+        c.text(480, 548, "Bozza conservata nella sessione ·", 12, "#83cfd2")
+        c.text(627, 548, "Nota 12 · Versione 3", 12, MUTED)
+        c.text(976, 548, "Modifiche da salvare", 12, "#ffd294", anchor="end")
+        c.text(480, 566, "Tipo di nota", 11, MUTED)
+        c.rect(480, 570, 240, 22, BG, 3, LINE)
+        c.text(488, 585, "Tesi su un titolo", 12)
+        c.text(714, 585, "▾", 11, MUTED, anchor="end")
+        c.text(732, 566, "Simbolo", 11, MUTED)
+        c.text(772, 566, "facoltativo", 10, MUTED)
+        c.rect(732, 570, 244, 22, BG, 3, LINE)
+        c.text(740, 585, "SYN-A", 12)
+        c.text(480, 608, "Titolo", 11, MUTED)
+        c.text(976, 608, f"{len(title)} / 160 caratteri", 11, MUTED, anchor="end")
+        c.rect(480, 612, 496, 24, BG, 3, LINE)
+        c.text(488, 629, title, 14, TEXT, 600)
+        c.text(480, 652, "Ipotesi → Evidenze → Rischi → Cosa mi farebbe cambiare idea", 12, MUTED)
+        c.text(480, 670, "La tua nota", 11, MUTED)
+        c.rect(480, 674, 496, 40, BG, 3, LINE)
+        c.lines(488, 690, body, 12, TEXT, 16)
+        # The body character counter is omitted from this illustration; the title counter stays.
+        c.text(976, 728, "Origine: inserita dall’utente", 11, MUTED, anchor="end")
+        c.rect(467, 736, 522, 39, "#151b24")
+        c.line(467, 736, 989, 736, "#637088")
+        c.text(480, 750, "La versione precedente sarà conservata", 12, MUTED)
+        c.button(480, 754, "Salva nuova versione", 128, "primary", 20, 11)
+        c.button(614, 754, "Scarta modifiche", 104, "journal", 20, 11)
+        c.button(724, 754, "Archivia nota", 88, "journal", 20, 11, disabled=0.45)
+        c.text(1006, 542, "Come evolve la tua idea", 14, TEXT, 600)
+        c.lines(1006, 560, ["Rileggi le versioni precedenti. Puoi usarle", "come bozza di una nuova revisione."], 12, MUTED, 15)
+        for y, version, action, marker in [(601, "v3", "Testo aggiornato", "▶"), (641, "v2", "Testo aggiornato", "▼"), (774, "v1", "Nota creata", "▶")]:
+            c.line(1006, y - 17, 1252, y - 17)
+            c.text(1006, y, version, 12, "#f2c488")
+            c.text(1030, y, action, 13)
+            c.text(1252, y, marker, 10, MUTED, anchor="end")
+            if y < 774:
+                c.text(1030, y + 14, "data DEMO", 12, MUTED)
+        c.text(1006, 675, title, 12, TEXT, 600)
+        c.text(1006, 690, "Tesi su un titolo · SYN-A", 11, MUTED)
+        c.rect(1006, 695, 246, 18, "#090e16")
+        c.text(1012, 708, "Società inventata: tesi riletta dopo un dato.", 12, "#cad3de")
+        c.text(1006, 726, "Origine utente · Attiva in questa versione", 10, MUTED)
+        c.button(1006, 732, "Usa questa versione come bozza", 246, "journal", 20, 11, disabled=0.45)
+        c.text(1252, 794, "Two separate views: the app shows one tab at a time.", 12, MUTED, anchor="end")
     elif index == 19:
         c.rect(248,164,1004,594,"#131a23",5,LINE)
         c.panel(354,192,792,539,"Impostazioni")

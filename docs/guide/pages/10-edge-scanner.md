@@ -2,9 +2,10 @@
 
 [Handbook](../README.md) · [Previous: F9](./09-vol-deck.md) · [Next: F11](./11-agent-chat.md)
 
-![F10 Edge Scanner: original synthetic DEMO mockup](../../assets/product/10-edge-scanner.svg)
+![F10 Edge Scanner: Signals — English DEMO screenshot](../../assets/screenshots/edge-scanner-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
 
 Use the scanner to find signals worth investigating. It presents candidate
 signals by category and strength, with the evidence available from its sources.

@@ -55,41 +55,184 @@
 </g>
 <line x1="0" y1="132" x2="1280" y2="132" stroke="#344250" stroke-width="1"/>
 <text x="28.0" y="172" font-size="30" fill="#eef2f7" font-weight="650" text-anchor="start">Mandato e Diario</text>
-<text x="28.0" y="202" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Le tue regole e la storia delle tue tesi</text>
+<text x="28.0" y="202" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Regole di investimento, con effetto e verifica in vista.</text>
 <text x="28.0" y="864" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">DEMO  /  Illustration only. Not a screenshot, recommendation or measured result.</text>
-<rect x="28.0" y="230" width="195.0597609561753" height="30" rx="4" fill="#24303c"/>
-<text x="42.62948207171315" y="250" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Mandato</text>
-<rect x="237.68924302788844" y="230" width="176.77290836653387" height="30" rx="4" fill="#24303c"/>
-<text x="252.3187250996016" y="250" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">Diario</text>
-<rect x="28.0" y="280" width="348.66932270916334" height="548" rx="5" fill="#18212c" stroke="#344250"/>
-<text x="49.94422310756972" y="310" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Le tue note</text>
-<rect x="52.38247011952191" y="340" width="298.68525896414343" height="30" rx="4" fill="#24303c"/>
-<text x="67.01195219123505" y="360" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">+ Nuova nota</text>
-<text x="52.38247011952191" y="422" font-size="19" fill="#e2bf72" font-weight="600" text-anchor="start">Demo equity A</text>
-<text x="52.38247011952191" y="454" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Tesi titolo • versione 3</text>
-<text x="52.38247011952191" y="492" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Origine: utente</text>
-<text x="52.38247011952191" y="530" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start"></text>
-<text x="52.38247011952191" y="568" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Scenario macro</text>
-<text x="52.38247011952191" y="606" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Nota • versione 1</text>
-<text x="52.38247011952191" y="644" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start"></text>
-<text x="52.38247011952191" y="682" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Mostra archiviate</text>
-<rect x="401.0517928286853" y="280" width="850.9482071713147" height="548" rx="5" fill="#18212c" stroke="#344250"/>
-<text x="422.996015936255" y="310" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Tesi e revisioni • DEMO</text>
-<text x="430.31075697211156" y="349" font-size="24" fill="#eef2f7" font-weight="600" text-anchor="start">La condizione che cambia la tesi</text>
-<text x="430.31075697211156" y="382" font-size="14" fill="#e2bf72" font-weight="400" text-anchor="start">SYN-A   •   Tesi titolo   •   Versione 3</text>
-<text x="430.31075697211156" y="435" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">La societa e inventata. Il testo illustra un metodo:</text>
-<text x="430.31075697211156" y="468" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start"></text>
-<text x="430.31075697211156" y="501" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Tesi: spiegare quale ipotesi sto facendo.</text>
-<text x="430.31075697211156" y="534" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Evidenza: distinguere fatti e interpretazioni.</text>
-<text x="430.31075697211156" y="567" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Invalidazione: scrivere cosa mi farebbe cambiare idea.</text>
-<text x="430.31075697211156" y="600" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start"></text>
-<text x="430.31075697211156" y="633" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Le note non vengono inviate automaticamente agli agenti.</text>
-<line x1="430.31075697211156" y1="680" x2="1221.5219123505976" y2="680" stroke="#344250" stroke-width="1"/>
-<text x="430.31075697211156" y="717" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Storico: v1 → v2 → v3</text>
-<rect x="430.31075697211156" y="759" width="225.5378486055777" height="30" rx="4" fill="#24303c"/>
-<text x="444.9402390438247" y="779" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">Salva versione</text>
-<rect x="676.5737051792829" y="759" width="182.86852589641435" height="30" rx="4" fill="#24303c"/>
-<text x="691.203187250996" y="779" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Cronologia</text>
-<rect x="880.1673306772908" y="759" width="170.67729083665338" height="30" rx="4" fill="#24303c"/>
-<text x="894.796812749004" y="779" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Archivia</text>
+<text x="28.0" y="234" font-size="15" fill="#e2bf72" font-weight="600" text-anchor="start">Mandato</text>
+<text x="115.77689243027888" y="234" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Diario</text>
+<line x1="28.0" y1="243" x2="1252.0" y2="243" stroke="#344250" stroke-width="1"/>
+<line x1="28.0" y1="243" x2="86.5179282868526" y2="243" stroke="#e2bf72" stroke-width="2"/>
+<text x="28.0" y="263" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Formato dei numeri della bozza: italiano (1.234,56).</text>
+<rect x="998.4223107569721" y="249" width="253.5776892430279" height="22" rx="4" fill="#151b24" stroke="#637088"/>
+<text x="1125.211155378486" y="264.32" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="middle">Compila con profilo di esempio</text>
+<rect x="28.0" y="277" width="1224.0" height="40" rx="0" fill="#10242b" stroke="#295d6a"/>
+<text x="45.06772908366534" y="293" font-size="12" fill="#8eeaff" font-weight="700" text-anchor="start">BOZZA RECUPERABILE</text>
+<text x="176.73306772908367" y="293" font-size="12" fill="#8eeaff" font-weight="400" text-anchor="start">· data DEMO · Il formato dei numeri di questa bozza non è dichiarato o non è riconosciuto:</text>
+<text x="45.06772908366534" y="310" font-size="12" fill="#8eeaff" font-weight="400" text-anchor="start">il ripristino la legge in formato italiano (1.234,56). Verifica i numeri prima di salvare.</text>
+<rect x="949.6573705179283" y="285" width="209.68924302788844" height="24" rx="4" fill="#10242b" stroke="#46707b"/>
+<text x="1054.5019920318725" y="300.96000000000004" font-size="11" fill="#8eeaff" font-weight="500" text-anchor="middle">RIPRISTINA ESPLICITAMENTE</text>
+<rect x="1166.6613545816733" y="285" width="75.58565737051794" height="24" rx="4" fill="#10242b" stroke="#46707b"/>
+<text x="1204.4541832669322" y="300.96000000000004" font-size="11" fill="#8eeaff" font-weight="500" text-anchor="middle">SCARTA</text>
+<rect x="28.0" y="326" width="209.68924302788844" height="178" rx="4" fill="#11161e" stroke="#354052"/>
+<text x="42.62948207171315" y="347" font-size="13" fill="#eef2f7" font-weight="600" text-anchor="start">Sezioni del mandato</text>
+<text x="42.62948207171315" y="370" font-size="12" fill="#aeb9ca" font-weight="400" text-anchor="start">01</text>
+<text x="69.45019920318725" y="370" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">Profilo</text>
+<text x="225.4980079681275" y="370" font-size="12" fill="#83cfd2" font-weight="400" text-anchor="end">✓</text>
+<rect x="30.438247011952193" y="376" width="204.81274900398407" height="18" rx="0" fill="#2b251b"/>
+<rect x="30.438247011952193" y="376" width="1.9505976095617532" height="18" rx="0" fill="#efbb66"/>
+<text x="42.62948207171315" y="389" font-size="12" fill="#aeb9ca" font-weight="400" text-anchor="start">02</text>
+<text x="69.45019920318725" y="389" font-size="12" fill="#efbb66" font-weight="400" text-anchor="start">Rischio</text>
+<text x="225.4980079681275" y="389" font-size="12" fill="#83cfd2" font-weight="400" text-anchor="end">✓</text>
+<text x="42.62948207171315" y="408" font-size="12" fill="#aeb9ca" font-weight="400" text-anchor="start">03</text>
+<text x="69.45019920318725" y="408" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">Dimensionamento</text>
+<text x="225.4980079681275" y="408" font-size="12" fill="#83cfd2" font-weight="400" text-anchor="end">✓</text>
+<text x="42.62948207171315" y="427" font-size="12" fill="#aeb9ca" font-weight="400" text-anchor="start">04</text>
+<text x="69.45019920318725" y="427" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">Cassa</text>
+<text x="225.4980079681275" y="427" font-size="12" fill="#83cfd2" font-weight="400" text-anchor="end">✓</text>
+<text x="42.62948207171315" y="446" font-size="12" fill="#aeb9ca" font-weight="400" text-anchor="start">05</text>
+<text x="69.45019920318725" y="446" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">Disciplina</text>
+<text x="225.4980079681275" y="446" font-size="12" fill="#83cfd2" font-weight="400" text-anchor="end">✓</text>
+<text x="42.62948207171315" y="465" font-size="12" fill="#aeb9ca" font-weight="400" text-anchor="start">06</text>
+<text x="69.45019920318725" y="465" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">Opzioni</text>
+<text x="225.4980079681275" y="465" font-size="12" fill="#83cfd2" font-weight="400" text-anchor="end">✓</text>
+<text x="42.62948207171315" y="484" font-size="12" fill="#aeb9ca" font-weight="400" text-anchor="start">07</text>
+<text x="69.45019920318725" y="484" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">Note</text>
+<text x="225.4980079681275" y="484" font-size="12" fill="#83cfd2" font-weight="400" text-anchor="end">✓</text>
+<text x="257.195219123506" y="347" font-size="17" fill="#ffa51e" font-weight="600" text-anchor="start">02</text>
+<text x="288.8924302788845" y="347" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Rischio</text>
+<text x="257.195219123506" y="372" font-size="13" fill="#eef2f7" font-weight="600" text-anchor="start">Volatilità obiettivo</text>
+<text x="366.9163346613546" y="369" font-size="11" fill="#ffa51e" font-weight="400" text-anchor="start">*</text>
+<rect x="381.54581673306774" y="360" width="75.58565737051794" height="16" rx="0" fill="none" stroke="#2a5f69"/>
+<text x="386.42231075697214" y="372" font-size="11" fill="#75dff3" font-weight="400" text-anchor="start">Validazione</text>
+<text x="257.195219123506" y="387" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Volatilita&#x27; annua del portafoglio che cerca.</text>
+<text x="257.195219123506" y="400" font-size="10" fill="#adbac9" font-weight="400" text-anchor="start">Obbligatorio · Intervallo ammesso: 5–60</text>
+<rect x="688.7649402390439" y="361" width="78.02390438247012" height="24" rx="0" fill="#0b1017" stroke="#637088"/>
+<text x="698.5179282868526" y="377" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="start">15</text>
+<text x="774.1035856573706" y="377" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">% annua</text>
+<text x="257.195219123506" y="417" font-size="13" fill="#eef2f7" font-weight="600" text-anchor="start">VaR al 99% · un giorno</text>
+<text x="392.51792828685257" y="414" font-size="11" fill="#ffa51e" font-weight="400" text-anchor="start">*</text>
+<rect x="407.14741035856576" y="405" width="48.764940239043824" height="16" rx="0" fill="none" stroke="#286653"/>
+<text x="412.0239043824701" y="417" font-size="11" fill="#5de4b7" font-weight="400" text-anchor="start">Motore</text>
+<text x="257.195219123506" y="432" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Perdita massima a un giorno che accetta (VaR 99%), in % del patrimonio.</text>
+<text x="257.195219123506" y="445" font-size="10" fill="#adbac9" font-weight="400" text-anchor="start">Obbligatorio · Intervallo ammesso: 0.5–15</text>
+<rect x="688.7649402390439" y="406" width="78.02390438247012" height="24" rx="0" fill="#0b1017" stroke="#637088"/>
+<text x="698.5179282868526" y="422" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="start">2</text>
+<text x="774.1035856573706" y="422" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">% del patrimonio</text>
+<text x="257.195219123506" y="462" font-size="13" fill="#eef2f7" font-weight="600" text-anchor="start">Perdita massima dal picco</text>
+<text x="410.804780876494" y="459" font-size="11" fill="#ffa51e" font-weight="400" text-anchor="start">*</text>
+<rect x="425.43426294820716" y="450" width="75.58565737051794" height="16" rx="0" fill="none" stroke="#2a5f69"/>
+<text x="430.31075697211156" y="462" font-size="11" fill="#75dff3" font-weight="400" text-anchor="start">Validazione</text>
+<text x="257.195219123506" y="477" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Drawdown massimo dal picco che accetta sul portafoglio.</text>
+<text x="257.195219123506" y="490" font-size="10" fill="#adbac9" font-weight="400" text-anchor="start">Obbligatorio · Intervallo ammesso: 5–70</text>
+<rect x="688.7649402390439" y="451" width="78.02390438247012" height="24" rx="0" fill="#0b1017" stroke="#637088"/>
+<text x="698.5179282868526" y="467" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="start">20</text>
+<text x="774.1035856573706" y="467" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">%</text>
+<rect x="891.1394422310757" y="326" width="360.8605577689243" height="178" rx="4" fill="#11161e" stroke="#354052"/>
+<text x="910.6454183266932" y="348" font-size="13" fill="#eef2f7" font-weight="600" text-anchor="start">Testo per il comitato</text>
+<text x="1234.9322709163346" y="348" font-size="12" fill="#ffa51e" font-weight="600" text-anchor="end">DA VALIDARE</text>
+<text x="910.6454183266932" y="374" font-size="12" fill="#cad3de" font-weight="400" text-anchor="start">Compila i sette blocchi e chiedi l’anteprima.</text>
+<text x="910.6454183266932" y="392" font-size="12" fill="#cad3de" font-weight="400" text-anchor="start">Il testo apparirà qui solo dopo la</text>
+<text x="910.6454183266932" y="410" font-size="12" fill="#cad3de" font-weight="400" text-anchor="start">validazione del server.</text>
+<line x1="910.6454183266932" y1="442" x2="1234.9322709163346" y2="442" stroke="#344250" stroke-width="1"/>
+<text x="910.6454183266932" y="462" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">IMPRONTA</text>
+<text x="983.792828685259" y="462" font-size="13" fill="#83cfd2" font-weight="600" text-anchor="start">DEMO</text>
+<text x="910.6454183266932" y="482" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">data DEMO · Personalizzato</text>
+<rect x="28.0" y="512" width="1224.0" height="32" rx="0" fill="#151b24"/>
+<line x1="28.0" y1="512" x2="1252.0" y2="512" stroke="#637088" stroke-width="1"/>
+<text x="47.50597609561753" y="533" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Nessuna modifica da salvare</text>
+<rect x="759.4741035856574" y="516" width="141.4183266932271" height="24" rx="4" fill="#151b24" stroke="#637088"/>
+<text x="830.183266932271" y="532.3199999999999" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="middle">Scarta modifiche</text>
+<rect x="910.6454183266932" y="516" width="204.81274900398407" height="24" rx="4" fill="#151b24" stroke="#637088"/>
+<text x="1013.0517928286853" y="532.3199999999999" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="middle">Verifica e apri anteprima</text>
+<g opacity="0.5">
+<rect x="1125.211155378486" y="516" width="117.03585657370519" height="24" rx="4" fill="#e2bf72" stroke="#e2bf72"/>
+<text x="1183.7290836653387" y="532.3199999999999" font-size="12" fill="#15120d" font-weight="600" text-anchor="middle">Salva mandato</text>
+</g>
+<line x1="28.0" y1="558" x2="1252.0" y2="558" stroke="#adbac9" stroke-width="1" stroke-dasharray="4 6"/>
+<text x="28.0" y="582" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Mandato</text>
+<text x="115.77689243027888" y="582" font-size="15" fill="#e2bf72" font-weight="600" text-anchor="start">Diario</text>
+<line x1="28.0" y1="591" x2="1252.0" y2="591" stroke="#344250" stroke-width="1"/>
+<line x1="115.77689243027888" y1="591" x2="164.5418326693227" y2="591" stroke="#e2bf72" stroke-width="2"/>
+<text x="28.0" y="612" font-size="14" fill="#eef2f7" font-weight="600" text-anchor="start">Le tue note</text>
+<rect x="28.0" y="620" width="102.40637450199203" height="24" rx="4" fill="#e2bf72" stroke="#e2bf72"/>
+<text x="79.20318725099602" y="636.32" font-size="12" fill="#15120d" font-weight="600" text-anchor="middle">Nuova nota</text>
+<text x="28.0" y="662" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Cerca nel Diario</text>
+<rect x="28.0" y="667" width="241.38645418326695" height="22" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="37.75298804780876" y="682" font-size="12" fill="#6d7886" font-weight="400" text-anchor="start">Titolo, ticker o testo</text>
+<text x="28.0" y="706" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Mostra</text>
+<rect x="28.0" y="711" width="115.81673306772909" height="22" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="36.53386454183267" y="726" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">Note attive</text>
+<text x="136.5019920318725" y="726" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">▾</text>
+<text x="153.56972111553785" y="706" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Tipo</text>
+<rect x="153.56972111553785" y="711" width="115.81673306772909" height="22" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="162.10358565737053" y="726" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">Tutti i tipi</text>
+<text x="262.0717131474104" y="726" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">▾</text>
+<line x1="28.0" y1="744" x2="269.3864541832669" y2="744" stroke="#344250" stroke-width="1"/>
+<text x="28.0" y="762" font-size="12" fill="#f3bf78" font-weight="400" text-anchor="start">SYN-A</text>
+<text x="269.3864541832669" y="762" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">v3</text>
+<text x="28.0" y="779" font-size="13" fill="#efbb66" font-weight="600" text-anchor="start">La condizione che cambia la tesi</text>
+<text x="28.0" y="794" font-size="12" fill="#9aa9c2" font-weight="400" text-anchor="start">data DEMO</text>
+<line x1="28.0" y1="802" x2="269.3864541832669" y2="802" stroke="#344250" stroke-width="1"/>
+<text x="28.0" y="820" font-size="12" fill="#f3bf78" font-weight="400" text-anchor="start">Nota macro</text>
+<text x="269.3864541832669" y="820" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">v1</text>
+<text x="28.0" y="837" font-size="13" fill="#eef2f7" font-weight="600" text-anchor="start">Uno scenario da osservare</text>
+<rect x="293.76892430278883" y="600" width="638.8207171314741" height="246" rx="6" fill="#0e121a" stroke="#354052"/>
+<text x="310.8366533864542" y="618" font-size="12" fill="#83cfd2" font-weight="400" text-anchor="start">Bozza conservata nella sessione ·</text>
+<text x="490.0478087649402" y="618" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Nota 12 · Versione 3</text>
+<text x="915.5219123505976" y="618" font-size="12" fill="#ffd294" font-weight="400" text-anchor="end">Modifiche da salvare</text>
+<text x="310.8366533864542" y="636" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Tipo di nota</text>
+<rect x="310.8366533864542" y="640" width="292.58964143426294" height="22" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="320.58964143426294" y="655" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">Tesi su un titolo</text>
+<text x="596.1115537848606" y="655" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">▾</text>
+<text x="618.0557768924302" y="636" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Simbolo</text>
+<text x="666.8207171314741" y="636" font-size="10" fill="#adbac9" font-weight="400" text-anchor="start">facoltativo</text>
+<rect x="618.0557768924302" y="640" width="297.46613545816734" height="22" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="627.808764940239" y="655" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">SYN-A</text>
+<text x="310.8366533864542" y="678" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Titolo</text>
+<text x="915.5219123505976" y="678" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">32 / 160 caratteri</text>
+<rect x="310.8366533864542" y="682" width="604.6852589641435" height="24" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="320.58964143426294" y="699" font-size="14" fill="#eef2f7" font-weight="600" text-anchor="start">La condizione che cambia la tesi</text>
+<text x="310.8366533864542" y="722" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Ipotesi → Evidenze → Rischi → Cosa mi farebbe cambiare idea</text>
+<text x="310.8366533864542" y="740" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">La tua nota</text>
+<rect x="310.8366533864542" y="744" width="604.6852589641435" height="40" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="320.58964143426294" y="760" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">Società inventata: il testo illustra un metodo, non una view.</text>
+<text x="320.58964143426294" y="776" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">Separa i fatti osservati dall&#x27;ipotesi e da ciò che la smentirebbe.</text>
+<text x="915.5219123505976" y="798" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">Origine: inserita dall’utente</text>
+<rect x="294.9880478087649" y="806" width="636.3824701195219" height="39" rx="0" fill="#151b24"/>
+<line x1="294.9880478087649" y1="806" x2="931.3705179282869" y2="806" stroke="#637088" stroke-width="1"/>
+<text x="310.8366533864542" y="820" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">La versione precedente sarà conservata</text>
+<rect x="310.8366533864542" y="824" width="156.04780876494024" height="20" rx="4" fill="#e2bf72" stroke="#e2bf72"/>
+<text x="388.8605577689243" y="837.96" font-size="11" fill="#15120d" font-weight="600" text-anchor="middle">Salva nuova versione</text>
+<rect x="474.199203187251" y="824" width="126.78884462151395" height="20" rx="4" fill="#17202e" stroke="#3a4860"/>
+<text x="537.5936254980079" y="837.96" font-size="11" fill="#d4deef" font-weight="500" text-anchor="middle">Scarta modifiche</text>
+<g opacity="0.45">
+<rect x="608.3027888446215" y="824" width="107.28286852589642" height="20" rx="4" fill="#17202e" stroke="#3a4860"/>
+<text x="661.9442231075698" y="837.96" font-size="11" fill="#d4deef" font-weight="500" text-anchor="middle">Archivia nota</text>
+</g>
+<text x="952.0956175298804" y="612" font-size="14" fill="#eef2f7" font-weight="600" text-anchor="start">Come evolve la tua idea</text>
+<text x="952.0956175298804" y="630" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Rileggi le versioni precedenti. Puoi usarle</text>
+<text x="952.0956175298804" y="645" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">come bozza di una nuova revisione.</text>
+<line x1="952.0956175298804" y1="654" x2="1252.0" y2="654" stroke="#344250" stroke-width="1"/>
+<text x="952.0956175298804" y="671" font-size="12" fill="#f2c488" font-weight="400" text-anchor="start">v3</text>
+<text x="981.3545816733068" y="671" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="start">Testo aggiornato</text>
+<text x="1252.0" y="671" font-size="10" fill="#adbac9" font-weight="400" text-anchor="end">▶</text>
+<text x="981.3545816733068" y="685" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">data DEMO</text>
+<line x1="952.0956175298804" y1="694" x2="1252.0" y2="694" stroke="#344250" stroke-width="1"/>
+<text x="952.0956175298804" y="711" font-size="12" fill="#f2c488" font-weight="400" text-anchor="start">v2</text>
+<text x="981.3545816733068" y="711" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="start">Testo aggiornato</text>
+<text x="1252.0" y="711" font-size="10" fill="#adbac9" font-weight="400" text-anchor="end">▼</text>
+<text x="981.3545816733068" y="725" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">data DEMO</text>
+<line x1="952.0956175298804" y1="827" x2="1252.0" y2="827" stroke="#344250" stroke-width="1"/>
+<text x="952.0956175298804" y="844" font-size="12" fill="#f2c488" font-weight="400" text-anchor="start">v1</text>
+<text x="981.3545816733068" y="844" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="start">Nota creata</text>
+<text x="1252.0" y="844" font-size="10" fill="#adbac9" font-weight="400" text-anchor="end">▶</text>
+<text x="952.0956175298804" y="745" font-size="12" fill="#eef2f7" font-weight="600" text-anchor="start">La condizione che cambia la tesi</text>
+<text x="952.0956175298804" y="760" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Tesi su un titolo · SYN-A</text>
+<rect x="952.0956175298804" y="765" width="299.9043824701195" height="18" rx="0" fill="#090e16"/>
+<text x="959.410358565737" y="778" font-size="12" fill="#cad3de" font-weight="400" text-anchor="start">Società inventata: tesi riletta dopo un dato.</text>
+<text x="952.0956175298804" y="796" font-size="10" fill="#adbac9" font-weight="400" text-anchor="start">Origine utente · Attiva in questa versione</text>
+<g opacity="0.45">
+<rect x="952.0956175298804" y="802" width="299.9043824701195" height="20" rx="4" fill="#17202e" stroke="#3a4860"/>
+<text x="1102.0478087649403" y="815.96" font-size="11" fill="#d4deef" font-weight="500" text-anchor="middle">Usa questa versione come bozza</text>
+</g>
+<text x="1252.0" y="864" font-size="12" fill="#adbac9" font-weight="400" text-anchor="end">Two separate views: the app shows one tab at a time.</text>
 </svg>

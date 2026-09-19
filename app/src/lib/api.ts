@@ -186,6 +186,28 @@ export interface ValuationAcquisitionTask {
   source?: string;
 }
 
+export interface ValuationMarketQuote {
+  contract?: string;
+  status?: string;
+  status_at_read?: string;
+  source_id?: string | null;
+  source_status?: string | null;
+  acquired_as_of?: string | null;
+  information_cutoff?: string | null;
+  exchange?: string | null;
+  quote_source_name?: string | null;
+  delayed_minutes?: number | null;
+  currency?: string | null;
+  price?: number | null;
+  observed_at?: string | null;
+  observed_local_date?: string | null;
+  price_model?: number | null;
+  price_model_as_of?: string | null;
+  upside_bear_pct?: number | null;
+  upside_base_pct?: number | null;
+  upside_bull_pct?: number | null;
+}
+
 export interface ValuationModel {
   presentation?: {
     decision_display: { method_rationale: string | null; support_note: string | null; registry_version: string };
@@ -214,7 +236,10 @@ export interface ValuationModel {
   memo_id?: number | null;
   fair_value?: number | null;
   price_at_thesis?: number | null;
+  price_model_as_of?: string | null;
   upside_pct?: number | null;
+  upside_today_pct?: number | null;
+  market_quote?: ValuationMarketQuote | null;
   thesis_date?: string | null;
   variant_view?: string | null;
   sanity_severity?: string | null;   // OK/WARN dal motore (audit/12 V0.4)
@@ -225,6 +250,7 @@ export interface ValuationModel {
 }
 
 export interface ValuationDetail {
+  market_quote?: ValuationMarketQuote | null;
   valuation_date?: string | null;
   valuation_basis?: string | null;
   valuation_decision?: ValuationDecision | null;

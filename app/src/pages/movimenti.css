@@ -1,19 +1,4 @@
-/* ============================================================
-   F14 MOVIMENTI v4 "TRE VISTE" — impianto scelto dal PM 27/07 sui
-   PNG di mockup_f14_movements (opzione B, contro A "le scie" e
-   C "due pagine"). Le SCIE non sono state scartate: sono una delle
-   tre viste.
-
-   NON dipende da .obsx apposta. Il vestito comune porta
-   `th,td{white-space:nowrap}` (dashboard-command.css:106): qui le
-   celle contengono PROSA — i commenti del PM arrivano a 358
-   caratteri — e con quella regola sbordano (su F9 era misurato
-   373px fuori). Tutto scoped sotto .f14m.
-
-   Colori: i tre gradini del lotto 0 — dato #ECF1FA, etichetta
-   #8D9FC4, nota #73829F sempre in peso 600 e mai sotto 9px.
-   Scala unica: 8 · 9 · 10 · 11 · 12 · 14 · 17 · 22 · 26 · 34
-   ============================================================ */
+/* Le celle contengono prosa: consentire a capo, con stili limitati a .f14m. */
 
 .f14m{
   --bd:#1A2440; --bd2:#2A3760; --bd3:#3D4F8A; --lo:#04060B;
@@ -56,17 +41,8 @@
 .f14m .vst button:focus-visible{outline:2px solid var(--am);outline-offset:-2px}
 
 /* ── i filtri ─────────────────────────────────────────────── */
-/* ⚠️ `flex:1 1 0;min-width:0` — CHI cede quando lo spazio manca.
-   Senza, `.fil` era rigido: a stringere cedeva l'INTERA plancia (`.cmd` ha
-   `flex-wrap`), la fascia dei numeri finiva su una seconda riga e il corpo
-   perdeva 46px. Misurato a `terzo` (1706x1440, un terzo del 49" del PM):
-   `.cmd` da 51,7 a 97,7px, corpo utile da 1190 a 1144. Il chip CASSA e la
-   tessera Flussi di questo lotto avevano spostato la soglia dell'a-capo da
-   1590 a 1820, e 1706 ci cade in mezzo — la trappola del 20/08 rifatta: il
-   guasto si sposta dove il cancello non guarda (un a-capo non e' ne' una
-   sovrapposizione ne' un taglio ne' un testo minuscolo, quindi passa 0/0/0).
-   Ora a cedere sono i chip, che sanno gia' andare a capo fra loro. */
-.f14m .fil{display:flex;gap:6px;flex-wrap:wrap;flex:1 1 0;min-width:0}
+/* Conservare spazio per piu filtri: se manca, i KPI passano alla riga successiva. */
+.f14m .fil{display:flex;gap:6px;flex-wrap:wrap;flex:1 1 320px;min-width:min(100%,320px)}
 .f14m .fil button{font-family:inherit;cursor:pointer;font-size:10px;font-weight:600;
   letter-spacing:.1em;padding:4px 10px;border:1px solid var(--bd2);
   background:transparent;color:var(--et)}
@@ -84,7 +60,7 @@
    bottone AGGIORNA 10,5px piu' in alto del gruppo: la sua baseline e' quella
    della sua riga, non del numero a 17px accanto. Il gruppo si allinea in
    fondo, e il bottone ci si siede sopra (review 27/07, BASSA). */
-.f14m .kpi{margin-left:auto;display:flex;gap:22px;align-items:flex-end}
+.f14m .kpi{margin-left:auto;display:flex;gap:22px;align-items:flex-end;flex-wrap:wrap}
 .f14m .kpi div{text-align:right}
 .f14m .kpi .azioni{display:flex;align-items:flex-end;padding-bottom:1px}
 .f14m .kpi .k{font-size:9px;font-weight:600;letter-spacing:.14em;color:var(--no);
@@ -122,23 +98,7 @@
 .f14m .ph{height:27px;flex-shrink:0;display:flex;align-items:center;gap:9px;padding:0 11px;
   border-bottom:1px solid var(--bd);font-size:10px;font-weight:600;letter-spacing:.2em;
   text-transform:uppercase;color:var(--am);white-space:nowrap;overflow:hidden}
-/* ⚠ IL PREZZO DEI 10px SU QUESTA RIGA, MISURATO in Chromium (non stimato).
-   La coda che ho misurato e' quella che la pagina rende OGGI: righe rese +
-   la riga del cancello P&L + l'avviso ⚠ sulle ore segnaposto, 209 caratteri.
-   A 1600px di finestra chiede 1.364px in una scatola da 1.266: ~98px, cioe'
-   ~14 caratteri, finiscono nei puntini. A 9px ci stava.
-   ⚠️ E NON E' IL CASO PEGGIORE: con un filtro attivo la base cresce di 16
-   caratteri, e l'avviso `finestra` (che oggi non si rende, perche' vale solo
-   sopra i 100 movimenti e l'archivio ne ha 69) ne aggiungerebbe altri 80. La
-   prima stesura di questo commento diceva «due avvisi ⚠» descrivendo una
-   combinazione che oggi non puo' esistere: il numero era della coda vera, la
-   descrizione no. Trovato dalla review del 28/07.
-   Il taglio e' DICHIARATO (l'ellissi si vede), non muto: `overflow:hidden` su
-   un flex item porta gia' `min-width:auto` a zero, quindi la scatola si
-   stringe e i puntini compaiono da soli — verificato in Chromium, aggiungere
-   `min-width:0` non cambia un pixel. Se la riga va letta INTERA, la cura non
-   e' rimpicciolire il testo: e' accorciarlo, o spostare i due ⚠ in una riga-
-   nota sotto l'intestazione (registro istituzionale). Decisione del PM. */
+/* La nota di stato resta su una riga; l'ellissi dichiara il testo che non entra. */
 .f14m .ph .side{margin-left:auto;color:var(--no);font-weight:600;letter-spacing:.1em;
   overflow:hidden;text-overflow:ellipsis}
 .f14m .pb{flex:1;min-height:0;overflow:auto}
@@ -204,6 +164,7 @@
   color:var(--et);line-height:1.45;font-variant-numeric:normal}
 /* il secondo testo e' contenuto, non una didascalia: gradino ETICHETTA
    (il grigio della nota qui usciva anche senza il peso 600 di regola) */
+.f14m td.cm > span{display:block}
 .f14m td.cm .due{display:block;color:var(--et);opacity:.82;margin-top:3px}
 .f14m tbody tr:hover td{background:rgba(255,255,255,.022)}
 .f14m tr.uscita td:first-child{box-shadow:inset 2px 0 0 0 var(--vi)}
@@ -291,20 +252,13 @@
 
 .f14m .mk{position:absolute;transform:translateX(-50%);padding:0;border-radius:0;
   cursor:pointer;font:inherit}
-/* Il bersaglio VERO e' piu' grande di quello disegnato: un ADD minuscolo e'
-   un rettangolo da 5x3px, sotto qualunque soglia di puntamento. L'area utile
-   si allarga con uno pseudo-elemento trasparente, ma solo di 3px per lato:
-   di piu' farebbe sovrapporre bersagli di corsie adiacenti (le corsie sono
-   ~25px) e ruberebbe i click al vicino. Resta sotto i 24x24 raccomandati —
-   e' un limite fisico di 69 segni su 172 giorni, non una svista: il bersaglio
-   grande per la tastiera e' il bottone della CORSIA, che e' 104x25px. */
+/* Lo pseudo-elemento amplia l'area interattiva; la corsia offre il comando da tastiera. */
 .f14m .mk::after{content:'';position:absolute;inset:-6px -3px;pointer-events:auto}
 .f14m .mk:focus-visible{outline:2px solid var(--am);outline-offset:2px;z-index:12}
 .f14m .mk.in{bottom:38%;width:5px;background:linear-gradient(180deg,var(--am),rgba(185,122,0,.55));
   border:1px solid var(--am);border-bottom:none;min-height:3px}
 .f14m .mk.in.ADD{background:linear-gradient(180deg,var(--cy),rgba(11,94,115,.55));border-color:var(--cy)}
-/* USCITE — scendono. Sono nove su 69 e non devono sparire: corpo minimo
-   10px e cappello pieno. Tratteggio viola = P&L dietro il cancello. */
+/* Le uscite mantengono un'altezza minima leggibile. */
 .f14m .mk.out{top:62%;width:7px;background:rgba(155,123,255,.20);
   border:1px dashed rgba(155,123,255,.9);border-top:none;min-height:10px;
   box-shadow:0 -1px 0 0 var(--vi)}

@@ -1,0 +1,384 @@
+BELLOMBERG
+v0.8.0 OBSIDIAN
+NY
+LN
+MI
+HK
+❯
+SEARCH TICKERS · PAGES · ACTIONS
+CTRL+K
+API
+LIVE
+13 SEP 2026
+10:11:40
+UTC+2
+F19
+01
+DASH
+02
+PERF
+03
+FAVS
+04
+MKT
+05
+NEWS
+06
+FUND
+07
+FCTR
+08
+MTC
+09
+VOLS
+10
+EDGE
+11
+CHAT
+12
+LIVE
+13
+SCORE
+14
+MEMO
+15
+DECN
+16
+TRADE
+17
+MOVES
+18
+MNDT
+19
+CONFIG
+F5 // NEWS DESK
+|
+USD/EUR
+0.9000
+GBP/EUR
+1.2000
+GBX/EUR
+0.01200
+CHF/EUR
+1.0500
+JPY/EUR
+0.0060
+HKD/EUR
+0.1154
+FX 60S
+NEWS // SIGNAL DECK
+· WIRE & DESK · LOCAL DB FEED · PROVIDERS ON REFRESH ONLY
+20 ITEMS · UPDATED 10:11:40 · AUTO 60S
+SIGNAL TRAFFIC // LAST 24H
+19ITEMS
+6H 14 · TOTAL 20 · ITEMS/HOUR HISTOGRAM · POS/NEU/NEG MIX
+MARKET MOVING
+3
+REL ≥ 8 · MATERIALITY RANK
+FEED COVERAGE
+2 TKR
+4 ACTIVE SOURCES · AVG REL 6.0
+MUTED SOURCES
+1
+THENEWSAPI
+LATEST FEED RUN
+52′ · DEGRADED
+15 FETCHED · 3 SAVED · 1 SOURCE K.O.
+WIRE
+DESK
+AUTO 60S
+↻ REFRESH PROVIDERS
+8/20 IN WIRE · 1 ACTIVE FILTER
+09:00
+DEMO.A
+Invented order intake beats Synthetic Company A's own plan
+◆
+08:45
+DEMO.A
+Invented supplier survey ranks Synthetic Company A first
+◆
+08:30
+DEMO.B
+Synthetic Company B pushes invented product launch back one quarter
+◆
+08:15
+DEMO.A
+Synthetic Company A opens invented regional office, widening its sales footprint
+◆
+08:00
+DEMO.B
+Synthetic Company B schedules invented investor call, guidance unchanged
+◆
+07:30
+DEMO.B
+Synthetic Company B confirms invented supplier contract on existing terms
+◆
+07:15
+Synthetic minutes: invented committee split on the next policy move
+◆
+06:45
+Synthetic cost scenario: invented producer prices run hotter
+◆
+06:30
+Synthetic bond note: invented expectations shift toward a later cut
+◆
+06:15
+Synthetic wage survey: invented euro-area pay growth steady
+◆
+06:00
+DEMO: invented overview of sector rotation
+◆
+05:15
+Synthetic growth comment: invented euro-area outlook edges higher
+◆
+05:00
+Synthetic indicator: invented export orders soften
+◆
+04:45
+Synthetic calendar preview: invented policy dates recapped
+◆
+01:28
+Synthetic survey: invented inflation expectations unchanged
+◆
+23:28
+Synthetic breadth summary: invented advance across demo sectors
+◆
+17:28
+Synthetic policy speech: invented remarks keep the rate path open
+◆
+14:28
+DEMO.A
+Synthetic Company A issues invented sustainability report, no financial update
+◆
+09:00
+DEMO.A
+Invented order intake beats Synthetic Company A's own plan
+◆
+08:45
+DEMO.A
+Invented supplier survey ranks Synthetic Company A first
+◆
+08:30
+DEMO.B
+Synthetic Company B pushes invented product launch back one quarter
+◆
+08:15
+DEMO.A
+Synthetic Company A opens invented regional office, widening its sales footprint
+◆
+08:00
+DEMO.B
+Synthetic Company B schedules invented investor call, guidance unchanged
+◆
+07:30
+DEMO.B
+Synthetic Company B confirms invented supplier contract on existing terms
+◆
+07:15
+Synthetic minutes: invented committee split on the next policy move
+◆
+06:45
+Synthetic cost scenario: invented producer prices run hotter
+◆
+06:30
+Synthetic bond note: invented expectations shift toward a later cut
+◆
+06:15
+Synthetic wage survey: invented euro-area pay growth steady
+◆
+06:00
+DEMO: invented overview of sector rotation
+◆
+05:15
+Synthetic growth comment: invented euro-area outlook edges higher
+◆
+05:00
+Synthetic indicator: invented export orders soften
+◆
+04:45
+Synthetic calendar preview: invented policy dates recapped
+◆
+01:28
+Synthetic survey: invented inflation expectations unchanged
+◆
+23:28
+Synthetic breadth summary: invented advance across demo sectors
+◆
+17:28
+Synthetic policy speech: invented remarks keep the rate path open
+◆
+14:28
+DEMO.A
+Synthetic Company A issues invented sustainability report, no financial update
+◆
+PARTIAL COVERAGE — MUTED SOURCES: thenewsapi (BUDGET EXHAUSTED) — PARTIAL coverage: blocked providers thenewsapi — few/no news items do NOT imply calm
+FILTERS
+CLEAR (1)
+PERIOD
+Today
+Last 24h
+Last 3 days
+Last week
+All
+CATEGORIES
+PORTFOLIO
+8
+FED / FOMC
+4
+ECB
+3
+INFLATION / CPI
+2
+GENERAL
+2
+CHINA
+1
+SENTIMENT
+POS
+NEU
+NEG
+RELEVANCE
+ALL
+REL 5+
+REL 8+
+TICKERS IN FEED
+DEMO.A
+4
+DEMO.B
+4
+PM FAVORITES
+DEMO.C
+0
+DEMO.E
+0
+DEMO.D
+0
+DEMO.A
+4
+WIRE // CHRONOLOGICAL FEED
+8/20 ITEMS
+CLICK ROW = OPEN SOURCE
+TODAY · SUN 13 SEPT
+6
+09:00
+DEMO.AInvented order intake beats Synthetic Company A's own plan
+66.7% of invested assets: the invented order data supports the demo thesis.
+Original summary · English
+YFINANCE · DEMO NEWSWIRE
+9
+08:45
+DEMO.AInvented supplier survey ranks Synthetic Company A first
+66.7% of invested assets: invented customer feedback supports the demo thesis.
+Original summary · English
+GNEWS · DEMO NEWSWIRE
+7
+08:30
+DEMO.BSynthetic Company B pushes invented product launch back one quarter
+33.3% of invested assets: the invented delay weighs on the synthetic revenue path.
+Original summary · English
+GNEWS · SYNTHETIC MARKETS DAILY
+8
+08:15
+DEMO.ASynthetic Company A opens invented regional office, widening its sales footprint
+66.7% of invested assets: small invented positive for the growth leg of the thesis.
+Original summary · English
+GNEWS · DEMO NEWSWIRE
+6
+08:00
+DEMO.BSynthetic Company B schedules invented investor call, guidance unchanged
+33.3% of invested assets: event risk only, the demo thesis is unchanged.
+Original summary · English
+YFINANCE · DEMO NEWSWIRE
+6
+07:30
+DEMO.BSynthetic Company B confirms invented supplier contract on existing terms
+33.3% of invested assets: continuity of supply, no new information for the thesis.
+Original summary · English
+GNEWS · SYNTHETIC MARKETS DAILY
+5
+YESTERDAY · SAT 12 SEPT
+1
+14:28
+DEMO.ASynthetic Company A issues invented sustainability report, no financial update
+66.7% of invested assets: informational release, no effect on the demo valuation.
+Original summary · English
+YFINANCE · SYNTHETIC MARKETS DAILY
+5
+FRI 11 SEPT
+1
+20:28
+DEMO.BInvented analyst day leaves Synthetic Company B outlook unchanged
+33.3% of invested assets: no change to the demo thesis, a softer tone only.
+Original summary · English
+NEWSAPI · EXAMPLE FINANCE REVIEW
+5
+SCOPE // 24H CONTACTS
+19 BLIPS
+1H
+6H
+24H
+PORTFOLIO
+FED / FOM
+ECB
+INFLATION
+GENERAL
+CHINA
+OTHER
+SECTOR=THEME · RADIUS=AGE (1H/6H/24H) · COLOR=SENTIMENT · GLOW=REL≥8 · GOLD RING=FAVORITE · CLICK=SOURCE
+MARKET MOVING
+REL ≥ 8
+01
+09:00
+DEMO.A
+R9
+M40.0
+Invented order intake beats Synthetic Company A's own plan
+66.7% of invested assets: the invented order data supports the demo thesis.
+Original summary · English
+02
+08:30
+DEMO.B
+R8
+M32.0
+Synthetic Company B pushes invented product launch back one quarter
+33.3% of invested assets: the invented delay weighs on the synthetic revenue path.
+Original summary · English
+03
+07:15
+R8
+M22.0
+Synthetic minutes: invented committee split on the next policy move
+Macro only: an invented split raises rate uncertainty for both synthetic holdings.
+Original summary · English
+CHANNELS // PROVIDER LINK
+CLIENT SIDE · FROM PREFETCH
+GNEWS
+10
+NEWSAPI
+5
+YFINANCE
+3
+TIINGO
+2
+THENEWSAPI
+BUDGET EXHAUSTED
+QUOTA STATUS: DECLARED BY BACKEND
+COVERAGE
+DISTINCT TICKERS
+2
+AVG REL
+6.0
+WIRE LINK · /news/feed LOCAL DB · 60S POLL ACTIVE · BUFFER 200 · PROVIDERS ON MANUAL REFRESH ONLY
+UPDATED 10:11:40
+[ BELLOMBERG · OBSIDIAN ]
+ENGINE
+SYNTHETIC DEMO
+AGENTS
+4/6 RUN
+RUN IN PROGRESS
+SESSION 2026-09-13
+WORKSPACE · F1–F19 · CTRL+K
+DEMO · SYNTHETIC DATA
+
+DOCUMENTATION FORM VALUES
+

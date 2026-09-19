@@ -28,7 +28,7 @@ il backend e' attivo sulla porta 8765 (chiudi l'app; e' un'istantanea, i task sc
 scrivono per conto loro e il DB li serializza con busy_timeout). Nessun rollback: le righe
 scritte prima di un rifiuto del DB restano, dichiarate nell'esito; la via di ritorno e' il
 backup pre-import. Cosa NON fa, dichiarato: la CASSA (SQLite cash_state) non viene aggiornata
-(POST /trade la aggiorna, questo script no: allineala dalla pagina Cassa/Trade); le vendite
+(POST /trade la aggiorna, questo script no: allineala dalla pagina Inserimento operazioni, F16); le vendite
 in valuta ricevono realized_eur = n.d. (log_trade userebbe il cambio di OGGI su un trade
 retrodatato): tools/migrations/backfill_realized.py --apply mette l'FX storico.
 Sostituisce import_user_trades.py (in attic/oneshot: aveva i lotti del PM cablati).
@@ -159,8 +159,8 @@ def _conta(db):
         return c.execute("SELECT COUNT(*) FROM trade_history").fetchone()[0]
 
 
-NOTA_CASSA = ("cassa (portfolio.json) NON aggiornata dall'import: allineala dalla "
-              "pagina Cassa/Trade")
+NOTA_CASSA = ("cassa (SQLite cash_state) NON aggiornata dall'import: allineala dalla "
+              "pagina Inserimento operazioni (F16)")
 
 
 def importa(db, righe, apply=False):

@@ -2,9 +2,10 @@
 
 [Handbook](../README.md) · [Previous: F15](./15-decisions.md) · [Next: F17](./17-movements.md)
 
-![F16 Trade Entry: original synthetic DEMO mockup](../../assets/product/16-trade-entry.svg)
+![F16 Trade Entry: Ticket — English DEMO screenshot](../../assets/screenshots/trade-entry-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
 
 Choose explicitly between **Trade** and **Opening position**. Transactions
 record what you actually executed and include the cash controls. An opening
@@ -58,6 +59,19 @@ session; unsaved drafts are not durable backups.
    balance and any chronological recalculation, then confirm.
 7. Check the result in [Movements](17-movements.md) and reconcile the portfolio.
 
+The live form simulates the current book locally. Its before/after figures do
+not replace the server preview, which checks the ledger, execution date and FX
+before confirmation. The DEMO preview below is an authored response from the
+isolated capture service; no trade is recorded.
+
+![Trade Entry local before-and-after simulation — English DEMO screenshot](../../assets/screenshots/trade-entry-after-en.png)
+
+*The same unsaved DEMO ticket, with the local holdings and cash simulation.*
+
+![Trade Entry confirmation preview — English DEMO screenshot](../../assets/screenshots/trade-entry-confirm-en.png)
+
+*The confirmation dialog with a synthetic server-preview response; nothing has been saved.*
+
 ## Historical executions
 The preview reads the ledger without inserting a trial transaction. Confirmation
 uses the same request and the FX shown in that preview; it expires after two
@@ -80,9 +94,11 @@ declaring a starting holding; do not invent a BUY to represent an unknown histor
 Use the deposit/withdrawal controls for capital flows. Preview the amount, date
 and reason, then confirm. An opening deposit establishes your starting capital;
 a later contribution is not trading profit.
-Before the first deposit, cash is explicitly uninitialized. A zero displayed
-with that warning is not a measured balance; verify SQLite's saved amount and
-declared source after initialization.
+Before the first deposit, uninitialized cash and its dependent NAV are shown as
+**n/a** (**n.d.** in Italian). The source note remains visible; no cash bar or
+confirmed spending capacity is inferred. A measured zero requires a saved zero
+balance from SQLite's cash state. Verify the saved amount and declared source
+after initialization.
 
 If a request times out or receives a server error after submission, inspect the ledger before repeating
 it. A missing acknowledgement does not prove that a transaction failed, and

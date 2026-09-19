@@ -2,9 +2,10 @@
 
 [Handbook](../README.md) · [Next: F2](./02-performance.md)
 
-![F1 Command Center: original synthetic DEMO mockup](../../assets/product/01-command-center.svg)
+![F1 Command Center: Overview — English DEMO screenshot](../../assets/screenshots/dashboard-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
 
 Start here to answer “What do I own, how has it moved, and what needs attention?”
 The dashboard combines portfolio totals, holdings, the portfolio curve and

@@ -54,7 +54,7 @@ export const edge = {
   "f047": "riga",
   "f048": "righe",
   "f049": "della lista segnali senza la forma di un segnale: non mostrate (il conteggio in alto le esclude).",
-  "f050": "Segnali calcolati da dati di mercato reali (signal_engine). Validazione formale via backtest (#148). Non costituiscono consulenza finanziaria.",
+  "f050": "Segnali calcolati sui dati forniti dagli strumenti (signal_engine). Non costituiscono consulenza finanziaria.",
   "f051": "il backend non dichiara la copertura (campo `copertura` assente: processo ",
   "f052": "più vecchio del contratto (79) del 22/08 — al riavvio compare da sola)",
   "f053": "posizioni non contate dal backend",

@@ -2,9 +2,10 @@
 
 [Handbook](../README.md) · [Previous: F14](./14-memo-archive.md) · [Next: F16](./16-trade-entry.md)
 
-![F15 Decisions: original synthetic DEMO mockup](../../assets/product/15-decisions.svg)
+![F15 Decisions: Decisions — English DEMO screenshot](../../assets/screenshots/decisions-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
 
 Track your response to committee recommendations. Decisions are a research
 workflow; marking a recommendation executed does not create a trade in the

@@ -2,9 +2,10 @@
 
 [Handbook](../README.md) · [Previous: F10](./10-edge-scanner.md) · [Next: F12](./12-agents-live.md)
 
-![F11 Agent Chat: original synthetic DEMO mockup](../../assets/product/11-agent-chat.svg)
+![F11 Agent Chat: Conversation — English DEMO screenshot](../../assets/screenshots/agent-chat-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
 
 Select a desk and ask a focused question. The current selector exposes the Capo
 and specialist desks; older saved conversations can remain readable even if a

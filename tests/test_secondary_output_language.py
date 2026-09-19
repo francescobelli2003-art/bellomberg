@@ -111,6 +111,8 @@ def test_beta_guard_same_verdict_threshold_and_failures_in_both_languages(monkey
     assert "DO NOT use beta" in english["note"]
     assert english["sources_failed"] == {"factor_model_mkt": "beta_market missing"}
     assert "official TWR series" in english["definitions"]["advanced_metrics_twr"]
+    assert italian["definitions"]["portfolio_risk_spy"] == "rendimenti book in EUR vs SPY convertito in EUR, ~1y"
+    assert english["definitions"]["portfolio_risk_spy"] == "book returns in EUR vs SPY converted to EUR, ~1y"
 
 
 @pytest.mark.parametrize("returns,expected", [([], "series too short"), ([.1], "series too short")])

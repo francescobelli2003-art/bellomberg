@@ -54,63 +54,188 @@
 <text x="1232" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">CONFIG</text>
 </g>
 <line x1="0" y1="132" x2="1280" y2="132" stroke="#344250" stroke-width="1"/>
-<text x="28.0" y="172" font-size="30" fill="#eef2f7" font-weight="650" text-anchor="start">Vol Deck</text>
-<text x="28.0" y="202" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Scadenze, greche e laboratorio strategie</text>
+<text x="28.0" y="172" font-size="30" fill="#eef2f7" font-weight="650" text-anchor="start">Atlante della volatilità</text>
+<text x="28.0" y="202" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Una mappa coordinata; dettaglio su richiesta.</text>
 <text x="28.0" y="864" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">DEMO  /  Illustration only. Not a screenshot, recommendation or measured result.</text>
-<rect x="28.0" y="230" width="243.82470119521912" height="30" rx="4" fill="#24303c"/>
-<text x="42.62948207171315" y="250" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">Ticker: SYN-A</text>
-<rect x="284.0159362549801" y="230" width="188.9641434262948" height="30" rx="4" fill="#24303c"/>
-<text x="298.64541832669323" y="250" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">CATALOGO</text>
-<rect x="792.390438247012" y="230" width="231.63346613545818" height="30" rx="4" fill="#24303c"/>
-<text x="807.0199203187251" y="250" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">Chain–Strategie</text>
-<rect x="28.0" y="278" width="1224.0" height="140" rx="5" fill="#18212c" stroke="#344250"/>
-<text x="49.94422310756972" y="308" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Scadenze e copertura</text>
-<rect x="52.38247011952191" y="329" width="262.1115537848606" height="30" rx="4" fill="#24303c"/>
-<text x="67.01195219123505" y="349" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">0 DTE</text>
-<text x="62.135458167330675" y="386" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start">Fuori mesh</text>
-<rect x="347.41035856573706" y="329" width="262.1115537848606" height="30" rx="4" fill="#24303c"/>
-<text x="362.0398406374502" y="349" font-size="13" fill="#63cddb" font-weight="600" text-anchor="start">14 DTE</text>
-<text x="357.1633466135458" y="386" font-size="14" fill="#63cddb" font-weight="400" text-anchor="start">Caricata</text>
-<rect x="642.4382470119522" y="329" width="262.1115537848606" height="30" rx="4" fill="#24303c"/>
-<text x="657.0677290836653" y="349" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">35 DTE</text>
-<text x="652.191235059761" y="386" font-size="14" fill="#e2bf72" font-weight="400" text-anchor="start">Parziale</text>
-<rect x="937.4661354581673" y="329" width="262.1115537848606" height="30" rx="4" fill="#24303c"/>
-<text x="952.0956175298804" y="349" font-size="13" fill="#e89999" font-weight="600" text-anchor="start">63 DTE</text>
-<text x="947.2191235059761" y="386" font-size="14" fill="#e89999" font-weight="400" text-anchor="start">Errore fonte</text>
-<rect x="28.0" y="438" width="502.2788844621514" height="390" rx="5" fill="#18212c" stroke="#344250"/>
-<text x="49.94422310756972" y="468" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Gambe • DEMO</text>
-<text x="52.38247011952191" y="505" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Lato</text>
-<text x="154.78884462151393" y="505" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Tipo</text>
-<text x="262.0717131474104" y="505" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Strike</text>
-<text x="366.9163346613546" y="505" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Premio</text>
-<line x1="52.38247011952191" y1="519" x2="493.7051792828685" y2="519" stroke="#344250" stroke-width="1"/>
-<text x="52.38247011952191" y="551" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Buy</text>
-<text x="154.78884462151393" y="551" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Call</text>
-<text x="262.0717131474104" y="551" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">100</text>
-<text x="366.9163346613546" y="551" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">6</text>
-<line x1="52.38247011952191" y1="566" x2="493.7051792828685" y2="566" stroke="#344250" stroke-width="1"/>
-<text x="52.38247011952191" y="598" font-size="15" fill="#eef2f7" font-weight="400" text-anchor="start">Sell</text>
-<text x="154.78884462151393" y="598" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Call</text>
-<text x="262.0717131474104" y="598" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">110</text>
-<text x="366.9163346613546" y="598" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">2</text>
-<line x1="52.38247011952191" y1="613" x2="493.7051792828685" y2="613" stroke="#344250" stroke-width="1"/>
-<text x="52.38247011952191" y="674" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start">Dati sintetici: moltiplicatore 100</text>
-<text x="52.38247011952191" y="701" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start">Premio per unita • stessa scadenza</text>
-<text x="52.38247011952191" y="728" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start"></text>
-<text x="52.38247011952191" y="755" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start">Greche: ispeziona ogni contratto</text>
-<text x="52.38247011952191" y="782" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start">Fonti e timestamp restano separati</text>
-<rect x="554.6613545816733" y="438" width="697.3386454183267" height="390" rx="5" fill="#18212c" stroke="#344250"/>
-<text x="576.605577689243" y="468" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Laboratorio strategie</text>
-<line x1="594.8924302788845" y1="525" x2="1209.3306772908365" y2="525" stroke="#344250" stroke-width="1"/>
-<line x1="594.8924302788845" y1="575" x2="1209.3306772908365" y2="575" stroke="#344250" stroke-width="1"/>
-<line x1="594.8924302788845" y1="625" x2="1209.3306772908365" y2="625" stroke="#344250" stroke-width="1"/>
-<line x1="594.8924302788845" y1="675" x2="1209.3306772908365" y2="675" stroke="#344250" stroke-width="1"/>
-<line x1="594.8924302788845" y1="625" x2="1209.3306772908365" y2="625" stroke="#adbac9" stroke-width="1"/>
-<polyline points="594.9,705.0 816.8,705.0 1017.9,511.0 1209.3,511.0" fill="none" stroke="#e2bf72" stroke-width="4"/>
-<polyline points="594.9,694.0 676.6,689.0 757.0,673.0 838.7,631.0 920.4,580.0 1000.9,543.0 1082.5,527.0 1209.3,522.0" fill="none" stroke="#63cddb" stroke-width="3"/>
-<polyline points="594.9,686.0 713.1,665.0 831.4,627.0 949.7,580.0 1067.9,550.0 1209.3,536.0" fill="none" stroke="#adbac9" stroke-width="2" stroke-dasharray="7 5"/>
-<text x="594.8924302788845" y="744" font-size="14" fill="#e2bf72" font-weight="400" text-anchor="start">Scadenza</text>
-<text x="716.8047808764941" y="744" font-size="14" fill="#63cddb" font-weight="400" text-anchor="start">Scenario</text>
-<text x="832.6215139442231" y="744" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start">Oggi teorico</text>
-<text x="594.8924302788845" y="786" font-size="14" fill="#adbac9" font-weight="400" text-anchor="start">BSM europeo • costi iniziali • nessun ordine</text>
+<text x="944.7808764940239" y="160" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Sottostante</text>
+<rect x="944.7808764940239" y="168" width="156.04780876494024" height="30" rx="0" fill="#0b1017" stroke="#637088"/>
+<text x="956.9721115537849" y="188" font-size="14" fill="#eef2f7" font-weight="400" text-anchor="start">SYN-A</text>
+<rect x="1110.581673306773" y="168" width="141.4183266932271" height="30" rx="4" fill="#15243a" stroke="#344250"/>
+<text x="1181.2908366533864" y="187.68" font-size="13" fill="#eef2f7" font-weight="500" text-anchor="middle">Catalogo</text>
+<rect x="28.0" y="228" width="112.1593625498008" height="30" rx="4" fill="#15243a" stroke="#344250"/>
+<text x="84.0796812749004" y="247.68" font-size="13" fill="#eef2f7" font-weight="500" text-anchor="middle">Acquisizione</text>
+<rect x="152.35059760956176" y="228" width="92.65338645418326" height="30" rx="4" fill="#15243a" stroke="#344250"/>
+<text x="198.67729083665338" y="247.68" font-size="13" fill="#eef2f7" font-weight="500" text-anchor="middle">Strumenti</text>
+<rect x="257.195219123506" y="228" width="65.83266932270917" height="30" rx="4" fill="#15243a" stroke="#344250"/>
+<text x="290.1115537848606" y="247.68" font-size="13" fill="#eef2f7" font-weight="500" text-anchor="middle">Chain</text>
+<rect x="335.2191235059761" y="228" width="107.28286852589642" height="30" rx="4" fill="#242016" stroke="#7e6742"/>
+<text x="388.8605577689243" y="247.68" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="middle">Laboratorio</text>
+<line x1="28.0" y1="276" x2="1252.0" y2="276" stroke="#344250" stroke-width="1"/>
+<text x="28.0" y="302" font-size="18" fill="#eef2f7" font-weight="600" text-anchor="start">SYN-A</text>
+<text x="113.33864541832669" y="301" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Spot 100.0</text>
+<text x="196.23904382470118" y="301" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">fonte spot DEMO</text>
+<text x="318.1513944223108" y="301" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">istante DEMO</text>
+<text x="427.87250996015933" y="301" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">smoothing DEMO</text>
+<line x1="28.0" y1="314" x2="1252.0" y2="314" stroke="#344250" stroke-width="1"/>
+<line x1="28.0" y1="392" x2="1252.0" y2="392" stroke="#344250" stroke-width="1"/>
+<text x="47.50597609561753" y="335" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">IV ATM · prima scadenza</text>
+<text x="47.50597609561753" y="364" font-size="22" fill="#eef2f7" font-weight="500" text-anchor="start">21.7%</text>
+<text x="47.50597609561753" y="383" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Scadenza B</text>
+<line x1="334.0" y1="314" x2="334.0" y2="392" stroke="#344250" stroke-width="1"/>
+<text x="353.50597609561754" y="335" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Struttura</text>
+<text x="353.50597609561754" y="364" font-size="22" fill="#eef2f7" font-weight="500" text-anchor="start">Contango</text>
+<text x="353.50597609561754" y="383" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">2.1 pt · front → 60 giorni</text>
+<line x1="640.0" y1="314" x2="640.0" y2="392" stroke="#344250" stroke-width="1"/>
+<text x="659.5059760956175" y="335" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Celle mancanti nel campione</text>
+<text x="659.5059760956175" y="364" font-size="22" fill="#eef2f7" font-weight="500" text-anchor="start">3</text>
+<text x="659.5059760956175" y="383" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">I buchi restano vuoti</text>
+<line x1="946.0" y1="314" x2="946.0" y2="392" stroke="#344250" stroke-width="1"/>
+<text x="965.5059760956175" y="335" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Contesto</text>
+<text x="965.5059760956175" y="364" font-size="22" fill="#eef2f7" font-weight="500" text-anchor="start">Non richiesto</text>
+<text x="965.5059760956175" y="383" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Azione provider esplicita</text>
+<rect x="28.0" y="404" width="1224.0" height="48" rx="0" fill="#211e18"/>
+<rect x="28.0" y="404" width="3.047808764940239" height="48" rx="0" fill="#e2bf72"/>
+<text x="47.50597609561753" y="423" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="start">Copertura dell’ultima superficie: 3/4 curve · 1 escluse · 0 errori · mesh incompleto</text>
+<text x="47.50597609561753" y="442" font-size="13" fill="#e2bf72" font-weight="400" text-anchor="start">Scadenza A · esclusa — 0–1 DTE o scadenza passata: consulta la chain, non il mesh interpolato</text>
+<rect x="1069.1314741035856" y="413" width="165.800796812749" height="30" rx="4" fill="#15243a" stroke="#344250"/>
+<text x="1152.03187250996" y="432.68" font-size="13" fill="#eef2f7" font-weight="500" text-anchor="middle">Copertura e fonti</text>
+<rect x="28.0" y="464" width="1224.0" height="386" rx="5" fill="#18212c" stroke="#344250"/>
+<text x="49.94422310756972" y="490" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Disegna la strategia</text>
+<text x="49.94422310756972" y="509" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">SYN-A · laboratorio teorico locale. Nessun ordine viene inviato.</text>
+<rect x="1017.9282868525896" y="474" width="217.00398406374504" height="24" rx="12" fill="#172b3b" stroke="#426078"/>
+<text x="1126.430278884462" y="490" font-size="11" fill="#c3dce9" font-weight="400" text-anchor="middle">Black–Scholes–Merton · europeo</text>
+<line x1="28.0" y1="520" x2="1252.0" y2="520" stroke="#344250" stroke-width="1"/>
+<rect x="29.219123505976096" y="521" width="379.14741035856576" height="328" rx="0" fill="#0d1727"/>
+<line x1="408.36653386454185" y1="520" x2="408.36653386454185" y2="850" stroke="#344250" stroke-width="1"/>
+<text x="45.06772908366534" y="544" font-size="14" fill="#eef2f7" font-weight="600" text-anchor="start">Gambe</text>
+<text x="106.02390438247012" y="544" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">2/12</text>
+<rect x="298.64541832669323" y="528" width="95.09163346613546" height="24" rx="4" fill="#15243a" stroke="#344250"/>
+<text x="346.19123505976097" y="544.3199999999999" font-size="12" fill="#eef2f7" font-weight="500" text-anchor="middle">+ Manuale</text>
+<rect x="45.06772908366534" y="560" width="346.23107569721117" height="136" rx="6" fill="#132237" stroke="#2f4a60"/>
+<rect x="45.06772908366534" y="560" width="346.23107569721117" height="19" rx="6" fill="#133334"/>
+<text x="57.2589641434263" y="574" font-size="12" fill="#94e0d0" font-weight="600" text-anchor="start">↗ Gamba 1</text>
+<rect x="57.2589641434263" y="584" width="156.04780876494024" height="19" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="67.01195219123505" y="598" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">Compra</text>
+<text x="205.99203187250995" y="598" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">▾</text>
+<rect x="223.0597609561753" y="584" width="156.04780876494024" height="19" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="232.81274900398407" y="598" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">Call</text>
+<text x="371.79282868525894" y="598" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">▾</text>
+<text x="57.2589641434263" y="617" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Strike</text>
+<rect x="57.2589641434263" y="621" width="102.40637450199203" height="19" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="64.57370517928287" y="634.82" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">100</text>
+<text x="169.4183266932271" y="617" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Premio / unità</text>
+<rect x="169.4183266932271" y="621" width="102.40637450199203" height="19" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="176.73306772908367" y="634.82" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">6</text>
+<text x="281.57768924302786" y="617" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Contratti</text>
+<rect x="281.57768924302786" y="621" width="102.40637450199203" height="19" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="288.8924302788845" y="634.82" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">1</text>
+<text x="57.2589641434263" y="654" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Moltiplicatore</text>
+<rect x="57.2589641434263" y="658" width="102.40637450199203" height="19" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="64.57370517928287" y="671.82" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">100</text>
+<text x="169.4183266932271" y="654" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Giorni a scadenza</text>
+<rect x="169.4183266932271" y="658" width="102.40637450199203" height="19" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="176.73306772908367" y="671.82" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">90</text>
+<text x="281.57768924302786" y="654" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">IV %</text>
+<rect x="281.57768924302786" y="658" width="102.40637450199203" height="19" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="288.8924302788845" y="671.82" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">30</text>
+<line x1="45.06772908366534" y1="681" x2="391.2988047808765" y2="681" stroke="#2b3e59" stroke-width="1"/>
+<text x="57.2589641434263" y="691" font-size="10" fill="#adbac9" font-weight="400" text-anchor="start">Ipotesi modificata nel laboratorio (non quota corrente).</text>
+<rect x="45.06772908366534" y="704" width="346.23107569721117" height="136" rx="6" fill="#132237" stroke="#2f4a60"/>
+<rect x="45.06772908366534" y="704" width="346.23107569721117" height="19" rx="6" fill="#33273b"/>
+<text x="57.2589641434263" y="718" font-size="12" fill="#e3b2d0" font-weight="600" text-anchor="start">↙ Gamba 2</text>
+<rect x="57.2589641434263" y="728" width="156.04780876494024" height="19" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="67.01195219123505" y="742" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">Vendi</text>
+<text x="205.99203187250995" y="742" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">▾</text>
+<rect x="223.0597609561753" y="728" width="156.04780876494024" height="19" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="232.81274900398407" y="742" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">Call</text>
+<text x="371.79282868525894" y="742" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">▾</text>
+<text x="57.2589641434263" y="761" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Strike</text>
+<rect x="57.2589641434263" y="765" width="102.40637450199203" height="19" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="64.57370517928287" y="778.82" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">110</text>
+<text x="169.4183266932271" y="761" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Premio / unità</text>
+<rect x="169.4183266932271" y="765" width="102.40637450199203" height="19" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="176.73306772908367" y="778.82" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">2</text>
+<text x="281.57768924302786" y="761" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Contratti</text>
+<rect x="281.57768924302786" y="765" width="102.40637450199203" height="19" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="288.8924302788845" y="778.82" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">1</text>
+<text x="57.2589641434263" y="798" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Moltiplicatore</text>
+<rect x="57.2589641434263" y="802" width="102.40637450199203" height="19" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="64.57370517928287" y="815.82" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">100</text>
+<text x="169.4183266932271" y="798" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Giorni a scadenza</text>
+<rect x="169.4183266932271" y="802" width="102.40637450199203" height="19" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="176.73306772908367" y="815.82" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">90</text>
+<text x="281.57768924302786" y="798" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">IV %</text>
+<rect x="281.57768924302786" y="802" width="102.40637450199203" height="19" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="288.8924302788845" y="815.82" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">27</text>
+<line x1="45.06772908366534" y1="825" x2="391.2988047808765" y2="825" stroke="#2b3e59" stroke-width="1"/>
+<text x="57.2589641434263" y="835" font-size="10" fill="#adbac9" font-weight="400" text-anchor="start">Ipotesi modificata nel laboratorio (non quota corrente).</text>
+<text x="430.31075697211156" y="540" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Spot iniziale</text>
+<rect x="430.31075697211156" y="544" width="187.74501992031873" height="22" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="437.62549800796813" y="559.6800000000001" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="start">100</text>
+<text x="610.7410358565737" y="559.6800000000001" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">USD</text>
+<text x="632.6852589641434" y="540" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Prezzo scenario</text>
+<rect x="632.6852589641434" y="544" width="187.74501992031873" height="22" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="640.0" y="559.6800000000001" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="start">105</text>
+<text x="813.1155378486055" y="559.6800000000001" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">USD</text>
+<text x="835.0597609561753" y="540" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Tempo trascorso</text>
+<rect x="835.0597609561753" y="544" width="187.74501992031873" height="22" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="842.3745019920319" y="559.6800000000001" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="start">30</text>
+<text x="1015.4900398406375" y="559.6800000000001" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">giorni</text>
+<text x="1037.434262948207" y="540" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Shock IV</text>
+<rect x="1037.434262948207" y="544" width="187.74501992031873" height="22" rx="3" fill="#10151d" stroke="#344250"/>
+<text x="1044.7490039840636" y="559.6800000000001" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="start">0</text>
+<text x="1217.8645418326694" y="559.6800000000001" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">punti %</text>
+<text x="430.31075697211156" y="592" font-size="16" fill="#eef2f7" font-weight="600" text-anchor="start">La forma del rendimento</text>
+<text x="430.31075697211156" y="608" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Payoff a 90 giorni e valore teorico intermedio</text>
+<text x="1232.4940239043824" y="592" font-size="12" fill="#adbac9" font-weight="400" text-anchor="end">USD</text>
+<line x1="483.9521912350598" y1="622.0" x2="1227.617529880478" y2="622.0" stroke="#26364f" stroke-width="1" stroke-dasharray="2 5"/>
+<text x="474.199203187251" y="626.0" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">720</text>
+<line x1="483.9521912350598" y1="646.5" x2="1227.617529880478" y2="646.5" stroke="#26364f" stroke-width="1" stroke-dasharray="2 5"/>
+<text x="474.199203187251" y="650.5" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">410</text>
+<line x1="483.9521912350598" y1="671.0" x2="1227.617529880478" y2="671.0" stroke="#26364f" stroke-width="1" stroke-dasharray="2 5"/>
+<text x="474.199203187251" y="675.0" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">100</text>
+<line x1="483.9521912350598" y1="695.5" x2="1227.617529880478" y2="695.5" stroke="#26364f" stroke-width="1" stroke-dasharray="2 5"/>
+<text x="474.199203187251" y="699.5" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">-210</text>
+<line x1="483.9521912350598" y1="720.0" x2="1227.617529880478" y2="720.0" stroke="#26364f" stroke-width="1" stroke-dasharray="2 5"/>
+<text x="474.199203187251" y="724.0" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">-520</text>
+<text x="483.9521912350598" y="736" font-size="11" fill="#adbac9" font-weight="400" text-anchor="middle">60,0</text>
+<text x="607.8964143426294" y="736" font-size="11" fill="#adbac9" font-weight="400" text-anchor="middle">73,3</text>
+<text x="731.8406374501992" y="736" font-size="11" fill="#adbac9" font-weight="400" text-anchor="middle">86,7</text>
+<text x="855.784860557769" y="736" font-size="11" fill="#adbac9" font-weight="400" text-anchor="middle">100,0</text>
+<text x="979.7290836653387" y="736" font-size="11" fill="#adbac9" font-weight="400" text-anchor="middle">113,3</text>
+<text x="1103.6733067729083" y="736" font-size="11" fill="#adbac9" font-weight="400" text-anchor="middle">126,7</text>
+<text x="1227.617529880478" y="736" font-size="11" fill="#adbac9" font-weight="400" text-anchor="middle">140,0</text>
+<line x1="483.9521912350598" y1="678.9032258064516" x2="1227.617529880478" y2="678.9032258064516" stroke="#7689a6" stroke-width="1"/>
+<line x1="892.9681274900398" y1="622" x2="892.9681274900398" y2="720" stroke="#9b804f" stroke-width="1" stroke-dasharray="3 5"/>
+<polyline points="484.0,710.5 527.4,710.5 576.9,710.3 620.3,709.6 669.9,707.7 713.3,704.3 762.8,697.9 806.2,690.0 855.8,679.2 893.0,670.6 899.2,669.2 948.7,658.5 992.2,650.5 1041.7,643.5 1085.1,639.2 1134.7,635.8 1178.1,634.0 1227.6,632.8" fill="none" stroke="#91a2ba" stroke-width="1.6" stroke-dasharray="5 5"/>
+<polyline points="484.0,710.5 527.4,710.5 576.9,710.5 620.3,710.5 669.9,710.5 713.3,710.5 762.8,710.5 806.2,710.5 855.8,710.5 893.0,678.9 899.2,673.6 948.7,631.5 992.2,631.5 1041.7,631.5 1085.1,631.5 1134.7,631.5 1178.1,631.5 1227.6,631.5" fill="none" stroke="#e2bf72" stroke-width="3"/>
+<polyline points="484.0,710.5 527.4,710.5 576.9,710.5 620.3,710.3 669.9,709.4 713.3,707.3 762.8,701.9 806.2,694.0 855.8,681.8 893.0,671.5 899.2,669.8 948.7,657.0 992.2,647.8 1041.7,640.4 1085.1,636.4 1134.7,633.7 1178.1,632.6 1227.6,631.9" fill="none" stroke="#63cddb" stroke-width="2.5"/>
+<circle cx="893.0" cy="678.9" r="4" fill="#e2bf72"/>
+<line x1="430.31075697211156" y1="752" x2="448.59760956175296" y2="752" stroke="#e2bf72" stroke-width="2"/>
+<text x="454.69322709163345" y="756" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">A scadenza</text>
+<line x1="542.4701195219124" y1="752" x2="560.7569721115538" y2="752" stroke="#63cddb" stroke-width="2"/>
+<text x="566.8525896414343" y="756" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Scenario teorico</text>
+<line x1="691.203187250996" y1="752" x2="709.4900398406375" y2="752" stroke="#91a2ba" stroke-width="2"/>
+<text x="715.5856573705179" y="756" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Oggi teorico</text>
+<text x="1232.4940239043824" y="756" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">Prezzo sottostante (USD)</text>
+<line x1="430.31075697211156" y1="768" x2="1232.4940239043824" y2="768" stroke="#344250" stroke-width="1"/>
+<line x1="430.31075697211156" y1="812" x2="1232.4940239043824" y2="812" stroke="#344250" stroke-width="1"/>
+<text x="430.31075697211156" y="785" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Esborso iniziale</text>
+<text x="430.31075697211156" y="805" font-size="15" fill="#eef2f7" font-weight="600" text-anchor="start">400,00</text>
+<text x="491.26693227091636" y="805" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">USD</text>
+<line x1="619.2749003984064" y1="774" x2="619.2749003984064" y2="806" stroke="#344250" stroke-width="1"/>
+<text x="631.4661354581673" y="785" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">P&amp;L scenario</text>
+<text x="631.4661354581673" y="805" font-size="15" fill="#8cdcc5" font-weight="600" text-anchor="start">125,54</text>
+<text x="692.4223107569721" y="805" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">USD a 105,00</text>
+<line x1="820.4302788844622" y1="774" x2="820.4302788844622" y2="806" stroke="#344250" stroke-width="1"/>
+<text x="832.6215139442231" y="785" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Profitto max a scadenza</text>
+<text x="832.6215139442231" y="805" font-size="15" fill="#eef2f7" font-weight="600" text-anchor="start">600,00</text>
+<text x="893.5776892430279" y="805" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">USD</text>
+<line x1="1021.5856573705179" y1="774" x2="1021.5856573705179" y2="806" stroke="#344250" stroke-width="1"/>
+<text x="1033.7768924302788" y="785" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Perdita max a scadenza</text>
+<text x="1033.7768924302788" y="805" font-size="15" fill="#eef2f7" font-weight="600" text-anchor="start">400,00</text>
+<text x="1094.7330677290836" y="805" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">USD</text>
+<rect x="430.31075697211156" y="822" width="143.85657370517927" height="24" rx="4" fill="#e2bf72" stroke="#e2bf72"/>
+<text x="502.2390438247012" y="838.32" font-size="12" fill="#15120d" font-weight="600" text-anchor="middle">Simula strategia</text>
+<text x="591.2350597609561" y="838" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Solo calcolo locale · nessun provider o modello AI</text>
 </svg>

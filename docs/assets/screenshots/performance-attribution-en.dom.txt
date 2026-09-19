@@ -1,0 +1,488 @@
+BELLOMBERG
+v0.8.0 OBSIDIAN
+NY
+LN
+MI
+HK
+❯
+SEARCH TICKERS · PAGES · ACTIONS
+CTRL+K
+API
+LIVE
+13 SEP 2026
+10:11:40
+UTC+2
+F19
+01
+DASH
+02
+PERF
+03
+FAVS
+04
+MKT
+05
+NEWS
+06
+FUND
+07
+FCTR
+08
+MTC
+09
+VOLS
+10
+EDGE
+11
+CHAT
+12
+LIVE
+13
+SCORE
+14
+MEMO
+15
+DECN
+16
+TRADE
+17
+MOVES
+18
+MNDT
+19
+CONFIG
+F2 // PERFORMANCE
+|
+USD/EUR
+0.9000
+GBP/EUR
+1.2000
+GBX/EUR
+0.01200
+CHF/EUR
+1.0500
+JPY/EUR
+0.0060
+HKD/EUR
+0.1154
+FX 60S
+PERFORMANCE // TWR ANALYTICS
+· FUND ACCOUNTING
+UPDATED 10:11:40 · AUTO 5MIN · DAILY P&L LIVE 30/60S
+DAILY P&L // ENTIRE PORTFOLIO
++€40.00+0.67%
+VS PREVIOUS CLOSE · FULL SCALE 5%
+TWR 3M
++1.92%
+FLOW-ADJUSTED (GIPS)
+TWR ITD
++5.26%
+SINCE INCEPTION
+VS SPY ITD
+-11.94 pt
+BOOK +5.26% · SPY € +17.20% · OFFICIAL TR
+LIVE NAV
+€10,000.00
+INVESTED + CASH · 2 POSITIONS
+TEARSHEET
+BOOK & RISK
+RANGE
+1D
+1W
+1M
+3M
+1Y
+5Y
+↻ REFRESH
+90 DAYS SHOWN
+The scalar contract does not expose source freshness or provenance: this value is not declared live.
+RETURNS // FUND ACCOUNTING
+· RANGE 3M
+ITD ON COST — NOT FLOW-ADJ., SEE TWR
+MARKET VALUE
+€6,000.00
+cost basis €5,500.00
+RETURN 3M (TWR)
++1.92%
+flow-adjusted (GIPS)
+MAX DD ITD (TWR)
+-11.07%
+on a flow-adjusted TWR index
+TOTAL RETURN ITD (ON COST)
++9.09%
++€500.00 vs cost basis — NOT flow-adj., see TWR
+UNREALISED P/L
++€500.00
+mark-to-market ITD
+REALISED P/L
+€0.00
+from sales (average cost)
+DIVIDENDS
+€0.00
+cash income ITD
+AVAILABLE CASH
+€4,000.00
+for new trades
+Performance coverage · first trade 2024-02-16 · first snapshot 2024-02-16 · official series since 2024-02-16 · trades before snapshots: 3 · days without snapshots: 0.
+
+service detail: First trade: 2024-02-16; first snapshot: 2024-02-16. Before snapshots, the series is reconstructed without complete cash history. Calendar days without a snapshot in the interval: 0. Backdated entries do not rewrite past NAV snapshots.
+
+TWR INDEX (GIPS)
+· EXTERNAL FLOWS EXCLUDED
+OFFICIAL SNAPSHOT SERIES SINCE 16/02
+BENCH SPY TR · COV 68.6% · CARRY 295D
+BASE 100 = 2024-02-16 · 2026-06-14 → 2026-09-11
+TWR 3M
++1.92%
+selected period
+TWR ITD
++5.26%
+since inception
+ANNUAL TWR
++2.02%
+annualised
+MAX DD (TWR)
+-11.07%
+current: -6.65%
+SHARPE (TWR)
+-0.19
+rf 3.20%
+ANNUAL VOL (TWR)
+6.24%
+on TWR returns
+IRR (MONEY-W.)
++2.02%
+return on YOUR capital
+SORTINO
+-0.22
+downside risk (TWR series)
+CALMAR
+0.13
+CAGR / max DD
+BETA VS SPY
+0.34
+benchmark in EUR, by date
+ANNUAL ALPHA
+-0.90%
+vs SPY (EUR)
+105.26 +0.42
+SMA20
+SMA50
+SPY (EUR)·OFFICIAL TR
+CARRY
+	
+	
+
+	
+	
+RECONSTRUCTED SERIES (CLOSING PRICES)
+OFFICIAL SINCE 16/02
+UNDERWATER // CONTINUOUS DRAWDOWN FROM PEAKMAX -11.07%CURRENT -6.65%
+-6.65 +0.37
+	
+	
+
+	
+	
+FULL ITD · SCROLL = ZOOM · DRAG = PAN · BAND = DATA SOURCE (RECONSTRUCTED → OFFICIAL FROM NAV SNAPSHOTS) · UNDERWATER DERIVED FROM THE TWR INDEX
+as-of: 2026-09-11 23:10:00
+Live NAV €10,000.00 vs 2026-09-11 snapshot €10,000.00 (Δ 0.00%)
+IRR: hybrid: trades through the first snapshot + initial cash + subsequent ledger
+SERVICE DETAILS
+• 1 ledger movement precedes the first snapshot: flows in the reconstructed segment are already implicit in trades (not counted twice).
+MONTHLY RETURNS // HEATMAP
+· MONTHLY TWR (GIPS) FROM THE INDEX
+SPY = OFFICIAL BACKEND SERIES — TOTAL RETURN, DIVIDENDS INCLUDED [SRC: YFINANCE CLOSE AUTO_ADJUST=TRUE (TOTAL-RETURN) X EURUSD=X] · CURRENT MONTH = DECLARED MTD
+SERIES	JAN	FEB	MAR	APR	MAY	JUN	JUL	AUG	SEP	OCT	NOV	DEC	YTD
+BOOK 2024
+TWR GIPS
+	—	
+-0.6%
+	
++0.4%
+	
++2.6%
+	
++2.2%
+	
++2.3%
+	
++0.0%
+	
+-1.9%
+	
++1.9%
+	
++0.6%
+	
++0.9%
+	
++3.3%
+	
++12.17%
+YTD
+
+SPY (EUR)
+BENCH · OFFICIAL TR
+	—	
+-2.8%
+	
+-2.9%
+	
++5.5%
+	
++9.6%
+	
++4.0%
+	
+-1.4%
+	
+-4.7%
+	
++2.4%
+	
+-0.8%
+	
++4.0%
+	
++0.7%
+	
++13.41%
+YTD
+
+Δ VS SPY
+POINTS
+	—	
++2.2
+	
++3.2
+	
+-2.9
+	
+-7.4
+	
+-1.7
+	
++1.4
+	
++2.9
+	
+-0.5
+	
++1.4
+	
+-3.1
+	
++2.6
+	
+-1.24 pt
+YTD
+
+BOOK 2025
+TWR GIPS
+	
+-1.7%
+	
+-1.6%
+	
+-5.8%
+	
+-1.0%
+	
++3.7%
+	
+-3.9%
+	
++4.1%
+	
+-1.2%
+	
++0.6%
+	
++0.5%
+	
+-1.3%
+	
++0.4%
+	
+-7.42%
+YTD
+
+SPY (EUR)
+BENCH · OFFICIAL TR
+	
+-1.7%
+	
+-1.2%
+	
+-8.2%
+	
+-6.3%
+	
++6.4%
+	
+-2.4%
+	
++3.1%
+	
+-1.1%
+	
+-1.2%
+	
++3.3%
+	
++0.2%
+	
++4.4%
+	
+-5.51%
+YTD
+
+Δ VS SPY
+POINTS
+	
+-0.0
+	
+-0.4
+	
++2.4
+	
++5.3
+	
+-2.7
+	
+-1.5
+	
++1.0
+	
+-0.2
+	
++1.8
+	
+-2.9
+	
+-1.5
+	
+-4.0
+	
+-1.91 pt
+YTD
+
+BOOK 2026
+TWR GIPS
+	
++1.5%
+	
+-1.8%
+	
+-0.6%
+	
++2.4%
+	
+-1.6%
+	
+-2.8%
+	
++2.1%
+	
++1.2%
+	
++1.2%
+MTD
+	—	—	—	
++1.36%
+YTD
+
+SPY (EUR)
+BENCH · OFFICIAL TR
+	
++8.6%
+	
+-1.6%
+	
+-0.6%
+	
++1.3%
+	
+-3.7%
+	
++2.1%
+	
++2.2%
+	
++0.5%
+	
++0.7%
+MTD
+	—	—	—	
++9.38%
+YTD
+
+Δ VS SPY
+POINTS
+	
+-7.1
+	
+-0.1
+	
++0.0
+	
++1.0
+	
++2.1
+	
+-5.0
+	
+-0.2
+	
++0.7
+	
++0.5
+MTD
+	—	—	—	
+-8.01 pt
+YTD
+ROLLING 30D
+· ON THE TWR SERIES (DAILY RETURNS FROM INDEX)
+SPARK = LAST 90D · RF 3.20% · TE VS OFFICIAL SPY-EUR TR · NATIVE DAYS (CARRY EXCLUDED)
+30D VOL ANN.
+5.2%
+30D SHARPE
+1.25
+30D TRACK.ERR
+8.7%
+ATTRIBUTION // CONTRIBUTION
+· CARINO · INVESTED CAPITAL (CASH EXCLUDED) · NOT BRINSON
+MTD
+30D
+YTD
+SINCE INCEPTION
+RETURN YTD: +2.29% · VS OFFICIAL TWR +1.36% (Δ +0.93 PP — DIFFERENT BASES DECLARED)
+BY POSITION · CONTRIBUTION IN POINTS OVER PERIOD
+TICKER	—	CONTRIB	LOCAL	FX	AVG WEIGHT
+DEMO.AEUR	
+	+2.34	+2.34	+0.00	65.9%
+DEMO.BEUR	
+	-0.04	-0.04	+0.00	34.1%
+BY ECONOMIC BUCKET · SINGLE AXIS
+Industrials	
+	+2.34	1 TKR
+Consumer Defensive	
+	-0.04	1 TKR
+BY CURRENCY · CONTRIBUTION (INCLUDING FX)
+EUR	
+	+2.29	fx +0.00
+TOTAL SPLIT: local +2.29 · FX +0.00 · cross term +0.00
+DECLARED BASIS: (service detail) Absolute CONTRIBUTION (NOT Brinson vs benchmark): contributions to INVESTED capital returns (cash excluded), beginning-of-day weights, yfinance auto-adjusted closes (dividends in price), Carino linking (sum of contributions = exact compounded return); local+FX+residual cross decomposition declared; bucket = portfolio_sectors single economic axis (phase 1b)
+[ BELLOMBERG · OBSIDIAN ]
+ENGINE
+SYNTHETIC DEMO
+AGENTS
+4/6 RUN
+RUN IN PROGRESS
+SESSION 2026-09-13
+WORKSPACE · F1–F19 · CTRL+K
+DEMO · SYNTHETIC DATA
+
+DOCUMENTATION FORM VALUES
+

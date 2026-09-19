@@ -12,6 +12,7 @@ import json
 import math
 
 from bellomberg.valuation.method_registry import get_method_requirements
+from bellomberg.valuation.method_records_archive import SOURCE_ID as ARCHIVE_SOURCE
 
 PROVIDERS = ("profile", "financials", "filings", "guidance", "consensus", "method_inputs")
 STATUSES = {"ok", "data_missing", "credentials_missing", "source_error", "stale", "unavailable"}
@@ -28,7 +29,7 @@ def method_records_schema():
         + ['capital.parent_cash_flows.' + key for key in CASH_SIGNS]
         + ['capital.subsidiaries.0.' + key for key in sorted(SUB_FIELDS - {'id'})])
     mapping = {driver: _descriptor(driver) for driver in drivers}
-    from .operating_adapter import SCHEMA as operating_schema, REVENUE_BASES
+    from .operating_adapter import SCHEMA as operating_schema, REVENUE_BASES, REVENUE_ALTERNATIVE_BASES
     from .bank_adapter import SCHEMA as bank_schema
     from .rab_adapter import SCHEMA as rab_schema
     from .nav_adapter import FUND as fund_schema,DIGITAL as digital_schema
@@ -38,7 +39,7 @@ def method_records_schema():
     from .sotp_adapter import SCHEMA as sotp_schema
     from .resources_adapter import SCHEMA as resources_schema
     from .property_development_adapter import SCHEMA as property_development_schema
-    return {"type": "array", "description": "Record documentati del metodo selezionato. Ogni nuovo set sostituisce il precedente set esplicito dell'analista, conservandolo come storia; i record di provider indipendenti restano e i conflitti sono KO. Managed care: model per perimeter/calendar/quotation/actuals, bear/base/bull per tutti gli altri driver. Riusa filing/guidance gia acquisiti; nessun forecast implicito da dati storici. Ogni scalare/path richiede un record. Schema e mapping: docs/managed-care-inputs.md. Record assenti o non consumati mantengono FV n.d.",
+    return {"type": "array", "description": "Record documentati del metodo selezionato. I set APPROVATI dal PM arrivano da soli dall'archivio (method_inputs_origin nel riepilogo e nel blocco valutazioni): per un titolo con set approvato valido NON passare method_records. Un set passato qui e' una PROPOSTA NON approvata: sostituisce, senza sommarsi, l'archivio e il set esplicito precedente, conservandoli come storia; i record di provider indipendenti restano e i conflitti sono KO. Managed care: model per perimeter/calendar/quotation/actuals, bear/base/bull per tutti gli altri driver. Riusa filing/guidance gia acquisiti; nessun forecast implicito da dati storici. Ogni scalare/path richiede un record. Schema e mapping: docs/managed-care-inputs.md. Record assenti o non consumati mantengono FV n.d.",
             "items": {"type": "object", "properties": {
                 **{k: {"type": "string"} for k in ("field", "driver", "entity", "period", "unit", "accounting_basis", "source_id", "as_of", "valid_until", "rationale", "source_locator")},
                 "driver": {"type": "string", "description": "Managed care driver -> [field, unit, accounting_basis, timing]; SEGMENT/ADJUSTMENT sono nomi dichiarati, indice subsidiary segue perimeter. money significa '<currency> million'. " + json.dumps(mapping)
@@ -56,7 +57,9 @@ def method_records_schema():
                     + " Life entity drivers insurance.<legal index>.<driver>: " + json.dumps(LIFE_SCHEMA)
                     + " PC entity drivers insurance.<legal index>.<driver>: " + json.dumps(PC_SCHEMA)
                     + " Bank legal capital drivers: capital.<CAPITAL_FIELDS>, capital.parent_cash_flows.<CASH_SIGNS>, capital.subsidiaries.<index>.<SUB_FIELDS except id>; exact contracts in docs/guide/sector-valuations.md. No nested field may be omitted."
-                    + " FCFF richiede anni interi, schema/perimetro/calendario diversi dal managed care: docs/guide/sector-valuations.md. Revenue_build basi per profilo: " + json.dumps(REVENUE_BASES)},
+                    + " FCFF richiede anni interi, schema/perimetro/calendario diversi dal managed care: docs/guide/sector-valuations.md. Revenue_build basi per profilo: " + json.dumps(REVENUE_BASES)
+                    + "; alternative documentate: " + json.dumps(REVENUE_ALTERNATIVE_BASES)
+                    + ". segment_guidance richiede basis/segments: aperture storiche comuni agli scenari e riconciliate ai ricavi iniziali; crescita ed evidenza per segmento/periodo, riconciliazione al revenue_growth del gruppo. Periodi diversi dalla guidance, interpolazioni e consolidation sono analyst_estimate, anche nel kind di revenue_build e revenue_growth. Nessun residuo implicito; contratto completo in docs/guide/sector-valuations.md."},
                 "period": {"type": "string", "description": "annual = intervalli start/end dei fiscal_periods uniti da |; future = stesso elenco con primo start=valuation_date+1 giorno; opening=valuation_date; terminal=ultimo end; actuals=actuals_start/valuation_date. Entita: consolidato per driver economici/ke/shares/discount; parent per parent_ledger; ID legale per subsidiaries."},
                 "scenario": {"type": "string", "enum": ["model", "bear", "base", "bull"]},
                 "kind": {"type": "string", "enum": ["historical", "company_guidance", "analyst_estimate", "proxy"]},
@@ -97,6 +100,136 @@ def _iso(value):
         return parsed if parsed.isoformat() == value else None
     except (TypeError, ValueError):
         return None
+
+
+def _approval_text(chosen):
+    review = chosen.get("review") if isinstance(chosen.get("review"), dict) else {}
+    return "set %s approvato il %s da %s" % (chosen.get("set_id"), str(review.get("reviewed_at"))[:10],
+                                              review.get("reviewer"))
+
+
+def _archive_set_for_method(source, decision, as_of):
+    """The archive returns approved sets per method; only the decided method's set enters.
+
+Expiry is all-or-nothing (a partly valid set would be a silent partial fallback).
+Idempotent: a revision replays this envelope and selects the same set again.
+Only the chosen set enters, dated by its own approval: approving or withdrawing the
+set of another method changes neither this snapshot's identity nor its source date.
+"""
+    if source.get("source_id") != ARCHIVE_SOURCE or source.get("status") != "ok":
+        return source
+    data = source.get("data") if isinstance(source.get("data"), dict) else {}
+    sets, method = data.get("sets"), decision.get("method_id")
+    selected = {"source_id": ARCHIVE_SOURCE, "data": {"method_id": method}, "records": []}
+    if not isinstance(sets, dict) or not sets:
+        return dict(selected, status="source_error", message="archivio: envelope senza set per metodo")
+    chosen = sets.get(method)
+    if not isinstance(chosen, dict):
+        # Only the names explain the gap: the other methods' sets never enter this snapshot.
+        return dict(selected, status="data_missing",
+                    data=dict(selected["data"], other_approved_methods=sorted(sets)),
+                    message="archivio: nessun set per il metodo " + str(method)
+                    + " (set approvati per: " + ", ".join(sorted(sets)) + ")")
+    review = chosen.get("review") if isinstance(chosen.get("review"), dict) else {}
+    selected = dict(selected, as_of=str(review.get("reviewed_at"))[:10],
+                    data={"sets": {method: deepcopy(chosen)}, "method_id": method})
+    approved = _approval_text(chosen)
+    catalog = get_method_requirements(method)["method_version"]
+    if chosen.get("method_version") != catalog:
+        return dict(selected, status="stale", message="STALE: %s per la versione %s del metodo %s, catalogo %s"
+                    % (approved, chosen.get("method_version"), method, catalog))
+    expiry = _iso(chosen.get("earliest_valid_until"))
+    if expiry is None:
+        return dict(selected, status="source_error", message="archivio: scadenza minima non ISO nel " + approved)
+    if expiry < _iso(as_of):
+        return dict(selected, status="stale", message="STALE: record scaduti dal %s, set approvato il %s (set %s da %s)"
+                    % (chosen["earliest_valid_until"], str(review.get("reviewed_at"))[:10],
+                       chosen.get("set_id"), review.get("reviewer")))
+    records = chosen.get("records")
+    if not isinstance(records, list) or not records:
+        return dict(selected, status="source_error", message="archivio: " + approved + " senza record")
+    return dict(selected, status="ok", records=deepcopy(records),
+                message="Record del " + approved + ", scadenza minima " + chosen["earliest_valid_until"])
+
+
+def _replaced_archive_task(source):
+    """A desk set replaces the archive: the replaced archive state stays visible, not blocking."""
+    root = source
+    while isinstance(root, dict) and root.get("source_id") == "explicit_method_records":
+        root = (root.get("data") or {}).get("previous_acquisition")
+    if root is source or not isinstance(root, dict):
+        return None
+    status = root.get("status")
+    if not (root.get("source_id") == ARCHIVE_SOURCE
+            or (root.get("source_id") == "method_inputs" and status not in ("ok", "unavailable"))):
+        return None
+    if status == "ok":
+        data = root.get("data") if isinstance(root.get("data"), dict) else {}
+        chosen = (data.get("sets") or {}).get(data.get("method_id")) or {}
+        state = (_approval_text(chosen) + ", scadenza minima " + str(chosen.get("earliest_valid_until"))
+                 + "; record dell'archivio non sommati")
+    elif status == "stale":
+        state = "archivio STALE (" + str(root.get("message")) + ")"
+    elif status == "data_missing":
+        state = "archivio senza set approvato valido (data_missing): " + str(root.get("message"))
+    else:
+        state = "archivio non letto (" + str(status) + "): " + str(root.get("message"))
+    return {"field": "method_inputs", "status": "superseded", "blocking": False,
+            "source_id": root.get("source_id"),
+            "reason": "Set esplicito NON approvato al posto dell'archivio: " + state}
+
+
+def _scenario_rationale_from_archive(sources, analysis_context):
+    """Explicit rationale wins; records taken from the archive bring the approved one, declared."""
+    if not isinstance(analysis_context, dict):
+        return analysis_context, "analysis_context non valido"
+    if analysis_context.get("scenario_rationale") is not None:
+        return analysis_context, "analysis_context"
+    source = sources.get("method_inputs") or {}
+    data = source.get("data") if isinstance(source.get("data"), dict) else {}
+    chosen = None
+    if source.get("source_id") == ARCHIVE_SOURCE and source.get("status") == "ok":
+        chosen = (data.get("sets") or {}).get(data.get("method_id"))
+    if isinstance(chosen, dict) and chosen.get("scenario_rationale") is not None:
+        return (dict(analysis_context, scenario_rationale=deepcopy(chosen["scenario_rationale"])),
+                "archivio approvato (set %s)" % chosen.get("set_id"))
+    return analysis_context, "assente"
+
+
+def method_inputs_origin(bundle):
+    """Where this snapshot's method records come from, stated for desk, committee and PM."""
+    case = bundle.get("case") if isinstance(bundle, dict) else None
+    sources = case.get("sources") if isinstance(case, dict) else None
+    source = sources.get("method_inputs") if isinstance(sources, dict) else None
+    if not isinstance(source, dict):
+        return "nessuno (method_inputs non acquisito)"
+    status, source_id = source.get("status"), source.get("source_id")
+    if source_id == "explicit_method_records":
+        return "esplicito NON approvato"
+    data = source.get("data") if isinstance(source.get("data"), dict) else {}
+    chosen = (data.get("sets") or {}).get(data.get("method_id")) if isinstance(data.get("sets"), dict) else None
+    if source_id == ARCHIVE_SOURCE and status == "ok" and isinstance(chosen, dict):
+        review = chosen.get("review") if isinstance(chosen.get("review"), dict) else {}
+        return "archivio approvato (set %s, approvato il %s da %s, scadenza minima %s)" % (
+            chosen.get("set_id"), str(review.get("reviewed_at"))[:10], review.get("reviewer"),
+            chosen.get("earliest_valid_until"))
+    if source_id == ARCHIVE_SOURCE and status == "stale":
+        return "archivio STALE (" + str(source.get("message")) + ")"
+    if status == "ok" and source.get("records"):
+        return "provider " + str(source_id) + " (non archivio, non approvato)"
+    return "nessuno (method_inputs " + str(status) + ": " + str(source.get("message") or "senza messaggio") + ")"
+
+
+def _days_before_cutoff(valuation_date, cutoff):
+    start, end = _iso(valuation_date), _iso(cutoff)
+    return (end - start).days if start is not None and end is not None else None
+
+
+def _record_valuation_date(records):
+    dates = {row["value"].get("valuation_date") for row in records
+             if isinstance(row, dict) and row.get("driver") == "calendar" and row.get("scenario") == "model"
+             and isinstance(row.get("value"), dict) and isinstance(row["value"].get("valuation_date"), str)}
+    return dates.pop() if len(dates) == 1 else None
 
 
 def _acquire(name, ticker, as_of, providers):
@@ -163,11 +296,15 @@ are deliberately outside the economic snapshot.
     # There is no useful sector acquisition before an economic identity exists.
     if decision["decision_status"] == "resolved":
         sources.update({name: _acquire(name, ticker, as_of, providers) for name in PROVIDERS[1:]})
+        sources["method_inputs"] = _archive_set_for_method(sources["method_inputs"], decision, as_of)
     if context.get("method_records") is not None:
         if not isinstance(context["method_records"], list):
             raise ValueError("method_records deve essere una lista di record documentati")
         previous = deepcopy(sources.get("method_inputs", {}))
         previous_records = previous.get("records", []) if previous.get("status") == "ok" else []
+        if previous.get("source_id") == ARCHIVE_SOURCE:
+            # The approved set is replaced, never summed: duplicates would block the FV.
+            previous_records = []
         if previous.get("source_id") == "explicit_method_records":
             previous_records = previous.get("data", {}).get("provider_records")
             if not isinstance(previous_records, list):
@@ -216,6 +353,9 @@ are deliberately outside the economic snapshot.
             if errors:
                 issues.append({"field": field or name, "code": "invalid_input", "blocking": True,
                                "message": "; ".join(errors)})
+    replaced = _replaced_archive_task(sources.get("method_inputs"))
+    if replaced:
+        tasks.append(replaced)
     valid_fields = {r["field"] for r in records if not r["validation_issues"]}
     # Contradictory duplicate facts are not silently resolved by provider order.
     for field in valid_fields.copy():
@@ -240,10 +380,11 @@ are deliberately outside the economic snapshot.
     decision["issues"].extend(issues)
     decision["profile_fingerprint"] = decision["input_fingerprint"]
     assumptions = _json_value(context.get("assumptions", {}))
-    analysis_context = _json_value(context.get("analysis_context", {}))
+    analysis_context, rationale_origin = _scenario_rationale_from_archive(
+        sources, _json_value(context.get("analysis_context", {})))
     case = {"ticker": ticker, "as_of": as_of, "info": _json_value(info),
             "vehicle_registry": _json_value(registry), "sources": sources,
-            "records": records, "assumptions": assumptions,
+            "records": records, "assumptions": assumptions, "scenario_rationale_origin": rationale_origin,
             "route": route["percorso"], "route_reason": route["motivo"],
             "routing": _json_value(route)}
     decision["acquisition_fingerprint"] = _hash({"profile": decision["profile_fingerprint"],
@@ -273,6 +414,10 @@ def revise_sector_analysis(bundle, *, assumptions=None, analysis_context=None, m
         result["case"]["assumptions"] = _json_value(assumptions)
     if analysis_context is not None:
         result["analysis_context"] = _json_value(analysis_context)
+    elif (method_records is not None and isinstance(result["analysis_context"], dict)
+          and str(result["case"].get("scenario_rationale_origin", "")).startswith("archivio")):
+        # The archived rationale belongs to the archived set: never carried onto a replacement.
+        result["analysis_context"].pop("scenario_rationale", None)
     if method_records is not None:
         # Replay only the acquired envelopes through the existing validation;
         # a new record set is a new snapshot, never a mutation of old evidence.
@@ -281,6 +426,9 @@ def revise_sector_analysis(bundle, *, assumptions=None, analysis_context=None, m
         return prepare_sector_analysis(result["case"]["ticker"], as_of=result["case"]["as_of"], providers=providers,
             user_context={"assumptions": result["case"]["assumptions"], "analysis_context": result["analysis_context"],
                           "method_records": method_records})
+    if analysis_context is not None:
+        result["analysis_context"], result["case"]["scenario_rationale_origin"] = _scenario_rationale_from_archive(
+            result["case"]["sources"], result["analysis_context"])
     result["decision"]["acquisition_fingerprint"] = _hash({
         "profile": result["decision"]["profile_fingerprint"], "sources": result["case"]["sources"],
         "assumptions": result["case"]["assumptions"], "analysis_context": result["analysis_context"]})
@@ -291,11 +439,17 @@ def revise_sector_analysis(bundle, *, assumptions=None, analysis_context=None, m
 def sector_analysis_summary(bundle):
     decision = bundle["decision"]
     requirements = get_method_requirements(decision["method_id"]) if decision.get("method_id") else {}
+    valuation_date = _record_valuation_date(bundle["case"].get("records") or [])
+    age = _days_before_cutoff(valuation_date, bundle["case"].get("as_of"))
     return ("Metodo: " + str(decision.get("method_id") or "n.d.")
             + " | decisione: " + decision["decision_status"]
             + " | supporto: " + str(decision.get("support_status") or "n.d.")
             + " | requisiti: " + decision["requirements_status"]
             + " | snapshot: " + bundle["snapshot_id"]
+            + "\nRecord del metodo: " + method_inputs_origin(bundle)
+            + " | motivazioni scenario: " + str(bundle["case"].get("scenario_rationale_origin") or "n.d.")
+            + " | " + ("valuation_date %s: %s giorni prima del cutoff %s" % (valuation_date, age, bundle["case"]["as_of"])
+                       if age is not None else "valuation_date n.d. (nessun record calendar univoco)")
             + "\nMotivo: " + str(decision.get("rationale") or bundle["case"]["route_reason"])
             + "\nDa acquisire: " + "; ".join(str(t["field"]) + " (" + t["status"] + "): " + t["reason"]
                                             for t in bundle["acquisition_tasks"])
@@ -306,19 +460,32 @@ def sector_analysis_summary(bundle):
 def valuation_results_block(results):
     """One small committee view; no independent selection or invented FV."""
     from bellomberg.valuation.dcf_quality import normalize_valuation_payload
+    from bellomberg.valuation.market_quote import market_quote_view
     if not results:
         return ""
     rows = ["=== VALUTAZIONI SETTORIALI [src: get_valuation] ===",
             "Usa solo FV con valuation_usability.usable=true. Target esterni distinti dal FV.",
+            "upside_model_pct usa il prezzo alla valuation_date; upside_today_pct confronta quel FV storico, non rivalutato, con l'osservazione datata in market_quote. n.d. se assente o stale; sanity resta sul prezzo del modello.",
             "RESEARCH -> BUY/ADD deve citare snapshot e limiti; calcolabile non significa tesi valida."]
     for ticker, payload in sorted(results.items()):
         result = normalize_valuation_payload(payload)
         decision, usability = result.get("valuation_decision") or {}, result["valuation_usability"]
+        snapshot = result.get("acquisition_snapshot")
+        acquired = isinstance(snapshot, dict) and isinstance(snapshot.get("case"), dict)
+        quote = market_quote_view(result.get("market_quote"), usable=usability["usable"])
         rows.append(json.dumps({"ticker": ticker, "method_id": decision.get("method_id"),
             "snapshot_id": result.get("snapshot_id"), "generation_id": result.get("generation_id"),
             "valuation_usability": usability, "valuation_date": result.get("valuation_date"),
             "information_cutoff": decision.get("as_of"),
-            "valuation_basis": result.get("valuation_basis"), "fair_value": next((result[k] for k in
+            "valuation_basis": result.get("valuation_basis"),
+            "price_model": result.get("price"), "price_model_as_of": result.get("valuation_date"),
+            "upside_model_pct": result.get("upside_pct"), "market_quote": quote,
+            "upside_today_pct": quote.get("upside_base_pct"),
+            "method_inputs_origin": method_inputs_origin(snapshot) if acquired else "n.d. (snapshot di acquisizione assente)",
+            "scenario_rationale_origin": (snapshot["case"].get("scenario_rationale_origin") or "n.d.") if acquired
+                else "n.d. (snapshot di acquisizione assente)",
+            "valuation_date_age_days": _days_before_cutoff(result.get("valuation_date"), decision.get("as_of")),
+            "fair_value": next((result[k] for k in
                 ("fair_value_final", "fair_value_weighted", "fair_value_blend", "fair_value_base", "fair_value_nav")
                 if result.get(k) is not None), None)}, ensure_ascii=False))
     return "\n".join(rows)
@@ -381,8 +548,12 @@ def default_sector_providers(*, fetch_info=None, vehicle_registry=None):
         from bellomberg.market_data.consensus_estimates import get_consensus
         return envelope(get_consensus(ticker), "consensus estimates", as_of)
 
+    def method_inputs(ticker, *, as_of):
+        from bellomberg.valuation.method_records_archive import method_inputs as archive
+        return archive(ticker, as_of=as_of)
+
     return {"profile": profile, "financials": financials, "filings": filings,
-            "guidance": guidance, "consensus": consensus}
+            "guidance": guidance, "consensus": consensus, "method_inputs": method_inputs}
 
 
 class AcquiredTicker:

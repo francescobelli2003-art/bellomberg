@@ -14,10 +14,11 @@
 .mandato-banner button{border:1px solid #46707b;padding:5px 8px;margin-left:7px}
 .mandato-shell{display:grid;grid-template-columns:210px minmax(0,1fr) 340px;gap:24px;margin:22px 0;align-items:start}
 .mandato-index,.mandato-preview{max-height:calc(100vh - 235px);display:flex;flex-direction:column;border:1px solid #354052;background:#11161e;border-radius:4px;padding:20px}
-.mandato-index{display:flex;flex-direction:column;min-width:0}
-.mandato-index a{display:grid;grid-template-columns:24px 1fr 20px;gap:8px;padding:14px 10px;color:#eef2f7;font:14px/1.5 Inter,system-ui,sans-serif;text-decoration:none;border-left:2px solid transparent}
+.mandato-index{display:flex;flex-direction:column;min-width:0;padding:12px}
+.mandato-index a{display:grid;grid-template-columns:20px minmax(0,1fr) 16px;gap:6px;padding:14px 6px;color:#eef2f7;font:14px/1.5 Inter,system-ui,sans-serif;text-decoration:none;border-left:2px solid transparent}
 .mandato-index a:hover,.mandato-index a:focus{color:#ffa51e;background:#171c27}
 .mandato-index span{color:#aeb9ca}
+.mandato-index .mandato-section-label{min-width:0;color:inherit}
 .mandato-index i{text-align:right;color:#83cfd2;font-style:normal}
 .mandato-form{border:0;padding:0;margin:0;min-width:0}
 .mandato-form section{scroll-margin-top:8px;background:transparent;margin-bottom:18px}
@@ -38,7 +39,10 @@
 .mandato-page input:focus,.mandato-page select:focus,.mandato-page textarea:focus,.mandato-page button:focus-visible{border-color:#ffa51e;box-shadow:0 0 0 2px rgba(255,165,30,.18)}
 .mandato-input,.mandato-range{display:flex;align-items:center;gap:6px}
 .mandato-input span,.mandato-range em{font:12px/1.4 Inter,system-ui,sans-serif;color:#aeb9ca;font-style:normal;overflow-wrap:anywhere}
-.mandato-range input{min-width:0}
+.mandato-input span{overflow-wrap:break-word}
+.mandato-range{flex-wrap:wrap}
+.mandato-range em{white-space:nowrap;flex-shrink:0}
+.mandato-range input{min-width:0;flex:1 1 70px;width:0}
 .mandato-choice,.mandato-switches div{display:flex;gap:5px}
 .mandato-choice button,.mandato-switches button{border:1px solid #637088;border-radius:3px;color:#aeb9ca;background:#0b1017;padding:8px 12px;font:13px/1.4 Inter,system-ui,sans-serif}
 .mandato-choice button.on,.mandato-switches button.on{border-color:#29d3f2;color:#29d3f2;background:#102630}
@@ -107,14 +111,14 @@
 .mandato-page button:focus-visible,.mandato-index a:focus-visible,.mandato-coverage-help summary:focus-visible{outline:2px solid #efbb66;outline-offset:3px}
 .mandato-page [hidden]{display:none}
 
-@media(max-width:1250px){.mandato-shell{grid-template-columns:175px minmax(0,1fr) 270px;gap:16px}
+@media(max-width:1250px){.mandato-shell{grid-template-columns:210px minmax(0,1fr) 270px;gap:16px}
 .mandato-grid article{grid-template-columns:minmax(0,1fr)}
 .mandato-preview{padding:15px;grid-column:auto}
 .mandato-field-control{grid-column:1}
 .mandato-actions{flex-wrap:wrap}
 }
 
-@media(max-width:950px){.mandato-shell{grid-template-columns:160px minmax(0,1fr)}
+@media(max-width:950px){.mandato-shell{grid-template-columns:210px minmax(0,1fr)}
 .mandato-preview{grid-column:2;position:relative;max-height:500px}
 .mandato-actions>span{width:100%}
 }
@@ -127,7 +131,5 @@
 .mandato-toolbar{flex-direction:column;align-items:flex-start}
 .mandato-actions{padding:10px}
 .mandato-actions button{flex:1}
-.mandato-range{flex-wrap:wrap}
-.mandato-range input{flex:1;width:35%}
 }
 

@@ -1,12 +1,46 @@
-# Documentation illustrations
+# Documentation screenshots and illustrations
 
 [Handbook](README.md)
 
-Every image in this manual is an original SVG illustration drawn for Bellomberg.
+## Screenshot gallery
+
+These captures show the actual English interface with one synthetic DEMO
+account. The capture tool adds the visible DEMO watermark. Analytics, histories
+and research text are authored snapshots; capturing them does not rerun the
+analytics pipeline or establish investment results. The data is not installed
+into your portfolio. [Reproduction instructions](screenshots.md) describe the
+fixture, clock, local service and capture checks.
+
+| Destination | English screenshots |
+| --- | --- |
+| [F1 Command Center](pages/01-command-center.md) | [Overview](../assets/screenshots/dashboard-en.png) |
+| [F2 Performance](pages/02-performance.md) | [Tearsheet](../assets/screenshots/performance-en.png) · [Attribution](../assets/screenshots/performance-attribution-en.png) · [Book & Risk](../assets/screenshots/performance-book-risk-en.png) |
+| [F3 Watchlist](pages/03-watchlist.md) | [Watchlist](../assets/screenshots/watchlist-en.png) |
+| [F4 Global Markets](pages/04-global-markets.md) | [Overview](../assets/screenshots/market-overview-en.png) · [Security](../assets/screenshots/market-security-en.png) · [Financials](../assets/screenshots/market-financials-en.png) |
+| [F5 News Desk](pages/05-news-desk.md) | [Wire](../assets/screenshots/news-wire-en.png) · [Desk](../assets/screenshots/news-desk-en.png) |
+| [F6 Fundamentals](pages/06-fundamentals.md) | [Valuations](../assets/screenshots/fundamentals-en.png) |
+| [F7 Factor Lab](pages/07-factor-lab.md) | [Factors](../assets/screenshots/factor-lab-en.png) |
+| [F8 Monte Carlo](pages/08-monte-carlo.md) | [Scenarios](../assets/screenshots/montecarlo-en.png) |
+| [F9 Vol Deck](pages/09-vol-deck.md) | [Tools](../assets/screenshots/vol-deck-tools-en.png) · [Chain](../assets/screenshots/vol-deck-chain-en.png) · [Laboratory](../assets/screenshots/vol-deck-laboratory-en.png) |
+| [F10 Edge Scanner](pages/10-edge-scanner.md) | [Signals](../assets/screenshots/edge-scanner-en.png) |
+| [F11 Agent Chat](pages/11-agent-chat.md) | [Conversation](../assets/screenshots/agent-chat-en.png) |
+| [F12 Agents Live](pages/12-agents-live.md) | [Run activity](../assets/screenshots/agents-live-en.png) |
+| [F13 Agent Progress](pages/13-agent-progress.md) | [Metrics and history](../assets/screenshots/agent-progress-en.png) |
+| [F14 Memo Archive](pages/14-memo-archive.md) | [Memo](../assets/screenshots/memo-archive-en.png) |
+| [F15 Decisions](pages/15-decisions.md) | [Decisions](../assets/screenshots/decisions-en.png) |
+| [F16 Trade Entry](pages/16-trade-entry.md) | [Ticket](../assets/screenshots/trade-entry-en.png) · [Local simulation](../assets/screenshots/trade-entry-after-en.png) · [Confirmation preview](../assets/screenshots/trade-entry-confirm-en.png) |
+| [F17 Movements](pages/17-movements.md) | [Register](../assets/screenshots/movements-register-en.png) · [Timelines](../assets/screenshots/movements-trails-en.png) · [Transaction diary](../assets/screenshots/movements-diary-en.png) |
+| [F18 Mandate and Journal](pages/18-mandate-journal.md) | [Mandate](../assets/screenshots/mandate-en.png) · [Journal](../assets/screenshots/journal-en.png) |
+| [F19 Settings](pages/19-settings.md) | [Settings panel](../assets/screenshots/settings-en.png) |
+
+## Illustrations
+
+The separate SVG illustrations were drawn for Bellomberg.
 They explain page structure and workflow using **entirely invented DEMO data**.
 They are not screenshots, live product results, sample investments or evidence
-that a provider returned a particular value. The interface is Italian; the
-written manual is English.
+that a provider returned a particular value. The application is available in
+English and Italian: the illustrations show its Italian labels, while their
+accessible titles, descriptions and footnotes, like this manual, are in English.
 
 The visual language follows the terminal: dark blue-grey surfaces, restrained
 gold for primary actions and cyan for comparative data. Each destination has a
@@ -14,7 +48,7 @@ different central view, such as a ledger, conversation, memo or option payoff.
 These simplified layouts explain the relevant controls; exact spacing and
 content in the running application can differ.
 
-## Gallery
+### Illustration gallery
 
 | Destination | Illustration |
 | --- | --- |
@@ -38,7 +72,7 @@ content in the running application can differ.
 | [F18 Mandate and Journal](pages/18-mandate-journal.md) | [Open SVG](../assets/product/18-mandate-journal.svg) |
 | [F19 Settings](pages/19-settings.md) | [Open SVG](../assets/product/19-settings.svg) |
 
-## Regenerate and verify
+### Regenerate and verify illustrations
 
 Run from the source checkout root:
 
@@ -54,6 +88,7 @@ The verifier checks local links, the navigation inventory and SVG structure.
 Neither script starts the application or runs financial calculations.
 
 SVGs include accessible titles and descriptions, contain no raster images or
-external font/image links, and can be opened directly in a browser. Screenshots
-used privately to check their rendering are not public documentation assets.
-Do not replace the mockups with a screenshot from a personal portfolio.
+external font/image links, and can be opened directly in a browser. They remain
+illustrations; the PNG captures in the screenshot gallery show the app itself.
+Use the synthetic capture fixture when reproducing documentation images, never
+a personal portfolio.

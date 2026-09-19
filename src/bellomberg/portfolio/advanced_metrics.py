@@ -404,7 +404,7 @@ def reconcile_betas(threshold=0.35):
            "threshold": threshold,
            "definitions": {
                "advanced_metrics_twr": message("serie TWR ufficiale vs benchmark ufficiale EUR total-return (benchmark_series), allineati per data", "official TWR series vs official EUR total-return benchmark (benchmark_series), aligned by date"),
-               "portfolio_risk_spy": message("rendimenti book in EUR vs SPY convertito in EUR, ~1y (fix E4 22/07)", "book returns in EUR vs SPY converted to EUR, ~1y (fix E4 22/07)"),
+               "portfolio_risk_spy": message("rendimenti book in EUR vs SPY convertito in EUR, ~1y", "book returns in EUR vs SPY converted to EUR, ~1y"),
                "factor_model_mkt": message("loading Mkt-RF composito FF regionale, ~3y", "regional FF composite Mkt-RF loading, ~3y"),
            },
            "_source": "advanced_metrics.reconcile_betas (guardrail 13/07)"}

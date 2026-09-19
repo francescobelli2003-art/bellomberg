@@ -69,7 +69,7 @@
       "blocco": "profilo",
       "tipo": "scelta",
       "obbligatorio": true,
-      "descrizione": "Orizzonte con cui investe: long_term (anni), medio_termine (mesi), trading (settimane).",
+      "descrizione": "Orizzonte con cui investe: lungo termine (anni), medio termine (mesi) o trading (settimane).",
       "unita": "",
       "intervallo": null,
       "scelte": [
@@ -83,7 +83,7 @@
       "blocco": "profilo",
       "tipo": "scelta",
       "obbligatorio": true,
-      "descrizione": "concentrato = accetta conviction pesanti; diversificato = nessun nome sopra i cap.",
+      "descrizione": "Concentrato: ammette posizioni di peso elevato; diversificato: mantiene ogni posizione entro i limiti.",
       "unita": "",
       "intervallo": null,
       "scelte": [

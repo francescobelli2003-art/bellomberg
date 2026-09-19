@@ -1,0 +1,211 @@
+BELLOMBERG
+v0.8.0 OBSIDIAN
+NY
+LN
+MI
+HK
+❯
+SEARCH TICKERS · PAGES · ACTIONS
+CTRL+K
+API
+LIVE
+13 SEP 2026
+10:11:40
+UTC+2
+F19
+01
+DASH
+02
+PERF
+03
+FAVS
+04
+MKT
+05
+NEWS
+06
+FUND
+07
+FCTR
+08
+MTC
+09
+VOLS
+10
+EDGE
+11
+CHAT
+12
+LIVE
+13
+SCORE
+14
+MEMO
+15
+DECN
+16
+TRADE
+17
+MOVES
+18
+MNDT
+19
+CONFIG
+F13 // AGENT PROGRESS
+|
+USD/EUR
+0.9000
+GBP/EUR
+1.2000
+GBX/EUR
+0.01200
+CHF/EUR
+1.0500
+JPY/EUR
+0.0060
+HKD/EUR
+0.1154
+FX 60S
+Results with evidence
+
+Measurements, scope and lessons kept separate.
+
+Refresh data
+6 recorded runs in this window
+First record in this window: 2 Aug 2026, 10:51
+Source: SQLite agent_score_history + scorekeeper
+Current measurement available · separate from history · 13 Sept 2026, 10:00
+Agents and roles
+Latest measurement
+Head / Committee
+44.4%
+Synthesis and collective decisions
+n=18 · Measurement available
+Macro
+n/a
+Economic regime and liquidity
+n=n/a · Measurement missing
+Fundamentals
+44.4%
+Valuations and company theses
+n=18 · Measurement available
+Quant
+50.0%
+Risk, factors and sizing
+n=14 · Measurement available
+Options
+33.3%
+Volatility and options flows
+n=9 · Small sample
+Crypto
+n/a
+Digital markets and derivatives
+n=n/a · Measurement missing
+Event Desk
+50.0%
+Catalysts, news and geopolitics
+n=10 · Measurement available
+Red Team
+—
+Critical committee review
+Role without directional score
+Reflection
+—
+Lessons for the next run
+Role without directional score
+Action extractor
+—
+Decision extraction
+Role without directional score
+Head / Committee
+
+Synthesis and collective decisions
+
+Measurement
+Latest available
+Current unarchived measurement
+Memo #12 · 6 Sept 2026, 10:50
+Memo #11 · 30 Aug 2026, 10:51
+Memo #10 · 23 Aug 2026, 15:49
+Memo #9 · 23 Aug 2026, 10:52
+Memo #8 · 9 Aug 2026, 10:50
+Memo #7 · 2 Aug 2026, 10:51
+
+The Chief shows the collective outcome of committee decisions; this is not isolated individual performance.
+
+Directional hit rate
+50.0%8 correct outcomes / 16 calls
+95% interval
+28.0–72.0%
+Wilson · width = uncertainty
+0
+50
+100%
+Mean edge
+0.1%Return in the call's direction
+Can these measurements be compared?
+0.0 pp
+Same method, decisions and horizons; a change in measurement, not evidence of learning
+Measurement available
+Measured: 23 Aug 2026, 15:00
+Source: scorekeeper / agent_score_history
+Measurements
+By action
+By confidence
+Individual calls
+Activity
+Hit rate over time
+Horizontal axis: run sequence
+0%
+25%
+50%
+75%
+100%
+#7
+#8
+#9
+#10
+#11
+#12
+Saved measurement
+Same cohort and method
+Vertical bar: selected 95% interval
+
+The measurement saved at run completion concerns past calls: decisions from the new run have yet to mature Gaps in the line indicate non-comparable measurements.
+
+Run lesson
+Memo #10
+Run register
+Latest 6 recorded
+Memo	Completed	Hit rate Head / Committee	Call
+
+#12
+	6 Sept 2026, 10:50	44.4%	18
+
+#11
+	30 Aug 2026, 10:51	50.0%	16
+
+#10
+	23 Aug 2026, 15:49	50.0%	16
+
+#9
+	23 Aug 2026, 10:52	50.0%	16
+
+#8
+	9 Aug 2026, 10:50	58.3%	12
+
+#7
+	2 Aug 2026, 10:51	70.0%	10
+How to read scores and improvements
+[ BELLOMBERG · OBSIDIAN ]
+ENGINE
+SYNTHETIC DEMO
+AGENTS
+4/6 RUN
+RUN IN PROGRESS
+SESSION 2026-09-13
+WORKSPACE · F1–F19 · CTRL+K
+DEMO · SYNTHETIC DATA
+
+DOCUMENTATION FORM VALUES
+: memo:10

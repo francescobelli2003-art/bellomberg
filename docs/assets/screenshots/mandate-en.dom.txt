@@ -1,0 +1,275 @@
+BELLOMBERG
+v0.8.0 OBSIDIAN
+NY
+LN
+MI
+HK
+❯
+SEARCH TICKERS · PAGES · ACTIONS
+CTRL+K
+API
+LIVE
+13 SEP 2026
+10:11:40
+UTC+2
+F19
+01
+DASH
+02
+PERF
+03
+FAVS
+04
+MKT
+05
+NEWS
+06
+FUND
+07
+FCTR
+08
+MTC
+09
+VOLS
+10
+EDGE
+11
+CHAT
+12
+LIVE
+13
+SCORE
+14
+MEMO
+15
+DECN
+16
+TRADE
+17
+MOVES
+18
+MNDT
+19
+CONFIG
+F18 // MANDATE AND JOURNAL
+|
+USD/EUR
+0.9000
+GBP/EUR
+1.2000
+GBX/EUR
+0.01200
+CHF/EUR
+1.0500
+JPY/EUR
+0.0060
+HKD/EUR
+0.1154
+FX 60S
+Mandate and Journal
+
+Investment rules, with their effects and verification in view.
+
+Mandate
+Journal
+
+Draft number format: English (1,234.56).
+
+Fill with example profile
+EXAMPLE PROFILE ACTIVE · valid, but not yet personalized.
+Mandate sections
+01
+Profile
+✓
+02
+Risk
+✓
+03
+Position sizing
+✓
+04
+Cash
+✓
+05
+Discipline
+✓
+06
+Options
+✓
+07
+Notes
+✓
+
+47 fields · 7 sections
+
+37 of 37 required fields completed
+
+Status refers to the draft; the server checks full consistency.
+01Profile
+Investment horizon*Prompt
+
+Investment horizon: long term (years), medium term (months), or trading (weeks).
+
+Required
+-- choose --
+Long term
+Medium term
+Short-term trading
+Portfolio style*Prompt
+
+Concentrated: allows high-conviction position weights; diversified: keeps each position within its cap.
+
+Required
+-- choose --
+Concentrated
+Diversified
+Holding horizon*Prompt
+
+Average holding period of a position.
+
+Required · Allowed range: 1–30
+years
+Base currency*Prompt
+
+Currency used to measure wealth (ISO code: EUR, USD, GBP...).
+
+Required
+BrokerInformation
+
+Broker used (information only).
+
+Optional
+0 / 120 characters
+Tax residenceInformation
+
+Country of tax residence (informs the UCITS and vehicle preference).
+
+Optional
+0 / 120 characters
+Accessible markets and preference*Prompt
+
+Accessible exchanges, in order of preference: the first is the home exchange (how to buy from there).
+
+Required
+Milan (MI)
+London (L)
+Frankfurt (DE)
+Frankfurt (FRA)
+Paris (PA)
+Amsterdam (AS)
+Brussels (BR)
+Madrid (MC)
+Zurich (SW)
+Vienna (VI)
+New York (US)
+Toronto (TO)
+Tokyo (T)
+Hong Kong (HK)
+Mumbai (NS)
+Sao Paulo (SA)
+Sydney (AX)
+Preference for UCITS funds*Prompt
+
+Prefers UCITS ETFs/funds (.MI/.L/.DE) for tax efficiency.
+
+Required
+YES
+No
+Leverage allowed*Prompt
+
+The committee may propose leveraged instruments or margin.
+
+Required
+YES
+No
+Short positions allowed*Prompt
+
+The committee may propose short positions.
+
+Required
+YES
+No
+How are these fields used?
+Committee text
+VALID
+PM MANDATE (declared on unavailable date, fingerprint 9d573228)
+PM PROFILE: invests LONG-TERM (7-year horizon), DIVERSIFIED book; base currency EUR; accessible markets: Milan (MI), Frankfurt (DE), New York (US); UCITS preference: yes; broker: n/a; tax residence: n/a; leverage: NOT allowed; short: NOT allowed.
+RISK ACCEPTED: target volatility 15% annually; maximum one-day VaR 99% 2% of wealth; maximum drawdown 20%; maximum loss in a 2008-type stress: 20% of NAV.
+SIZING: single-stock baseline 6% / cap 8% of invested assets; diversified vehicles 20% / cap 25%; sector cap 25% (single stocks); floor 1%; minimum position 1% of NAV; new positions 1-2% of capital; maximum positions: 25; maximum top-three weight: 40%.
+
+## CASH MANAGEMENT (active rule, NEUTRAL DEPLOYMENT)
+The PM holds modest cash (typically 10-15% of capital) and deploys it when ideas merit it. Idle cash has an opportunity cost, but is not inherently a mistake. In every memo you MUST:
+1. Explicitly state available cash and its percentage of total capital.
+2. NEUTRAL DEFAULT: propose deployment proportional to ideas with dated catalysts: roughly 20-30% of available cash over the next 2-4 weeks. If no ideas qualify, declare that cash remains idle and explain why.
+3. DRY POWDER is legitimate, but above 20-25% it needs JUSTIFICATION: name the risk or absence of ideas justifying the wait and the prices at which you would deploy.
+4. Present an explicit deployment plan: how much this week, into which ideas and at which weights, and how much to reserve for declines at specified prices. New-position weights must be material (typically 1-2% of capital each, not 0.5%).
+5. MANDATED MINIMUM CASH: never below 5% of capital; below that threshold, replenish cash instead of deploying it.
+
+## REDUCTION DISCIPLINE (TRIM)
+A recommendation to reduce a position by MORE than 60% requires THREE simultaneous conditions:
+1. Negative Sharpe over 12+ months
+2. ZERO catalysts expected within 90 days
+3. Original thesis empirically disproved
+If even one is missing, the maximum reduction is 15-25%. Position size is inversely proportional to pending catalysts.
+TWO-SIDED DRAWDOWN ASSESSMENT (mandatory PM rule): a drawdown is NOT itself a reason to sell; it may be either a buying opportunity or a selling signal. Treating it only as a sale would systematically sell lows and miss rebounds. ONE TRIGGER for everyone: EVERY proposed reduction (TRIM/SELL/HEDGE on the name) of a position in significant drawdown (indicatively >25% from its 52-week high) OR justified by backward-looking metrics (trailing Sharpe/maxDD/momentum, cluster track record). The decision thesis must ALSO argue the other side: why this level might be a buying point (mean reversion, key levels, NAV discount for CEFs, the PM’s long-term view), then explain with numbers why exit wins. Trailing Sharpe describes the past: alone it may OPEN a trim proposal, never settle it. TWO-SIDED MEANS TWO-SIDED: the symmetric error, holding or averaging a name with a BROKEN thesis (value trap, disposition effect), is equally forbidden. Do not defend holds automatically: weigh BOTH sides with numbers, then choose.
+
+## PAIR TRADE DISCIPLINE
+NO pair trades in the memo (PM mandate): section 6 states this in one line and proposes no pairs.
+
+## OPTIONS DISCIPLINE
+The PM does NOT use options: no option structures in the memo; section 4 reads the tape (IV, skew, gamma) only as positioning information.
+
+## SECTOR ROTATION + GLOBAL SEARCH (PM mandate)
+- NO ANCHORING TO CURRENT SECTORS: if a SECTOR thesis deteriorates (exhausted driver, failed catalysts, negative cluster scorekeeper record), SAY SO and propose an explicit cluster TRIM within the Reduction Discipline below, naming the destination of the released capital. Keeping a sector just because it is already held is a process error, not a position.
+- MANDATORY "NEW IDEAS FROM THE WORLD" SECTION: every memo must include 1-2 candidates OUTSIDE the book and NOT repeated proposals, sourced by specialists from the PM’s accessible markets (Milan (MI), Frankfurt (DE), New York (US)). For each: a two-line thesis with [src: tool] numbers, a dated catalyst, HOW to buy from Milan (ADR, UCITS, accessible listing), and country-specific risk (FX, governance, liquidity). If specialists have not produced worthy candidates, DECLARE the gap ("no new idea above the threshold this week: here is what was rejected and why"); never fill it with disguised repeat proposals.
+
+## SKIPPED DECISIONS
+SKIPPED decisions are not final rejections: they mean "not executed THIS week". If the thesis holds, explicitly PROPOSE THEM AGAIN at the same or lower weight, recalling the prior suggestion. BUT: if memory shows the same ticker and action proposed and skipped MORE THAN ONCE, do NOT INCREASE the repeated proposal. Repeated skipping is a PM signal: declare disagreement in the decision section, request an explicit decision, and downgrade it (reduced weight or RESEARCH at 0). Drop it only when the thesis expires, and say so. If the memory window is too short to count skips, declare that limitation.
+
+## THE PM’S VIEWS
+- Views are NOT orders: the PM wants to be challenged. If data contradict a view, say so openly with numbers; agreeing to please is as much a process error as ignoring it.
+Preview validated: you can now save this revision.
+
+Preview language: English. Request another preview for new text in another language.
+
+FINGERPRINT
+eba730fb0a8b
+2024-02-20 · Example profile
+Local draft · 1 section changed
+Discard changes
+Validate and preview
+Save mandate
+[ BELLOMBERG · OBSIDIAN ]
+ENGINE
+SYNTHETIC DEMO
+AGENTS
+4/6 RUN
+RUN IN PROGRESS
+SESSION 2026-09-13
+WORKSPACE · F1–F19 · CTRL+K
+DEMO · SYNTHETIC DATA
+
+DOCUMENTATION FORM VALUES
+m-tipo_investimento: long_term
+m-stile: diversificato
+m-orizzonte_anni: 7
+m-valuta_base: EUR
+m-broker: 
+m-residenza_fiscale: 
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on

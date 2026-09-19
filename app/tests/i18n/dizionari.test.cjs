@@ -12,7 +12,9 @@ const { en } = carica('i18n/en/index.ts');
 
 // Exact shared domain term; do not exempt other content under the same namespace.
 const NEUTRE_PER_CHIAVE = { 'trade.opening_ticker': 'Ticker', 'voldeck.chain': 'Chain',
-  'voldeck.spot': 'Spot', 'voldeck.expected_move': 'Expected move 1σ' };
+  'voldeck.spot': 'Spot', 'voldeck.expected_move': 'Expected move 1σ',
+  'newsdesk.blipCountOne': '{a} BLIP', 'progress.callsCountOne': '{a} call',
+  'movements.bothCounts': '{a} + {b}' };
 
 const NEUTRE = /^(OK|ESC|CTRL\+K|F\d{1,2}|N\.D\.|n\.d\.|n\/a|API|PING|LIVE|DOWN|ONLINE|OFFLINE|RUN LIVE|CONFIG|BELLOMBERG.*|PRIVATE INTELLIGENCE TERMINAL|V0\.9 OBSIDIAN|PIN AUTHENTICATION|◈ ACCESS GRANTED|◌ AUTHENTICATING…|◌ AUTHORIZE ACCESS|SAT-07|BLM-1 ASCENT|MEMORIA SQLITE|FEED NEWS \/ FRED|QUANT GARCH \/ MC|ALT|VEL|ORBIT|LINK|KM 0|Engine|Agents|SESSION|Command Center|Performance|Watchlist|Global Markets|News Desk|Fundamentals|Factor Lab|Monte Carlo|Vol Deck|Edge Scanner|Agent Chat|Agents Live|Memo Archive|Trade Entry|MKT \{ticker\}|NEWS \{ticker\}|REFRESH NEWS FEED|BACKUP DATABASE|pull \+ classify \(~60s\)|polygon -> yfinance.*|force refresh performance|weekly research note|snapshot data\/consigliere\.db|blotter \+ trade entry|\{tasto\} · \{label\} · \{gruppo\}|\{key\} \/\/ \{label\}|\{dd\}\/\{mm\}\/\{aa\}.*|\{n\} \{unita\}|\{n\}|\{testo\}|1 \{valuta\}|FX 60s|FX STALE \{minuti\}M|IMPATTO 2026-OB · 4\.2 KT|T\+\{mm\}:\{ss\}  ALT \{alt\} KM)$/;
 

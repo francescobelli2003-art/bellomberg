@@ -2,9 +2,10 @@
 
 [Handbook](../README.md) · [Previous: F3](./03-watchlist.md) · [Next: F5](./05-news-desk.md)
 
-![F4 Global Markets: original synthetic DEMO mockup](../../assets/product/04-global-markets.svg)
+![F4 Global Markets: Overview — English DEMO screenshot](../../assets/screenshots/market-overview-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
 
 Search an instrument, confirm its identity, then move from market context to
 company detail. This is also where a portfolio holding or command-palette ticker
@@ -22,6 +23,14 @@ action can take you.
    sections as available for that instrument.
 6. Save a favourite to [Watchlist](03-watchlist.md) or select instruments for
    Macro Pulse when using those controls.
+
+![Global Markets selected security — English DEMO screenshot](../../assets/screenshots/market-security-en.png)
+
+*An invented company with its synthetic chart, ownership and news.*
+
+![Global Markets financial statements — English DEMO screenshot](../../assets/screenshots/market-financials-en.png)
+
+*Financial statements and comparisons from the same invented company.*
 
 ## Read the result
 A chart study is derived from the selected data; it is not an independently

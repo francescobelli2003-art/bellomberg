@@ -1,0 +1,180 @@
+BELLOMBERG
+v0.8.0 OBSIDIAN
+NY
+LN
+MI
+HK
+❯
+SEARCH TICKERS · PAGES · ACTIONS
+CTRL+K
+API
+LIVE
+13 SEP 2026
+10:11:40
+UTC+2
+F19
+01
+DASH
+02
+PERF
+03
+FAVS
+04
+MKT
+05
+NEWS
+06
+FUND
+07
+FCTR
+08
+MTC
+09
+VOLS
+10
+EDGE
+11
+CHAT
+12
+LIVE
+13
+SCORE
+14
+MEMO
+15
+DECN
+16
+TRADE
+17
+MOVES
+18
+MNDT
+19
+CONFIG
+F7 // FACTOR LAB
+|
+USD/EUR
+0.9000
+GBP/EUR
+1.2000
+GBX/EUR
+0.01200
+CHF/EUR
+1.0500
+JPY/EUR
+0.0060
+HKD/EUR
+0.1154
+FX 60S
+FACTOR LAB
+MEASURE RECONCILIATION · 2 HOLDINGS · WINDOW 1Y · V3-REGIONAL
+RECALCULATE
+44D
+FACTOR DATA LAG
+FAMA-FRENCH AS OF 31/07/2026
+PORTFOLIO BETA — 4 SOURCES
+RESULT RECONCILED · SPREAD MAX 0.23 · THRESHOLD 0.35 · CONSENSUS 0.55 · NO FAILED SOURCES
+0.25
+0.30
+0.35
+0.40
+0.45
+0.50
+0.55
+0.60
+0.65
+0.340
+0.503
+0.550
+0.570
+TWR VS BENCHMARK
+0.340
+official TWR series vs official EUR total-return benchmark (benchmark_series), aligned by date
+FACTOR MODEL 1Y · NOT RECONCILED
+0.503
+regional FF composite Mkt-RF loading, window 1y — estimate shown on this page, not included in the guardrail reconciliation
+3Y FACTOR MODEL
+0.550
+regional FF composite Mkt-RF loading, ~3y
+BOOK VS SPY
+0.570
+book returns in EUR vs SPY converted to EUR, ~1y
+ALPHA AND SHARPE — DIVERGENT SOURCES
+ALIGNMENT DECLARED
+-0.333%
+FACTOR MODEL
+weighted mean of 2 regression α values · window 1Y · factors as of 31/07/2026 · the aggregate has no t-stat in the payload: no colour
+ANNUALISED ALPHA
+SPREAD 0.57 PP
+-0.900%
+OFFICIAL BENCHMARK
+official TWR series vs EUR total-return benchmark · no t-stat in the payload: no colour
++0.39
+/PORTFOLIO/RISK
+portfolio returns in EUR · no significance test: no colour
+SHARPE RATIO
+SPREAD 0.64
+-0.25
+/PORTFOLIO/METRICS/ADVANCED
+official TWR series · risk-free 3.20% · no significance test: no colour
+aligned by DATE (643 common days), official EUR total-return benchmark, 295 carry-forward days excluded from pairing
+Sharpe with rf=0 (not excess return); official Sharpe with live rf is in advanced_metrics (risk_free_used declared there)
+ALPHA BY SECURITY
+0/2 SIGNIFICANT AT 5%
+SECURITY	WEIGHT IN INVESTED CAPITAL	OBS.	α ANN. · 95% CI	α ANN.	R²
+DEMO.B FX	33.3%	230	
+	+2.4%	39%
+DEMO.A FX	66.7%	230	
+	-1.7%	54%
+REGRESSION — 1Y VS 3Y WINDOW
+SCALE ±0.80
+FACTOR	1Y	3Y	DIFFERENCE	Δ
+MKT · Market	0.503	0.550	
+	0.047
+SMB · Size	0.677	0.700	
+	0.023
+HML · Value	-0.356	-0.349	
+	0.007
+RMW · Quality	0.072	0.003	
+	-0.069
+CMA · Investment	0.015	0.071	
+	0.056
+MOM · Momentum	-0.005	0.069	
+	0.074
+α ann. · %	-0.33	0.68	different unit: off scale	1.02
+FACTOR DATASETS BY REGION
+1 DATASET · 0 SECURITIES SKIPPED
+REGION	SECURITIES	WEIGHT	OBS.	LATEST DATE
+Europe (developed)	2	100.0%	4,325	31/07/2026
+CALCULATION BASIS — COVERAGE
+DENOMINATOR DECLARED
+100.00%
+DECLARED COVERAGE · OF INVESTED CAPITAL
+60.00%
+EFFECTIVE COVERAGE OF NAV
+Invested capital	6,000.00 €
+Cash	4,000.00 €
+NAV	10,000.00 €
+Cash / NAV	40.00%
+Invested / NAV	60.00%
+SIGNIFICANCE
+12 CELLS β
+|t| ≥ 1.96	4 / 12
+α significant at 5%	0 / 2
+Weighted mean R²	49.2%
+Coloured by the previous display	4
+…of which not significant	0
+Saturated (|β| > 1.5)	0
+CACHE — the engine holds one window at a time: a full cycle takes ~15.2 s, measured. The page attempts to restore 1Y to the cache after loading.
+[ BELLOMBERG · OBSIDIAN ]
+ENGINE
+SYNTHETIC DEMO
+AGENTS
+4/6 RUN
+RUN IN PROGRESS
+SESSION 2026-09-13
+WORKSPACE · F1–F19 · CTRL+K
+DEMO · SYNTHETIC DATA
+
+DOCUMENTATION FORM VALUES
+

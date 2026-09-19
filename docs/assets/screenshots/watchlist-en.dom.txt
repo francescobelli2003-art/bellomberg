@@ -1,0 +1,120 @@
+BELLOMBERG
+v0.8.0 OBSIDIAN
+NY
+LN
+MI
+HK
+❯
+SEARCH TICKERS · PAGES · ACTIONS
+CTRL+K
+API
+LIVE
+13 SEP 2026
+10:11:40
+UTC+2
+F19
+01
+DASH
+02
+PERF
+03
+FAVS
+04
+MKT
+05
+NEWS
+06
+FUND
+07
+FCTR
+08
+MTC
+09
+VOLS
+10
+EDGE
+11
+CHAT
+12
+LIVE
+13
+SCORE
+14
+MEMO
+15
+DECN
+16
+TRADE
+17
+MOVES
+18
+MNDT
+19
+CONFIG
+F3 // WATCHLIST
+|
+USD/EUR
+0.9000
+GBP/EUR
+1.2000
+GBX/EUR
+0.01200
+CHF/EUR
+1.0500
+JPY/EUR
+0.0060
+HKD/EUR
+0.1154
+FX 60S
+// WATCHLIST
+|
+4 FAVORITES · FOLLOWED BY THE COMMITTEE AND NEWS DESK
+REFRESH
+INFERRED INTERESTS:
+Technology · 2
+Healthcare · 1
+FAVORITE COMPANIES // LIVE QUOTES
+CLICK = SECURITY TERMINAL
+TICKER	NAME	SECTOR / INDUSTRY	PRICE	CHANGE %	52W	SINCE	
+DEMO.C	Synthetic Company C	Technology / Software - Application	72.40 USD	-1.20%	
+	2026-08-24	
+
+
+PM NOTE
+SAVE
+
+DEMO.E	Synthetic Company E	Technology / Semiconductors	118.60 USD	+2.09%	
+	2026-07-06	
+
+
+PM NOTE
+SAVE
+
+DEMO.D	Synthetic Company D	Healthcare / Medical Devices	31.05 USD	+0.84%	
+	2026-05-18	
+
+
+PM NOTE
+SAVE
+
+DEMO.A	Synthetic Company A	-	50.00 EUR	+2.04%	
+	2024-02-16	
+
+
+PM NOTE
+SAVE
+[ BELLOMBERG · OBSIDIAN ]
+ENGINE
+SYNTHETIC DEMO
+AGENTS
+4/6 RUN
+RUN IN PROGRESS
+SESSION 2026-09-13
+WORKSPACE · F1–F19 · CTRL+K
+DEMO · SYNTHETIC DATA
+
+DOCUMENTATION FORM VALUES
+: DEMO note: invented reason to follow; watch the synthetic margin trend.
+: DEMO note: invented; no thesis, layout example only.
+: DEMO note: invented example of a followed company; checkpoint at the next synthetic update.
+: 

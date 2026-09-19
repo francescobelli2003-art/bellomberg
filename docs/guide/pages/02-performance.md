@@ -2,9 +2,10 @@
 
 [Handbook](../README.md) · [Previous: F1](./01-command-center.md) · [Next: F3](./03-watchlist.md)
 
-![F2 Performance: original synthetic DEMO mockup](../../assets/product/02-performance.svg)
+![F2 Performance: Tearsheet — English DEMO screenshot](../../assets/screenshots/performance-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
 
 Use this page to distinguish investment results from the money you contributed.
 The **Tearsheet** and **Book & Risk** views combine returns, benchmark comparisons,
@@ -22,6 +23,14 @@ the providers needed by each calculation.
 5. Read the local-price, FX and interaction contributions together. Check the
    reported reconstruction or reconciliation basis before adding numbers.
 6. Open Book & Risk for concentration, drawdowns and distribution statistics.
+
+![Performance attribution — English DEMO screenshot](../../assets/screenshots/performance-attribution-en.png)
+
+*Attribution for the same synthetic account; the history is an authored snapshot.*
+
+![Performance Book & Risk — English DEMO screenshot](../../assets/screenshots/performance-book-risk-en.png)
+
+*Book & Risk with synthetic concentration and risk statistics.*
 
 ## Read the result
 The coverage panel reports the first trade, first NAV snapshot, start of the

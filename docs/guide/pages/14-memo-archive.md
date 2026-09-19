@@ -2,9 +2,10 @@
 
 [Handbook](../README.md) · [Previous: F13](./13-agent-progress.md) · [Next: F15](./15-decisions.md)
 
-![F14 Memo Archive: original synthetic DEMO mockup](../../assets/product/14-memo-archive.svg)
+![F14 Memo Archive: Memo — English DEMO screenshot](../../assets/screenshots/memo-archive-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
 
 Read saved committee memos, compare runs and recover the reasoning behind a
 decision. The archive is a historical record: yesterday's report does not become

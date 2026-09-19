@@ -29,6 +29,15 @@ const displayedDate = (value?: string | null, short = false) => {
   const date = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}))?/.exec(value);
   return date ? dataIt(date[1], short) + (date[2] ? ` ${date[2]}` : '') : value;
 };
+const qualityLabel = (status?: string | null): string => {
+  if (!status) return tr('fundamentals.f027');
+  const labels: Record<string, string> = {
+    DOCUMENTATA: tr('fundamentals.qualityDocumented'),
+    INCOMPLETA: tr('fundamentals.qualityIncomplete'),
+    BOZZA_AUTOMATICA: tr('fundamentals.qualityAutomaticDraft'),
+  };
+  return Object.prototype.hasOwnProperty.call(labels, status) ? labels[status] : status;
+};
 const scenarioLabel = (key: string) => key === 'bear' ? tr('fundamentals.scenarioBear')
   : key === 'base' ? tr('fundamentals.scenarioBase') : key === 'bull' ? tr('fundamentals.scenarioBull') : key;
 // Id del motore di valutazione -> nome leggibile nella lingua della UI. Un id senza
@@ -194,6 +203,13 @@ export default function FundamentalsPage() {
     : null;
   // il SOTP e' un layer sopra qualunque motore: si mostra se il sidecar ha gli aggregati
   const hasSotp = d != null && (d.fair_value_sotp != null || d.sotp_n_segments != null);
+  const marketQuote = sel?.market_quote;
+  const quoteStatus = marketQuote?.status_at_read ?? 'data_missing';
+  const quoteStatusLabel = ({
+    ok: tr('fundamentals.quoteReady'), stale: tr('fundamentals.quoteStale'), data_missing: tr('fundamentals.quoteMissing'),
+    source_unavailable: tr('fundamentals.quoteSourceUnavailable'), identity_mismatch: tr('fundamentals.quoteIdentityMismatch'),
+    currency_mismatch: tr('fundamentals.quoteCurrencyMismatch'), fx_not_rolled: tr('fundamentals.quoteFxNotRolled'),
+  } as Record<string, string>)[quoteStatus] ?? tr('fundamentals.quoteUnknown');
 
   return (
     <div className="space-y-4">
@@ -217,7 +233,7 @@ export default function FundamentalsPage() {
               <tr className="bg-[#141414]">
                 <th className={`text-left py-1.5 px-2 ${HDR}`}>Ticker</th>
                 <th className={`text-right px-2 ${HDR}`}>FV</th>
-                <th className={`text-right px-2 ${HDR}`}>Px</th>
+                <th className={`text-right px-2 ${HDR}`} title={tr('fundamentals.modelBasis')}>Px</th>
                 <th className={`text-right px-2 ${HDR}`}>{tr('fundamentals.f014')}</th>
                 <th className={`text-center px-2 ${HDR}`}>{tr('fundamentals.f015')}</th>
                 <th className={`text-left px-2 ${HDR}`}>{tr('fundamentals.f016')}</th>
@@ -277,7 +293,7 @@ export default function FundamentalsPage() {
                   {sel.presentation.decision_display.method_rationale && <p>{sel.presentation.decision_display.method_rationale}</p>}
                   {sel.presentation.decision_display.support_note && <p>{sel.presentation.decision_display.support_note}</p>}
                 </div>}
-                <p className="text-muted">{tr('fundamentals.f026')} {sel.analytical_quality?.status || tr('fundamentals.f027')}
+                <p className="text-muted">{tr('fundamentals.f026')} {qualityLabel(sel.analytical_quality?.status)}
                   {' · '}{tr('fundamentals.f028')} {sel.valuation_decision?.requirements_status || tr('fundamentals.f029')}</p>
                 {d?.valuation_date && <p className="text-muted">{tr('fundamentals.f030')} {d.valuation_date}</p>}
                 {d?.valuation_basis && <p className="text-amber">{d.valuation_basis}</p>}
@@ -459,9 +475,10 @@ export default function FundamentalsPage() {
               </>)}
 
               <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
-                <span className="text-muted uppercase text-[10px]">{tr('fundamentals.f097')}</span>
-                <span>{sel.price_at_thesis != null ? fmtNum(sel.price_at_thesis, 2) : tr('fundamentals.f001')}</span>
-                <span className="text-muted uppercase text-[10px]">{tr('fundamentals.f098')}</span>
+                <span className="text-muted uppercase text-[10px]">{tr(sel.price_model_as_of ? 'fundamentals.modelPrice' : 'fundamentals.f097')}</span>
+                <span>{sel.price_at_thesis != null ? fmtNum(sel.price_at_thesis, 2) : tr('fundamentals.f001')}
+                  {sel.price_model_as_of && <span className="text-faint"> · {displayedDate(sel.price_model_as_of)}</span>}</span>
+                <span className="text-muted uppercase text-[10px]">{tr('fundamentals.modelUpside')}</span>
                 <span className={upsideCls(sel)}>
                   {/* V5: per i veicoli l'upside viene dal payload quando la tesi manca
                       (stessa generazione del file) — semantica: convergenza al target */}
@@ -469,6 +486,22 @@ export default function FundamentalsPage() {
                     ? `${(isMnav ? mnavUpside : sel.upside_pct)! > 0 ? '+' : ''}${fmtNum((isMnav ? mnavUpside : sel.upside_pct)!, 1)}%`
                     : '—'}
                   {(sel.flagged || sel.sanity_severity === 'WARN') && sel.upside_pct != null && tr('fundamentals.f099')}
+                </span>
+                <span className="text-muted uppercase text-[10px]">{tr('fundamentals.observedPrice')}</span>
+                <span data-testid="valuation-market-quote">
+                  {marketQuote?.price != null ? `${fmtNum(marketQuote.price, 2)} ${marketQuote.currency ?? ''}` : tr('fundamentals.f001')}
+                  <span className="text-faint"> · {quoteStatusLabel}</span>
+                  {marketQuote?.observed_at && <span className="block text-[10px] text-muted">{marketQuote.observed_at}</span>}
+                  {marketQuote?.source_id && <span className="block text-[10px] text-muted">
+                    {tr('fundamentals.quoteSource')} {marketQuote.source_id}
+                    {marketQuote.exchange ? ` · ${marketQuote.exchange}` : ''}
+                    {marketQuote.delayed_minutes != null ? ` · ${tr('fundamentals.quoteDelay', { minutes: marketQuote.delayed_minutes })}` : ''}
+                  </span>}
+                </span>
+                <span className="text-muted uppercase text-[10px]">{tr('fundamentals.observedUpside')}</span>
+                <span>
+                  {quoteStatus === 'ok' && sel.upside_today_pct != null ? `${sel.upside_today_pct > 0 ? '+' : ''}${fmtNum(sel.upside_today_pct, 1)}%` : tr('fundamentals.f001')}
+                  <span className="block text-[10px] text-faint">{tr('fundamentals.quoteNoRollforward')}</span>
                 </span>
                 {d ? (
                   <>

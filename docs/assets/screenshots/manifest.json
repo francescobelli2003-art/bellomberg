@@ -1,0 +1,330 @@
+{
+  "schema_version": 1,
+  "fixture": {
+    "id": "documentation-demo",
+    "version": 1,
+    "path": "app/tests/fixtures/documentation-demo.json",
+    "sha256": "8ebfb52a7a1304bdf8f0cb40e69469da71cbc4855630b2fc30e800afc8dfcbbb"
+  },
+  "capture": {
+    "path": "app/tools/capture-docs.cjs",
+    "sha256": "f18e62a0c6c3db3f30ca0de40fab4e7780f1266125f689d52915ef9becdab082"
+  },
+  "app_version": "0.8.0",
+  "build": {
+    "source_sha256": "6398b1ec64b7aab63fa16f598399ca965ce189d5b39250faf39af72338962792",
+    "bundle_sha256": "d22e929ef608a5e59a7701743c60caea6784c71f690a375f5a82524e8d6972ec"
+  },
+  "images": [
+    {
+      "path": "docs/assets/screenshots/dashboard-en.png",
+      "sha256": "b5d5d321322fb0e90f449d94b4aab5a60194c39fa6293ea2a3167eb996926a20",
+      "dom_path": "docs/assets/screenshots/dashboard-en.dom.txt",
+      "dom_sha256": "760b3ffd44a9930d2465abca61dc959215b55598a8e3e1f225ffafb8c1533e29",
+      "width": 1800,
+      "height": 1350,
+      "language": "en",
+      "route": "/dashboard"
+    },
+    {
+      "path": "docs/assets/screenshots/performance-en.png",
+      "sha256": "e506f2faa4aa88d665ca4f53988221d848952550ca234ec463e77f8654b9c1b6",
+      "dom_path": "docs/assets/screenshots/performance-en.dom.txt",
+      "dom_sha256": "2816a6f6b376d59b321ad6c3bb32e0cdbbf15bf7e88188793d02b809569f354f",
+      "width": 1800,
+      "height": 1250,
+      "language": "en",
+      "route": "/performance"
+    },
+    {
+      "path": "docs/assets/screenshots/performance-attribution-en.png",
+      "sha256": "a184190ccdecdc329c82e84551036e29e440b93bfd09b44c8f2b8cd1e545aa2b",
+      "dom_path": "docs/assets/screenshots/performance-attribution-en.dom.txt",
+      "dom_sha256": "2816a6f6b376d59b321ad6c3bb32e0cdbbf15bf7e88188793d02b809569f354f",
+      "width": 1800,
+      "height": 1250,
+      "language": "en",
+      "route": "/performance"
+    },
+    {
+      "path": "docs/assets/screenshots/performance-book-risk-en.png",
+      "sha256": "05e9b4923251481b21f21717782f16362d5939e8414f3104fc4e8c79a278ba3c",
+      "dom_path": "docs/assets/screenshots/performance-book-risk-en.dom.txt",
+      "dom_sha256": "ab533d7dadb40d2e273c90c178af5719b6ff97f8921db46155e49455d00e01d9",
+      "width": 1800,
+      "height": 1250,
+      "language": "en",
+      "route": "/performance"
+    },
+    {
+      "path": "docs/assets/screenshots/watchlist-en.png",
+      "sha256": "66dc864086e6ee84ffc7101f4f77e888f5afa2fa694137ffcf5f2d9de89fe8d3",
+      "dom_path": "docs/assets/screenshots/watchlist-en.dom.txt",
+      "dom_sha256": "949c619ce716cb3035a3e4889cd2fa9313cf477338a08bbb623b0cf87ebb7e44",
+      "width": 1800,
+      "height": 1125,
+      "language": "en",
+      "route": "/watchlist"
+    },
+    {
+      "path": "docs/assets/screenshots/market-overview-en.png",
+      "sha256": "847c4e17955e6aef01b44343b2e429725d50e9d9a73e3ad49c77c2af323aad27",
+      "dom_path": "docs/assets/screenshots/market-overview-en.dom.txt",
+      "dom_sha256": "02f610efde69755c0d014cece0cd3b6714c35b015dda2fe7599c3380e3a2b99f",
+      "width": 1800,
+      "height": 1125,
+      "language": "en",
+      "route": "/market"
+    },
+    {
+      "path": "docs/assets/screenshots/market-security-en.png",
+      "sha256": "2f4984f34544e6cdd18cfc63ee0d08fa31ae3e7ecc5946cd81a2e8120442d1bc",
+      "dom_path": "docs/assets/screenshots/market-security-en.dom.txt",
+      "dom_sha256": "2e42668062e59cf15e9e3e3a98f11dfe38aad828eee7a995e18e1cc04bdb9576",
+      "width": 1800,
+      "height": 1375,
+      "language": "en",
+      "route": "/market"
+    },
+    {
+      "path": "docs/assets/screenshots/market-financials-en.png",
+      "sha256": "e831b5229af02e5c2034381d183c72fedd997f35a8f58af74742747c8457edfb",
+      "dom_path": "docs/assets/screenshots/market-financials-en.dom.txt",
+      "dom_sha256": "f25f72211d08ca0fddf8b49641f00171f1f281d1639a1005cbb53fd065217e77",
+      "width": 1800,
+      "height": 1250,
+      "language": "en",
+      "route": "/market"
+    },
+    {
+      "path": "docs/assets/screenshots/news-wire-en.png",
+      "sha256": "2f345a617c95d23473f0d14b5574fa85522d5f4f4bf3a9191aa538168290f641",
+      "dom_path": "docs/assets/screenshots/news-wire-en.dom.txt",
+      "dom_sha256": "eb8b47c12f6995a764ba3496615549b18de4bc107fcdd7c0930ff29ceea9a181",
+      "width": 1800,
+      "height": 1350,
+      "language": "en",
+      "route": "/news"
+    },
+    {
+      "path": "docs/assets/screenshots/news-desk-en.png",
+      "sha256": "355c8e3746df0674b5e6b6e3f443a2d1d5045d7d2a2dce3fd0e2526e87945441",
+      "dom_path": "docs/assets/screenshots/news-desk-en.dom.txt",
+      "dom_sha256": "9d1ecf76b23d49ed38946b235865445e8e53db4c1e9e939055a3bc5f6a02e5e6",
+      "width": 1800,
+      "height": 1350,
+      "language": "en",
+      "route": "/news"
+    },
+    {
+      "path": "docs/assets/screenshots/fundamentals-en.png",
+      "sha256": "f9f3fb330ff375b40d330137d3dc1fa63af39da9c6aaf67a7332ce4eba8d7712",
+      "dom_path": "docs/assets/screenshots/fundamentals-en.dom.txt",
+      "dom_sha256": "648de8224461b4e69f0cbcc6a027fed25e070762727b05ab1efc07ead79e0c0a",
+      "width": 1800,
+      "height": 1125,
+      "language": "en",
+      "route": "/fundamentals"
+    },
+    {
+      "path": "docs/assets/screenshots/factor-lab-en.png",
+      "sha256": "c8cce2bc1b4f058df503bb05c208f49114a4d53891931a92380c622ea85dade4",
+      "dom_path": "docs/assets/screenshots/factor-lab-en.dom.txt",
+      "dom_sha256": "0ed56589fbf2572b14fd2d1207735407c651048ee191ea102ac17cb4e344aac5",
+      "width": 1800,
+      "height": 1375,
+      "language": "en",
+      "route": "/factors"
+    },
+    {
+      "path": "docs/assets/screenshots/montecarlo-en.png",
+      "sha256": "1b25868201ddf764fa01577ea5e113f576852b6ec52a72d788d80070ccf6b20c",
+      "dom_path": "docs/assets/screenshots/montecarlo-en.dom.txt",
+      "dom_sha256": "8d27395710a80f1cea7658277d0a1de79137bd6721854897c5161154c7adae96",
+      "width": 1800,
+      "height": 1250,
+      "language": "en",
+      "route": "/backtest"
+    },
+    {
+      "path": "docs/assets/screenshots/vol-deck-tools-en.png",
+      "sha256": "8756eb8f0dc3420fe21af42935efb5ca80d63e1b08d72a97ca9eb188924fe754",
+      "dom_path": "docs/assets/screenshots/vol-deck-tools-en.dom.txt",
+      "dom_sha256": "a35162e0849b3937b4dbbab63134c5fb90504c83e63c63c86c431f24e07f20e9",
+      "width": 1800,
+      "height": 1900,
+      "language": "en",
+      "route": "/vol"
+    },
+    {
+      "path": "docs/assets/screenshots/vol-deck-chain-en.png",
+      "sha256": "a3f101fcf97a85b8f66f1a7088263298d12f4173f3ad8c8035f40fdcefa56edc",
+      "dom_path": "docs/assets/screenshots/vol-deck-chain-en.dom.txt",
+      "dom_sha256": "796a5804cd1e45135e4f8689d4d36589134f6fbeeac5804a1fd8ec630031e83f",
+      "width": 1800,
+      "height": 1325,
+      "language": "en",
+      "route": "/vol"
+    },
+    {
+      "path": "docs/assets/screenshots/vol-deck-laboratory-en.png",
+      "sha256": "fbab38214cffbf13bf5ac04f4b6f4a95b790be686a9325e2a4bfdc211fe754c8",
+      "dom_path": "docs/assets/screenshots/vol-deck-laboratory-en.dom.txt",
+      "dom_sha256": "7e1d3ba86bd392a6c24340e73109a707c12ffee0fd436330f9c51b82619b95f5",
+      "width": 1800,
+      "height": 1450,
+      "language": "en",
+      "route": "/vol"
+    },
+    {
+      "path": "docs/assets/screenshots/edge-scanner-en.png",
+      "sha256": "a597dace5d95cd7820e20d3efc9ca8c5819a237fb8871ee2fda271e9e2c4648e",
+      "dom_path": "docs/assets/screenshots/edge-scanner-en.dom.txt",
+      "dom_sha256": "a12508b312f65f941325fc81d0bd9d7b554a05a5ec8abfb04d424de65a564478",
+      "width": 1800,
+      "height": 1125,
+      "language": "en",
+      "route": "/edge"
+    },
+    {
+      "path": "docs/assets/screenshots/agent-chat-en.png",
+      "sha256": "3b259d82c22628f553df118539db0ba43a4969cc3136874d18ae2489c0e8ec30",
+      "dom_path": "docs/assets/screenshots/agent-chat-en.dom.txt",
+      "dom_sha256": "0f9e245f547b3f1e1458e51a98c220d11aa0cbcc7bd2dca1d0f070f97ae8c778",
+      "width": 1800,
+      "height": 1350,
+      "language": "en",
+      "route": "/chat"
+    },
+    {
+      "path": "docs/assets/screenshots/agents-live-en.png",
+      "sha256": "ae03cfe3cdfa7e5932e4fb8d23f1f9e51cfca7dad8062a6d46b73bfaa028d247",
+      "dom_path": "docs/assets/screenshots/agents-live-en.dom.txt",
+      "dom_sha256": "c2a670b2f095354639d58faa75be9922321dfe7a5e3a3ece63fa559c5ea8b786",
+      "width": 2400,
+      "height": 1350,
+      "language": "en",
+      "route": "/agents"
+    },
+    {
+      "path": "docs/assets/screenshots/agent-progress-en.png",
+      "sha256": "d34bdef59d9d560307bc27cef8eddc63e0349e7d7ec00de343e316e15f9a8be6",
+      "dom_path": "docs/assets/screenshots/agent-progress-en.dom.txt",
+      "dom_sha256": "54d9fc0a306e348b8432b6a262c97b1911406e57cffdd9026b1342be643c62d7",
+      "width": 1800,
+      "height": 1875,
+      "language": "en",
+      "route": "/agent-progress"
+    },
+    {
+      "path": "docs/assets/screenshots/memo-archive-en.png",
+      "sha256": "d4068151aed81972d53b36c5ed278a6272a169d21714e5d3309408e544364969",
+      "dom_path": "docs/assets/screenshots/memo-archive-en.dom.txt",
+      "dom_sha256": "f9343e8bfac83062991cfbd48fcc9a56caa85421149a3043cde984cf84f7c67e",
+      "width": 2100,
+      "height": 1250,
+      "language": "en",
+      "route": "/memos"
+    },
+    {
+      "path": "docs/assets/screenshots/decisions-en.png",
+      "sha256": "baff4cbce6bbdb911a69fc62a5f33e4e727b3ddf690e749f3101263043072cd8",
+      "dom_path": "docs/assets/screenshots/decisions-en.dom.txt",
+      "dom_sha256": "d4d16215ecb719655fec2e072414c732e494a5625f701ff8e4a40128e11128d3",
+      "width": 1800,
+      "height": 1250,
+      "language": "en",
+      "route": "/decisions"
+    },
+    {
+      "path": "docs/assets/screenshots/trade-entry-en.png",
+      "sha256": "26971a3030a77d75427f68f86742d531b1386cbd01f50baa1682e98f4d5bddab",
+      "dom_path": "docs/assets/screenshots/trade-entry-en.dom.txt",
+      "dom_sha256": "4852593279c95f275e15f7d41954417318076c75ac3633e72fb6e33810f54009",
+      "width": 1800,
+      "height": 1250,
+      "language": "en",
+      "route": "/trades"
+    },
+    {
+      "path": "docs/assets/screenshots/trade-entry-after-en.png",
+      "sha256": "9c66a3ce1209a56b05032c436ae032f81a6ba1e7cb2772ee1dec3311c33106e4",
+      "dom_path": "docs/assets/screenshots/trade-entry-after-en.dom.txt",
+      "dom_sha256": "4852593279c95f275e15f7d41954417318076c75ac3633e72fb6e33810f54009",
+      "width": 1800,
+      "height": 1250,
+      "language": "en",
+      "route": "/trades"
+    },
+    {
+      "path": "docs/assets/screenshots/trade-entry-confirm-en.png",
+      "sha256": "a6ac5aacc4ebea3adc8206752150b8a47ae501feb0390c2e3d1b7eb2bf9d874b",
+      "dom_path": "docs/assets/screenshots/trade-entry-confirm-en.dom.txt",
+      "dom_sha256": "8ab4337377b3139948249fc5d54e030a1fdf4cd8f7bead26d14b95998d46d99c",
+      "width": 1800,
+      "height": 1250,
+      "language": "en",
+      "route": "/trades"
+    },
+    {
+      "path": "docs/assets/screenshots/movements-register-en.png",
+      "sha256": "0c98e56a675e28bc36aea747aa49304c8a5d43ac84a3b81fe21170a2cb695150",
+      "dom_path": "docs/assets/screenshots/movements-register-en.dom.txt",
+      "dom_sha256": "4188b7f5a3c07dfb8d4987955dc23dd772fd26ea790dd0610191ef310f2d814f",
+      "width": 1800,
+      "height": 1250,
+      "language": "en",
+      "route": "/movements"
+    },
+    {
+      "path": "docs/assets/screenshots/movements-trails-en.png",
+      "sha256": "3cf49301bff115cefded80b88ea657e0ac5f5f6b22b9d5f7c66ab2604cf8bd3b",
+      "dom_path": "docs/assets/screenshots/movements-trails-en.dom.txt",
+      "dom_sha256": "412f6948e39149426e1838bf9b33576e996b86e18ecf6ced16f7c06e22d68b55",
+      "width": 1800,
+      "height": 1250,
+      "language": "en",
+      "route": "/movements"
+    },
+    {
+      "path": "docs/assets/screenshots/movements-diary-en.png",
+      "sha256": "1c6a4bb14f811c01290e8a4ca1f6addd42681237a8aef04d54665b38232a249b",
+      "dom_path": "docs/assets/screenshots/movements-diary-en.dom.txt",
+      "dom_sha256": "a2129247902bb233b9b6258d0464d69111428649b15d62b15738d1367dc0b683",
+      "width": 1800,
+      "height": 1250,
+      "language": "en",
+      "route": "/movements"
+    },
+    {
+      "path": "docs/assets/screenshots/mandate-en.png",
+      "sha256": "891a055c7512b7e67a3105ec2470eeb568a74913b2a3a091b55599a19554e0ad",
+      "dom_path": "docs/assets/screenshots/mandate-en.dom.txt",
+      "dom_sha256": "0a5a7d330bde4b38bb45b9e8aab5683f1e86f9d3b0bc49e5d5ebf2012bf0d9da",
+      "width": 1800,
+      "height": 1125,
+      "language": "en",
+      "route": "/mandato"
+    },
+    {
+      "path": "docs/assets/screenshots/journal-en.png",
+      "sha256": "ea2804063eb8cbdd529fafb5a760d6afcd1965fb7b13f869764d887636a66611",
+      "dom_path": "docs/assets/screenshots/journal-en.dom.txt",
+      "dom_sha256": "a680f2403677c6670695f3321f8bad76999d2b51665ef9681d71d7b2eed6c382",
+      "width": 1800,
+      "height": 1125,
+      "language": "en",
+      "route": "/mandato"
+    },
+    {
+      "path": "docs/assets/screenshots/settings-en.png",
+      "sha256": "4113f0ae3a59058ef2b8ee0b00d7d98b83f945eedc1c1f08437009b834c9d467",
+      "dom_path": "docs/assets/screenshots/settings-en.dom.txt",
+      "dom_sha256": "7fbadbdf9dee5916de11a6041e324ba053f807322b213d842b0a7294d1a58df8",
+      "width": 1800,
+      "height": 2000,
+      "language": "en",
+      "route": "/mandato"
+    }
+  ]
+}

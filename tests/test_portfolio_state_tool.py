@@ -68,7 +68,7 @@ def test_a_book_vuoto_dichiara_e_non_inventa(ambiente):
     out = agent_tools.tool_get_portfolio_state()
     assert out["n_positions"] == 0 and out["positions"] == []
     assert out["cash_disponibile_eur"] == 0 and out["cash_source"] == "sqlite:cash_state"
-    assert "hint" in out and "Cassa" in out["hint"]
+    assert "hint" in out and "F16" in out["hint"] and "Inserimento operazioni" in out["hint"]
 
 
 def test_senza_stato_sqlite_la_cassa_e_un_buco_dichiarato(ambiente):

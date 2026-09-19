@@ -214,7 +214,7 @@ def test_main_apply_fa_backup_sano_e_dichiara_la_cassa(tmp_path, db, monkeypatch
     assert c.execute("SELECT COUNT(*) FROM trade_history").fetchone()[0] == 0   # PRE import
     c.close()
     out = capsys.readouterr().out
-    assert "cassa" in out.lower() and "portfolio.json" in out
+    assert "cassa" in out.lower() and "cash_state" in out and "portfolio.json" not in out
     assert _n(db) == 1
 
 

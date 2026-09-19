@@ -2,9 +2,10 @@
 
 [Handbook](../README.md) · [Previous: F7](./07-factor-lab.md) · [Next: F9](./09-vol-deck.md)
 
-![F8 Monte Carlo: original synthetic DEMO mockup](../../assets/product/08-monte-carlo.svg)
+![F8 Monte Carlo: Scenarios — English DEMO screenshot](../../assets/screenshots/montecarlo-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
 
 Explore how a proposed portfolio modification changes a modelled distribution.
 The page's route retains its older name, but its current purpose is Monte Carlo

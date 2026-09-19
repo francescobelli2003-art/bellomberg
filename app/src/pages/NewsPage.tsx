@@ -1,5 +1,5 @@
 import { useT } from '@/i18n/provider';
-import { t as tr } from '@/i18n/t';
+import { t as tr, type Chiave } from '@/i18n/t';
 import { linguaCorrente, localeDi } from '@/i18n/lingua';
 import { fmtNum } from '@/lib/format';
 import { dataIt, leggiDetail } from '@/lib/quota';
@@ -124,14 +124,38 @@ function tsOf(n: { published_at?: string | null; pulled_at?: string | null }): n
   return 0;
 }
 
-// Motivo di un provider muto (fonti_mute / providers_blocked). I due codici del limiter che
-// news_aggregator.providers_blocked emette si traducono; ogni altro motivo e' testo libero del
-// backend (SENZA_CHIAVE: …, NEGOZIO_…, MODULO_ASSENTE: …) e resta com'e' arrivato.
+// Si traducono i codici del limiter e i prefissi riconosciuti dei motivi di una fonte muta.
+// Il suffisso dopo un prefisso riconosciuto resta come arriva dal backend.
+const CODICI_MOTIVO: Record<string, Chiave> = {
+  NEGOZIO_ASSENTE: 'newsdesk.muteStoreMissing',
+  NEGOZIO_ILLEGGIBILE: 'newsdesk.muteStoreUnreadable',
+  SENZA_CHIAVE: 'newsdesk.muteMissingKey',
+  MODULO_ASSENTE: 'newsdesk.muteMissingModule',
+};
 function motivoMuto(m: unknown): string {
   const s = String(m);
   if (s === 'SKIP_BUDGET') return tr('newsdesk.muteBudget');
   if (s === 'SKIP_DISABLED') return tr('newsdesk.muteSuspended');
+  const codice = /^(?:NEGOZIO_[A-Z]+|SENZA_CHIAVE|MODULO_ASSENTE)(?=:|$)/.exec(s)?.[0];
+  if (codice && Object.prototype.hasOwnProperty.call(CODICI_MOTIVO, codice)) return tr(CODICI_MOTIVO[codice]) + s.slice(codice.length);
   return s.replace('SKIP_', '');
+}
+
+// Un elenco che non entra nella cella si taglia con il segno del taglio: senza, «… · NEWS» sembrava
+// una fonte intera (revisione 13/09). L'elenco completo resta nel banner.
+function tagliaVisibile(testo: string, massimo: number): string {
+  return testo.length > massimo ? testo.slice(0, massimo - 1) + '…' : testo;
+}
+
+// Nome di una fonte muta. Le chiavi di fonti_mute sono nomi di provider (newsapi, tiingo, …) o
+// path finnhub, e restano come arrivano; le due dei negozi privati (news_aggregator.TERMINI_MUTI
+// e TEMI_TITOLI_MUTI) sono identificatori del backend e si rendono col nome del catalogo.
+const NOMI_FONTI_MUTE: Record<string, Chiave> = {
+  'termini_news (negozio)': 'newsdesk.muteStoreTerms',
+  'temi_titoli (negozio)': 'newsdesk.muteStoreTopics',
+};
+function nomeFonteMuta(chiave: string): string {
+  return Object.prototype.hasOwnProperty.call(NOMI_FONTI_MUTE, chiave) ? tr(NOMI_FONTI_MUTE[chiave]) : chiave;
 }
 
 function hhmm(n: FeedItem): string {
@@ -580,8 +604,8 @@ function BriefingCard({ data, loading, error, onRefresh }: {
   return (
     <div className="p3 flex-1 min-h-0" style={{ ...bd(60), borderLeft: '2px solid rgba(255,165,30,.55)' }}>
       <div className="p3h am"><Sparkles size={11} /> {tr('newsdesk.s042')}
-        {data?.slot_label && <span className="n">· {data.slot_label}</span>}
-        <span className="side" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        {data?.slot_label && <span className="n" title={data.slot_label} style={{ flex: '1 1 auto' }}>· {data.slot_label}</span>}
+        <span className="side" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0, overflow: 'visible' }}>
           <span className={stale ? 'text-amber' : ''}>{unreadable ? tr('newsdesk.unreadableCache') : isInitial ? tr('newsdesk.s041') : ageLabel}</span>
           <button onClick={onRefresh} disabled={loading}
                   className={'tb' + (loading ? ' dis' : '')} style={{ color: '#FFA51E' }}>
@@ -745,10 +769,10 @@ function ChannelsPanel({ stats, channels, fontiDeclared }: {
               return (
                 <div key={ch.name} className="chx font-mono"
                      title={ch.muteReason
-                       ? tr('newsdesk.s051', {a: ch.name, b: ch.muteReason})
+                       ? tr('newsdesk.s051', {a: nomeFonteMuta(ch.name), b: motivoMuto(ch.muteReason)})
                        : tr('newsdesk.s052', {a: ch.name, b: ch.count, c: ch.last ? new Date(ch.last).toLocaleString(localeDi(linguaCorrente())) : tr('newsdesk.s053')})}>
                   <span className={`ld ${ch.muteReason ? 'r' : live ? 'g' : 'off'}`} />
-                  <span className="nm">{ch.name}</span>
+                  <span className="nm">{nomeFonteMuta(ch.name)}</span>
                   <span className="bar"><i style={{ width: `${(ch.count / maxCh) * 100}%` }} /></span>
                   {ch.muteReason
                     ? <span className="mt">{motivoMuto(ch.muteReason)}</span>
@@ -1103,7 +1127,7 @@ export default function NewsPage() {
     const blocked = g.providers_blocked || {};
     const nBlk = Object.keys(blocked).length;
     const blkTxt = Object.entries(blocked)
-      .map(([p, m]) => `${p} (${motivoMuto(m)})`).join(' · ');
+      .map(([p, m]) => `${nomeFonteMuta(p)} (${motivoMuto(m)})`).join(' · ');
     const tip = tr('newsdesk.s071', {a: oraTxt, b: g.fetched ?? 0, c: g.classified ?? 0})
       + tr('newsdesk.s072', {a: g.saved ?? 0, b: g.skipped_duplicates ?? 0})
       + (nBlk ? tr('newsdesk.s073', {a: blkTxt}) : '')
@@ -1430,6 +1454,7 @@ export default function NewsPage() {
   const deskBusy = briefingLoad || macroLoad || corpLoad || globalLoad || econLoad;
   const nMute = Object.keys(fonti.mute).length;
   const tot3 = Math.max(1, stats.pos + stats.neu + stats.neg);
+  const radarCount = feed.filter(n => { const t = tsOf(n); return t > 0 && Date.now() - t < 86_400_000; }).length;
 
   // ============================================================
   // RENDER
@@ -1483,7 +1508,7 @@ export default function NewsPage() {
                     tone={!fonti.declared ? undefined : nMute === 0 ? 'up' : 'dn'}
                     sub={!fonti.declared ? tr('newsdesk.s104')
                          : nMute === 0 ? tr('newsdesk.s105')
-                         : Object.keys(fonti.mute).sort().join(' · ').slice(0, 34).toUpperCase()}
+                         : tagliaVisibile(Object.keys(fonti.mute).sort().map(nomeFonteMuta).join(' · '), 34).toUpperCase()}
                     title={!fonti.declared
                       ? tr('newsdesk.s106')
                       : nMute === 0
@@ -1519,7 +1544,7 @@ export default function NewsPage() {
             </div>
             <div className="num" style={{ fontSize: 9, fontWeight: 600, color: '#73829F', letterSpacing: '.1em', textTransform: 'uppercase' }}>
               {view === 'wire'
-                ? tr('newsdesk.s116', {a: filtered.length, b: feed.length, c: nActiveFilters})
+                ? tr(nActiveFilters === 1 ? 'newsdesk.activeFilterOne' : 'newsdesk.s116', {a: filtered.length, b: feed.length, c: nActiveFilters})
                 : tr('newsdesk.s117')}
             </div>
           </div>
@@ -1540,7 +1565,7 @@ export default function NewsPage() {
           <AlertCircle size={12} className="mt-0.5 shrink-0" />
           <span>
             <b>{tr('newsdesk.s118')} </b>
-            {Object.entries(fonti.mute).map(([p, m]) => `${p} (${motivoMuto(m)})`).join(' · ') || '—'}
+            {Object.entries(fonti.mute).map(([p, m]) => `${nomeFonteMuta(p)} (${motivoMuto(m)})`).join(' · ') || '—'}
             {fonti.avviso ? ` — ${fonti.avviso}` : ''}
           </span>
         </div>
@@ -1710,7 +1735,7 @@ export default function NewsPage() {
             <div className="p3 scpx cy shrink-0" style={bd(150)}>
               <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
               <div className="p3h">{tr('newsdesk.s138')}
-                <span className="side num">{tr('newsdesk.blipCount', { a: feed.filter(n => { const t = tsOf(n); return t > 0 && Date.now() - t < 86_400_000; }).length })}</span>
+                <span className="side num">{tr(radarCount === 1 ? 'newsdesk.blipCountOne' : 'newsdesk.blipCount', { a: radarCount })}</span>
               </div>
               <RadarScope feed={feed} favSet={favSet} />
               <div className="scleg num">{tr('newsdesk.s139')}</div>

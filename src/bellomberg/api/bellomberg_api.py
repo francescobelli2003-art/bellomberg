@@ -555,6 +555,24 @@ def _tickers_earnings_da_negozio(positions, negozio):
     return tickers, nota
 
 
+def _avviso_provider_bloccati(muti, coda_it, coda_en):
+    """L'`avviso` delle rotte news quando il limiter dichiara provider bloccati.
+
+    13/09 (Claude Opus 5): il prefisso era scritto solo in italiano in cinque rotte
+    (/news/providers, /news/ticker, /news/search, /news/portfolio, /news/macro) e con
+    X-BB-Language: en la frase usciva mezza italiana. Una definizione sola, la stessa
+    dichiarazione di prima: nomi dei provider in ordine alfabetico, poi la coda della
+    rotta, nella lingua della richiesta. Nessun provider bloccato = None, come prima."""
+    if not muti:
+        return None
+    names = {
+        "termini_news (negozio)": _api_text("termini di ricerca news (negozio)", "news search terms (store)"),
+        "temi_titoli (negozio)": _api_text("titoli per tema (negozio)", "securities by topic (store)"),
+    }
+    return ((_api_text('copertura PARZIALE: fonti bloccate %s', 'PARTIAL coverage: blocked sources %s')
+             % ", ".join(names.get(key, key) for key in sorted(muti))) + _api_text(coda_it, coda_en))
+
+
 # quick-win n.10 (decisione PM 26/07 "procediamo con tutto"): Swagger/ReDoc/OpenAPI
 # SPENTI. /openapi.json serviva la mappa completa dell'API a chiunque, e la CORS
 # ammette Origin "null" (tradeoff dichiarato per Electron prod, audit/21 §4 n.6):
@@ -1521,6 +1539,7 @@ if FASTAPI_OK:
                     "warnings": list(dict.fromkeys(str(warning) for warning in warnings + reasons))}
 
         def model_fields(payload, expected_decision=None):
+            from bellomberg.valuation.market_quote import market_quote_view
             detail = normalize_valuation_payload(payload, expected_decision=expected_decision)
             usable = detail["valuation_usability"]["usable"]
             fv = next((detail[key] for key in ("fair_value_final", "fair_value_weighted", "fair_value_blend",
@@ -1531,9 +1550,12 @@ if FASTAPI_OK:
                     and not isinstance(price, bool) and math.isfinite(price) and price > 0):
                 upside = round((fv / price - 1) * 100, 1)
             # Full acquisition evidence remains in immutable storage, not every table row.
+            quote = market_quote_view(detail.get("market_quote"), usable=usable)
             detail.pop("acquisition_snapshot", None)
             sanity = detail.get("sanity") if isinstance(detail.get("sanity"), dict) else {}
             return {"detail": detail, "fair_value": fv, "price_at_thesis": price, "upside_pct": upside,
+                    "price_model_as_of": detail.get("valuation_date"), "market_quote": quote,
+                    "upside_today_pct": quote.get("upside_base_pct"),
                     "presentation": method_presentation(detail.get("valuation_decision")),
                     "valuation_decision": detail.get("valuation_decision"),
                     "valuation_usability": detail["valuation_usability"],
@@ -2497,8 +2519,7 @@ if FASTAPI_OK:
             from bellomberg.market_data.news_aggregator import providers_blocked, NEWS_PROVIDER_LIMITS, stato_ultimo_giro
             _muti = providers_blocked()
             return {"fonti_mute": _muti or None,
-                    "avviso": ("copertura PARZIALE: provider bloccati " + ", ".join(sorted(_muti))
-                               + _api_text(' — poche/zero news NON significano quiete', ' — few/no news items do NOT imply calm')) if _muti else None,
+                    "avviso": _avviso_provider_bloccati(_muti, ' — poche/zero news NON significano quiete', ' — few/no news items do NOT imply calm'),
                     "providers_contingentati": sorted(NEWS_PROVIDER_LIMITS),
                     # P2 (12/08): freschezza del feed — chiave SEMPRE presente,
                     # n.d./illeggibile dichiarati (pattern 25). La "prossima
@@ -2521,8 +2542,7 @@ if FASTAPI_OK:
             _muti = providers_blocked()
             return {"ticker": ticker.upper(), "count": len(items), "items": items,
                     "fonti_mute": _muti or None,
-                    "avviso": ("copertura PARZIALE: provider bloccati " + ", ".join(sorted(_muti))
-                               + _api_text(' — poche/zero news qui NON significa quiete', ' — few/no news items here do NOT imply calm')) if _muti else None,
+                    "avviso": _avviso_provider_bloccati(_muti, ' — poche/zero news qui NON significa quiete', ' — few/no news items here do NOT imply calm'),
                     "timestamp": datetime.now().isoformat()}
         except Exception as e:
             raise _err500(e, "get_news_ticker")
@@ -2536,8 +2556,7 @@ if FASTAPI_OK:
             _muti = providers_blocked()   # residuo muto #3 (Lotto C 23/07)
             return {"query": q, "count": len(items), "items": items,
                     "fonti_mute": _muti or None,
-                    "avviso": ("copertura PARZIALE: provider bloccati " + ", ".join(sorted(_muti))
-                               + _api_text(' — poche/zero news qui NON significa quiete', ' — few/no news items here do NOT imply calm')) if _muti else None,
+                    "avviso": _avviso_provider_bloccati(_muti, ' — poche/zero news qui NON significa quiete', ' — few/no news items here do NOT imply calm'),
                     "timestamp": datetime.now().isoformat()}
         except Exception as e:
             raise _err500(e, "get_news_search")
@@ -2551,8 +2570,7 @@ if FASTAPI_OK:
             _muti = providers_blocked()   # residuo muto #3-4 (Lotto C 23/07)
             return {"by_ticker": data, "n_tickers": len(data),
                     "fonti_mute": _muti or None,
-                    "avviso": ("copertura PARZIALE: provider bloccati " + ", ".join(sorted(_muti))
-                               + _api_text(" — un ticker a 0 news puo' essere cecita', non quiete", ' — zero news for a ticker may indicate lack of visibility, not calm')) if _muti else None,
+                    "avviso": _avviso_provider_bloccati(_muti, " — un ticker a 0 news puo' essere cecita', non quiete", ' — zero news for a ticker may indicate lack of visibility, not calm'),
                     "timestamp": datetime.now().isoformat()}
         except Exception as e:
             raise _err500(e, "get_news_portfolio")
@@ -2621,8 +2639,7 @@ if FASTAPI_OK:
             return {"count": len(items), "items": items,
                     "categories_requested": cats,
                     "fonti_mute": _muti or None,
-                    "avviso": ("copertura PARZIALE: provider bloccati " + ", ".join(sorted(_muti))
-                               + _api_text(' — pochi/zero item macro NON significano quiete', ' — few/no macro items do NOT imply calm')) if _muti else None,
+                    "avviso": _avviso_provider_bloccati(_muti, ' — pochi/zero item macro NON significano quiete', ' — few/no macro items do NOT imply calm'),
                     "timestamp": datetime.now().isoformat()}
         except Exception as e:
             raise _err500(e, "get_news_macro")
@@ -3474,11 +3491,11 @@ if FASTAPI_OK:
                     "message": _api_text(f'Errore lettura: {e}', f'read error: {e}')}
 
     # ============================================================
-    # MANDATO DEL PM (criterio (5), lotto B) — la pagina Mandato (F11).
+    # MANDATO DEL PM (criterio (5), lotto B) — la pagina Mandato e Diario (F18).
     # ============================================================
     @app.get("/mandato", dependencies=[Depends(require_session)])
     def get_mandato():
-        """Il mandato del PM come lo consuma la pagina Mandato (F11).
+        """Il mandato del PM come lo consuma la pagina Mandato e Diario (F18).
 
         IL TOKEN QUI E' UNA DEROGA DICHIARATA alla regola di casa «i GET restano
         liberi (bind 127.0.0.1)» (decisione PM 06/09): questo e' l'unico GET che

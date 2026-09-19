@@ -12,7 +12,7 @@ export const shell = {
   fx_stale: 'Last successful update: the displayed exchange rates are STALE',
   engine: 'Engine', agents: 'Agents', session: 'SESSION', live_run: 'RUN IN PROGRESS',
   ready: 'READY', unavailable: 'N/A', engine_restart: 'N/A · SERVICE RESTART REQUIRED',
-  workspace: 'Local workspace · Live data · F1–F19 · CTRL+K',
+  workspace: 'Workspace · F1–F19 · CTRL+K',
 };
 
 export const nav = {

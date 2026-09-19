@@ -103,7 +103,7 @@ def _styles():
 def _md_inline_to_rl(text):
     """Converte markdown inline -> tag reportlab paragraph.
 
-    BUGFIX (run 08/06): le celle con '<', '>' o '&' (es. 'MSTR 4.2% -> 2.0%',
+    BUGFIX (run 08/06): le celle con '<', '>' o '&' (es. 'TITOLO peso -> peso',
     'USD/CNY > 6.85') rompevano il parser XML di reportlab -> Memo PDF NON generato.
     Ora si escapa SEMPRE prima di iniettare i tag <b>/<i>/<font> nostri.
     """

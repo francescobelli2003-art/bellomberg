@@ -532,9 +532,8 @@ export default function FactorsPage() {
               {alfa.length ? tr('factors.f050', {a: nSigAlfa, b: alfa.length}) : '—'}
             </span></div>
           <div className="pb scorre nopad" style={{ flex: '1 1 0' }}>
-            {/* l'id serve al collaudo degli stati (prova_riconciliazione.py):
-                senza, il selettore prendeva anche le tabelle della colonna
-                accanto e contava 38 righe dove ce ne sono 27 */}
+                {/* L'id limita il collaudo degli stati alla tabella alpha,
+                    senza includere anche le tabelle della colonna accanto. */}
             <table id="tab-alpha">
               <thead><tr>
                 {/* ⚠ `text-transform:uppercase` distrugge α e β: senza il
@@ -591,7 +590,9 @@ export default function FactorsPage() {
           <div className="ph divide"><h2>{tr('factors.f060')}</h2>
             <span className="side">
               {reg.length
-                ? tr('factors.f061', {a: reg.length, b: fuori.n})
+                ? tr(reg.length === 1
+                    ? (fuori.n === 1 ? 'factors.datasetOneSkippedOne' : 'factors.datasetOne')
+                    : (fuori.n === 1 ? 'factors.datasetSkippedOne' : 'factors.f061'), {a: reg.length, b: fuori.n})
                 : '—'}
             </span></div>
           <div className="pb scorre nopad" style={{ flex: '1 1 0' }}>

@@ -2,9 +2,13 @@
 
 [Handbook](../README.md) · [Previous: F17](./17-movements.md) · [Next: F19](./19-settings.md)
 
-![F18 Mandate and Journal: original synthetic DEMO mockup](../../assets/product/18-mandate-journal.svg)
+![F18 Mandate and Journal: Mandate — English DEMO screenshot](../../assets/screenshots/mandate-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
+
+The [workflow illustration](../../assets/product/18-mandate-journal.svg) is a separate,
+simplified diagram with Italian labels.
 
 This destination has two tabs: **Mandate** (*Mandato*) defines your declared
 rules; **Journal** (*Diario*) is your private writing space. Neither is supplied
@@ -31,6 +35,11 @@ A missing or invalid required mandate can prevent a committee run rather than
 silently selecting somebody else's preferences.
 
 ## Write a journal entry
+
+![Journal note and revision history — English DEMO screenshot](../../assets/screenshots/journal-en.png)
+
+*An invented thesis beside its earlier versions. The Mandate screenshot above shows an unsaved preview.*
+
 1. Open **Journal** and press **New note** (*Nuova nota*).
 2. In **Note type** (*Tipo di nota*), select **Investment thesis** (*Tesi su un
    titolo*) or **Macro scenario** (*Scenario macro*). Add a title and an optional

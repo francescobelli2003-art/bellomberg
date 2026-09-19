@@ -7,11 +7,11 @@ and an AI research committee into one local desktop application. Keep track of
 what you own, test an idea, inspect the evidence behind a recommendation and
 record what you decided. You remain the decision maker.
 
-![Bellomberg Command Center — original DEMO illustration with entirely synthetic data](docs/assets/product/01-command-center.svg)
+![Bellomberg Command Center — English app screenshot with synthetic DEMO data](docs/assets/screenshots/dashboard-en.png)
 
-*Illustration, not a screenshot: a simplified layout with mostly Italian labels.
-All instruments, values and research text in the documentation mockups are
-invented. Your installation starts with an empty book.*
+*The actual app interface, in English, with an invented DEMO account. Analytics
+and histories are authored synthetic snapshots, not real investment results.
+Your installation starts with an empty book.*
 
 [Install](#install-on-windows) · [First session](docs/guide/first-session.md) ·
 [Full handbook](docs/guide/README.md) · [Updates and privacy](docs/guide/updates.md)
@@ -163,9 +163,10 @@ a keyboard that has no physical keys with those names.
 | F18 | [Mandate and Journal](docs/guide/pages/18-mandate-journal.md) | Your declared rules and private, versioned notes |
 | F19 | [Settings](docs/guide/pages/19-settings.md) | Backups, scheduled tasks and system status panel |
 
-Each linked chapter includes an original synthetic mockup, the controls to use,
-the data it needs, and how to interpret missing or uncertain results. Mockups
-use mostly Italian labels and simplified layouts that can differ from the app.
+Each linked chapter shows the English interface with synthetic DEMO data, the
+controls to use, the data it needs, and how to interpret missing or uncertain
+results. The [asset gallery](docs/guide/assets.md) separates app screenshots
+from the simplified workflow illustrations.
 
 ## Your data and your choices
 

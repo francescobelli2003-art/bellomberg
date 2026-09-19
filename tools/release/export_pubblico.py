@@ -7,8 +7,10 @@
   2. STOP se uno dei file scelti e' modificato o staged (l'export corrisponde a un commit)
   3. copia byte per byte (copy2: i .bat restano CRLF) in una cartella temporanea
   4. cancello: tools/release/verifica_pubblico.py sul tree (exit != 0 = STOP)
-  5. suite: python -m pytest tests/ -q DENTRO il tree esportato (exit != 0 = STOP; --senza-suite
-     la salta e il riepilogo lo DICE)
+  5. suite: su una COPIA verificata del tree, i passi del job `test` della CI (PASSI_SUITE: npm ci,
+     pytest, tsc, test:release, build:bundles, contratti del mandato), TUTTI anche dopo un rosso,
+     ognuno col suo timeout ed esito OK/KO/NON ESEGUITO (13/09; un passo KO = STOP, ogni rosso
+     locale blocca il deposito; --senza-suite la salta e il riepilogo lo DICE)
   6. riepilogo: file, byte, esito per controllo, suite
   7. solo con --dest <clone pubblico> --commit: svuota il working tree del clone (tranne .git),
      copia il tree, git add -A, UN commit 'sync YYYY-MM-DD (privato <hash>)' con l'autore del
@@ -30,16 +32,20 @@ Stato (T7 del piano): completo. Il cancello e' tools/release/verifica_pubblico.p
 il push non lo fa questo script, mai: e' P4 e lo ordina il PM.
 """
 import argparse
+import collections
 import datetime as _dt
 import hashlib
 import json
 import os
+import platform
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 
 if __package__:
     from . import verifica_pubblico as vp
@@ -153,19 +159,460 @@ def _nomi_env_privato():
     return set(dotenv_values(path, encoding="utf-8-sig"))
 
 
-def _installa_node(app_dir, env):
-    """`npm ci` dal lockfile esportato, come la CI pubblica prima di pytest (ci.yml). Senza npm
-    nel PATH e' un KO dichiarato: una suite senza dipendenze darebbe rossi che non sono difetti."""
-    npm = shutil.which("npm", path=env.get("PATH"))
-    if not npm:
-        return 1, "npm non trovato nel PATH"
-    r = subprocess.run([npm, "ci", "--no-audit", "--no-fund"], cwd=app_dir, env=env,
-                       capture_output=True, encoding="utf-8", errors="replace")
-    return r.returncode, ((r.stderr or "") + (r.stdout or "")).strip()[-300:]
+# --- 13/09 (decisione 3 delegata dal PM): la suite dell'export fa i passi del job `test` della CI ----
+# Il 13/09 `vol-atlas.cjs` e' passato dal cancello (che girava solo npm ci + pytest) ed e' caduto in
+# CI su `npm run test:release`. Ora la copia verificata esegue gli stessi passi, nello stesso ordine.
+# Regola scelta: ogni rosso locale BLOCCA il deposito, senza eccezioni di piattaforma. Cio' che la
+# macchina locale NON replica (Linux e macOS della CI, Node e Python diversi) si dichiara nella riga.
+
+PassoSuite = collections.namedtuple("PassoSuite", "nome argv cartella timeout node dipende ci")
+
+PASSI_SUITE = (
+    # nome, argv ("python" = l'interprete di chi lancia; il resto si cerca nel PATH della suite),
+    # cartella nella copia, timeout in secondi (tempi misurati il 13/09 per 5-10), passo Node,
+    # dipende da, gemello in .github/workflows/ci.yml = (comando, working-directory).
+    PassoSuite("npm ci", ("npm", "ci", "--no-audit", "--no-fund"), "app", 900, True, (),
+               ("npm ci", "app")),
+    PassoSuite("pytest", ("python", "-m", "pytest", "tests/", "-q", "-p", "no:cacheprovider", "-rfE"),
+               "", 3600, False, ("npm ci",), ("pytest tests/ -q", "")),
+    PassoSuite("tsc --noEmit", ("npm", "exec", "--no", "--", "tsc", "--noEmit"), "app", 300, True,
+               ("npm ci",), ("npx tsc --noEmit", "app")),
+    PassoSuite("test:release", ("npm", "run", "test:release"), "app", 900, True, ("npm ci",),
+               ("npm run test:release", "app")),
+    PassoSuite("build:bundles", ("npm", "run", "build:bundles"), "app", 900, True, ("npm ci",),
+               ("npm run build:bundles", "app")),
+    PassoSuite("tsc mandato", ("npm", "exec", "--no", "--", "tsc", "-p", "tests/mandato/tsconfig.json"),
+               "app", 300, True, ("npm ci",), ("npx tsc -p tests/mandato/tsconfig.json", "app")),
+    PassoSuite("contratti mandato", ("node", "tests/mandato/.tmp/tests/mandato/contratti.mjs"), "app",
+               120, True, ("npm ci", "tsc mandato"),
+               ("node tests/mandato/.tmp/tests/mandato/contratti.mjs", "app")),
+)
+
+DIFFERENZE_DALLA_CI = (
+    # (comando del job `test` di ci.yml, working-directory, perche' l'export non lo ripete)
+    ("python -m pip install --upgrade pip", "",
+     "l'export usa l'interprete e i pacchetti di chi lancia: non installa nulla"),
+    ("pip install -e . pytest", "",
+     "PYTHONPATH punta a src/ della copia: la suite importa il pacchetto verificato, non un'installazione"),
+    ("python -m compileall -q src/bellomberg tools/ops tools/migrations bellomberg_api.py "
+     "consigliere_multi.py price_updater.py briefing_engine.py regenerate_memo.py", "",
+     "non ripetuto: un errore di sintassi in un file che nessun test importa lo vede solo la CI"),
+    ("python tools/release/cancello_hook.py --fase ci", "",
+     "nel repo pubblico il passo si salta (le liste private non escono); l'export esegue il cancello completo"),
+)
+
+RISCRITTURE_DALLA_CI = (
+    # (inizio del comando in ci.yml, come lo lancia l'export, perche')
+    ("npx", ("npm", "exec", "--no", "--"),
+     "npx senza terminale assume --yes e scaricherebbe un pacchetto assente: npm exec --no fallisce"),
+    ("pytest", ("python", "-m", "pytest"),
+     "l'interprete di chi lancia, con -p no:cacheprovider -rfE: niente cache nella copia, rossi nominati"),
+)
+
+NON_REPLICATE = ("macOS e Linux della CI NON replicati localmente (job test su ubuntu-latest con Python "
+                 "3.12 e 3.14, job macos-source; nemmeno desktop-windows): un loro rosso resta possibile; "
+                 "ogni rosso locale blocca il deposito")
 
 
-def esegui_suite(temp_dir, attesi=None, installa_node=None):
-    """pytest su una COPIA del tree esportato: misura di coerenza, non di leak. Cure della review T7:
+class EsitoSuite(tuple):
+    """(exit, riga) come prima, e si spacchetta ancora in due; in piu' `.passi`, i passi della CI
+    sulla copia in ordine: {nome, esito OK|KO|NON ESEGUITO, exit, secondi, motivo}."""
+    def __new__(cls, codice, riga, passi=None):
+        obj = tuple.__new__(cls, (codice, riga))
+        obj.passi = passi
+        return obj
+
+
+# --- lettura di ci.yml con la sola stdlib (PyYAML non e' una dipendenza dichiarata dell'export) ---
+
+def _riga_significativa(riga):
+    s = riga.strip()
+    return bool(s) and not s.startswith("#")
+
+
+def _scalare_yaml(valore, numero):
+    """Uno scalare su una riga: tra virgolette, sequenza piatta `[a, b]` o semplice (col commento
+    in coda tolto). Cio' che non e' uno di questi si RIFIUTA con la riga."""
+    v = valore.strip()
+    if v[:1] == '"':
+        m = re.match(r'"([^"\\]*)"\s*(#.*)?$', v)
+        if not m:
+            raise ValueError("riga %d: stringa tra virgolette doppie con escape o testo dopo: %r" % (numero, v))
+        return m.group(1)
+    if v[:1] == "'":
+        m = re.match(r"'((?:[^']|'')*)'\s*(#.*)?$", v)
+        if not m:
+            raise ValueError("riga %d: stringa tra virgolette semplici non chiusa: %r" % (numero, v))
+        return m.group(1).replace("''", "'")
+    if v[:1] == "[":
+        m = re.match(r"\[([^\[\]{}]*)\]\s*(#.*)?$", v)
+        if not m:
+            raise ValueError("riga %d: sequenza tra parentesi annidata o non chiusa: %r" % (numero, v))
+        return [_scalare_yaml(x, numero) for x in m.group(1).split(",") if x.strip()]
+    if v[:1] in ("{", "&", "*", "!", "%", "@", "`", "|", ">"):
+        raise ValueError("riga %d: costrutto YAML che il lettore non regge: %r" % (numero, v))
+    i = v.find(" #")
+    return v[:i].rstrip() if i >= 0 else v
+
+
+class _LettoreYaml:
+    """Mappe e sequenze a blocchi, scalari su una riga, blocchi letterali `|` e piegati `>` (con
+    `-` o `+`). Una riga che non sa leggere e' un ValueError con il numero: un comando della CI
+    letto male farebbe passare la parita' senza misurarla."""
+
+    def __init__(self, testo):
+        self.righe = testo.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        self.i = 0
+
+    def _salta(self):
+        while self.i < len(self.righe) and not _riga_significativa(self.righe[self.i]):
+            self.i += 1
+        return self.i < len(self.righe)
+
+    def _rientro(self):
+        riga = self.righe[self.i]
+        spazi = len(riga) - len(riga.lstrip(" "))
+        if riga[spazi:spazi + 1] == "\t":
+            raise ValueError("riga %d: tabulazione nel rientro" % (self.i + 1))
+        return spazi, riga[spazi:]
+
+    @staticmethod
+    def _voce(corpo):
+        return corpo == "-" or corpo.startswith("- ")
+
+    def documento(self):
+        if not self._salta():
+            raise ValueError("workflow vuoto")
+        rientro, _ = self._rientro()
+        radice = self.mappa(rientro)
+        if self._salta():
+            raise ValueError("riga %d: rientro inatteso dopo la fine del documento" % (self.i + 1))
+        return radice
+
+    def figlio(self, rientro):
+        """Il valore di una chiave senza scalare: blocco piu' rientrato, o sequenza allo stesso rientro."""
+        if not self._salta():
+            return None
+        r, corpo = self._rientro()
+        if r > rientro:
+            return self.sequenza(r) if self._voce(corpo) else self.mappa(r)
+        if r == rientro and self._voce(corpo):
+            return self.sequenza(r)
+        return None
+
+    def mappa(self, rientro):
+        voci = {}
+        while self._salta():
+            r, corpo = self._rientro()
+            if r < rientro:
+                break
+            numero = self.i + 1
+            if r > rientro:
+                raise ValueError("riga %d: rientro inatteso (uno scalare su piu' righe non e' letto)" % numero)
+            if self._voce(corpo):
+                break
+            m = re.match(r"([A-Za-z0-9_$][\w.\-/]*)\s*:(?:\s+(.*))?$", corpo)
+            if not m:
+                raise ValueError("riga %d: attesa una chiave, trovato %r" % (numero, corpo))
+            chiave, resto = m.group(1), (m.group(2) or "").strip()
+            if chiave in voci:
+                raise ValueError("riga %d: chiave %r ripetuta" % (numero, chiave))
+            self.i += 1
+            if not resto or resto.startswith("#"):
+                voci[chiave] = self.figlio(rientro)
+            elif resto[0] in "|>":
+                voci[chiave] = self.blocco(resto, rientro, numero)
+            else:
+                voci[chiave] = _scalare_yaml(resto, numero)
+        return voci
+
+    def sequenza(self, rientro):
+        voci = []
+        while self._salta():
+            r, corpo = self._rientro()
+            if r < rientro or (r == rientro and not self._voce(corpo)):
+                break
+            numero = self.i + 1
+            if r > rientro:
+                raise ValueError("riga %d: rientro inatteso in una sequenza" % numero)
+            resto = corpo[1:].lstrip(" ")
+            if not resto or resto.startswith("#"):
+                self.i += 1
+                voci.append(self.figlio(rientro))
+            elif re.match(r"[A-Za-z0-9_$][\w.\-/]*\s*:(\s|$)", resto):
+                colonna = r + len(corpo) - len(resto)       # `- chiave: valore` apre una mappa li'
+                self.righe[self.i] = " " * colonna + resto
+                voci.append(self.mappa(colonna))
+            elif resto[0] in "|>":
+                self.i += 1
+                voci.append(self.blocco(resto, rientro, numero))
+            else:
+                self.i += 1
+                voci.append(_scalare_yaml(resto, numero))
+        return voci
+
+    def blocco(self, intestazione, rientro_genitore, numero):
+        m = re.match(r"([|>])([-+]?)\s*(#.*)?$", intestazione)
+        if not m:
+            raise ValueError("riga %d: blocco con indentazione esplicita o intestazione non letta: %r"
+                             % (numero, intestazione))
+        tipo, taglio = m.group(1), m.group(2)
+        contenuto, rientro = [], None
+        while self.i < len(self.righe):
+            riga = self.righe[self.i]
+            if not riga.strip():
+                contenuto.append((self.i + 1, ""))
+                self.i += 1
+                continue
+            r = len(riga) - len(riga.lstrip(" "))
+            if rientro is None:
+                if r <= rientro_genitore:
+                    break
+                rientro = r
+            if r < rientro:
+                break
+            contenuto.append((self.i + 1, riga[rientro:]))
+            self.i += 1
+        finali = 0
+        while contenuto and contenuto[-1][1] == "":
+            contenuto.pop()
+            finali += 1
+        if tipo == "|":
+            testo = "\n".join(t for _, t in contenuto)
+        else:
+            testo, vuote, primo = "", 0, True
+            for n, t in contenuto:
+                if t == "":
+                    vuote += 1
+                    continue
+                if t[:1] in (" ", "\t"):
+                    raise ValueError("riga %d: blocco piegato '>' con righe piu' rientrate: il lettore "
+                                     "non le piega come YAML" % n)
+                testo += ("\n" * vuote + t) if (primo or vuote) else (" " + t)
+                vuote, primo = 0, False
+        if not contenuto:
+            return "\n" * finali if taglio == "+" else ""
+        if taglio == "-":
+            return testo
+        return testo + "\n" + ("\n" * finali if taglio == "+" else "")
+
+
+def leggi_workflow(testo):
+    """Un workflow GitHub letto con la sola stdlib, nel sottoinsieme di YAML che usa ci.yml.
+    Cio' che non sa leggere lo rifiuta con la riga (ValueError), non lo indovina."""
+    wf = _LettoreYaml(testo).documento()
+    if not isinstance(wf.get("jobs"), dict):
+        raise ValueError("workflow senza una mappa jobs")
+    return wf
+
+
+def _passi_del_job(testo, job):
+    specifica = leggi_workflow(testo)["jobs"].get(job)
+    if not isinstance(specifica, dict):
+        raise ValueError("ci.yml: il job %r non e' una mappa" % job)
+    passi = specifica.get("steps")
+    if not isinstance(passi, list) or not all(isinstance(p, dict) for p in passi):
+        raise ValueError("ci.yml: il job %r non ha una lista di steps" % job)
+    return passi
+
+
+def _comandi_di_run(run):
+    """Ogni riga non vuota e non commento e' un comando; una riga che finisce con \\ continua."""
+    comandi, sospeso = [], ""
+    for riga in run.split("\n"):
+        s = (sospeso + " " + riga.strip()).strip() if sospeso else riga.strip()
+        sospeso = ""
+        if s.endswith("\\"):
+            sospeso = s[:-1].rstrip()
+            continue
+        if s and not s.startswith("#"):
+            comandi.append(" ".join(s.split()))
+    if sospeso:
+        comandi.append(" ".join(sospeso.split()))
+    return comandi
+
+
+def comandi_ci(testo, job="test"):
+    """[(comando, working-directory)] dei `run:` del job, in ordine. Una riga di un blocco `|` e'
+    un comando; un blocco `>` piegato su piu' righe e' UN comando (la CI lo esegue come una riga)."""
+    out = []
+    for passo in _passi_del_job(testo, job):
+        if "run" not in passo:
+            continue
+        if not isinstance(passo["run"], str):
+            raise ValueError("ci.yml: un run del job %r non e' testo" % job)
+        cartella = passo.get("working-directory") or ""
+        out.extend((c, cartella) for c in _comandi_di_run(passo["run"]))
+    return out
+
+
+def _argv_fa(argv, comando):
+    token = comando.split()
+    for inizio, sostituto, _ in RISCRITTURE_DALLA_CI:
+        if token[:1] == [inizio]:
+            token = list(sostituto) + token[1:]
+    return list(argv[:len(token)]) == token
+
+
+def confronta_con_ci(testo, job="test"):
+    """Parita' fra PASSI_SUITE e il job della CI. Liste vuote = parita'. `senza_gemello`: comandi
+    della CI che l'export non fa e non dichiara; `gemelli_assenti`: passi dell'export che la CI non
+    fa piu'; `differenze_stantie`: differenze dichiarate per comandi che la CI non ha piu';
+    `fuori_ordine`: passi in un ordine diverso dalla CI; `argv_diversi`: passi il cui argv non
+    comincia col comando gemello (a meno delle RISCRITTURE_DALLA_CI dichiarate)."""
+    comandi = comandi_ci(testo, job)
+    gemelli = {p.ci: p.nome for p in PASSI_SUITE}
+    dichiarati = {(c, d) for c, d, _ in DIFFERENZE_DALLA_CI}
+    ordine_ci = [gemelli[c] for c in comandi if c in gemelli]
+    ordine_export = [p.nome for p in PASSI_SUITE if p.nome in ordine_ci]
+    fuori_ordine = [] if ordine_ci == ordine_export else (
+        [a for a, b in zip(ordine_export, ordine_ci) if a != b] or ordine_ci)
+    return {
+        "senza_gemello": [c for c in comandi if c not in gemelli and c not in dichiarati],
+        "gemelli_assenti": [p.nome for p in PASSI_SUITE if p.ci not in comandi],
+        "differenze_stantie": [c for c, d, _ in DIFFERENZE_DALLA_CI if (c, d) not in comandi],
+        "fuori_ordine": fuori_ordine,
+        "argv_diversi": [p.nome for p in PASSI_SUITE if not _argv_fa(p.argv, p.ci[0])],
+    }
+
+
+def _node_della_ci(cartella):
+    """La versione di Node che la CI installa, letta dal ci.yml della copia; un buco si dichiara."""
+    path = os.path.join(cartella, ".github", "workflows", "ci.yml")
+    if not os.path.isfile(path):
+        return "n.d. (ci.yml assente nella copia)"
+    try:
+        with open(path, encoding="utf-8") as fh:
+            passi = _passi_del_job(fh.read(), "test")
+    except (OSError, UnicodeDecodeError, ValueError) as e:
+        return "n.d. (ci.yml illeggibile: %s)" % e
+    for passo in passi:
+        if str(passo.get("uses", "")).startswith("actions/setup-node"):
+            configurazione = passo.get("with", {})
+            if not isinstance(configurazione, dict):
+                return "n.d. (ci.yml illeggibile: with di actions/setup-node non e' una mappa)"
+            versione = configurazione.get("node-version")
+            if versione:
+                return str(versione)
+    return "n.d. (nessun actions/setup-node con node-version nel job test)"
+
+
+# --- esecuzione dei passi ---
+
+def _uccidi_albero(proc):
+    """Il processo e i suoi figli: `npm run` e' cmd/sh -> node -> vite/tsc."""
+    if os.name == "nt":
+        try:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], stdin=subprocess.DEVNULL,
+                           capture_output=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+    try:
+        proc.kill()
+        proc.wait(timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def _lancia(argv, cwd, env, stdout, stderr, timeout):
+    """Un processo con timeout VERO. L'output va su file, non su pipe: un nipote rimasto vivo terrebbe
+    aperta la pipe e la lettura non tornerebbe mai. Allo scadere (o a un Ctrl+C) si uccide l'albero
+    intero, perche' i figli di `npm run` continuerebbero a scrivere nella copia. Torna l'exit;
+    TimeoutExpired e OSError salgono a chi chiama."""
+    extra = {} if os.name == "nt" else {"start_new_session": True}
+    proc = subprocess.Popen(list(argv), cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                            stdout=stdout, stderr=stderr, **extra)
+    try:
+        return proc.wait(timeout=timeout)
+    except BaseException:
+        _uccidi_albero(proc)
+        raise
+
+
+def _esito_passo(nome, esito, codice=None, secondi=0.0, motivo=""):
+    return {"nome": nome, "esito": esito, "exit": codice, "secondi": round(secondi, 3), "motivo": motivo}
+
+
+def _esegui_passo(passo, lavoro, env, lancia, orologio):
+    """(esito, stdout, stderr, argv, cartella) di un passo lanciato nella copia."""
+    argv = list(passo.argv)
+    cwd = os.path.join(lavoro, passo.cartella) if passo.cartella else lavoro
+    if argv[0] == "python":
+        argv[0] = sys.executable
+    else:
+        trovato = shutil.which(argv[0], path=env.get("PATH"))
+        if not trovato:
+            return (_esito_passo(passo.nome, "KO", motivo="%s non trovato nel PATH" % argv[0]),
+                    "", "", argv, cwd)
+        argv[0] = trovato
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        inizio = orologio()
+        try:
+            codice = lancia(argv, cwd, env, out, err, passo.timeout)
+            esito = _esito_passo(passo.nome, "OK" if codice == 0 else "KO", codice,
+                                 motivo="" if codice == 0 else "exit %s" % codice)
+        except subprocess.TimeoutExpired:
+            esito = _esito_passo(passo.nome, "KO", motivo="timeout dopo %d s" % passo.timeout)
+        except OSError as e:
+            esito = _esito_passo(passo.nome, "KO", motivo="OSError (%s): %s"
+                                 % (type(e).__name__, e.strerror or e))
+        esito["secondi"] = round(orologio() - inizio, 3)
+        out.seek(0)
+        err.seek(0)
+        return (esito, out.read().decode("utf-8", "replace"), err.read().decode("utf-8", "replace"),
+                argv, cwd)
+
+
+def _versione_node(env, cwd, lancia):
+    """La versione di Node di chi lancia, misurata; un buco si dichiara."""
+    node = shutil.which("node", path=env.get("PATH"))
+    if not node:
+        return "n.d. (node non trovato nel PATH)"
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        try:
+            codice = lancia([node, "--version"], cwd, env, out, err, 60)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return "n.d. (%s)" % type(e).__name__
+        out.seek(0)
+        testo = out.read().decode("utf-8", "replace").strip()
+    return testo if codice == 0 and testo else "n.d. (node --version: exit %s)" % codice
+
+
+def _secondi(valore):
+    return ("%.1f" % valore).replace(".", ",")
+
+
+def _sezione(log, esito, argv=None, cwd=None, out="", err=""):
+    testa = "=== passo %s: %s" % (esito["nome"], esito["esito"])
+    if esito["esito"] != "NON ESEGUITO":
+        testa += ", exit %s, %s s" % (esito["exit"], _secondi(esito["secondi"]))
+    if esito["motivo"]:
+        testa += " (%s)" % esito["motivo"]
+    log.write(testa + " ===\n")
+    if argv:
+        log.write("$ %s   [cartella %s]\n" % (" ".join(argv), cwd))
+    if out:
+        log.write(out.rstrip("\n") + "\n")
+    if err:
+        log.write("--- STDERR ---\n" + err.rstrip("\n") + "\n")
+    log.flush()
+
+
+def _riga_passo(esito):
+    if esito["esito"] == "OK":
+        return "%s OK %s s" % (esito["nome"], _secondi(esito["secondi"]))
+    if esito["esito"] == "KO":
+        return "%s KO (%s) %s s" % (esito["nome"], esito["motivo"], _secondi(esito["secondi"]))
+    return "%s NON ESEGUITO: %s" % (esito["nome"], esito["motivo"])
+
+
+def esegui_suite(temp_dir, attesi=None, lancia=None, orologio=None):
+    """I passi della CI su una COPIA del tree esportato: misura di coerenza, non di leak. Cure della review T7:
       · l'ambiente non porta ne' il DB ne' le chiavi del PM: via `BELLOMBERG_*` e, dal 13/09, via
         ogni variabile che porta il NOME di una riga del `.env` privato (nel dry-run il payload
         legacy importava i moduli e `config.py` caricava il `.env`: la suite ne ereditava 44,
@@ -179,9 +626,18 @@ def esegui_suite(temp_dir, attesi=None, installa_node=None):
         CI pubblica (misurato: 23 rossi senza, 5 con; i 18 erano moduli Node assenti). Per questo
         la suite gira su una copia verificata per hash: l'artefatto certificato non riceve ne'
         `node_modules` ne' i file che un test scrive. Un `npm ci` fallito e' un KO dichiarato.
-    L'output completo resta in `<temp>.pytest.log`; la riga nomina i test rossi."""
+      · 13/09 (decisione 3): dopo pytest i passi Node del job `test` della CI (PASSI_SUITE), TUTTI
+        anche dopo un rosso, cosi' una corsa sola mostra ogni rosso; un passo parte solo se quelli
+        da cui dipende sono OK (tutti da `npm ci`, i contratti del mandato dal loro tsc), ognuno ha
+        un timeout che uccide l'albero dei processi, e ognuno finisce OK, KO o NON ESEGUITO col
+        motivo. Senza `app/package-lock.json` i passi Node sono NON ESEGUITI (dichiarati) e pytest
+        gira come prima. `lancia` e `orologio` si iniettano nelle prove.
+    L'output completo resta in `<temp>.suite.log`, una sezione per passo; la riga nomina i test
+    rossi, i passi e cio' che la macchina locale NON replica della CI."""
+    lancia = lancia or _lancia
+    orologio = orologio or time.monotonic
     lavoro = temp_dir.rstrip("\\/") + ".suite"
-    log_path = temp_dir.rstrip("\\/") + ".pytest.log"
+    log_path = temp_dir.rstrip("\\/") + ".suite.log"
     privati = _nomi_env_privato()
     env = {k: v for k, v in os.environ.items() if not k.startswith("BELLOMBERG_") and k not in privati}
     tolte = sorted(k for k in os.environ if k in privati and not k.startswith("BELLOMBERG_"))
@@ -192,42 +648,85 @@ def esegui_suite(temp_dir, attesi=None, installa_node=None):
     note = []
     if tolte:
         note.append("ambiente: %d variabili del .env privato tolte (%s)" % (len(tolte), ", ".join(tolte)))
-    try:
-        _via(lavoro)
-        shutil.copytree(temp_dir, lavoro)
-        if hash_artefatto(lavoro) != hash_artefatto(temp_dir):
-            return 1, "STOP: la copia per la suite non e' identica all'artefatto"
-        for args in (["git", "init", "-q"], ["git", "add", "-A"]):
-            r = _run(args, lavoro, check=False)
-            if r.returncode != 0:
-                return r.returncode, "git %s nel tree: %s" % (args[1], (r.stderr or "").strip()[-200:])
-        if attesi is not None:
-            n = len(file_tracciati(lavoro))
-            if n != attesi:
-                return 1, ("STOP: l'indice del tree ha %d file sui %d scelti (il .gitignore pubblicato"
-                           " o un core.excludesFile ne toglie): le guardie che usano git"
-                           " misurerebbero meno del perimetro" % (n, attesi))
-        app_dir = os.path.join(lavoro, "app")
-        if os.path.isfile(os.path.join(app_dir, "package-lock.json")):
-            rc_node, msg_node = (installa_node or _installa_node)(app_dir, env)
-            if rc_node != 0:
-                return rc_node or 1, ("STOP: npm ci dal lockfile esportato fallito, suite NON eseguita"
-                                      " (la CI installa le dipendenze Node prima di pytest): %s" % msg_node)
-            note.append("dipendenze Node installate con npm ci")
-        else:
-            note.append("nessun app/package-lock.json: dipendenze Node non installate")
-        r = subprocess.run([sys.executable, "-m", "pytest", "tests/", "-q", "-p", "no:cacheprovider", "-rfE"],
-                           cwd=lavoro, env=env, capture_output=True, encoding="utf-8", errors="replace")
-    finally:
-        _via(lavoro)
-    with open(log_path, "w", encoding="utf-8") as fh:
-        fh.write((r.stdout or "") + "\n--- STDERR ---\n" + (r.stderr or ""))
-    righe = [x for x in (r.stdout or "").splitlines() if x.strip()]
-    riga = righe[-1] if righe else (r.stderr or "")[-200:]
+    fatti, uscite, node_locale, node_ci = {}, {}, "n.d. (nessun app/package-lock.json)", None
+    with open(log_path, "w", encoding="utf-8", newline="\n") as log:
+        def stop(codice, riga):
+            passi = [_esito_passo(p.nome, "NON ESEGUITO", motivo="STOP prima dei passi: " + riga[:200])
+                     for p in PASSI_SUITE]
+            for esito in passi:
+                _sezione(log, esito)
+            return EsitoSuite(codice, riga, passi)
+
+        try:
+            _via(lavoro)
+            shutil.copytree(temp_dir, lavoro)
+            if hash_artefatto(lavoro) != hash_artefatto(temp_dir):
+                return stop(1, "STOP: la copia per la suite non e' identica all'artefatto")
+            for args in (["git", "init", "-q"], ["git", "add", "-A"]):
+                r = _run(args, lavoro, check=False)
+                if r.returncode != 0:
+                    return stop(r.returncode, "git %s nel tree: %s" % (args[1], (r.stderr or "").strip()[-200:]))
+            if attesi is not None:
+                n = len(file_tracciati(lavoro))
+                if n != attesi:
+                    return stop(1, ("STOP: l'indice del tree ha %d file sui %d scelti (il .gitignore pubblicato"
+                                    " o un core.excludesFile ne toglie): le guardie che usano git"
+                                    " misurerebbero meno del perimetro" % (n, attesi)))
+            lockfile = os.path.isfile(os.path.join(lavoro, "app", "package-lock.json"))
+            if not lockfile:
+                note.append("nessun app/package-lock.json: dipendenze Node non installate, passi Node NON ESEGUITI")
+            per_nome = {p.nome: p for p in PASSI_SUITE}
+            for passo in PASSI_SUITE:
+                argv = cwd = None
+                out = err = ""
+                # Un passo Node saltato per mancanza del lockfile non ferma chi non e' Node: pytest
+                # gira come prima di questa cura (e il manifest resta INCOMPLETO).
+                bloccanti = [d for d in passo.dipende
+                             if fatti[d]["esito"] != "OK" and (lockfile or not per_nome[d].node)]
+                if passo.node and not lockfile:
+                    esito = _esito_passo(passo.nome, "NON ESEGUITO",
+                                         motivo="nessun app/package-lock.json nella copia")
+                elif bloccanti:
+                    esito = _esito_passo(passo.nome, "NON ESEGUITO", motivo="dipende da " + ", ".join(
+                        "%s (%s)" % (d, fatti[d]["esito"]) for d in bloccanti))
+                else:
+                    esito, out, err, argv, cwd = _esegui_passo(passo, lavoro, env, lancia, orologio)
+                fatti[passo.nome], uscite[passo.nome] = esito, (out, err)
+                _sezione(log, esito, argv, cwd, out, err)
+            if lockfile:
+                node_locale = _versione_node(env, lavoro, lancia)
+            node_ci = _node_della_ci(lavoro)
+        finally:
+            _via(lavoro)
+    passi = [fatti[p.nome] for p in PASSI_SUITE]
+    out_pytest, err_pytest = uscite["pytest"]
+    righe = [x for x in out_pytest.splitlines() if x.strip()]
+    if fatti["pytest"]["esito"] == "NON ESEGUITO":
+        riga = "pytest NON ESEGUITO: %s" % fatti["pytest"]["motivo"]
+    else:
+        riga = righe[-1] if righe else err_pytest[-200:]
+        if fatti["pytest"]["esito"] == "KO" and not fatti["pytest"]["motivo"].startswith("exit"):
+            riga = "pytest KO (%s): %s" % (fatti["pytest"]["motivo"], riga)
     rossi = [x.split(" ", 1)[1].split(" - ", 1)[0] for x in righe if x.startswith(("FAILED ", "ERROR "))]
     if rossi:
         riga += " — rossi: " + ", ".join(rossi[:40]) + (" (+%d)" % (len(rossi) - 40) if len(rossi) > 40 else "")
-    return r.returncode, "; ".join([riga] + note) + " — log completo: " + log_path
+    codice = 0
+    for esito in passi:
+        if esito["esito"] == "KO":
+            codice = esito["exit"] if isinstance(esito["exit"], int) and esito["exit"] else 1
+            break
+    if node_ci and node_ci.startswith("n.d. (ci.yml illeggibile"):
+        codice = codice or 1
+    parti = [riga] + note + ["passi: " + " · ".join(_riga_passo(e) for e in passi)]
+    for esito in passi:
+        if esito["esito"] == "KO" and esito["nome"] != "pytest":
+            coda = " ".join((uscite[esito["nome"]][1] + " " + uscite[esito["nome"]][0]).split())[-300:]
+            if coda:
+                parti.append("%s: %s" % (esito["nome"], coda))
+    parti.append("Node: locale %s, CI %s" % (node_locale, node_ci))
+    parti.append("locale %s %s con Python %s; %s" % (platform.system(), platform.release(),
+                                                    platform.python_version(), NON_REPLICATE))
+    return EsitoSuite(codice, "; ".join(parti) + " — log completo: " + log_path, passi)
 
 
 def _cancello(tree_dir, solo=None, blocca_osservazione=False, corpus_root=None):
@@ -271,18 +770,24 @@ def hash_artefatto(tree_dir):
 
 def scrivi_manifest(path, commit_sorgente, sha_artefatto, n_file, input_manifest,
                     rc_cancello, rc_suite, solo=None, senza_suite=False, sporchi=0,
-                    esiti_manifest=None, sha_artefatto_post=None, n_file_post=None):
-    """Sidecar senza valori privati: solo hash, conteggi, KO/assenze e stato delle prove."""
+                    esiti_manifest=None, sha_artefatto_post=None, n_file_post=None, passi=None):
+    """Sidecar senza valori privati: solo hash, conteggi, KO/assenze e stato delle prove.
+    Versione 2 (13/09): `verifica.suite_passi` porta i passi della CI sulla copia (nome, esito,
+    exit, secondi, motivo; mai l'output). Passi assenti o NON ESEGUITI = INCOMPLETO, un KO = KO."""
     esiti_manifest = esiti_manifest or {}
     rigoroso = bool(esiti_manifest.get("rigoroso"))
+    suite_passi = None if passi is None else [
+        {k: p.get(k) for k in ("nome", "esito", "exit", "secondi", "motivo")} for p in passi]
+    esiti_passi = [p["esito"] for p in suite_passi or ()]
     incompleto = bool(not rigoroso or solo or senza_suite or not input_manifest
                       or input_manifest.get("fonti_ko")
                       or input_manifest.get("conteggi", {}).get(
-                          "payload_canali_guasti", 0))
-    stato = ("KO" if ((int(rc_cancello) or int(rc_suite)) and not incompleto)
+                          "payload_canali_guasti", 0)
+                      or suite_passi is None or "NON ESEGUITO" in esiti_passi)
+    stato = ("KO" if ("KO" in esiti_passi or ((int(rc_cancello) or int(rc_suite)) and not incompleto))
              else "INCOMPLETO" if incompleto else "OK")
     doc = {
-        "versione": 1,
+        "versione": 2,
         "sorgente": {"commit": commit_sorgente or None},
         "artefatto": {
             "sha256": sha_artefatto_post or sha_artefatto,
@@ -304,6 +809,7 @@ def scrivi_manifest(path, commit_sorgente, sha_artefatto, n_file, input_manifest
             "suite_exit": int(rc_suite),
             "controlli_solo": list(solo or ()),
             "suite_non_eseguita": bool(senza_suite),
+            "suite_passi": suite_passi,
             "sorgente_sporca_file": int(sporchi),
             "stato": stato,
             "rigoroso": rigoroso,
@@ -577,9 +1083,11 @@ def main(argv=None):
             parametri_cancello["corpus_root"] = a.corpus_root
         rc_cancello = _cancello(temp, **parametri_cancello)
         if a.senza_suite:
-            rc_suite, riga = 0, "NON ESEGUITA (--senza-suite): il verdetto non la conta"
+            rc_suite, riga, passi = 0, "NON ESEGUITA (--senza-suite): il verdetto non la conta", None
         else:
-            rc_suite, riga = esegui_suite(temp, attesi=len(scelti))
+            esito_suite = esegui_suite(temp, attesi=len(scelti))
+            rc_suite, riga = esito_suite
+            passi = getattr(esito_suite, "passi", None)     # una suite senza passi = manifest INCOMPLETO
         sha_dopo_suite, file_dopo_suite = hash_artefatto(temp)
         if (sha_dopo_suite, file_dopo_suite) != (sha_artefatto, file_hash):
             rc_suite = max(2, rc_suite)
@@ -600,7 +1108,7 @@ def main(argv=None):
             rc_cancello, rc_suite, solo=solo, senza_suite=a.senza_suite,
             sporchi=len(sporchi),
             esiti_manifest=getattr(rc_cancello, "esiti_manifest", None),
-            sha_artefatto_post=sha_dopo_suite, n_file_post=file_dopo_suite)
+            sha_artefatto_post=sha_dopo_suite, n_file_post=file_dopo_suite, passi=passi)
         print("manifest: %s (artefatto sha256 %s; stato %s)"
               % (manifest_path, sha_artefatto[:12], doc_manifest["verifica"]["stato"]))
         rc = max(rc_cancello, 1 if rc_suite else 0)
@@ -633,7 +1141,7 @@ def main(argv=None):
             print("commit: NO (dry-run)")
         return 0
     finally:
-        log_suite = temp.rstrip("\\/") + ".pytest.log"
+        log_suite = temp.rstrip("\\/") + ".suite.log"
         if a.tieni:
             print("temp conservata: %s" % temp)
             if os.path.isfile(manifest_path):

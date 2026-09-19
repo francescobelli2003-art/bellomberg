@@ -155,7 +155,7 @@
 /* ── IL BINARIO DELLA CASSA: l'oggetto-firma ──────────────── */
 .f7c .binario{position:relative;height:88px;margin:16px 0 10px 0;
   border:1px solid var(--bd2);background:var(--lo);overflow:hidden}
-.f7c .binario .morso{position:absolute;top:0;bottom:0;
+.f7c .binario .morso{position:absolute;bottom:0;height:12px;
   background:linear-gradient(180deg,rgba(255,165,30,.30),rgba(185,122,0,.16));
   border-right:2px solid var(--am)}
 .f7c .binario.sfora .morso{background:repeating-linear-gradient(135deg,
@@ -167,7 +167,7 @@
   background:linear-gradient(180deg,rgba(33,224,160,.28),rgba(15,120,86,.16));
   border-right:none;border-left:2px solid var(--em)}
 .f7c .binario.entrata .etm{color:var(--em)}
-.f7c .binario .resto{position:absolute;top:0;bottom:0;right:0;display:flex;align-items:center;
+.f7c .binario .resto{position:absolute;top:0;bottom:12px;right:0;display:flex;align-items:center;
   justify-content:flex-end;padding-right:11px}
 .f7c .binario .resto span{font-size:17px;color:var(--tx)}
 .f7c .binario .etm{position:absolute;top:8px;left:11px;font-size:10px;color:var(--am);

@@ -297,7 +297,7 @@ export default function MemoArchive() {
                         </div>
                       )}
                     </div>
-                    <span className="nv num">
+                    <span className="nv num" title={tr('memoarchive.securitiesBasis')}>
                       {typeof m.portfolio_nav_eur === 'number' && Number.isFinite(m.portfolio_nav_eur) ? fmtEUR(m.portfolio_nav_eur, false, 0) : <em className="text-faint">{tr('memoarchive.f017')}</em>}
                     </span>
                   </div>
@@ -308,7 +308,9 @@ export default function MemoArchive() {
               {righeDbErr !== null ? tr('memoarchive.sampleError', { detail: righeDbErr || tr('memoarchive.errorUnknown') })
                 : campione === null ? tr('memoarchive.sampleLoading')
                 : campione.excluded === null ? tr('memoarchive.sampleUndeclared', { n: campione.rows })
-                : tr('memoarchive.sampleCount', { excluded: campione.excluded, rows: campione.rows })}
+                : tr('memoarchive.sampleCount', { excluded: campione.excluded, rows: campione.rows,
+                    excludedUnit: tr(campione.excluded === 1 ? 'memoarchive.rowOne' : 'memoarchive.rows'),
+                    rowUnit: tr(campione.rows === 1 ? 'memoarchive.rowOne' : 'memoarchive.rows') })}
             </div>
           </div>
         </div>
@@ -324,15 +326,14 @@ export default function MemoArchive() {
               <span className="side">
                 {!sel ? '' : testoErr !== null ? tr('memoarchive.f030', { a: testoErr || tr('memoarchive.errorUnknown') }) : md === undefined ? tr('memoarchive.f020')
                   : azioni.length === 0 ? tr('memoarchive.f021')
-                  : tr('memoarchive.f022', {a: azioni.length})}
+                  : tr(azioni.length === 1 ? 'memoarchive.actionRowOne' : 'memoarchive.f022', {a: azioni.length})}
               </span>
             </div>
             <div>
               {azioni.length > 0 ? (
                 <table className="at">
-                  {/* L'ultima colonna e' un RESPIRO senza nome. Senza, su un 49"
-                      il timing si prende 4.000px e fra il suo testo e la
-                      conviction resta una voragine: la tabella sembra rotta.
+                  {/* L'ultima colonna e' un RESPIRO senza nome. Su viste larghe
+                      evita spazio eccessivo fra timing e conviction.
                       Cosi' le colonne restano impacchettate e leggibili a
                       qualunque larghezza. */}
                   <colgroup>
@@ -443,14 +444,14 @@ export default function MemoArchive() {
             <i className="tick tl" /><i className="tick tr" /><i className="tick bl" /><i className="tick br" />
             <div className="p3h">{tr('memoarchive.f045')}<span className="side">{sel ? `MEMO ${sel.id}` : ''}</span></div>
             <div>
-              <div className="kv"><span className="k">{tr('memoarchive.f046')}</span>
+              <div className="kv" title={tr('memoarchive.securitiesBasis')}><span className="k">{tr('memoarchive.f046')}</span>
                 <span className="v">{typeof sel?.portfolio_nav_eur === 'number' && Number.isFinite(sel.portfolio_nav_eur) ? fmtEUR(sel.portfolio_nav_eur, false, 0)
                   : <em>{tr('memoarchive.f047')}</em>}</span></div>
               <div className="kv"><span className="k">{tr('memoarchive.f048')}</span>
-                {/* outcome_pct e' valorizzato su 0 righe su 193: si dichiara,
-                    non si rende come zero (e mai colorato di verde) */}
+                {/* Un esito non registrato resta dichiarato come mancante,
+                    non si rende come zero (e mai colorato di verde). */}
                 <span className="v"><em>{decErr !== null ? tr('memoarchive.f016') : decLoading ? '…' : conEsito === 0
-                  ? tr('memoarchive.f049', {a: dec.length})
+                  ? tr(dec.length === 1 ? 'memoarchive.outcomeRowOne' : 'memoarchive.f049', {a: dec.length})
                   : tr('memoarchive.f050', {a: conEsito, b: dec.length})}</em></span></div>
               <div className="kv"><span className="k">{tr('memoarchive.f051')}</span>
                 <span className="v">{sel && Number.isFinite(sel.capo_tokens_in) && Number.isFinite(sel.capo_tokens_out)

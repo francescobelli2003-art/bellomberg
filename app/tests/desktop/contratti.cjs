@@ -124,6 +124,118 @@ async function main() {
   const failed = backendScope({ fail: true }); await failed.context.startPythonBackend();
   check(failed.errors.length === 1 && failed.errors[0].includes('ENOENT') && failed.context.pythonBackend === null, 'asynchronous spawn failure declared and ownership cleared');
 
+  // Backend dialogs (P4, 13/09): Electron starts before the backend that stores the language choice,
+  // so every dialog is bilingual in one window: Italian paragraph, blank line, English paragraph,
+  // then the technical details (paths, exit codes, errors) exactly once under bilingual labels.
+  const dialogProblems = [];
+  const expectDialog = (condition, message) => { if (condition) checks++; else dialogProblems.push(message); };
+  const IT_WORDS = new Set(['il', 'la', 'le', 'non', 'di', 'del', 'della', 'dell', 'alla', 'e', '\u00e8', 'oppure', 'poi', 'dopo', 'solo',
+    'avvio', 'avvia', 'controlla', 'imposta', 'correggi', 'riavvia', 'consulta', 'installa', 'trovato', 'fallito', 'terminato']);
+  const EN_WORDS = new Set(['the', 'and', 'is', 'was', 'not', 'of', 'to', 'or', 'then', 'after', 'only', 'check', 'set', 'fix',
+    'restart', 'see', 'install', 'start', 'does', 'failed', 'found', 'exited', 'ready']);
+  const dialogWords = (text, set) => String(text ?? '').toLowerCase().split(/[^\p{L}]+/u).filter(word => set.has(word)).length;
+  const italian = text => dialogWords(text, IT_WORDS) >= 2 && dialogWords(text, EN_WORDS) === 0;
+  const english = text => dialogWords(text, EN_WORDS) >= 2 && dialogWords(text, IT_WORDS) === 0;
+  const bilingualLabel = line => { const m = /^([^/:\n]+) \/ ([^/:\n]+): /.exec(line); return !!m && m[1].trim() !== m[2].trim(); };
+
+  const errorFunction = mainTree.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'backendError');
+  check(!!errorFunction, 'real function located: backendError');
+  const shown = [];
+  const errorContext = vm.createContext({ quitting: false, console: { error() {} }, dialog: { showErrorBox(title, body) { shown.push({ title, body }); } } });
+  vm.runInContext(ts.transpileModule(errorFunction.getText(mainTree), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, errorContext);
+  const composed = 'Frase sintetica.\n\nSynthetic sentence.\n\nEtichetta / Label: valore';
+  errorContext.backendError(composed);
+  const [titleIt, titleEn, ...titleRest] = String(shown[0]?.title).split(' / ');
+  expectDialog(shown.length === 1 && shown[0].body === composed, 'backend dialog shows the composed message unchanged');
+  expectDialog(/^Bellomberg .*backend non disponibile$/.test(titleIt) && titleEn === 'backend unavailable' && titleRest.length === 0,
+    'backend dialog title is Italian, then English: ' + JSON.stringify(shown[0]?.title));
+
+  const dialogCalls = [];
+  (function findDialogCalls(node) {
+    if (ts.isCallExpression(node) && node.expression.getText(mainTree) === 'backendError') dialogCalls.push(node);
+    ts.forEachChild(node, findDialogCalls);
+  })(mainTree);
+  const textualCalls = (mainSource.match(/\bbackendError\s*\(/g) || []).length - 1; // minus the declaration
+  check(dialogCalls.length > 0 && dialogCalls.length === textualCalls, 'every backendError call located: ' + dialogCalls.length + ' of ' + textualCalls);
+  for (const call of dialogCalls) {
+    const where = 'main.ts:' + (mainTree.getLineAndCharacterOfPosition(call.getStart(mainTree)).line + 1) + ' backendError';
+    const composed = call.arguments.length === 1 && ts.isCallExpression(call.arguments[0]) && call.arguments[0].expression.getText(mainTree) === 'bilingue';
+    expectDialog(composed, where + ' must pass bilingue(it, en, ...details), got: ' + call.arguments.map(a => a.getText(mainTree)).join(', ').slice(0, 120));
+    if (!composed) continue;
+    const [it, en, ...details] = call.arguments[0].arguments;
+    expectDialog(!!it && ts.isStringLiteralLike(it) && italian(it.text), where + ': first paragraph is a fixed Italian sentence: ' + it?.getText(mainTree));
+    expectDialog(!!en && ts.isStringLiteralLike(en) && english(en.text), where + ': second paragraph is a fixed English sentence: ' + en?.getText(mainTree));
+    for (const detail of details) {
+      let head = detail;
+      while (ts.isBinaryExpression(head) && head.operatorToken.kind === ts.SyntaxKind.PlusToken) head = head.left;
+      expectDialog(head !== detail && ts.isStringLiteralLike(head) && bilingualLabel(head.text), where + ': detail has a bilingual label and its value once: ' + detail.getText(mainTree));
+    }
+  }
+
+  const paragraphs = message => String(message ?? '').split('\n\n');
+  const occurrences = (text, needle) => String(text ?? '').split(needle).length - 1;
+  function expectLayout(name, scope, needles, hasDetails = true) {
+    const message = scope.errors[0];
+    const [it, en, details, ...rest] = paragraphs(message);
+    expectDialog(scope.errors.length === 1 && italian(it) && english(en) && rest.length === 0 && (hasDetails ? !!details : details === undefined),
+      name + ': one dialog, Italian paragraph, blank line, English paragraph' + (hasDetails ? ', details' : '') + ': ' + JSON.stringify(scope.errors));
+    for (const line of hasDetails ? String(details ?? '').split('\n') : []) expectDialog(bilingualLabel(line), name + ': detail line has a bilingual label: ' + JSON.stringify(line));
+    for (const needle of needles) expectDialog(occurrences(message, needle) === 1 && String(details ?? '').includes(needle), name + ': shown once, among the details: ' + needle);
+  }
+  const noRoot = backendScope(); noRoot.context.PROJECT_ROOT = null;
+  await noRoot.context.startPythonBackend();
+  expectLayout('installer without backend', noRoot, [], false);
+  const noScript = backendScope(); noScript.context.fs = { existsSync() { return false; } };
+  await noScript.context.startPythonBackend();
+  expectLayout('backend folder without bellomberg_api.py', noScript, [path.join('/synthetic/backend', 'bellomberg_api.py')]);
+  const exited = backendScope(); const triedVenv = '/synthetic/backend/.venv/Scripts/python.exe';
+  Object.assign(exited.context, {
+    process: { platform: 'win32', env: {} }, pingBackend: async () => false,
+    defaultPython: () => ({ python: 'synthetic-python', source: 'PATH', tried: [triedVenv] }),
+    spawn() {
+      const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.exitCode = null;
+      queueMicrotask(() => { child.stderr.emit('data', Buffer.from('Traceback\nSyntheticError: missing module\n')); child.exitCode = 77; child.emit('exit', 77); });
+      return child;
+    },
+  });
+  await exited.context.startPythonBackend();
+  expectLayout('backend exited', exited, ['77', triedVenv, 'SyntheticError: missing module']);
+  expectDialog(/ambiente virtuale non trovato \/ virtual environment not found: /.test(exited.errors[0] ?? ''), 'tried virtual environment named in both languages: ' + JSON.stringify(exited.errors));
+  // The exit event carries either a numeric status or a signal; missing status is not zero.
+  for (const [code, signal, expectedCode, expectedSignal] of [
+    [null, 'SIGTERM', 'non disponibile / unavailable', 'SIGTERM'],
+    [null, 'SIGKILL', 'non disponibile / unavailable', 'SIGKILL'],
+    [0, null, '0', 'nessuno ricevuto / none received'],
+    [null, null, 'non disponibile / unavailable', 'nessuno ricevuto / none received'],
+  ]) {
+    const ended = backendScope();
+    await ended.context.startPythonBackend();
+    ended.context.pythonBackend.emit('exit', code, signal);
+    const description = 'backend exit ' + String(code) + '/' + String(signal);
+    expectLayout(description, ended, signal ? [signal] : []);
+    const body = ended.errors[0] ?? '';
+    expectDialog(ended.context.pythonBackend === null && ended.context.backendOwned === false,
+      description + ': exit clears ownership');
+    expectDialog(body.includes('Codice di uscita / Exit code: ' + expectedCode),
+      description + ': observed numeric status or explicit unavailable status');
+    expectDialog(body.includes('Segnale / Signal: ' + expectedSignal),
+      description + ': observed signal is distinct from the numeric status');
+    expectDialog(!/\b(?:null|undefined)\b/.test(body), description + ': no raw null/undefined in the dialog');
+  }
+  expectLayout('Python failed to start', failed, ['synthetic ENOENT', 'synthetic-python']);
+  const badPython = backendScope();
+  Object.assign(badPython.context, { process: { platform: 'win32', env: { BELLOMBERG_PYTHON: '/synthetic/missing/python' } }, fs: { existsSync() { return false; } } });
+  await badPython.context.startPythonBackend();
+  expectLayout('BELLOMBERG_PYTHON path missing', badPython, ['/synthetic/missing/python']);
+  const slow = backendScope(); let syntheticClock = 0;
+  Object.assign(slow.context, { pingBackend: async () => false, Date: { now: () => (syntheticClock += 20000) } });
+  await slow.context.startPythonBackend();
+  expectLayout('backend not ready in time', slow, [], false);
+  const thrown = backendScope(); thrown.context.pingBackend = async () => { throw new Error('synthetic ping failure'); };
+  await thrown.context.startPythonBackend();
+  expectLayout('unexpected startup failure', thrown, ['synthetic ping failure']);
+  check(dialogProblems.length === 0, 'bilingual backend dialogs:\n  ' + dialogProblems.join('\n  '));
+
   const waits = new Map(); const history = chatScope();
   history.scope.Bellomberg.chatGetSession = id => { const wait = deferred(); waits.set(id, wait); return wait.promise; };
   const cleanup = bind('history', history.scope)();

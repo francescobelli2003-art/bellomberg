@@ -290,6 +290,8 @@ def corpo_valutazioni(valuation_results, allegati):
                 testo += _t("; campi mancanti (%d): %s") % (
                     len(mancanti), ", ".join(str(m) for m in mancanti[:12]))
         snap = res.get("snapshot_id")
+        from bellomberg.reporting.valuation_quote import quote_comparison_text
+        testo += "; " + quote_comparison_text(res)
         righe.append("<li><b>%s</b>: %s%s</li>" % (
             _html.escape(str(tk)), _html.escape(testo.strip()),
             (" [snapshot %s]" % _html.escape(str(snap)[:12])) if snap else ""))

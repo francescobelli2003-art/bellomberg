@@ -2,9 +2,10 @@
 
 [Handbook](../README.md) · [Previous: F5](./05-news-desk.md) · [Next: F7](./07-factor-lab.md)
 
-![F6 Fundamentals: original synthetic DEMO mockup](../../assets/product/06-fundamentals.svg)
+![F6 Fundamentals: Valuations — English DEMO screenshot](../../assets/screenshots/fundamentals-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
 
 Inspect saved valuation models, their assumptions and the distance between a
 modelled value and a market quote. This page is a model library and viewer;

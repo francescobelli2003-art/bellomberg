@@ -68,8 +68,38 @@ test('archive gaps are counted from declared row evidence, not from unequal pagi
   const all = Array.from({ length: 55 }, (_, i) => memo(i + 1));
   all.push({ ...memo(90), has_content: false, pdf_available: false }, { ...memo(91), has_content: false, pdf_available: true });
   const { ready, render } = retained({ all }); const en = await ready('en'), it = render('it');
-  assert.match(en, /1 rows without readable content/); assert.match(it, /1 righe senza contenuto leggibile/);
+  assert.match(en, /1 row without readable content/); assert.match(it, /1 riga senza contenuto leggibile/);
   assert.match(en, /57 sampled rows/); assert.doesNotMatch(en, /56 failed/);
+});
+
+test('action and archive row counts use singular only for one while preserving historical markdown', async () => {
+  for (const count of [0, 1, 2]) {
+    const row = '| BUY | SYNTH.X | 1.234,50 | Original timing | 77 |';
+    const body = markdown('Action').replace(row, Array(count).fill(row).join('\n'));
+    const all = Array.from({ length: count }, (_, i) => ({ ...memo(i + 1), has_content: false }));
+    const view = retained({ all, detail: async () => ({ ...memo(), full_markdown: body }) });
+    const en = await view.ready('en'), it = view.render('it');
+    assert.match(en, new RegExp(`${count} ${count === 1 ? 'row' : 'rows'} without readable content in ${count} sampled ${count === 1 ? 'row(?!s)' : 'rows'}`));
+    assert.match(it, new RegExp(`${count} ${count === 1 ? 'riga' : 'righe'} senza contenuto leggibile su ${count} ${count === 1 ? 'riga' : 'righe'} del campione`));
+    if (count) {
+      assert.match(en, new RegExp(`ACTION TABLE — ${count} ${count === 1 ? 'ROW,' : 'ROWS,'}`));
+      assert.match(it, new RegExp(`ACTION TABLE — ${count} ${count === 1 ? 'RIGA,' : 'RIGHE,'}`));
+      for (const html of [it, en]) assert.match(html, /1\.234,50/);
+    } else assert.match(en, /NO ACTION TABLE IN THIS MEMO/);
+  }
+});
+
+test('saved memo amount is labelled as securities excluding cash, preserving finite zero and missing values', async () => {
+  for (const value of [0, 5960, null]) {
+    const record = { ...memo(), portfolio_nav_eur: value }, before = structuredClone(record);
+    const view = retained({ memo: record }), en = await view.ready('en'), it = view.render('it');
+    assert.match(en, /Securities at the time/); assert.match(it, /Investito al momento/);
+    assert.match(en, /excludes cash/); assert.match(it, /cassa esclusa/);
+    assert.doesNotMatch(en, /NAV at the time/); assert.doesNotMatch(it, /NAV alla data/);
+    if (value === null) { assert.match(en, /Invested amount n\/a/); assert.match(it, /Investito n.d./); }
+    else { assert.match(en, value === 0 ? /€0/ : /€5,960/); assert.match(it, value === 0 ? /0\u00a0€/ : /5\.960\u00a0€/); }
+    assert.deepEqual(record, before);
+  }
 });
 
 test('invalid DCF metadata and structured request failures are explicit in both languages', async () => {

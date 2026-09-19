@@ -90,6 +90,7 @@ def test_snapshot_builders_preserve_structured_records_and_localise_labels(metho
                         'evidence':{'source':'Fonte originale invariata','rationale':'Motivazione invariata'}}]}
     payload = {'ticker':'SYNTH', 'method':'synthetic_method', 'generation_id':'synthetic_generation',
         'valuation_date':'2026-09-12', 'valuation_basis':'Original basis', 'fair_value_base':42.125,
+        'valuation_usability':{'usable':False, 'reasons':['Synthetic draft fixture']},
         'analytical_quality':quality, 'acquisition_snapshot':{'case':{'as_of':'2026-09-12'}},
         'calculation_details':{'scenarios':{'base':{'original_key':17.25}}},
         'managed_care':{'scenarios':{'base':{'rows':[{'year':2027,'original_key':17.25}]}}}}
@@ -122,3 +123,38 @@ def test_mnav_target_binding_and_all_three_workbooks_are_language_invariant(tick
     assert it[:3] == en[:3] and len(it[2]) > 5
     assert 'Target premio/sconto (ANALISTA)' in it[3]
     assert 'Target premium/discount (ANALYST)' in en[3]
+
+
+# Frozen oracle, not read from the label dictionary: the sentence the reader must see.
+BRIDGE_NOTE = {
+    'it': "criterio dichiarato di inclusione delle voci discrezionali (la discrezionalita' si ordina, non si nasconde)",
+    'en': 'disclosed inclusion criterion for discretionary items (discretion must be ordered, not hidden)',
+}
+STANCE_LABEL = {'it': "Stance dell'analista: BUY", 'en': 'Analyst stance: BUY'}
+
+
+@pytest.mark.parametrize('items', [1, 2])
+@pytest.mark.parametrize('language', ['it', 'en'])
+def test_bridge_note_beside_the_stance_is_localised_in_the_dcf_sheet(language, items, tmp_path):
+    """Legacy branch of build_model_v3: equity adjustments plus a stance write a note beside the
+    stance label. Layout from the builder: bridge header on row 30, total on 30 + 2 + items (its
+    formula sums rows 31..total-1), stance and note on the next row. Two item counts, so the row
+    is a relation and not a coincidence of one value."""
+    from bellomberg.valuation import dcf_buyside_v3
+    from test_dcf_quality_integration import _spec
+    spec = _spec(); spec['price'] = 15; spec['stance'] = 'buy'
+    spec['equity_adjustments'] = [{'label': 'Synthetic item %d' % k, 'value_m': -12.5} for k in range(items)]
+    result = dcf_buyside_v3.build_model_v3(spec, str(tmp_path / (language + '.xlsx')), language=language)
+    assert result.get('ok') and 'error' not in result, result
+    wb = openpyxl.load_workbook(result['path'], data_only=False)
+    try:
+        ws = wb['DCF']
+        total = 30 + 2 + items
+        assert ws['B%d' % total].value == '=SUM(B31:B%d)' % (total - 1)
+        row = total + 1
+        assert ws['A%d' % row].value == STANCE_LABEL[language]
+        assert ws['B%d' % row].value == BRIDGE_NOTE[language]
+        found = [c.coordinate for line in ws.iter_rows() for c in line if c.value in BRIDGE_NOTE.values()]
+        assert found == ['B%d' % row], found
+    finally:
+        wb.close()

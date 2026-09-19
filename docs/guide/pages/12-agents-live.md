@@ -2,9 +2,10 @@
 
 [Handbook](../README.md) · [Previous: F11](./11-agent-chat.md) · [Next: F13](./13-agent-progress.md)
 
-![F12 Agents Live: original synthetic DEMO mockup](../../assets/product/12-agents-live.svg)
+![F12 Agents Live: Run activity — English DEMO screenshot](../../assets/screenshots/agents-live-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
 
 Follow the committee while it works: phases, agent state, tool activity and the
 saved execution record. This is the operational view of a run, separate from

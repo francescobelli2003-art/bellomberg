@@ -54,47 +54,155 @@
 <text x="1232" y="111" font-size="12" fill="#adbac9" font-weight="600" text-anchor="middle">CONFIG</text>
 </g>
 <line x1="0" y1="132" x2="1280" y2="132" stroke="#344250" stroke-width="1"/>
-<text x="28.0" y="172" font-size="30" fill="#eef2f7" font-weight="650" text-anchor="start">Progressi agenti</text>
-<text x="28.0" y="202" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Score salvati, incertezza e lezioni</text>
+<text x="28.0" y="172" font-size="30" fill="#eef2f7" font-weight="650" text-anchor="start">Risultati con evidenza</text>
+<text x="28.0" y="202" font-size="16" fill="#adbac9" font-weight="400" text-anchor="start">Misure, perimetro e lezioni separati.</text>
 <text x="28.0" y="864" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">DEMO  /  Illustration only. Not a screenshot, recommendation or measured result.</text>
-<rect x="28.0" y="232" width="280.398406374502" height="30" rx="4" fill="#24303c"/>
-<text x="42.62948207171315" y="252" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">Agente: Quant</text>
-<rect x="323.0278884462151" y="232" width="256.0159362549801" height="30" rx="4" fill="#24303c"/>
-<text x="337.6573705179283" y="252" font-size="13" fill="#adbac9" font-weight="600" text-anchor="start">Run: DEMO C</text>
-<rect x="28.0" y="284" width="758.2948207171315" height="344" rx="5" fill="#18212c" stroke="#344250"/>
-<text x="49.94422310756972" y="314" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Hit rate e intervallo di incertezza • DEMO</text>
-<line x1="64.57370517928287" y1="372" x2="749.7211155378486" y2="372" stroke="#344250" stroke-width="1"/>
-<line x1="64.57370517928287" y1="436" x2="749.7211155378486" y2="436" stroke="#344250" stroke-width="1"/>
-<line x1="64.57370517928287" y1="500" x2="749.7211155378486" y2="500" stroke="#344250" stroke-width="1"/>
-<line x1="64.57370517928287" y1="564" x2="749.7211155378486" y2="564" stroke="#344250" stroke-width="1"/>
-<line x1="134.0637450199203" y1="425" x2="134.0637450199203" y2="551" stroke="#adbac9" stroke-width="3"/>
-<line x1="123.09163346613546" y1="425" x2="145.0358565737052" y2="425" stroke="#adbac9" stroke-width="3"/>
-<line x1="123.09163346613546" y1="551" x2="145.0358565737052" y2="551" stroke="#adbac9" stroke-width="3"/>
-<rect x="127.96812749003983" y="483" width="12.191235059760956" height="10" rx="5" fill="#63cddb"/>
-<line x1="316.9322709163347" y1="385" x2="316.9322709163347" y2="511" stroke="#adbac9" stroke-width="3"/>
-<line x1="305.9601593625498" y1="385" x2="327.9043824701195" y2="385" stroke="#adbac9" stroke-width="3"/>
-<line x1="305.9601593625498" y1="511" x2="327.9043824701195" y2="511" stroke="#adbac9" stroke-width="3"/>
-<rect x="310.8366533864542" y="443" width="12.191235059760956" height="10" rx="5" fill="#63cddb"/>
-<line x1="682.6693227091633" y1="353" x2="682.6693227091633" y2="479" stroke="#adbac9" stroke-width="3"/>
-<line x1="671.6972111553785" y1="353" x2="693.6414342629482" y2="353" stroke="#adbac9" stroke-width="3"/>
-<line x1="671.6972111553785" y1="479" x2="693.6414342629482" y2="479" stroke="#adbac9" stroke-width="3"/>
-<rect x="676.5737051792829" y="411" width="12.191235059760956" height="10" rx="5" fill="#63cddb"/>
-<polyline points="134.1,488.0 316.9,448.0" fill="none" stroke="#63cddb" stroke-width="3"/>
-<text x="513.2111553784861" y="492" font-size="13" fill="#e2bf72" font-weight="400" text-anchor="middle">Dato assente</text>
-<text x="134.0637450199203" y="597" font-size="13" fill="#adbac9" font-weight="400" text-anchor="middle">Run A</text>
-<text x="316.9322709163347" y="597" font-size="13" fill="#adbac9" font-weight="400" text-anchor="middle">Run B</text>
-<text x="499.800796812749" y="597" font-size="13" fill="#adbac9" font-weight="400" text-anchor="middle">Run —</text>
-<text x="682.6693227091633" y="597" font-size="13" fill="#adbac9" font-weight="400" text-anchor="middle">Run C</text>
-<rect x="810.6772908366534" y="284" width="441.32270916334664" height="344" rx="5" fill="#18212c" stroke="#344250"/>
-<text x="832.6215139442231" y="314" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Leggere lo score</text>
-<text x="837.4980079681275" y="361" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Campione e orizzonte</text>
-<text x="837.4980079681275" y="401" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Intervallo Wilson 95%</text>
-<text x="837.4980079681275" y="441" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Delta: solo coorti comparabili</text>
-<text x="837.4980079681275" y="481" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Nessun punteggio inventato</text>
-<text x="837.4980079681275" y="521" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start"></text>
-<text x="837.4980079681275" y="561" font-size="15" fill="#adbac9" font-weight="400" text-anchor="start">Lo storico puo avere buchi.</text>
-<rect x="28.0" y="648" width="1224.0" height="180" rx="5" fill="#18212c" stroke="#344250"/>
-<text x="49.94422310756972" y="678" font-size="17" fill="#eef2f7" font-weight="600" text-anchor="start">Lezione salvata • DEMO</text>
-<text x="54.820717131474105" y="716" font-size="17" fill="#adbac9" font-weight="400" text-anchor="start">Separare un&#x27;ipotesi di miglioramento da una modifica applicata e misurata.</text>
-<text x="54.820717131474105" y="751" font-size="17" fill="#adbac9" font-weight="400" text-anchor="start">Una riflessione salvata non e fine-tuning e non prova causalita.</text>
+<rect x="1100.8286852589642" y="166" width="151.17131474103587" height="30" rx="4" fill="#15243a" stroke="#344250"/>
+<text x="1176.414342629482" y="185.68" font-size="13" fill="#eef2f7" font-weight="500" text-anchor="middle">Aggiorna dati</text>
+<line x1="28.0" y1="216" x2="1252.0" y2="216" stroke="#344250" stroke-width="1"/>
+<line x1="28.0" y1="246" x2="1252.0" y2="246" stroke="#344250" stroke-width="1"/>
+<text x="28.0" y="236" font-size="13" fill="#e2bf72" font-weight="600" text-anchor="start">✓</text>
+<text x="45.06772908366534" y="236" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">4 run registrate nella finestra</text>
+<text x="276.7011952191235" y="236" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Prima registrazione nella finestra: data DEMO</text>
+<text x="627.808764940239" y="236" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Fonte: SQLite agent_score_history + scorekeeper</text>
+<rect x="28.0" y="254" width="1224.0" height="28" rx="0" fill="#17222b"/>
+<rect x="28.0" y="254" width="3.047808764940239" height="28" rx="0" fill="#e2bf72"/>
+<text x="45.06772908366534" y="273" font-size="13" fill="#b4dae0" font-weight="400" text-anchor="start">Misura corrente disponibile · separata dallo storico · data DEMO</text>
+<text x="28.0" y="306" font-size="14" fill="#eef2f7" font-weight="600" text-anchor="start">Agenti e ruoli</text>
+<text x="249.8804780876494" y="306" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">Ultima misura</text>
+<line x1="28.0" y1="316" x2="249.8804780876494" y2="316" stroke="#344250" stroke-width="1"/>
+<rect x="28.0" y="318" width="221.8804780876494" height="51" rx="0" fill="#2b251b"/>
+<rect x="28.0" y="318" width="3.047808764940239" height="51" rx="0" fill="#e2bf72"/>
+<text x="37.75298804780876" y="336" font-size="13" fill="#eef2f7" font-weight="600" text-anchor="start">Capo / Comitato</text>
+<text x="245.003984063745" y="336" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="end">65,0%</text>
+<text x="37.75298804780876" y="351" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Sintesi e decisioni collettive</text>
+<text x="37.75298804780876" y="365" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">n=40 · Misura disponibile</text>
+<line x1="28.0" y1="369" x2="249.8804780876494" y2="369" stroke="#344250" stroke-width="1"/>
+<text x="37.75298804780876" y="387" font-size="13" fill="#eef2f7" font-weight="600" text-anchor="start">Macro</text>
+<text x="245.003984063745" y="387" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="end">n.d.</text>
+<text x="37.75298804780876" y="402" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Regime economico e liquidità</text>
+<text x="37.75298804780876" y="416" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">n=n.d. · Misura assente</text>
+<line x1="28.0" y1="420" x2="249.8804780876494" y2="420" stroke="#344250" stroke-width="1"/>
+<text x="37.75298804780876" y="438" font-size="13" fill="#eef2f7" font-weight="600" text-anchor="start">Fundamentals</text>
+<text x="245.003984063745" y="438" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="end">58,3%</text>
+<text x="37.75298804780876" y="453" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Valutazioni e tesi societarie</text>
+<text x="37.75298804780876" y="467" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">n=24 · Misura disponibile</text>
+<line x1="28.0" y1="471" x2="249.8804780876494" y2="471" stroke="#344250" stroke-width="1"/>
+<text x="37.75298804780876" y="489" font-size="13" fill="#eef2f7" font-weight="600" text-anchor="start">Quant</text>
+<text x="245.003984063745" y="489" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="end">62,5%</text>
+<text x="37.75298804780876" y="504" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Rischio, fattori e sizing</text>
+<text x="37.75298804780876" y="518" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">n=8 · Campione piccolo</text>
+<line x1="28.0" y1="522" x2="249.8804780876494" y2="522" stroke="#344250" stroke-width="1"/>
+<text x="37.75298804780876" y="540" font-size="13" fill="#eef2f7" font-weight="600" text-anchor="start">Options</text>
+<text x="245.003984063745" y="540" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="end">50,0%</text>
+<text x="37.75298804780876" y="555" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Volatilità e flussi opzioni</text>
+<text x="37.75298804780876" y="569" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">n=12 · Misura disponibile</text>
+<line x1="28.0" y1="573" x2="249.8804780876494" y2="573" stroke="#344250" stroke-width="1"/>
+<text x="37.75298804780876" y="591" font-size="13" fill="#eef2f7" font-weight="600" text-anchor="start">Crypto</text>
+<text x="245.003984063745" y="591" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="end">n.d.</text>
+<text x="37.75298804780876" y="606" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Mercati digitali e derivati</text>
+<text x="37.75298804780876" y="620" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">n=n.d. · Misura assente</text>
+<line x1="28.0" y1="624" x2="249.8804780876494" y2="624" stroke="#344250" stroke-width="1"/>
+<text x="37.75298804780876" y="642" font-size="13" fill="#eef2f7" font-weight="600" text-anchor="start">Event Desk</text>
+<text x="245.003984063745" y="642" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="end">61,1%</text>
+<text x="37.75298804780876" y="657" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Catalyst, notizie e geopolitica</text>
+<text x="37.75298804780876" y="671" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">n=18 · Misura disponibile</text>
+<line x1="28.0" y1="675" x2="249.8804780876494" y2="675" stroke="#344250" stroke-width="1"/>
+<text x="37.75298804780876" y="693" font-size="13" fill="#eef2f7" font-weight="600" text-anchor="start">Red Team</text>
+<text x="245.003984063745" y="693" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="end">—</text>
+<text x="37.75298804780876" y="708" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Revisione critica del comitato</text>
+<text x="37.75298804780876" y="722" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Ruolo senza score direzionale</text>
+<line x1="28.0" y1="726" x2="249.8804780876494" y2="726" stroke="#344250" stroke-width="1"/>
+<text x="37.75298804780876" y="744" font-size="13" fill="#eef2f7" font-weight="600" text-anchor="start">Reflection</text>
+<text x="245.003984063745" y="744" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="end">—</text>
+<text x="37.75298804780876" y="759" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Lezioni per la run successiva</text>
+<text x="37.75298804780876" y="773" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Ruolo senza score direzionale</text>
+<line x1="28.0" y1="777" x2="249.8804780876494" y2="777" stroke="#344250" stroke-width="1"/>
+<text x="37.75298804780876" y="795" font-size="13" fill="#eef2f7" font-weight="600" text-anchor="start">Action extractor</text>
+<text x="245.003984063745" y="795" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="end">—</text>
+<text x="37.75298804780876" y="810" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Estrazione delle decisioni</text>
+<text x="37.75298804780876" y="824" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Ruolo senza score direzionale</text>
+<line x1="28.0" y1="828" x2="249.8804780876494" y2="828" stroke="#344250" stroke-width="1"/>
+<text x="274.26294820717135" y="316" font-size="20" fill="#eef2f7" font-weight="600" text-anchor="start">Capo / Comitato</text>
+<text x="274.26294820717135" y="336" font-size="13" fill="#adbac9" font-weight="400" text-anchor="start">Sintesi e decisioni collettive</text>
+<text x="1022.8047808764941" y="302" font-size="11" fill="#adbac9" font-weight="400" text-anchor="start">Rilevazione</text>
+<rect x="1022.8047808764941" y="308" width="229.19521912350598" height="26" rx="4" fill="#101827" stroke="#344250"/>
+<text x="1034.996015936255" y="326" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">Ultima disponibile</text>
+<text x="1242.2470119521913" y="326" font-size="11" fill="#adbac9" font-weight="400" text-anchor="end">▾</text>
+<text x="274.26294820717135" y="362" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Il Capo mostra il risultato collettivo delle decisioni del comitato; non una performance individuale isolata.</text>
+<rect x="274.26294820717135" y="374" width="626.6294820717131" height="146" rx="4" fill="#11161e" stroke="#344250"/>
+<text x="296.20717131474106" y="394" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Hit rate direzionale</text>
+<text x="296.20717131474106" y="432" font-size="36" fill="#e2bf72" font-weight="500" text-anchor="start">65,0%</text>
+<text x="420.55776892430276" y="432" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">26 esiti corretti / 40 call</text>
+<text x="296.20717131474106" y="458" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Intervallo al 95%</text>
+<text x="296.20717131474106" y="480" font-size="17" fill="#eef2f7" font-weight="500" text-anchor="start">49,5–77,9%</text>
+<text x="420.55776892430276" y="480" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Wilson · ampiezza = incertezza</text>
+<line x1="688.7649402390439" y1="472" x2="878.9482071713147" y2="472" stroke="#50617b" stroke-width="1" stroke-dasharray="5 5"/>
+<line x1="782.9056573705179" y1="472" x2="836.917705179283" y2="472" stroke="#e2bf72" stroke-width="2"/>
+<line x1="812.38406374502" y1="467" x2="812.38406374502" y2="477" stroke="#e2bf72" stroke-width="1"/>
+<text x="688.7649402390439" y="488" font-size="10" fill="#adbac9" font-weight="400" text-anchor="start">0</text>
+<text x="783.8565737051792" y="488" font-size="10" fill="#adbac9" font-weight="400" text-anchor="middle">50</text>
+<text x="878.9482071713147" y="488" font-size="10" fill="#adbac9" font-weight="400" text-anchor="end">100%</text>
+<text x="296.20717131474106" y="510" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Edge medio</text>
+<text x="420.55776892430276" y="510" font-size="17" fill="#eef2f7" font-weight="500" text-anchor="start">1,2%</text>
+<text x="481.51394422310756" y="510" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Rendimento nella direzione della call</text>
+<rect x="925.2749003984064" y="374" width="326.7250996015936" height="146" rx="4" fill="#11161e" stroke="#344250"/>
+<text x="947.2191235059761" y="394" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Si può confrontare?</text>
+<text x="947.2191235059761" y="430" font-size="19" fill="#e2bf72" font-weight="600" text-anchor="start">Non confrontabile</text>
+<text x="947.2191235059761" y="458" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Campione, orizzonte, metodo o qualità</text>
+<text x="947.2191235059761" y="474" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">diversi: delta non confrontabile</text>
+<text x="274.26294820717135" y="540" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Misura disponibile</text>
+<text x="408.36653386454185" y="540" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Misurato: data DEMO</text>
+<text x="554.6613545816733" y="540" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Fonte: scorekeeper / agent_score_history</text>
+<line x1="274.26294820717135" y1="579" x2="1252.0" y2="579" stroke="#344250" stroke-width="1"/>
+<text x="274.26294820717135" y="570" font-size="14" fill="#e2bf72" font-weight="600" text-anchor="start">Rilevazioni</text>
+<text x="376.66932270916334" y="570" font-size="14" fill="#eef2f7" font-weight="400" text-anchor="start">Per azione</text>
+<text x="471.7609561752988" y="570" font-size="14" fill="#eef2f7" font-weight="400" text-anchor="start">Per fiducia</text>
+<text x="569.2908366533865" y="570" font-size="14" fill="#eef2f7" font-weight="400" text-anchor="start">Singole call</text>
+<text x="674.1354581673306" y="570" font-size="14" fill="#eef2f7" font-weight="400" text-anchor="start">Attività</text>
+<line x1="274.26294820717135" y1="579" x2="354.7250996015936" y2="579" stroke="#e2bf72" stroke-width="2"/>
+<text x="274.26294820717135" y="602" font-size="14" fill="#eef2f7" font-weight="600" text-anchor="start">Hit rate nel tempo</text>
+<text x="1252.0" y="602" font-size="12" fill="#adbac9" font-weight="400" text-anchor="end">Asse orizzontale: sequenza delle run</text>
+<line x1="321.80876494023903" y1="714.0" x2="1221.5219123505976" y2="714.0" stroke="#223045" stroke-width="1"/>
+<text x="312.0557768924303" y="718.0" font-size="12" fill="#adbac9" font-weight="400" text-anchor="end">0%</text>
+<line x1="321.80876494023903" y1="692.0" x2="1221.5219123505976" y2="692.0" stroke="#223045" stroke-width="1"/>
+<text x="312.0557768924303" y="696.0" font-size="12" fill="#adbac9" font-weight="400" text-anchor="end">25%</text>
+<line x1="321.80876494023903" y1="670.0" x2="1221.5219123505976" y2="670.0" stroke="#50617b" stroke-width="1" stroke-dasharray="5 5"/>
+<text x="312.0557768924303" y="674.0" font-size="12" fill="#adbac9" font-weight="400" text-anchor="end">50%</text>
+<line x1="321.80876494023903" y1="648.0" x2="1221.5219123505976" y2="648.0" stroke="#223045" stroke-width="1"/>
+<text x="312.0557768924303" y="652.0" font-size="12" fill="#adbac9" font-weight="400" text-anchor="end">75%</text>
+<line x1="321.80876494023903" y1="626.0" x2="1221.5219123505976" y2="626.0" stroke="#223045" stroke-width="1"/>
+<text x="312.0557768924303" y="630.0" font-size="12" fill="#adbac9" font-weight="400" text-anchor="end">100%</text>
+<line x1="1221.5219123505976" y1="626" x2="1221.5219123505976" y2="714" stroke="#50617b" stroke-width="1" stroke-dasharray="5 5"/>
+<line x1="321.80876494023903" y1="659.0" x2="621.7131474103586" y2="659.0" stroke="#e2bf72" stroke-width="2"/>
+<line x1="1221.5219123505976" y1="670.44" x2="1221.5219123505976" y2="645.448" stroke="#b7d9ee" stroke-width="2"/>
+<line x1="1214.2071713147411" y1="670.44" x2="1228.8366533864541" y2="670.44" stroke="#b7d9ee" stroke-width="2"/>
+<line x1="1214.2071713147411" y1="645.448" x2="1228.8366533864541" y2="645.448" stroke="#b7d9ee" stroke-width="2"/>
+<circle cx="321.8" cy="659.0" r="4" fill="#e2bf72" stroke="#102337" stroke-width="2"/>
+<circle cx="621.7" cy="659.0" r="4" fill="#e2bf72" stroke="#102337" stroke-width="2"/>
+<circle cx="921.6" cy="722.0" r="4" fill="none" stroke="#c69670" stroke-width="2"/>
+<circle cx="1221.5" cy="656.8" r="6" fill="#e8f7ff" stroke="#e2bf72" stroke-width="2"/>
+<text x="321.80876494023903" y="740" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">#1</text>
+<text x="621.7131474103586" y="740" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">#2</text>
+<text x="921.6175298804781" y="740" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">#3</text>
+<text x="1221.5219123505976" y="740" font-size="12" fill="#adbac9" font-weight="400" text-anchor="middle">#4</text>
+<rect x="329.1235059760956" y="619" width="570.5498007968127" height="24" rx="0" fill="#11161e"/>
+<text x="337.6573705179283" y="635" font-size="12" fill="#eef2f7" font-weight="400" text-anchor="start">Memo 4 • 65,0% • n=40 • data DEMO · Intervallo al 95% 49,5–77,9% · Misura disponibile</text>
+<circle cx="276.7" cy="760.0" r="3.5" fill="#e2bf72"/>
+<text x="286.45418326693226" y="764" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Misura salvata</text>
+<line x1="408.36653386454185" y1="760" x2="426.65338645418325" y2="760" stroke="#e2bf72" stroke-width="2"/>
+<text x="432.74900398406373" y="764" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Stessa coorte e metodo</text>
+<text x="627.808764940239" y="764" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Barra verticale: intervallo al 95% della selezione</text>
+<text x="274.26294820717135" y="792" font-size="14" fill="#eef2f7" font-weight="600" text-anchor="start">Registro delle run</text>
+<text x="1252.0" y="792" font-size="12" fill="#adbac9" font-weight="400" text-anchor="end">Ultime 4 registrate</text>
+<text x="284.0159362549801" y="812" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Memo</text>
+<text x="408.36653386454185" y="812" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Completata</text>
+<text x="652.191235059761" y="812" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Hit rate Capo / Comitato</text>
+<text x="956.9721115537849" y="812" font-size="12" fill="#adbac9" font-weight="400" text-anchor="start">Call</text>
+<line x1="274.26294820717135" y1="820" x2="1252.0" y2="820" stroke="#344250" stroke-width="1"/>
+<rect x="274.26294820717135" y="821" width="977.7370517928287" height="24" rx="0" fill="#25291f"/>
+<text x="284.0159362549801" y="838" font-size="13" fill="#e2bf72" font-weight="400" text-anchor="start">#4 ↗</text>
+<text x="408.36653386454185" y="838" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="start">data DEMO</text>
+<text x="652.191235059761" y="838" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="start">65,0%</text>
+<text x="956.9721115537849" y="838" font-size="13" fill="#eef2f7" font-weight="400" text-anchor="start">40</text>
 </svg>

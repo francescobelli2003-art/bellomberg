@@ -2,9 +2,10 @@
 
 [Handbook](../README.md) · [Previous: F2](./02-performance.md) · [Next: F4](./04-global-markets.md)
 
-![F3 Watchlist: original synthetic DEMO mockup](../../assets/product/03-watchlist.svg)
+![F3 Watchlist: Watchlist — English DEMO screenshot](../../assets/screenshots/watchlist-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
 
 A watchlist is a place to keep research candidates without changing what you own.
 It stores favourites and your observation notes, with quotes supplied separately.

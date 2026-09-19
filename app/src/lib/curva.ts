@@ -429,11 +429,11 @@ export interface LetturaCurva {
  *
  * ⚠️ La secondaria porta sempre il suo regime, perché il numero non vuol dire
  * la stessa cosa nei due tratti: nel ricostruito è il valore di mercato del
- * book SENZA la cassa (l'11/06: circa il 62% del vero), nell'ufficiale
+ * book SENZA la cassa, nell'ufficiale
  * è il patrimonio pieno. Scriverlo nudo sarebbe un proxy non etichettato.
  *
- * ⚠️ `flows_eur` NON è il ledger (misurato: 22 giorni non nulli contro 2
- * movimenti veri): i versamenti si leggono da `external_flows`, e solo quelli.
+ * ⚠️ `flows_eur` NON è il ledger: comprende anche flussi impliciti ricostruiti.
+ * I versamenti si leggono da `external_flows`, e solo quelli.
  */
 export function letturaCurva(c: CurvaViva, i: number): LetturaCurva | null {
   if (!Number.isInteger(i) || i < 0 || i >= c.date.length) return null;
@@ -474,8 +474,7 @@ export function spiegaCurva(c: EsitoCurva): string {
   ];
   // ⚠️ IL GATE È SUL TRATTEGGIO DISEGNATO (`confine`), NON SUL DATO (`confineData`).
   // Con il gate sul dato, la vista patrimonio — che il tratteggio non ce l'ha —
-  // affermava «Il tratteggio è il 12/06», «57 giorni ufficiali», «93 ricostruiti»:
-  // tre frasi false raggiungibili con un clic, trovate dai confutatori il 22/08.
+  // descriverebbe un tratteggio assente e conteggi riferiti a un'altra vista.
   if (c.confine != null && c.confineData && c.nRicostruiti > 0) {
     righe.push(
       tr('dashboard.curve_boundary_one', {a: dataIt(c.confineData, true)})

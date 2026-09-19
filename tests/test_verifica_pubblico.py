@@ -16,6 +16,15 @@ sys.path.insert(0, os.path.join(REPO, "src"))
 from tools.release import verifica_pubblico as vp  # noqa: E402
 
 
+@pytest.fixture
+def synthetic_policy(tmp_path, monkeypatch):
+    """Tiny wiring-test trees have their own policy, without real capture pins."""
+    policy = tmp_path / "synthetic-policy"
+    policy.mkdir()
+    monkeypatch.setattr(vp, "PUBBLICO", str(policy))
+    return policy
+
+
 @pytest.mark.parametrize("rel,pattern,atteso", [
     ("capo.py", "*.py", True),
     ("scripts/x.py", "*.py", False),            # '*' non attraversa '/'
@@ -109,7 +118,9 @@ def test_pinned_vendor_changed_bytes_are_rejected_even_after_shrinking(tmp_path,
 
 @pytest.mark.parametrize("control,token", [("env", "SYNTH_KEY"), ("vietate", "SECRET_SYNTHETIC"),
     ("gitleaks", "SYNTH_KEY"), ("lista_privata", "SECRET_SYNTHETIC"),
-    ("valori_estesi", "SECRET_SYNTHETIC"), ("ticker_soli", "W*"), ("lotti", "W*")])
+    ("valori_estesi", "SECRET_SYNTHETIC"), ("ticker_soli", "W*"), ("lotti", "W*"),
+    ("lista_privata", "7.31%"), ("env", "7.31%"), ("gitleaks", "7.31%"),
+    ("valori_estesi", "7.*%"), ("valori_estesi", "rate 7.31%")])
 def test_pinned_vendor_cannot_exempt_secrets_or_broad_tokens(tmp_path, monkeypatch, control, token):
     tree, lists = _pinned_gate(tmp_path, monkeypatch, control=control, token=token)
     results, _ = vp.esegui_controlli(str(tree), solo=["dimensione", "lista_privata"], pubblico=str(lists))
@@ -136,6 +147,22 @@ def test_pinned_vendor_extra_controls_keep_other_files_and_unlisted_tokens(contr
     for changed in (b"changed " + original, b"shortened"):
         with pytest.raises(ValueError, match="SHA-256"):
             vp._risolvi_deroghe_upstream({"vendor.js": changed}, {(pin, control, token)}, [])
+
+
+def test_pinned_percentage_is_exact_and_cannot_cover_other_files_or_changed_bytes():
+    original = b"7.31% 9.17%\n"
+    tree = {"demo.dom.txt": original, "other.dom.txt": original}
+    digest = hashlib.sha256(original).hexdigest()
+    row = ("demo.dom.txt@sha256=" + digest, "valori_estesi", "7.31%")
+    exceptions, _, verified = vp._risolvi_deroghe_upstream(tree, {row}, [])
+    assert exceptions == {("demo.dom.txt", "valori_estesi", "7.31%")}
+    assert verified == {"demo.dom.txt": digest}
+    assert ("other.dom.txt", "valori_estesi", "7.31%") not in exceptions
+    assert ("demo.dom.txt", "valori_estesi", "9.17%") not in exceptions
+    with pytest.raises(ValueError, match="SHA-256"):
+        vp._risolvi_deroghe_upstream({"demo.dom.txt": original + b" "}, {row}, [])
+    with pytest.raises(ValueError, match="percorso esatto"):
+        vp._risolvi_deroghe_upstream(tree, {("*.dom.txt@sha256=" + digest, row[1], row[2])}, [])
 
 
 def test_pinned_receipt_uses_frozen_policy_but_scans_current_artifact_bytes(tmp_path, monkeypatch):
@@ -194,11 +221,9 @@ def test_carica_tree_salta_anche_il_gitfile_di_un_worktree(tmp_path):
 
 
 def test_maschera_non_rivela_il_token():
-    """04/09: la seconda riga asseriva `maschera("ab") == "ab\u2026(2)"`, cioe' il token
-    INTERO. Il test si chiamava \u00abnon rivela il token\u00bb e certificava il contrario:
-    scritto guardando il codice invece del comportamento, aveva fissato il difetto
-    come regola. Ora si asserisce la PROPRIETA' su ogni lunghezza \u2014 3 delle 40 basi
-    ticker del DB hanno 2 lettere, e l'output del cancello finisce in log e chat."""
+    """La proprieta' di riservatezza vale su ogni lunghezza: un prefisso di 2 caratteri
+    rivelerebbe per intero un token corto. Il test deve verificare la proprieta',
+    senza fissare come regola un comportamento errato dell'implementazione."""
     m = vp.maschera("segretissimo-12345")
     assert m == "se\u2026(18)" and "segretissimo" not in m
     for t in ("ab", "abc", "abcd", "abcdefg", "ab.mi"):
@@ -832,10 +857,9 @@ def test_lotti_quantita_a_4_cifre_da_sola_vale_come_il_prezzo():
 # --- review T5: un test per finding, cifre e ticker finti verificati contro DB e lista privata ---
 
 def test_lotti_cade_anche_in_cella_csv_o_array_compatto():
-    """Review T5 F1: in 'T,q,p' la virgola dopo la quantita' intera la faceva sparire ai confini
-    numerici di _regex_numero (45/136 lotti veri passavano in forma CSV — la riga stessa di
-    importa_trade_csv — e nessun altro controllo li prendeva). Ogni forma si cerca anche sulla
-    riga con le virgole sostituite da spazi; un numero italiano con la virgola resta un numero."""
+    """Review T5 F1: in 'T,q,p' la virgola dopo la quantita' intera la faceva sparire ai
+    confini numerici di _regex_numero. Ogni forma si cerca anche sulla riga con le
+    virgole sostituite da spazi; un numero italiano con la virgola resta un numero."""
     lotti = {("QRST", 11.0, 9.75), ("KLMN", 1234.0, 9.75), ("WXYZ", 3.0, 312.47)}
     tree = _tree(**PULITO, **{
         "a.csv": "QRST,11,9.75\n",
@@ -850,9 +874,9 @@ def test_lotti_cade_anche_in_cella_csv_o_array_compatto():
 
 
 def test_forme_lotto_notazione_inglese():
-    """Review T5 F2: 15/15 quantita' e 18/18 prezzi da 1.000 in su del book passavano scritti
-    come li formatta il ':,' di Python (22 file del tree) o un export inglese; '1,234' ha i
-    confini di un intero ('1,234,567' e' un altro numero)."""
+    """Review T5 F2: quantita' e prezzi da 1.000 in su devono restare cercabili nel
+    formato ':,' di Python o di un export inglese; '1,234' ha i confini di un intero
+    ('1,234,567' e' un altro numero)."""
     assert {"1,234"} <= vp._forme_lotto(1234)
     assert {"3,117.46", "3,117.5", "3,117"} <= vp._forme_lotto(3117.456789)
     assert {"1,000.00", "1.000,00"} <= vp._forme_lotto(999.996)
@@ -863,9 +887,9 @@ def test_forme_lotto_notazione_inglese():
 
 
 def test_forme_lotto_a_3_e_4_decimali_e_le_cifre_si_contano_sul_valore():
-    """Review T5 F3: un prezzo ricopiato con round(p, 3) o '%.4f' (117-121/136 lotti veri
-    passavano anche con la quantita' accanto). Le cifre della regola «4+ da sola» sono quelle
-    del VALORE (_significative): uno zero di padding ('9.750') non ne aggiunge."""
+    """Review T5 F3: un prezzo ricopiato con round(p, 3) o '%.4f' deve restare cercabile.
+    Le cifre della regola dei 4+ caratteri da soli sono quelle del VALORE
+    (_significative): uno zero di padding ('9.750') non ne aggiunge."""
     assert {"3117.457", "3117.4568", "3.117,4568"} <= vp._forme_lotto(3117.456789)
     assert {"9.750", "9.7500"} <= vp._forme_lotto(9.75)
     assert (vp._significative(9.75), vp._significative(1000.0), vp._significative(3117.456789)) == (3, 4, 10)
@@ -903,15 +927,15 @@ def test_lotti_quantita_tonda_a_4_cifre_da_sola_e_un_hit():
 
 
 def test_forme_lotto_confine_delle_migliaia_e_quantita_frazionaria():
-    """Review T5 F6: la forma con le migliaia nasce A 1000 (4 lotti veri stanno esattamente
-    sulla soglia); 999 non ne ha; una quantita' frazionaria tiene i decimali (colonne REAL)."""
+    """Review T5 F6: la forma con le migliaia nasce A 1000; 999 non ne ha.
+    Una quantita' frazionaria tiene i decimali (colonne REAL)."""
     assert vp._forme_lotto(1000) == {"1000", "1.000", "1,000"}
     assert vp._forme_lotto(999) == {"999"}
     assert {"0.5", "0,5"} <= vp._forme_lotto(0.5)
 
 
 def test_lotti_db_tiene_quantita_zero_frazionaria_e_prezzo_zero_e_il_ticker_non_e_preceduto_da_cifre(tmp_path):
-    """Review T5 F6: il DB vero ha posizioni chiuse (quantita' 0) col loro prezzo medio: un
+    """Review T5 F6: una posizione chiusa (quantita' 0) conserva il suo prezzo medio: un
     `if t and q and p` le perderebbe zitto; idem un prezzo 0 e una quantita' frazionaria
     (`float(int(q))` la azzera). E una cifra attaccata al ticker non e' il ticker."""
     import sqlite3
@@ -950,11 +974,8 @@ def test_lotti_dei_ticker_londra_cercati_anche_in_gbp():
 
 # ---------------------------------------------------------------------------
 # F1 (04/09): controllo 9 — i ticker del DB cercati DA SOLI.
-# Il difetto del 03/09 in una riga: `controllo_lotti` segnala il ticker solo se sulla
-# stessa riga ci sono anche quantita' E prezzo (sua docstring: «i ticker sono pubblici,
-# decisione PM 02/09»). Un elenco NUDO di simboli non e' un lotto, non e' un valore di
-# colonna numerica, non e' in VIETATE: nessuno degli 8 controlli poteva vederlo, e il
-# book era ricostruibile dal sorgente. Questo controllo cerca il simbolo E BASTA.
+# Un elenco NUDO di simboli non e' un lotto ne' un valore di colonna numerica e
+# puo' non essere in VIETATE. Questo controllo cerca il simbolo E BASTA.
 # ---------------------------------------------------------------------------
 
 def test_un_elenco_nudo_di_ticker_e_cieco_a_lotti_e_lo_vede_il_controllo_nuovo():
@@ -1011,10 +1032,8 @@ def test_una_tabella_che_manca_e_dichiarata_non_saltata(tmp_path):
 
 
 def test_un_controllo_in_osservazione_conta_ma_non_ferma_e_il_verdetto_lo_dichiara(capsys):
-    """Il nono controllo nasce in osservazione: oggi darebbe ~1.342 riscontri e un cancello
-    sempre rosso viene spento (lezione «una guardia che grida al lupo»). Ma il verdetto non
-    puo' dire PULITO e basta — sarebbe di nuovo una frase piu' larga della misura: deve dire
-    su COSA e' pulito e quanto resta scoperto."""
+    """Un controllo in osservazione conta senza fermare, ma il verdetto deve dire
+    su COSA e' pulito e quanto resta scoperto: non puo' dichiarare PULITO e basta."""
     esiti = [vp.Esito("vietate"),
              vp.Esito("ticker_soli", [vp.Hit("m.py", 1, "WX…(4)")], osservazione=True)]
     rc = vp.verdetto(esiti)
@@ -1055,8 +1074,8 @@ def test_la_nota_dice_quanti_ticker_cercati_quanti_presenti_e_in_quanti_file():
 
 
 def test_una_eccezione_motivata_toglie_l_hit_e_la_colonna_conta_il_residuo():
-    """Le due deroghe del PM (DAT, US_OPTIONS) vivranno qui: una riga per file e simbolo,
-    col motivo scritto accanto — non un insieme cablato nel codice."""
+    """Un'eccezione motivata usa una riga per file e simbolo,
+    senza cablare un insieme di simboli nel codice."""
     tree = _tree(**PULITO, **{"signal_engine.py": "WXYZ\n", "altro.py": "WXYZ\n"})
     ecc = {("signal_engine.py", "ticker_soli", "WXYZ")}
     esito = vp.controllo_ticker_soli(tree, {"WXYZ"}, ecc)
@@ -1065,18 +1084,16 @@ def test_una_eccezione_motivata_toglie_l_hit_e_la_colonna_conta_il_residuo():
 
 
 def test_il_token_stampato_e_mascherato_non_il_simbolo_intero():
-    """PIN, non ciclo rosso-verde: `controllo_lotti` stampa il ticker INTERO sulla premessa
-    «i ticker sono pubblici» — la premessa da cui il 03/09 e' uscito il book. L'output del
-    cancello finisce nei log e in chat: qui il simbolo non si scrive."""
+    """L'output del cancello finisce nei log e in chat: il simbolo deve restare
+    mascherato, anche quando il controllo identifica una menzione senza importi."""
     esito = vp.controllo_ticker_soli(_tree(**PULITO, **{"m.py": "WXYZ\n"}), {"WXYZ"})
     assert [h.token for h in esito.hit] == ["WX…(4)"]
 
 
 def test_i_confini_non_prendono_il_simbolo_dentro_una_parola():
-    """PIN dei confini: una base di 2-3 caratteri (ne abbiamo) dentro una parola piu' lunga
+    """PIN dei confini: una base di 2-3 caratteri (sintetica) dentro una parola piu' lunga
     non e' un riscontro, ma attaccata a un punto (la forma «BASE.BORSA») si'.
-    La sigla d'esempio e' INVENTATA e verificata assente dal DB: la prima stesura di questo
-    test usava una base VERA del book, e a trovarla e' stato il controllo che sta provando.
+    La sigla d'esempio e' INVENTATA.
     `d.py` serve al confine SINISTRO da solo: senza di esso il banco di mutazioni ha visto
     sopravvivere la caduta del `(?<!...)`, perche' in «AZQM» a fermare tutto bastava il
     confine destro (banco 04/09, mutazione sopravvissuta)."""
@@ -1087,8 +1104,7 @@ def test_i_confini_non_prendono_il_simbolo_dentro_una_parola():
 
 def test_il_simbolo_attaccato_a_un_trattino_basso_e_un_riscontro():
     """Trovato dagli scettici (04/09): il confine escludeva `_`, quindi la forma `px_BASE` —
-    un identificatore che NOMINA il titolo — restava invisibile. Sul perimetro vero erano 59
-    riscontri su 49 righe in 7 file. Il trattino basso non protegge niente: separa e basta."""
+    un identificatore che NOMINA il titolo — restava invisibile. Il trattino basso non protegge niente: separa e basta."""
     tree = _tree(**PULITO, **{"a.py": "px_ZQ = 1\n", "b.py": "ZQ_close = 2\n", "c.py": "AZQM = 3\n"})
     assert sorted(h.file for h in vp.controllo_ticker_soli(tree, {"ZQ"}).hit) == ["a.py", "b.py"]
 
@@ -1120,7 +1136,7 @@ def test_il_nono_controllo_e_nella_lista_e_marcato_osservazione():
     assert "ticker_soli" in vp.OSSERVAZIONE
 
 
-def test_esegui_tutti_esegue_davvero_il_nono_controllo(tmp_path, monkeypatch, capsys):
+def test_esegui_tutti_esegue_davvero_il_nono_controllo(synthetic_policy, tmp_path, monkeypatch, capsys):
     """CABLAGGIO, non helper. Se il ramo di `esegui_tutti` sparisce, il controllo non gira
     e nessun altro test se ne accorge: `non_eseguiti` non lo vedrebbe, perche' il nome resta
     in `da_fare`. Il cancello direbbe la sua riga in meno e nessuno la cercherebbe."""
@@ -1135,7 +1151,7 @@ def test_esegui_tutti_esegue_davvero_il_nono_controllo(tmp_path, monkeypatch, ca
     assert rc == 2      # gli altri otto non eseguiti: un cancello parziale non e' mai verde
 
 
-def test_un_controllo_registrato_e_mai_cablato_non_passa_inosservato(tmp_path, monkeypatch, capsys):
+def test_un_controllo_registrato_e_mai_cablato_non_passa_inosservato(synthetic_policy, tmp_path, monkeypatch, capsys):
     """IL BUCO CHE AVREBBE RESO INERTE IL DECIMO CONTROLLO (04/09). `da_fare` nasce da
     CONTROLLI, ma il corpo di `esegui_tutti` e' una catena if/elif SENZA `else`: un nome
     registrato nella tupla e mai cablato veniva saltato in silenzio, e `non_eseguiti` non
@@ -1155,7 +1171,7 @@ def test_un_controllo_registrato_e_mai_cablato_non_passa_inosservato(tmp_path, m
     assert rc == 2
 
 
-def test_quando_si_deposita_l_osservazione_torna_a_bloccare(tmp_path, monkeypatch, capsys):
+def test_quando_si_deposita_l_osservazione_torna_a_bloccare(synthetic_policy, tmp_path, monkeypatch, capsys):
     """La cura che spegne lascia acceso il peggio (trovato dagli scettici, 04/09): in
     osservazione il cancello esce 0 — e `export_pubblico` deposita proprio su `rc == 0`,
     quindi il book uscirebbe lo stesso, con la riga di verdetto che lo dice a un lettore
@@ -1349,7 +1365,7 @@ def test_gitleaks_che_legge_meno_byte_del_tree_e_un_ko_non_un_pulito(tmp_path):
     """LA COPERTURA E' UNA MISURA, NON UNA DEDUZIONE (review T6 F1). Il motore salta di suo dei
     file (allowlist globale del suo config: lockfile, node_modules, .png, .zip, archivi oltre la
     profondita' massima, file che non riesce ad aprire) e la scansione esce comunque 0 con report
-    vuoto: sul tree vero erano 357.316 byte su 5.887.695, dichiarati «0 hit, PULITO»."""
+    vuoto: senza misurare i byte letti, un report vuoto nasconderebbe la copertura incompleta."""
     tree = tmp_path / "tree"
     tree.mkdir()
     (tree / "visto.py").write_bytes(b"x = 1\n")
@@ -1441,9 +1457,7 @@ def test_env_eccezione_che_non_copre_nulla_e_dichiarata():
 # ---------------------------------------------------------------------------------------
 # T10 (04/09): controllo 10, il PAYLOAD — il testo SPEDITO AI MODELLI.
 # I nove controlli precedenti misurano cosa viene PUBBLICATO; questo misura cosa DECIDE.
-# Le sigle e i nomi qui sotto sono INVENTATI e verificati assenti dal book (la prima
-# stesura del test del nono controllo usava una base VERA, e a trovarla fu il controllo
-# che stava provando).
+# Le sigle e i nomi qui sotto sono INVENTATI.
 # ---------------------------------------------------------------------------------------
 
 def _db_nomi(tmp_path):
@@ -1494,7 +1508,7 @@ def test_payload_trova_la_base_del_ticker_nel_testo_spedito():
 
 def test_payload_cerca_il_minuscolo_dalle_quattro_lettere_in_su():
     """Il payload e' PROSA: uno slug minuscolo dentro la description di un tool e' un
-    riscontro (misurato: nel registro vivo c'e' un nome di gestore tutto minuscolo).
+    riscontro, anche quando il nome nel DB usa lettere maiuscole.
     Sotto le 4 lettere il minuscolo sommergerebbe il conto: BUCO DICHIARATO, e questo
     test lo PIN a come e' scritto, cosi' il giorno che si allarga si vede."""
     assert len(vp.controllo_payload({"c": "wxyz minuscolo"}, {"WXYZ"}).hit) == 1
@@ -1531,9 +1545,9 @@ def test_payload_una_parola_generica_del_nome_non_e_un_riscontro():
 
 
 def test_payload_un_nome_di_funzione_non_e_una_menzione_del_book():
-    """04/09: 7 riscontri su 136 erano `get_hyperliquid_intel` e simili — il confine del
-    controllo e' `(?<![A-Za-z0-9])` e l'underscore NON e' alfanumerico, quindi un nome di
-    tool contava come fuga. Ora e' separato: fuori dal totale, DENTRO la nota."""
+    """Il confine del controllo e' `(?<![A-Za-z0-9])` e l'underscore NON e'
+    alfanumerico: nomi di tool come `get_venue_intel` possono contare come menzioni.
+    Questi casi sono separati: fuori dal totale, DENTRO la nota."""
     e = vp.controllo_payload({"d": "chiama get_wxyz_intel per il tema\n"}, {"WXYZ"})
     assert e.hit == []
     assert "DENTRO identificatori" in e.note and "1 riscontri" in e.note
@@ -1574,8 +1588,8 @@ def test_payload_il_prompt_del_sentiment_delle_news_e_nel_corpus():
 
 
 def test_payload_una_parola_di_settore_non_identifica_una_societa():
-    """`healthcare` e' parola distintiva del nome di un preferito: senza questa riga, ogni
-    frase che parla del SETTORE contava come fuga (4 riscontri su 136 il 04/09)."""
+    """Una parola di settore come `healthcare` non identifica da sola una societa':
+    la fixture sintetica verifica che non basti a segnalare una menzione."""
     parole = vp._parole_distintive({"Zorvex Healthcare Inc"})
     assert "Healthcare" not in parole and "healthcare" not in parole
     assert "Zorvex" in parole          # la parola VERAMENTE distintiva resta un ago
@@ -1758,7 +1772,7 @@ def test_lista_e_hash_restano_quelli_congelati_se_il_file_cambia(tmp_path):
     assert [h.file for h in esiti[0].hit] == ["a.py"]
 
 
-def test_esegui_tutti_esegue_davvero_il_decimo_controllo(tmp_path, monkeypatch, capsys):
+def test_esegui_tutti_esegue_davvero_il_decimo_controllo(synthetic_policy, tmp_path, monkeypatch, capsys):
     """CABLAGGIO, non helper: se il ramo `elif nome == "payload"` sparisce, il controllo
     non gira e nessun altro test se ne accorge — `non_eseguiti` non lo vedrebbe, perche'
     il nome resta in `da_fare` (e' il buco chiuso oggi con l'`else`)."""
@@ -1777,8 +1791,8 @@ def test_esegui_tutti_esegue_davvero_il_decimo_controllo(tmp_path, monkeypatch, 
 
 def test_il_payload_legacy_non_lascia_il_env_del_pm_nell_ambiente(tmp_path, monkeypatch):
     """13/09 (Claude Opus 5): senza --corpus-root il payload si rende IMPORTANDO i moduli nel
-    processo, e `config.py` fa load_dotenv del privato. Misurato: dopo questo controllo il
-    processo aveva 45 variabili del `.env` in piu', e la suite dell'export le ereditava."""
+    processo, e `config.py` fa load_dotenv del privato. Senza ripristinare l'ambiente,
+    la suite dell'export erediterebbe le variabili caricate dal controllo."""
     tree = tmp_path / "tree"
     tree.mkdir()
     (tree / "m.py").write_text("ok\n", encoding="utf-8")
@@ -1797,8 +1811,8 @@ def test_il_payload_legacy_non_lascia_il_env_del_pm_nell_ambiente(tmp_path, monk
 
 def test_il_decimo_controllo_e_registrato_e_nasce_in_osservazione():
     """Pin del cablaggio: se domani sparisce da CONTROLLI, `esegui_tutti` non lo esegue
-    piu'. Nasce in OSSERVAZIONE come il nono: un controllo che parte con 160 riscontri
-    renderebbe il cancello rosso per sempre e verrebbe spento."""
+    piu'. Nasce in OSSERVAZIONE come il nono: i riscontri restano dichiarati
+    mentre vengono classificati."""
     assert "payload" in vp.CONTROLLI and "payload" in vp.OSSERVAZIONE
 
 
@@ -1856,8 +1870,8 @@ def test_main_tree_su_una_cartella_che_non_esiste_esce_2(tmp_path, capsys):
 
 # ---------------------------------------------------------------------------
 # 05/09 (voce 8, a2): un valore del .env IDENTICO al default committato in `.env.example` e'
-# pubblico per costruzione (gli slug dei modelli: 46 riscontri a HEAD, tutti nel template e nei
-# test) — non si cerca, e la nota lo dice per nome. Un valore DIVERSO dal template si cerca; un
+# pubblico per costruzione (per esempio gli slug dei modelli) — non si cerca, e la nota lo
+# dice per nome. Un valore DIVERSO dal template si cerca; un
 # tree senza template non esclude nulla (conservativo).
 # ---------------------------------------------------------------------------
 TEMPLATE_FINTO = "# esempio\nMODELLO_CHAT=z-ai/glm-finto-5\nCHIAVE_A=\nSCONOSCIUTA=abc\n"
@@ -1887,11 +1901,11 @@ def test_env_senza_template_nel_tree_non_esclude_nulla():
 
 
 def test_payload_una_eccezione_per_canale_e_token_toglie_l_hit_e_la_dichiara():
-    """Le deroghe del PM sul payload (05/09: «Hyperliquid» e' il nome del MERCATO che un tool
-    interroga, non una posizione) vivono in ECCEZIONI.txt con il CANALE al posto del file: la
-    stessa chiave (canale, "payload", token) degli altri controlli. La chiave e' ESATTA, maiuscole
-    comprese, anche se la ricerca non lo e': la riga in minuscolo non copre nulla, viene
-    dichiarata e l'hit resta."""
+    """Un nome di mercato citato da un tool puo' avere un'eccezione motivata in
+    ECCEZIONI.txt con il CANALE al posto del file: la stessa chiave
+    (canale, "payload", token) degli altri controlli. La chiave e' ESATTA, maiuscole
+    comprese, anche se la ricerca non lo e': la riga in minuscolo non copre nulla,
+    viene dichiarata e l'hit resta."""
     testi = {"tool/finto": "dati del mercato Zorvex: funding e OI\n", "capo/finto": "niente qui\n"}
     nomi = {"Zorvex Quantum Holdings"}
     senza = vp.controllo_payload(testi, {"WXYZ"}, nomi)
@@ -1904,10 +1918,8 @@ def test_payload_una_eccezione_per_canale_e_token_toglie_l_hit_e_la_dichiara():
 
 
 def test_payload_la_nota_conta_i_canali_colpiti_prima_delle_eccezioni_e_lo_dice():
-    """Con due deroghe applicate la nota diceva ancora «10 canali colpiti» (misurato 05/09 sul
-    corpus vero: hit 89 → 87, canali colpiti invariati): il conto e' fatto PRIMA delle eccezioni,
-    come in ticker_soli, e come li' lo deve DIRE — altrimenti la nota afferma piu' di quanto
-    l'esito mostra."""
+    """Il conto dei canali colpiti e' fatto PRIMA delle eccezioni, come in ticker_soli.
+    La nota lo deve DIRE, altrimenti afferma piu' di quanto l'esito mostra."""
     testi = {"tool/finto": "mercato Zorvex\n", "capo/finto": "niente\n"}
     e = vp.controllo_payload(testi, {"WXYZ"}, {"Zorvex Quantum Holdings"},
                              eccezioni={("tool/finto", "payload", "Zorvex")})
@@ -1931,10 +1943,9 @@ def test_esegui_controlli_legge_le_liste_dalla_cartella_indicata(tmp_path):
 
 
 def test_leggi_simboli_pretende_il_motivo_e_torna_le_basi_maiuscole(tmp_path):
-    """Settimo buco D5 (8c, 05/09): il simbolo NUDO di una posizione che nel DB sta in un'altra
-    forma non e' derivabile ne' dal ticker ne' dal nome (sotto MIN_PAROLA). Si DICHIARA in
-    `policy/SIMBOLI.txt` (base<TAB>motivo): senza motivo non e' una dichiarazione, e' un buco;
-    file assente = nessun simbolo dichiarato."""
+    """Un alias non derivabile dal ticker o dal nome nel DB va dichiarato in
+    `policy/SIMBOLI.txt` (base<TAB>motivo): senza motivo non e' una dichiarazione,
+    e' un buco; file assente = nessun simbolo dichiarato."""
     p = tmp_path / "SIMBOLI.txt"
     p.write_text("# commento\n\nqrst\tposizione in altra forma nel DB\n", encoding="utf-8")
     assert vp.leggi_simboli(str(p)) == {"QRST"}
@@ -2070,8 +2081,8 @@ def test_valori_db_derives_bound_from_actual_tokens_and_keeps_boundary_results(m
 
 
 def test_candidati_numerici_coprono_ogni_token_che_i_confini_accettano():
-    """Pre-filtro per `position_prices` (18.291 prezzi distinti nel DB vero: ~80.000 token, la
-    ricerca uno per uno costerebbe minuti): dal tree si estraggono una volta i numeri e ogni
+    """Pre-filtro per `position_prices`: invece di cercare ogni valore separatamente,
+    dal tree si estraggono una volta i numeri e ogni
     loro pezzo che comincia dopo un separatore e finisce prima di uno. E' un SOVRAINSIEME di cio'
     che `_regex_numero` puo' accettare: un token fuori dai candidati non puo' essere un hit."""
     c = vp._candidati_numerici({"a": "tot 1.234,56; 27,5% e 98765.43, fine 7 e 27.500,00\n"})
@@ -2112,7 +2123,7 @@ def test_ticker_soli_cerca_il_minuscolo_dalle_quattro_lettere_in_su():
     assert sorted((h.file, h.token) for h in e.hit) == [("a.py", "WX…(4)"), ("c.py", "…(2)")]
 
 
-def test_valori_estesi_e_cablato_e_nasce_in_osservazione(tmp_path, monkeypatch):
+def test_valori_estesi_e_cablato_e_nasce_in_osservazione(synthetic_policy, tmp_path, monkeypatch):
     """CABLAGGIO: il ramo `valori_estesi` legge COLONNE_ESTESE + percentuali dal DB, produce un
     esito col SUO nome e con osservazione=True (conta, non ferma)."""
     tree = tmp_path / "tree"
@@ -2178,12 +2189,9 @@ def test_vietate_forme_e_cablato_e_nasce_in_osservazione(tmp_path, monkeypatch):
 
 
 # --- 06/09 (a2): uno ZERO non e' un segreto ------------------------------------------------
-# Misura su HEAD del 05/09: dei 57 riscontri di `valori_estesi`, **42** venivano da UNA sola
-# guidance in percentuale che nel DB vale 0. `forme_percentuale(0.0)` genera «0.00%», che e' il
-# FORMATO NUMERICO dei fogli Excel scritto in ogni motore DCF (dcf_buyside_v3 23, dcf_modeler 8,
-# dcf_rab 6, dcf_bank 2, briefing_engine 1, 3 in test). Un controllo che grida su un formato e'
-# il controllo che qualcuno spegne: e uno zero non lo si puo' comunque dedurre da un token che
-# compare 40 volte per ragioni che non c'entrano col book.
+# '0.00%' e' anche un FORMATO NUMERICO dei fogli Excel: trovarlo nel codice non
+# identifica una guidance ne' rivela quale dato vale zero. La prova sintetica
+# conserva il controllo sulle percentuali non nulle e dichiara il limite sullo zero.
 
 
 def test_uno_zero_non_genera_token_da_cercare():
@@ -2199,7 +2207,7 @@ def test_uno_zero_non_genera_token_da_cercare():
 
 
 def test_il_formato_dei_fogli_non_e_piu_un_riscontro():
-    """CABLAGGIO sul caso vero: una guidance a zero e il formato «0.00%» di un motore DCF nello
+    """CABLAGGIO sintetico: una guidance a zero e il formato «0.00%» di un motore DCF nello
     stesso tree. Prima della cura era un hit; dopo no — e la percentuale vera accanto lo resta,
     cosi' la prova non passerebbe se il controllo fosse stato spento del tutto."""
     tree = _tree(**PULITO, **{
@@ -2232,3 +2240,391 @@ def test_lo_zero_resta_non_cercato_anche_senza_il_filtro_di_lunghezza(monkeypatc
     monkeypatch.setattr(vp, "MIN_TOKEN", 1)
     assert vp.forme_numero(0.0) == set()
     assert vp.forme_numero(5.0) == {"5"}      # guardia: col filtro a 1 le altre forme ESCONO
+
+
+# ---------------------------------------------------------------------------
+# G3B (13/09): controllo 13 `testo_pm`, il TESTO LIBERO DELL'UTENTE copiato nel tree. Frasi
+# INVENTATE (nessun testo del proprietario): la batteria e' pubblica. Regola a catena: blocchi da 3
+# parole, buco fino a 3, riscontro da 5 parole in comune; parole NFKD, minuscole, solo lettere.
+# ---------------------------------------------------------------------------
+
+ELL = chr(0x2026)
+MULINO = "il vecchio mulino sul fiume gira piano quando arriva la piena di primavera"
+
+# Oracolo CONGELATO il 13/09 (non letto dal codice sotto test): le colonne di testo libero
+# dell'utente, col filtro. Cambiarlo e' una decisione, non un aggiornamento.
+UTENTE_ATTESO = {
+    ("decisions", "pm_feedback", None), ("decisions", "veto_reason", None),
+    ("pm_feedback", "feedback_text", None), ("favorite_companies", "note", None),
+    ("decision_notes", "testo", ("autore", "PM")), ("trade_history", "pm_rationale", None),
+    ("trade_history", "note", None), ("cash_movements", "note", None), ("positions", "tesi", None),
+    ("positions", "temi_monitoraggio", None), ("positions", "note", None),
+    ("position_openings", "provenienza", None), ("position_openings", "nota", None),
+    ("journal_entries", "title", None), ("journal_entries", "body", None),
+    ("journal_revisions", "title", None), ("journal_revisions", "body", None),
+    ("chat_messages", "content", ("role", "user")), ("chat_sessions", "title", None),
+    ("themes_tracked", "theme", None), ("themes_tracked", "notes", None),
+    ("method_record_reviews", "note", None),
+}
+# Le colonne che il codice rende ai modelli come «parola del PM» (pm_verbatim), misurate il 13/09.
+RESE_DA_PM_VERBATIM_ATTESE = {"decisions.pm_feedback", "decisions.veto_reason",
+                              "pm_feedback.feedback_text", "favorite_companies.note"}
+
+
+def _no_chroma_g3b(self):
+    self.chroma_client = None
+    self.col_memos = None
+    self.col_decisions = None
+    self.col_feedback = None
+
+
+def _db_schema_nuovo(tmp_path, monkeypatch):
+    """Un DB NUOVO con lo schema VERO (MemoryDB in una cartella temporanea, Chroma spento). Nessun
+    dato: le righe le mettono i test. L'import passa da _importa_memory_db, che rimette l'ambiente."""
+    memory_db = vp._importa_memory_db()
+    monkeypatch.setattr(memory_db.MemoryDB, "_init_chroma", _no_chroma_g3b)
+    p = str(tmp_path / "schema" / "nuovo.db")
+    memory_db.MemoryDB(db_path=p, chroma_path=str(tmp_path / "schema" / "chroma"))
+    return p
+
+
+def _colonne_testo_schema(db_path):
+    import sqlite3
+    c = sqlite3.connect(db_path)
+    try:
+        out = set()
+        for (tab,) in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"):
+            for col in c.execute("PRAGMA table_info(%s)" % tab):
+                tipo = (col[2] or "").upper()
+                if not any(k in tipo for k in ("INT", "REAL", "FLOA", "DOUB")):
+                    out.add("%s.%s" % (tab, col[1]))
+        return out
+    finally:
+        c.close()
+
+
+def _esegui_sql(db_path, *istruzioni):
+    """Scrive righe INVENTATE nel DB temporaneo e chiude la connessione (niente file aperti)."""
+    import sqlite3
+    c = sqlite3.connect(db_path)
+    try:
+        for sql, parametri in istruzioni:
+            c.execute(sql, parametri)
+        c.commit()
+    finally:
+        c.close()
+
+
+def _hit_testo(e):
+    return sorted((h.file, h.riga) for h in e.hit)
+
+
+def test_parole_testo_toglie_accenti_apostrofi_maiuscole_e_cifre():
+    frase = "Perch" + chr(0xE9) + " l" + chr(0x2019) + chr(0xC0) + "NCORA 30k resta"
+    assert vp.parole_testo(frase) == ["perche", "l", "ancora", "k", "resta"]
+
+
+def test_testo_pm_prende_la_copia_con_una_parola_cambiata_e_cifre_diverse():
+    tree = _tree(**PULITO, **{"a.py": "# Il Vecchio mulino sul torrente gira piano quando arriva la piena 2027 di primavera\n"})
+    e = vp.controllo_testo_pm(tree, [("decisions.pm_feedback", MULINO + " 2026")])
+    assert _hit_testo(e) == [("a.py", 1)]
+    assert e.hit[0].token == "decisions.pm_feedback" + ELL + "(12 parole)"
+
+
+def test_testo_pm_soglia_cinque_parole_si_quattro_no():
+    testi = [("positions.tesi", "alba chiara sopra il lago tranquillo di sera")]
+    cinque = _tree(**PULITO, **{"a.md": "ieri alba chiara sopra il lago poi niente\n"})
+    quattro = _tree(**PULITO, **{"a.md": "ieri alba chiara sopra il mare poi niente\n"})
+    assert _hit_testo(vp.controllo_testo_pm(cinque, testi)) == [("a.md", 1)]
+    assert vp.controllo_testo_pm(quattro, testi).hit == []
+
+
+def test_testo_pm_buco_di_tre_parole_si_di_quattro_no():
+    tre = [("trade_history.note", "rosa gialla fresca cane gatto topo verde prato alto")]
+    quattro = [("trade_history.note", "rosa gialla fresca cane gatto topo lupo verde prato alto")]
+    tree = _tree(**PULITO, **{"a.md": "rosa gialla fresca uno due tre verde prato alto\n",
+                              "b.md": "rosa gialla fresca uno due tre quattro verde prato alto\n"})
+    # a.md: buco 3 nel file e 3 nel testo = catena da 6; b.md: buco 4 nel file = due blocchi da 3
+    assert _hit_testo(vp.controllo_testo_pm(tree, tre)) == [("a.md", 1)]
+    # testo con buco 4: a.md ha buco 4 nel TESTO, b.md in tutti e due: nessuna catena
+    assert vp.controllo_testo_pm(tree, quattro).hit == []
+
+
+def test_testo_pm_blocchi_da_due_parole_non_contano():
+    """Sette parole in comune, ma a coppie: nessun blocco da 3, nessun riscontro."""
+    testi = [("positions.note", "nube bassa stella fredda luna piena vento forte mare calmo")]
+    tree = _tree(**PULITO, **{"a.md": "nube bassa X stella fredda Y luna piena Z vento\n"})
+    assert vp.controllo_testo_pm(tree, testi).hit == []
+
+
+def test_testo_pm_commento_su_piu_righe_colpisce_la_prima_riga():
+    tree = _tree(**PULITO, **{"a.py": "x = 1\n# nota: il vecchio mulino\n# sul fiume gira piano\n"})
+    e = vp.controllo_testo_pm(tree, [("decisions.pm_feedback", MULINO)])
+    assert _hit_testo(e) == [("a.py", 2)]
+
+
+def test_testo_pm_catena_regge_una_corsa_spuria_in_mezzo():
+    """Un trigramma del file che ricorre ALTROVE nel testo non deve spezzare la catena vera: la
+    corsa spuria sta fra le due buone nell'ordine del file (13/09, la prima implementazione
+    concatenava solo con l'ultima corsa aperta e perdeva il riscontro)."""
+    testi = [("positions.tesi", "arco bosco cedro duna erba faro gufo mela bosco cedro zolla neve")]
+    tree = _tree(**PULITO, **{"a.md": "arco bosco cedro zolla erba faro gufo\n"})
+    e = vp.controllo_testo_pm(tree, testi)
+    assert [(h.file, h.riga, h.token) for h in e.hit] == [("a.md", 1, "positions.tesi" + ELL + "(6 parole)")]
+
+
+def test_testo_pm_il_token_e_la_nota_non_portano_parole_del_testo():
+    tree = _tree(**PULITO, **{"a.py": "# " + MULINO + "\n"})
+    e = vp.controllo_testo_pm(tree, [("chat_messages.content[user]", MULINO)])
+    assert len(e.hit) == 1
+    uscita = " ".join(h.token for h in e.hit) + " " + e.note
+    for parola in set(MULINO.split()) - {"il", "la", "di", "sul"}:
+        assert parola not in uscita.lower(), parola
+
+
+def test_testo_pm_eccezione_per_file_e_origine_e_stantia_dichiarata():
+    tree = _tree(**PULITO, **{"a.py": "# " + MULINO + "\n", "c.py": "# " + MULINO + "\n"})
+    ecc = {("a.py", "testo_pm", "decisions.pm_feedback"), ("b.py", "testo_pm", "decisions.pm_feedback"),
+           ("c.py", "testo_pm", "positions.tesi")}
+    e = vp.controllo_testo_pm(tree, [("decisions.pm_feedback", MULINO)], eccezioni=ecc)
+    assert _hit_testo(e) == [("c.py", 1)]          # l'eccezione di c.py e' per un'ALTRA origine
+    assert "1 eccezione applicata" in e.note and "2 eccezioni senza riscontro" in e.note, e.note
+
+
+def test_testo_pm_zero_testi_o_solo_testi_corti_e_ko():
+    tree = _tree(**PULITO)
+    assert vp.controllo_testo_pm(tree, []).errore
+    corti = vp.controllo_testo_pm(tree, [("trade_history.note", "solo quattro parole qui")])
+    assert corti.errore and not corti.ok
+
+
+def test_testo_pm_nota_dichiara_i_buchi_misurati():
+    e = vp.controllo_testo_pm(_tree(**PULITO), [("positions.tesi", MULINO), ("trade_history.note", "tre parole corte")])
+    for frase in ("parafrasi", "traduzioni", "sotto 5 parole", "1 sotto 5 parole NON cercabili"):
+        assert frase in e.note, (frase, e.note)
+
+
+def test_testo_pm_i_prompt_dell_app_si_separano_e_si_dichiarano():
+    """Esenzione legata al TEMPLATE, non al file: un messaggio dell'utente coperto da un prompt del
+    catalogo e' un prompt dell'app, e i suoi riscontri si separano DICHIARATI nella nota. La stessa
+    frase in un'altra colonna non e' esente; senza catalogo nel tree non c'e' esenzione."""
+    prompt = "Quali rischi del mondo inventato meritano oggi una verifica attenta"
+    catalogo = 'export const communications = {\n  "q_finto_a": "%s",\n};\n' % prompt
+    tree = _tree(**PULITO, **{"app/src/i18n/it/communications.ts": catalogo, "b.py": "# %s\n" % prompt})
+    e = vp.controllo_testo_pm(tree, [("chat_messages.content[user]", prompt)])
+    assert e.hit == [] and not e.errore
+    assert "separati e DICHIARATI" in e.note and "app/src/i18n/it/communications.ts:2" in e.note and "b.py:1" in e.note, e.note
+    titolo = vp.controllo_testo_pm(tree, [("chat_sessions.title", prompt)])   # la chat prende per titolo il prompt
+    assert titolo.hit == [] and "separati e DICHIARATI" in titolo.note, titolo.note
+    altra = vp.controllo_testo_pm(tree, [("decisions.pm_feedback", prompt)])
+    assert _hit_testo(altra) == [("app/src/i18n/it/communications.ts", 2), ("b.py", 1)]
+    # anche quando nello stesso giro c'e' il messaggio della chat (e il catalogo si legge): l'esenzione
+    # resta dei soli messaggi e titoli
+    insieme = vp.controllo_testo_pm(tree, [("chat_messages.content[user]", prompt), ("decisions.pm_feedback", prompt)])
+    assert [(h.file, h.riga, h.token.split(ELL)[0]) for h in insieme.hit] == [
+        ("app/src/i18n/it/communications.ts", 2, "decisions.pm_feedback"), ("b.py", 1, "decisions.pm_feedback")]
+    senza_catalogo = _tree(**PULITO, **{"b.py": "# %s\n" % prompt})
+    assert _hit_testo(vp.controllo_testo_pm(senza_catalogo, [("chat_messages.content[user]", prompt)])) == [("b.py", 1)]
+    fuori_posto = _tree(**PULITO, **{"app/src/lib/communications.ts": catalogo, "b.py": "# %s\n" % prompt})
+    assert ("b.py", 1) in _hit_testo(vp.controllo_testo_pm(fuori_posto, [("chat_messages.content[user]", prompt)]))
+
+
+def test_testo_pm_soglia_del_template_sette_decimi_si_sei_no():
+    prompt = "tramonto rosso sopra colline lontane ogni sera"
+    catalogo = 'export const communications = {\n  "q_finto_b": "%s",\n};\n' % prompt
+    sette = prompt + " cane gatto topo"                       # 7 parole su 10 dal prompt
+    sei = "tramonto rosso sopra colline lontane ogni cane gatto topo lupo"   # 6 su 10
+    for testo, esente in ((sette, True), (sei, False)):
+        tree = _tree(**PULITO, **{"app/src/i18n/en/communications.ts": catalogo, "b.py": "# %s\n" % testo})
+        e = vp.controllo_testo_pm(tree, [("chat_messages.content[user]", testo)])
+        assert (("b.py", 1) not in _hit_testo(e)) is esente, (testo, e.hit, e.note)
+
+
+def test_testo_pm_le_parole_dell_utente_fuori_dal_template_restano_un_riscontro():
+    """L'esenzione vale per le parole del PROMPT, non per tutto il messaggio (ripresa 13/09 sera): un
+    messaggio con copertura >= 0,7 porta ancora fino al 30% di parole sue, e se ne escono 5 in fila
+    nel tree sono un riscontro vero, non un prompt dell'app. Prima l'esenzione era per testo intero:
+    la copia delle sole parole dell'utente finiva fra i «separati» e sul deposito non fermava."""
+    prompt = "Quali rischi del mondo inventato meritano oggi una verifica attenta e rapida"   # 12 parole
+    catalogo = 'export const communications = {\n  "q_finto_c": "%s",\n};\n' % prompt
+    messaggio = prompt + " mio gatto dorme sul divano"          # 12 su 17 dal prompt: copertura 0,706
+    tree = _tree(**PULITO, **{"app/src/i18n/it/communications.ts": catalogo,
+                              "b.py": "# %s\n" % prompt,
+                              "c.py": "# ieri il mio gatto dorme sul divano\n"})
+    e = vp.controllo_testo_pm(tree, [("chat_messages.content[user]", messaggio)])
+    assert [(h.file, h.riga, h.token) for h in e.hit] == [
+        ("c.py", 1, "chat_messages.content[user]" + ELL + "(5 parole)")], (e.hit, e.note)
+    assert "app/src/i18n/it/communications.ts:2" in e.note and "b.py:1" in e.note, e.note
+    assert "c.py" not in e.note.split("separati e DICHIARATI")[1], e.note
+
+
+def test_testo_pm_un_messaggio_composto_da_due_prompt_del_catalogo_resta_un_prompt():
+    """Il prompt per ticker dell'app si compone di piu' voci del catalogo (misurato 13/09: una voce
+    lunga piu' un prompt rapido). Il messaggio e' un prompt dell'app per la voce lunga (copertura
+    0,70), e le parole dell'ALTRA voce non sono parole dell'utente: la loro copia resta separata."""
+    lungo = "Analizza il titolo scelto con attenzione ai rischi principali e alle prospettive di crescita"
+    corto = "quali segnali cambierebbero la conclusione finale"
+    catalogo = 'export const communications = {\n  "q_lungo": "%s",\n  "q_corto": "%s",\n};\n' % (lungo, corto)
+    tree = _tree(**PULITO, **{"app/src/i18n/en/communications.ts": catalogo, "d.py": "# %s\n" % corto})
+    e = vp.controllo_testo_pm(tree, [("chat_messages.content[user]", lungo + " " + corto)])
+    assert e.hit == [] and not e.errore, (e.hit, e.note)
+    # nel catalogo le due voci stanno su righe vicine: la catena parte dalla prima (riga 2)
+    assert "d.py:1" in e.note and "app/src/i18n/en/communications.ts:2" in e.note, e.note
+
+
+def test_testi_utente_db_filtra_ruolo_utente_e_autore_pm(tmp_path, monkeypatch):
+    db = _db_schema_nuovo(tmp_path, monkeypatch)
+    _esegui_sql(db,
+                ("INSERT INTO chat_sessions(id, specialist, title) VALUES (1, 'capo', ?)", ("titolo inventato di prova",)),
+                ("INSERT INTO chat_messages(session_id, role, content) VALUES (1, 'user', ?)", ("domanda inventata uno",)),
+                ("INSERT INTO chat_messages(session_id, role, content) VALUES (1, 'assistant', ?)", ("risposta inventata due",)),
+                ("INSERT INTO decision_notes(decision_id, autore, testo) VALUES (1, 'PM', ?)", ("nota inventata tre",)),
+                ("INSERT INTO decision_notes(decision_id, autore, testo) VALUES (1, 'AI', ?)", ("nota inventata quattro",)),
+                ("INSERT INTO decisions(timestamp, action, ticker, veto_reason) VALUES ('2026-01-01', 'BUY', 'ZZZZ', ?)",
+                 ("veto inventato cinque",)))
+    testi = sorted(vp.testi_utente_db(db))
+    assert testi == [("chat_messages.content[user]", "domanda inventata uno"),
+                     ("chat_sessions.title", "titolo inventato di prova"),
+                     ("decision_notes.testo[PM]", "nota inventata tre"),
+                     ("decisions.veto_reason", "veto inventato cinque")]
+
+
+def test_testo_pm_tabella_assente_e_ko_anche_nel_cablaggio(synthetic_policy, tmp_path, monkeypatch):
+    import sqlite3
+    db = str(tmp_path / "vecchio.db")
+    _esegui_sql(db, ("CREATE TABLE decisions(pm_feedback TEXT)", ()), ("INSERT INTO decisions VALUES (?)", (MULINO,)))
+    with pytest.raises(sqlite3.OperationalError):
+        vp.testi_utente_db(db)
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    (tree / "a.py").write_text("# %s\n" % MULINO, encoding="utf-8")
+    monkeypatch.setattr(vp, "_importa_memory_db", lambda: types.SimpleNamespace(SQLITE_PATH=db))
+    esiti, _ = vp.esegui_controlli(str(tree), solo=["testo_pm"])
+    assert esiti[0].nome == "testo_pm" and "OperationalError" in esiti[0].errore and esiti[0].osservazione
+
+
+def test_esegui_controlli_esegue_davvero_il_tredicesimo_controllo(synthetic_policy, tmp_path, monkeypatch, capsys):
+    """CABLAGGIO, non helper: il ramo `testo_pm` legge il DB (schema vero) e produce l'esito col suo
+    nome, in osservazione; il verdetto lo stampa col file:riga e senza il testo."""
+    db = _db_schema_nuovo(tmp_path, monkeypatch)
+    _esegui_sql(db, ("INSERT INTO pm_feedback(feedback_text) VALUES (?)", (MULINO,)))
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    (tree / "m.py").write_text("x = 1\n# %s\n" % MULINO.upper(), encoding="utf-8")
+    monkeypatch.setattr(vp, "_importa_memory_db", lambda: types.SimpleNamespace(SQLITE_PATH=db))
+    esiti, _ = vp.esegui_controlli(str(tree), solo=["testo_pm"])
+    assert esiti[0].nome == "testo_pm" and not esiti[0].errore and esiti[0].osservazione
+    assert [(h.file, h.riga) for h in esiti[0].hit] == [("m.py", 2)]
+    rc = vp.esegui_tutti(str(tree), solo=["testo_pm"])
+    out = capsys.readouterr().out
+    assert "m.py:2" in out and "pm_feedback.feedback_text" + ELL + "(13 parole)" in out and "OSSERVAZIONE" in out
+    assert "mulino" not in out.lower() and rc == 2
+
+
+def test_testo_pm_sul_deposito_blocca(synthetic_policy, tmp_path, monkeypatch, capsys):
+    db = _db_schema_nuovo(tmp_path, monkeypatch)
+    _esegui_sql(db, ("INSERT INTO cash_movements(date, type, amount_eur, note) VALUES ('2026-01-01', 'DEPOSIT', 1, ?)", (MULINO,)))
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    (tree / "m.py").write_text("# %s\n" % MULINO, encoding="utf-8")
+    monkeypatch.setattr(vp, "_importa_memory_db", lambda: types.SimpleNamespace(SQLITE_PATH=db))
+    vp.esegui_tutti(str(tree), solo=["testo_pm"], blocca_osservazione=True)
+    deposito = capsys.readouterr().out
+    assert "STOP" in deposito and "OSSERVAZIONE" not in deposito
+
+
+def test_congela_input_cattura_i_testi_e_il_manifest_non_li_espone(tmp_path, monkeypatch):
+    import sqlite3
+    db = _db_schema_nuovo(tmp_path, monkeypatch)
+    corpus = tmp_path / "corpus"
+    (corpus / "data").mkdir(parents=True)
+    copia = str(corpus / "data" / "consigliere.db")
+    sorgente, destinazione = sqlite3.connect(db), sqlite3.connect(copia)
+    try:
+        sorgente.backup(destinazione)          # API di backup: nessuna riga resta in un WAL non copiato
+    finally:
+        sorgente.close()
+        destinazione.close()
+    _esegui_sql(copia, ("INSERT INTO positions(ticker, quantita, prezzo_medio, tesi) VALUES ('ZZZZ', 1, 1, ?)", (MULINO,)))
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    (tree / "a.md").write_text("# %s\n" % MULINO, encoding="utf-8")
+    liste = tmp_path / "liste"
+    liste.mkdir()
+    congelati = vp.congela_input(str(tree), ["testo_pm"], str(liste), str(corpus))
+    assert congelati.leggi("testi_utente") == [("positions.tesi", MULINO)]
+    assert congelati.conteggi["testi_utente"] == 1
+    serializzato = json.dumps(congelati.manifest(), sort_keys=True)
+    assert "mulino" not in serializzato.lower() and congelati.sha256_corpus_privato
+    esiti, _ = vp.esegui_controlli(str(tree), solo=["testo_pm"], pubblico=str(liste), input_congelati=congelati)
+    assert [(h.file, h.riga) for h in esiti[0].hit] == [("a.md", 1)]
+
+
+def test_il_tredicesimo_controllo_e_registrato_in_osservazione():
+    """Pin del registro: nasce in OSSERVAZIONE (sul deposito blocca comunque). Le fasi dell'hook
+    (pre-push si', ci no) si provano nella batteria privata dell'hook: questa batteria esce nel repo
+    pubblico e l'hook no (guardia test_allowlist_copre_gli_import_dei_test, 13/09 sera)."""
+    assert "testo_pm" in vp.CONTROLLI and "testo_pm" in vp.OSSERVAZIONE
+
+
+def test_censimento_schema_ogni_colonna_di_testo_e_classificata(tmp_path, monkeypatch):
+    """Una colonna nuova di testo libero non passa zitta: ogni colonna di testo di un DB NUOVO (schema
+    vero) sta in COLONNE_TESTO_UTENTE o in COLONNE_TESTO_NON_UTENTE, col motivo; nessuna in tutte e
+    due, nessuna stantia. Le colonne dell'utente sono l'oracolo congelato UTENTE_ATTESO."""
+    db = _db_schema_nuovo(tmp_path, monkeypatch)
+    schema = _colonne_testo_schema(db)
+    assert len(schema) > 100, len(schema)                  # il censimento non e' vuoto
+    utente = {(t, c, f) for (t, c, f, _) in vp.COLONNE_TESTO_UTENTE}
+    assert utente == UTENTE_ATTESO
+    assert len(vp.COLONNE_TESTO_UTENTE) == len(UTENTE_ATTESO)
+    assert all(m.strip() for (_, _, _, m) in vp.COLONNE_TESTO_UTENTE)
+    nomi_utente = {"%s.%s" % (t, c) for (t, c, _) in UTENTE_ATTESO}
+    non_utente = [col for motivo, cols in vp.COLONNE_TESTO_NON_UTENTE for col in cols]
+    assert all(motivo.strip() for motivo, _ in vp.COLONNE_TESTO_NON_UTENTE)
+    assert len(non_utente) == len(set(non_utente))
+    assert not nomi_utente & set(non_utente)
+    assert nomi_utente <= schema, sorted(nomi_utente - schema)
+    assert set(non_utente) - schema == set(), sorted(set(non_utente) - schema)
+    assert schema - nomi_utente - set(non_utente) == set(), sorted(schema - nomi_utente - set(non_utente))
+    assert vp.testi_utente_db(db) == []                    # ogni SELECT del controllo gira sullo schema vero
+
+
+def _colonne_rese_da_pm_verbatim():
+    """Le colonne che il codice rende ai modelli con `pm_verbatim`, lette dal SORGENTE con ast: la
+    colonna e' la chiave letterale del primo argomento (`d.get("x")`, `d["x"]`) o quella di `fonte=`;
+    la tabella e' quella di `fonte=` o del suo default nella definizione."""
+    import ast
+    from pathlib import Path
+    radice = Path(vp._importa_memory_db().__file__).resolve().parents[1]
+    default, chiamate = None, []
+    for path in sorted(radice.rglob("*.py")):
+        albero = ast.parse(path.read_text(encoding="utf-8"))
+        for nodo in ast.walk(albero):
+            if isinstance(nodo, ast.FunctionDef) and nodo.name == "pm_verbatim":
+                nomi = [a.arg for a in nodo.args.args]
+                valori = dict(zip(nomi[len(nomi) - len(nodo.args.defaults):], nodo.args.defaults))
+                default = valori["fonte"].value
+            elif isinstance(nodo, ast.Call) and "pm_verbatim" in (getattr(nodo.func, "id", None), getattr(nodo.func, "attr", None)):
+                fonte = next((k.value.value for k in nodo.keywords if k.arg == "fonte"), None)
+                primo, chiave = nodo.args[0], None
+                if isinstance(primo, ast.Call) and getattr(primo.func, "attr", None) == "get" and isinstance(primo.args[0], ast.Constant):
+                    chiave = primo.args[0].value
+                elif isinstance(primo, ast.Subscript) and isinstance(primo.slice, ast.Constant) and isinstance(primo.slice.value, str):
+                    chiave = primo.slice.value
+                chiamate.append((path.name, nodo.lineno, fonte, chiave))
+    assert default, "definizione di pm_verbatim non trovata"
+    colonne = set()
+    for _, _, fonte, chiave in chiamate:
+        tab, col = (fonte or default).split(".")
+        colonne.add("%s.%s" % (tab, chiave or col))
+    return colonne, chiamate
+
+
+def test_le_colonne_rese_da_pm_verbatim_stanno_nel_controllo():
+    """Il registro nel codice delle «parole del PM» e' l'oracolo delle colonne: una chiamata nuova a
+    pm_verbatim su una colonna che il controllo non legge fa cadere questa prova."""
+    colonne, chiamate = _colonne_rese_da_pm_verbatim()
+    assert len(chiamate) >= 9, chiamate                  # misurate il 13/09: 7 in memory_db, 1 + 1 fuori
+    assert RESE_DA_PM_VERBATIM_ATTESE <= colonne, colonne
+    lette = {"%s.%s" % (t, c) for (t, c, _, _) in vp.COLONNE_TESTO_UTENTE}
+    assert colonne <= lette, sorted(colonne - lette)

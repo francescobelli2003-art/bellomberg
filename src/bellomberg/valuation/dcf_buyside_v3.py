@@ -1,6 +1,6 @@
 """
 dcf_buyside_v3.py (#204b) - Generatore VAL v3 "template parity" col modello buy-side
-del PM (Buy Side.xlsx, business game Rothschild/Luiss - DIGITRUST 9 fogli, ~900 formule).
+di riferimento del PM (template a 9 fogli, ~900 formule).
 
 Cosa replica del template:
   - STORICO accanto ai FORWARD (XBRL 10y quando c'e', via sec_xbrl)
@@ -1404,7 +1404,7 @@ def _sheet_dcf(wb, spec, fv, refs):
         KEY(ws, br_total, 1, 2)
         if spec.get("stance") in ("buy", "sell", "neutral"):
             L(ws, f"A{br_total + 1}", _lt(f"Stance dell'analista: {spec['stance'].upper()}",f"Analyst stance: {spec['stance'].upper()}"), italic=True, color=GREYTX)
-            CMT(ws, f"B{br_total + 1}", _xt("criterio dichiarato di inclusione delle voci discrezionali (lezione Luiss: la discrezionalita' si ordina, non si nasconde)"))
+            CMT(ws, f"B{br_total + 1}", _xt("criterio dichiarato di inclusione delle voci discrezionali (la discrezionalita' si ordina, non si nasconde)"))
 
     # ===== A6: MINI-DCF PER SCENARIO a formule vive (Gordon; B5/E4 condivisi) =====
     # B14: riga WACC per scenario — di default =$B$4 (formula, si ricalcola col

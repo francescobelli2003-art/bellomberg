@@ -1,0 +1,217 @@
+BELLOMBERG
+v0.8.0 OBSIDIAN
+NY
+LN
+MI
+HK
+❯
+SEARCH TICKERS · PAGES · ACTIONS
+CTRL+K
+API
+LIVE
+13 SEP 2026
+10:11:40
+UTC+2
+F19
+01
+DASH
+02
+PERF
+03
+FAVS
+04
+MKT
+05
+NEWS
+06
+FUND
+07
+FCTR
+08
+MTC
+09
+VOLS
+10
+EDGE
+11
+CHAT
+12
+LIVE
+13
+SCORE
+14
+MEMO
+15
+DECN
+16
+TRADE
+17
+MOVES
+18
+MNDT
+19
+CONFIG
+F4 // GLOBAL MARKETS
+|
+USD/EUR
+0.9000
+GBP/EUR
+1.2000
+GBX/EUR
+0.01200
+CHF/EUR
+1.0500
+JPY/EUR
+0.0060
+HKD/EUR
+0.1154
+FX 60S
+GLOBAL MARKETS // SEARCH
+QUICK
+NVDA
+AAPL
+MSFT
+TSLA
+AMZN
+META
+GOOGL
+SPY
+QQQ
+MSTR
+DEMO.C
+Synthetic Company C
+FAVORITE
++ MACRO PULSE
+DEMO EXCHANGE · TECHNOLOGY / SOFTWARE - APPLICATION · ORIGINAL SOURCE TEXT
+72.40 USD
+-1.20% vs previous close
+MARKET CAP
+8.69bn
+P/E
+17.88
+FORWARD P/E
+16.20
+EPS
+4.05
+BETA
+1.12
+DIVIDEND YIELD
+1.85%
+VOLUME
+1.9m
+AVG VOLUME 3M
+2.2m
+SHORT % FLOAT
+1.8%
+MEAN TARGET
+-
+EV
+9.23bn
+EV/EBITDA
+10.96
+EV/SALES
+2.85
+PEG
+1.60
+P/B
+2.50
+FCF YIELD
+5.3%
+52W
+51.61
+74.52
+(91%)
+PRICE ACTION // DEMO.C
+TRADINGVIEW ENGINE · SCROLL = ZOOM · DRAG = PAN
+RANGE
+1D
+5D
+1M
+3M
+6M
+1Y
+5Y
+MAX
+TF
+5M
+15M
+1H
+4H
+1D
+1W
+1MO
+CANDLES
+AREA CHART
+LINE
+SMA 20/50
+VWAP
+RSI 14
+LIN
+LOG
+O 72.87 H 73.51 L 72.38 C 72.40 -1.20% V 1.9m
+SMA20
+SMA50
+	
+	
+
+	
+	
+NEWS WIRE // DEMO.C
+4 · ORIGINAL SOURCE TEXT
+DEMO wire: Synthetic Company C publishes an invented quarterly update
+Synthetic Wire
+35h ago
+DEMO wire: invented product note for Synthetic Company C
+Synthetic Wire
+3d ago
+DEMO wire: synthetic sector roundup mentions Synthetic Company C
+Synthetic Wire
+5d ago
+DEMO wire: Synthetic Company C schedules an invented investor call
+Synthetic Wire
+11d ago
+FINANCIALS // ANNUAL HISTORY
+INCOME STATEMENT
+BALANCE SHEET
+CASH FLOW
+Original source text
+ITEM	2022	2023	2024	2025
+Revenue	2.5bn	2.7bn	3bn	3.2bn
+Gross Profit	1bn	1.1bn	1.3bn	1.4bn
+EBITDA	598m	680m	761m	842m
+EBIT	441m	510m	579m	648m
+Net Income	322m	377m	431m	486m
+EPS Diluted	2.62	3.09	3.56	4.05
+OWNERSHIP // STRUCTURE
+Insider ownership %
+2.10%
+Institutional ownership %
+68.40%
+Institutional % of float
+69.90%
+Institution count
+412
+INSTITUTIONAL HOLDERS // TOP 10
+5
+HOLDER	SHARES	% OUTSTANDING	VALUE	DATE
+Synthetic Asset Management A	7.4m	6.20%	470.1m	2026-06-30
+Synthetic Pension Fund B	5.2m	4.30%	326m	2026-06-30
+Synthetic Index Trust C	4.3m	3.60%	272.9m	2026-06-30
+Synthetic Capital D	2.9m	2.40%	182m	2026-06-30
+Synthetic Advisors E	2m	1.70%	128.9m	2026-06-30
+COMPANY PROFILE
+CLOSE ▴
+Original source text
+Synthetic Company C is an invented company used only to document the Bellomberg interface. It does not exist: its quote, financial statements, holders and news are synthetic.
+[ BELLOMBERG · OBSIDIAN ]
+ENGINE
+SYNTHETIC DEMO
+AGENTS
+4/6 RUN
+RUN IN PROGRESS
+SESSION 2026-09-13
+WORKSPACE · F1–F19 · CTRL+K
+DEMO · SYNTHETIC DATA
+
+DOCUMENTATION FORM VALUES
+: 

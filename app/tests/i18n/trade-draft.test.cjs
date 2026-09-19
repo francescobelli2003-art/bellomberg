@@ -6,12 +6,12 @@ const { creaCaricatore, ambienteBrowser } = require('./_carica.cjs');
 ambienteBrowser();
 globalThis.window = { addEventListener() {}, removeEventListener() {} };
 Object.assign(document, { addEventListener() {}, removeEventListener() {} });
-function retained(mode = 'trade') {
+function retained(mode = 'trade', portfolio = { positions: [], cash: 10000 }) {
   let si = 0, mi = 0, ei = 0, ri = 0;
   const states = [], memos = [], effects = [], deps = [], refs = [], nodes = [], calls = [];
   const remember = (fn, d) => { const at = mi++, before = memos[at]; if (!before || !d || d.some((v, i) => !Object.is(v, before.d[i]))) memos[at] = { d, value: fn() }; return memos[at].value; };
   const jsx = name => (type, props, ...args) => { nodes.push({ type, props }); return JSX[name](type, props, ...args); };
-  const api = { portfolio: async () => ({ positions: [], cash: 10000 }), trades: async () => ({ trades: [] }),
+  const api = { portfolio: async () => portfolio, trades: async () => ({ trades: [] }),
     fx: async () => ({ rates: { EUR: 1 } }), cashMovements: async () => ({ movements: [] }), decisions: async () => ({ decisions: [] }),
     openingPositions: async () => ({ openings: [] }),
     previewTrade: async body => { calls.push(['trade', body]); throw new Error('Synthetic preview captured'); },
@@ -65,4 +65,17 @@ test('ambiguous drafts remain blocked and their diagnosis follows the interface 
   const ui = retained(); await ui.ready('it'); ui.type('f7-qt', '1.234', 'it'); const en = ui.render('en');
   assert.match(en, /ambiguous/); await ui.submit(0); assert.equal(ui.calls.length, 0);
   const it = ui.render('it'); assert.match(it, /ambiguo/); assert.equal(ui.field('f7-qt').props.value, '1.234');
+});
+
+test('unverified cash is explained in the rendered form without claiming the numeric field is absent', async () => {
+  const raw = 'SYNTHETIC_CASH_SOURCE_UNAVAILABLE';
+  const ui = retained('trade', { positions: [], cash_disponibile_eur: 100,
+    nav_total_eur: 150, totale_valore_mercato_eur: 50, cash_source: 'portfolio.json', cash_source_note: raw });
+  await ui.ready('en'); ui.type('f7-tk', 'SYNTH.X', 'en');
+  ui.type('f7-qt', '2', 'en'); const en = ui.type('f7-pz', '30', 'en');
+  assert.match(en, /Cash unavailable/);
+  assert.match(en, /SYNTHETIC_CASH_SOURCE_UNAVAILABLE/);
+  assert.doesNotMatch(en, /Cash is absent from the response|is absent from the response|Covered.*40/);
+  assert.match(ui.render('it'), /Cassa non disponibile/);
+  assert.match(ui.render('it'), /SYNTHETIC_CASH_SOURCE_UNAVAILABLE/);
 });

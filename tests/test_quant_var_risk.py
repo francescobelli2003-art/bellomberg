@@ -315,8 +315,8 @@ def test_component_var_somma_al_totale_2_asset(monkeypatch):
     out = pa.compute_var_contribution(lookback_days=252, confidence=0.05)
     assert "error" not in out, out.get("error")
     somma = sum(it["component_var_eur"] for it in out["items"])
-    # tolleranza = solo arrotondamenti (totale a 0 decimali, componenti a 2)
-    assert somma == pytest.approx(out["portfolio_var_eur_daily"], abs=0.6)
+    # Ogni componente e il totale sono arrotondati al centesimo.
+    assert somma == pytest.approx(out["portfolio_var_eur_daily"], rel=0, abs=0.015)
     contribs = sum(it["contribution_pct_of_total_var"] for it in out["items"])
     assert contribs == pytest.approx(100.0, abs=0.1)
 
@@ -335,4 +335,5 @@ def test_component_var_riconciliato_con_formula(monkeypatch):
     sigma_daily = math.sqrt(w @ np.cov(rets.values.T) @ w)
     z = float(-st.norm.ppf(0.05))
     assert out["portfolio_var_pct_daily"] == pytest.approx(z * sigma_daily * 100, rel=1e-3)
+    assert out["portfolio_var_eur_daily"] == pytest.approx(z * sigma_daily * 100000, rel=0, abs=0.005)
     assert out["z_alpha"] == pytest.approx(z, abs=1e-3)

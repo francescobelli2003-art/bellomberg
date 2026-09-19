@@ -39,6 +39,42 @@ test('quota captions switch IT/EN while numbers, ledger directions and original 
   assert.deepEqual(output('it'), it);
 });
 
+test('quota missing and non-finite figures use the selected language while valid figures stay unchanged', () => {
+  const q = quota.leggiQuota(fixture()), head = quota.cimaF1(q, 1112.5, '2026-09-12');
+  for (const [lang, missing, valid] of [['it', 'n.d.', '102,00'], ['en', 'n/a', '102.00']]) {
+    inLanguage(lang, () => {
+      assert.equal(quota.formattaCifra({ ...head, numerabile: false }, 0), missing);
+      for (const value of [NaN, Infinity, -Infinity]) assert.equal(quota.formattaCifra(head, value), missing);
+      assert.equal(quota.formattaCifra(head, 102), valid);
+    });
+  }
+});
+
+test('the rendered run dial uses singular only for one call and preserves declared missing totals', () => {
+  const Quadrante = load('components/Quadrante.tsx').default;
+  const render = (lang, p) => inLanguage(lang, () => renderToStaticMarkup(React.createElement(Quadrante, {
+    p, w: 1000, h: 700, cursor: 0, pinned: false, onCursor() {}, onPin() {}, koIds: [],
+    fmtEur: () => '0', costoRun: 0, koCost: null, memoLabel: 'Synthetic memo',
+  })));
+  for (const count of [0, 1, 2]) {
+    const state = { running: false, start_time: '2026-09-12T10:00:00', completed_at: '2026-09-12T10:02:00', tool_log: [], n_tool_calls: count };
+    const p = plancia.derivePlancia(state, [], undefined), before = structuredClone(p);
+    for (const lang of ['it', 'en']) {
+      const unit = lang === 'it' ? (count === 1 ? 'chiamata' : 'chiamate') : (count === 1 ? 'call' : 'calls');
+      assert.ok(render(lang, p).includes(` · ${count} ${unit}</text>`));
+    }
+    assert.deepEqual(p, before);
+  }
+  const fromLog = plancia.derivePlancia({ running: false, start_time: '2026-09-12T10:00:00', completed_at: '2026-09-12T10:02:00',
+    tool_log: [{ time: '10:00:05', specialist: 'synthetic', round: 1, tool: 'synthetic_tool', input: 'Original input' }] }, [], undefined);
+  assert.equal(fromLog.nCallsTot, null);
+  assert.ok(render('it', fromLog).includes(' · 1 chiamata</text>'));
+  assert.ok(render('en', fromLog).includes(' · 1 call</text>'));
+  const missing = { ...plancia.derivePlancia(null, [], undefined), logTappato: true };
+  assert.match(render('it', missing), /chiamate: totale n\.d\./);
+  assert.match(render('en', missing), /calls: total n\/a/);
+});
+
 test('curve uses identical TWR/wealth arrays and rejects the same gaps in both languages', () => {
   const read = lang => inLanguage(lang, () => ({
     curve: curva.leggiCurva(fixture(), 'quota', false, null),

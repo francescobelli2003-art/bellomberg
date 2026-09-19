@@ -1,0 +1,263 @@
+BELLOMBERG
+v0.8.0 OBSIDIAN
+NY
+LN
+MI
+HK
+❯
+SEARCH TICKERS · PAGES · ACTIONS
+CTRL+K
+API
+LIVE
+13 SEP 2026
+10:11:40
+UTC+2
+F19
+01
+DASH
+02
+PERF
+03
+FAVS
+04
+MKT
+05
+NEWS
+06
+FUND
+07
+FCTR
+08
+MTC
+09
+VOLS
+10
+EDGE
+11
+CHAT
+12
+LIVE
+13
+SCORE
+14
+MEMO
+15
+DECN
+16
+TRADE
+17
+MOVES
+18
+MNDT
+19
+CONFIG
+F9 // VOL DECK
+|
+USD/EUR
+0.9000
+GBP/EUR
+1.2000
+GBX/EUR
+0.01200
+CHF/EUR
+1.0500
+JPY/EUR
+0.0060
+HKD/EUR
+0.1154
+FX 60S
+
+Vol Deck
+
+Volatility atlas
+
+A coordinated map; detail on demand.
+
+Underlying
+Catalogue
+Acquisition
+Tools
+Chain
+Laboratory
+DEMO.V
+Spot 50.12
+yfinance lastPrice
+2026-09-13T07:50:02.700000+00:00
+3-point moving median on raw IV (v1.5, 22/07) — arbitrage-free SVI fitting remains v2
+ATM IV · first expiry
+25.3%
+2026-10-16
+Structure
+Contango
+1.0 pt · front → 60 days
+Missing cells in selection
+2
+Missing quotes stay empty
+Context
+Not requested
+Explicit provider action
+DOWNLOAD COMPLETE · 9/9 expiries downloaded · STALE · acquisition started more than 2 minutes ago
+Latest surface coverage: 9/9 curves · 0 excluded · 0 errors
+Coverage and sources
+Design the strategy
+
+DEMO.V · local theoretical laboratory. No orders are sent.
+
+Black–Scholes–Merton · European
+Legs 2/12
+Manual
+Leg 1
+Buy
+Sell
+Call
+Put
+Strike
+Premium / unit
+Contracts
+Multiplier
+Days to expiry
+IV %
+
+Observed Ask · Polygon option-chain snapshot · REAL-TIME. Editable as an assumption.
+Quote: 11/09/2026, 21:59:20
+
+Leg 2
+Buy
+Sell
+Call
+Put
+Strike
+Premium / unit
+Contracts
+Multiplier
+Days to expiry
+IV %
+
+Observed Ask · Polygon option-chain snapshot · REAL-TIME. Editable as an assumption.
+Quote: 11/09/2026, 21:59:34
+
+Build from the first leg
+Initial spot
+USD
+Scenario price
+USD
+Elapsed time
+days
+IV shock
+percentage points
+Use chain spot: 50.12
+Blank scenario price = initial spot, without a price shock. IV is expressed as a percentage; +5 means +5 percentage points.
+The shape of the return
+
+Payoff at 33 days and intermediate theoretical value
+
+USD
+-555
+70
+695
+1,321
+1,946
+30.1
+36.8
+43.4
+50.1
+56.8
+63.5
+70.2
+At expiry
+Theoretical scenario
+Theoretical value today
+Underlying price (USD)
+Point at the chart or use arrow keys to compare results at the same price.
+Initial outlay
+313.00
+USD
+Scenario P&L
+-9.19
+USD at 50.12
+Maximum profit at expiry
+unlimited
+USD
+Maximum loss at expiry
+313.00
+USD
+Breakeven at expiry
+46.87 / 53.13
+Initial premiums and fees included
+Scenario Greeks aggregated over quantities and multipliers
+Delta
+5.54
+underlying units
+Gamma
+20.8843
+delta per price unit
+Vega
+12.00
+currency per +1 percentage point IV
+Theta
+-4.60
+currency per ACT/365 day
+Rho
+-0.02
+currency per +1 percentage point interest rate
+If price changes as time passes
+
+Theoretical P&L with the chosen IV shock. Columns = price; rows = elapsed days.
+
+DAYS	35.1	40.1	45.1	50.1	55.1	60.1	65.2
+0.0	1,179	678	205	-9	238	703	1,203
+6.6	1,179	677	195	-41	224	702	1,203
+13.2	1,179	677	185	-78	213	702	1,203
+19.8	1,179	677	179	-121	204	701	1,203
+26.4	1,179	677	176	-177	200	701	1,203
+33.0	1,179	677	176	-301	200	701	1,203
+Model assumptions
+Annual rate
+%
+Annual dividend yield
+%
+Initial cost / contract
+USD
+Common currency
+
+Initial zero rate, dividend yield and costs are editable assumptions, not market data. Premiums are per underlying unit; costs are per contract. No currency conversion.
+
+Simulate strategy
+Local calculation only · no provider or AI model
+Method and limitations
+[ BELLOMBERG · OBSIDIAN ]
+ENGINE
+SYNTHETIC DEMO
+AGENTS
+4/6 RUN
+RUN IN PROGRESS
+SESSION 2026-09-13
+WORKSPACE · F1–F19 · CTRL+K
+DEMO · SYNTHETIC DATA
+
+DOCUMENTATION FORM VALUES
+va-ticker: DEMO.V
+: buy
+: call
+: 50
+: 1.72
+: 1
+: 100
+: 33
+: 25.27
+: buy
+: put
+: 50
+: 1.41
+: 1
+: 100
+: 33
+: 25.31
+: 50.12
+: 50.12
+: 0
+: 0
+: 0
+: 0
+: 0
+: USD

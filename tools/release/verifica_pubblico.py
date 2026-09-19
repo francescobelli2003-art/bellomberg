@@ -13,8 +13,8 @@ Controlli: gitleaks · vietate · env (valori del .env vivo, in memoria) · escl
 (ticker + quantita'/prezzo sulla stessa riga: DB + tuple dell'attic) · dimensione ·
 valori_db (importi di cash_movements, nav_snapshots, positions, trade_history nei 3
 formati) · lista_privata (VIETATI di prova_numeri_del_book.py) · ticker_soli (F1 04/09:
-le basi dei ticker DA SOLE, senza quantita' ne' prezzo — la classe da cui il 03/09 e'
-uscito il book intero). Verdetto: exit 0 solo se TUTTI eseguiti e a zero; 1 = hit; 2 = un
+le basi dei ticker DA SOLE, senza quantita' ne' prezzo) · payload · valori_estesi · vietate_forme · testo_pm (13/09: il testo
+libero dell'utente del DB copiato nel tree, regola a catena, v. COLONNE_TESTO_UTENTE). Verdetto: exit 0 solo se TUTTI eseguiti e a zero; 1 = hit; 2 = un
 controllo non eseguito o guasto (regola 14/07: un cancello parziale non e' mai verde).
 I controlli nominati in OSSERVAZIONE contano e si stampano ma NON cambiano l'exit, e
 finche' ne resta uno con riscontri il verdetto non dice mai «PULITO» e basta.
@@ -25,9 +25,11 @@ Uso:  python tools/release/verifica_pubblico.py --tree <cartella esportata> [--s
 
 Stato: `--tree` esegue i controlli registrati in `CONTROLLI` (`esegui_tutti`), e lo chiama anche
 tools/release/export_pubblico.py in-process prima di depositare nel clone pubblico. `ticker_soli`
-e' in OSSERVAZIONE: nasce con ~1.300 riscontri e diventera' bloccante
+e' in OSSERVAZIONE: i riscontri sono dichiarati e diventera' bloccante
 quando le cure D1/D2/D4 li avranno portati a zero — si toglie il suo nome da OSSERVAZIONE.
 """
+import bisect
+import difflib
 import hashlib
 import io
 import json
@@ -37,6 +39,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import zipfile
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -51,17 +54,19 @@ GITLEAKS_EXE = os.path.join(PUBBLICO, "bin", "gitleaks.exe")
 GITLEAKS_EXIT_HIT = 7   # il codice che gitleaks usa per «leak trovati» SOLO se il giro e' finito
                         # bene: l'1 resta il suo codice di guasto (T6, v. controllo_gitleaks)
 GITLEAKS_SCOPERTI = ("app/package-lock.json",)   # l'allowlist globale del config di default 8.30.1
-                        # salta i lockfile: 357.316 byte del perimetro che il MOTORE non legge (li
-                        # leggono i controlli in memoria). Ogni altro salto e' un KO, non una nota.
+                        # salta i lockfile: il MOTORE non li legge (li leggono i
+                        # controlli in memoria). Ogni altro salto e' un KO, non una nota.
 MAX_TREE = 15 * 1024 * 1024
 MAX_FILE = 2 * 1024 * 1024
+BUDGET_SCREENSHOTS = "BUDGET_SCREENSHOTS_APPROVATO.json"
 MIN_ENV = 8
 MIN_TOKEN = 6
 CONTROLLI = ("gitleaks", "vietate", "env", "esclusi", "lotti", "dimensione",
              "valori_db", "lista_privata", "ticker_soli", "payload",
-             "valori_estesi", "vietate_forme")   # 05/09 (D5 4b): nati in osservazione, v. COLONNE_ESTESE
-OSSERVAZIONE = ("ticker_soli", "payload", "valori_estesi", "vietate_forme")   # eseguiti e stampati, MA non cambiano l'exit: un controllo
-                        # che nasce con 1.304 riscontri renderebbe il cancello rosso per sempre
+             "valori_estesi", "vietate_forme",   # 05/09 (D5 4b): nati in osservazione, v. COLONNE_ESTESE
+             "testo_pm")   # 13/09 (G3B): il testo libero dell'utente, nato in osservazione (v. COLONNE_TESTO_UTENTE)
+OSSERVAZIONE = ("ticker_soli", "payload", "valori_estesi", "vietate_forme", "testo_pm")   # eseguiti e stampati, MA non cambiano l'exit: un controllo
+                        # con collisioni ancora da classificare renderebbe il cancello rosso
                         # e verrebbe spento (lezione «una guardia che grida al lupo»). Il
                         # verdetto li DICHIARA e non dice mai «PULITO» e basta. Per renderne
                         # uno bloccante si toglie il suo nome da qui: una riga, e c'e' il test
@@ -82,6 +87,7 @@ class Esito:
     note: str = ""
     errore: str = ""    # != "" = controllo NON eseguito o guasto (KO dichiarato)
     osservazione: bool = False   # conta e si stampa, ma non cambia l'exit (v. OSSERVAZIONE)
+    misure: dict = field(default_factory=dict)  # public byte/file counts only; never corpus values
 
     @property
     def ok(self):
@@ -129,8 +135,11 @@ def _risolvi_deroghe_upstream(tree, eccezioni, grandi):
 
     Pinned exceptions cover only exact numeric/ticker coincidences in the four
     declared controls and the individual-file size limit. Secrets, forbidden
-    content, Gitleaks and MAX_TREE still run without an upstream exemption.
+    content, Gitleaks and MAX_TREE still run without a pinned exemption.
     A changed pinned file is a gate error, including if shortened below MAX_FILE.
+    Pins may cover upstream assets or attested synthetic fixtures after explicit
+    approval. A fixture still requires full source review: the pin verifies its
+    reviewed bytes and does not exempt source content from review.
     """
     verificati = {}
 
@@ -156,6 +165,8 @@ def _risolvi_deroghe_upstream(tree, eccezioni, grandi):
     for rel, controllo, token in eccezioni:
         if "@sha256=" in rel:
             numeric = controllo in {"lista_privata", "valori_estesi"} and re.fullmatch(r"[0-9]+(?:[.,][0-9]+)*", token)
+            percentuale = controllo == "valori_estesi" and re.fullmatch(r"[0-9]+(?:[.,][0-9]+)*%", token)
+            numeric = numeric or percentuale
             ticker = controllo in {"lotti", "ticker_soli"} and re.fullmatch(r"[A-Z0-9]+(?:[.-][A-Z0-9]+)*", token)
             if not (numeric or ticker):
                 raise ValueError("deroga upstream ammessa solo per token esatti numerici/ticker dei controlli dichiarati")
@@ -176,9 +187,8 @@ def _simboli_da_testo(testo, fonte):
 
 
 def leggi_simboli(path):
-    """SIMBOLI.txt: `base<TAB>motivo`, basi del book che il DB porta in un'ALTRA forma (settimo buco
-    D5, 8c 05/09: il token nudo di una posizione sul DEX, 4 lettere, sotto MIN_PAROLA: ne' il
-    ticker ne' il nome lo danno). Senza motivo non e' una dichiarazione, e' un buco: ValueError.
+    """SIMBOLI.txt: `base<TAB>motivo`, basi del book non derivabili dal ticker o dal nome
+    presenti nel DB. Senza motivo non e' una dichiarazione, e' un buco: ValueError.
     File assente = nessun simbolo dichiarato. Le basi tornano MAIUSCOLE come quelle del DB."""
     if not os.path.isfile(path):
         return set()
@@ -249,12 +259,9 @@ def carica_tree(root, *, vuoto_ammesso=False):
 def maschera(token):
     """Primi 2 caratteri + lunghezza: quanto basta a riconoscere QUALE stringa ha
     colpito senza scriverla (l'output del cancello finisce in log e chat).
-    SOTTO I 4 CARATTERI NON ESCE NESSUN CARATTERE (04/09): su un token corto il
-    prefisso E' il token. Con 2 caratteri questa funzione restituiva il simbolo
-    INTERO piu' la sua lunghezza, e 3 delle 40 basi ticker del DB hanno 2 lettere:
-    la maschera scritta per non pubblicare il segreto lo pubblicava. Il prezzo e'
-    che due token corti diventano indistinguibili nell'output, ed e' il prezzo
-    giusto: il conteggio e il file:riga restano, il simbolo no."""
+    SOTTO I 4 CARATTERI NON ESCE NESSUN CARATTERE: su un token di 2 caratteri il
+    prefisso rivelerebbe il token intero. I token corti diventano indistinguibili
+    nell'output; il conteggio e il file:riga restano, il simbolo no."""
     if len(token) < 4:
         return "…(%d)" % len(token)
     return "%s…(%d)" % (token[:2], len(token))
@@ -403,8 +410,8 @@ def controllo_vietate_forme(tree, vietate, eccezioni=()):
     letterale perde — ESCAPATA (`\\\\`, JSON e stringhe Python) e con le barre in avanti. Solo
     i riscontri NUOVI rispetto al controllo 2 (la forma letterale li conta gia'); il token resta
     la stringa della lista, cosi' una riga di ECCEZIONI.txt (controllo `vietate_forme`) la copre.
-    Misurato il 05/09 su HEAD: 11 righe in 10 file (7 script con `C:/dev/...`, 3 test): quando
-    saranno curate o derogate, il nome esce da OSSERVAZIONE e le forme entrano nel controllo 2."""
+    Quando i riscontri saranno curati o derogati, il nome esce da OSSERVAZIONE e le forme
+    entrano nel controllo 2."""
     testi = _testi(tree)
     letterali = set()
     grezzi = set()
@@ -427,16 +434,58 @@ def controllo_esclusi(tree, esclusi):
     return Esito("esclusi", hit, note="%d pattern" % len(esclusi))
 
 
-def controllo_dimensione(tree, grandi_ammessi=(), max_tree=MAX_TREE, max_file=MAX_FILE):
-    """Controllo 6 (spec 3.6): nessun file sopra MAX_FILE (salvo i nominati in
-    `grandi_ammessi`), tree intero sotto MAX_TREE. Un file grande e' spesso un dato."""
-    ammessi = set(grandi_ammessi)
+def _budget_screenshot_da_testo(testo):
+    """Private size ratification, separate from visual pins; no reusable allowance."""
+    verifier = _screenshot_verifier()
+    value = verifier._json(testo.encode("utf-8"))
+    verifier._keys(value, ("schema_version", "manifest_sha256", "files", "bytes"), "screenshot budget")
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+        raise ValueError("budget screenshot: versione non supportata")
+    verifier._digest(value["manifest_sha256"])
+    if any(type(value[key]) is not int or value[key] <= 0 for key in ("files", "bytes")):
+        raise ValueError("budget screenshot: conteggio file e byte devono essere interi positivi")
+    return value
+
+
+def _pacchetto_screenshot(tree, budget):
+    """Exact verified PNG/DOM/manifest inventory, for size accounting only."""
+    budget = _budget_screenshot_da_testo(json.dumps(budget))
+    raster = _raster_verificati(tree, getattr(tree, "raster_pins", None))
+    if not raster:
+        raise ValueError("budget screenshot: pacchetto ratificato assente")
+    if any(row["manifest_sha256"] != budget["manifest_sha256"] for row in raster.values()):
+        raise ValueError("budget screenshot: manifest diverso dalla ratifica dimensionale")
+    paths = set(raster) | {row["dom_path"] for row in raster.values()} | {_screenshot_verifier().MANIFEST_PATH}
+    if len(paths) != budget["files"] or sum(len(tree[p]) for p in paths) != budget["bytes"]:
+        raise ValueError("budget screenshot: conteggio file o byte diverso dalla ratifica dimensionale")
+    return paths
+
+
+def controllo_dimensione(tree, grandi_ammessi=(), max_tree=MAX_TREE, max_file=MAX_FILE,
+                         *, budget_screenshot=None):
+    """Controllo 6: ordinary bytes <= MAX_TREE; exact ratified captures counted separately.
+
+    Without the optional private size ratification the entire tree keeps the old limit.
+    Every capture file retains MAX_FILE, including when named in an upstream exception.
+    This separation grants no exemption from any text or secret scan.
+    """
+    catture = set() if budget_screenshot is None else _pacchetto_screenshot(tree, budget_screenshot)
+    ammessi = set(grandi_ammessi) - catture
     hit = [Hit(rel, 0, "%d byte" % len(b)) for rel, b in sorted(tree.items())
            if len(b) > max_file and rel not in ammessi]
     totale = sum(len(b) for b in tree.values())
-    if totale > max_tree:
-        hit.append(Hit("<tree>", 0, "%d byte" % totale))
-    return Esito("dimensione", hit, note="%d file, %d byte" % (len(tree), totale))
+    byte_catture = sum(len(tree[p]) for p in catture)
+    ordinario = totale - byte_catture
+    if ordinario > max_tree:
+        hit.append(Hit("<tree>", 0, "%d byte ordinari" % ordinario))
+    note = "%d file, %d byte" % (len(tree), totale)
+    if budget_screenshot is not None:
+        note += "; ordinario %d file, %d byte; catture ratificate %d file, %d byte" % (
+            len(tree) - len(catture), ordinario, len(catture), byte_catture)
+    misure = {"file_totali": len(tree), "byte_totali": totale,
+              "file_ordinari": len(tree) - len(catture), "byte_ordinari": ordinario,
+              "file_catture": len(catture), "byte_catture": byte_catture}
+    return Esito("dimensione", hit, note=note, misure=misure)
 
 
 def verdetto(esiti, non_eseguiti=()):
@@ -576,8 +625,8 @@ def controllo_env(tree, coppie, corte=(), eccezioni=()):
         return Esito("env", errore="nessun valore da %d caratteri nel .env: non e' un verde" % MIN_ENV)
     testi = _testi(tree)
     # 05/09 (voce 8): un valore del .env IDENTICO al default committato in .env.example e'
-    # pubblico per costruzione (gli slug dei modelli OpenRouter: 46 riscontri a HEAD, tutti nel
-    # template e nei test) — non si cerca, e la nota lo dice per nome. Diverso dal template =
+    # pubblico per costruzione (per esempio gli slug dei modelli nel template)
+    # — non si cerca, e la nota lo dice per nome. Diverso dal template =
     # si cerca; template assente nel tree = non si esclude nulla.
     template = _valori_template(testi.get(".env.example", ""))
     pubbliche = list(dict.fromkeys(n for n, v in coppie if template.get(n) == v))
@@ -639,7 +688,7 @@ COLONNE_VIVE = (("cash_movements", "amount_eur"), ("nav_snapshots", "nav_total_e
                 ("trade_history", "quantita"), ("trade_history", "prezzo"),
                 ("trade_history", "realized_local"), ("trade_history", "realized_eur"))   # T4: +2 rispetto al piano (P&L realizzati: stessa classe)
 # 05/09 (buco D5, 4b): le guidance del PM (low/mid/high; quelle in percentuale hanno anche le forme
-# col %, v. percentuali_db) e i prezzi delle posizioni (18.291 distinti nel DB vero: da qui il
+# col %, v. percentuali_db) e i prezzi delle posizioni (ricerca accelerata dal
 # pre-filtro _candidati_numerici). Nascono nel controllo `valori_estesi`, in OSSERVAZIONE: misurati
 # il 05/09 su HEAD danno riscontri in test, app e script (collisioni con cifre di fixture) che
 # fermerebbero ogni push; quando il conto e' zero entrano in COLONNE_VIVE e il nome esce da
@@ -653,9 +702,9 @@ def _migliaia(n):
 
 
 def forme_numero(v):
-    """Regola calibrata (piano T4, misurata il 02/09 su 292 valori: la regola ingenua «tutte
-    le forme da 5 caratteri» dava 46 file/89 hit, quasi tutti importi tondi uguali a timeout
-    e fixture). INTERO: la forma con le migliaia ('27.500'), che col filtro MIN_TOKEN=6
+    """Regola calibrata (piano T4): cercare tutte le forme da 5 caratteri produce anche
+    collisioni fra importi tondi, timeout e fixture.
+    INTERO: la forma con le migliaia ('27.500'), che col filtro MIN_TOKEN=6
     vale da 10.000 in su ('5.500' ha 5 caratteri: BUCO DICHIARATO, un importo intero a
     4 cifre non si cerca in nessuna forma; le quantita' sotto 1.000 le copre il controllo
     5 col ticker); le cifre nude da 1.000.000. DECIMALI: '1234.56', '1234,56', '1.234,56';
@@ -692,10 +741,8 @@ def forme_percentuale(v):
     intera; anche con lo spazio prima del segno. Il segno % e' la specificita' che la lunghezza
     non da': NIENTE filtro MIN_TOKEN (buco D5, 05/09: «27,5%» ha 5 caratteri e spariva).
     Il segno meno non e' il segreto.
-    ZERO: nessuna forma (06/09). Misurato su HEAD il 05/09: **42 dei 57 riscontri** di
-    `valori_estesi` venivano da UNA sola guidance in percentuale che vale 0, il cui token
-    "0.00%" e' il FORMATO NUMERICO dei fogli Excel scritto in ogni motore DCF
-    (dcf_buyside_v3 23, dcf_modeler 8, dcf_rab 6, dcf_bank 2, briefing_engine 1, 3 in test).
+    ZERO: nessuna forma (06/09). Il token "0.00%" e' anche il FORMATO NUMERICO
+    dei fogli Excel: trovarlo nel codice non prova la presenza di un dato finanziario.
     Uno zero non e' un segreto: da "0.00%" nessuno deduce QUALE guidance del PM valga zero,
     mentre un controllo che grida su un formato e' quello che poi qualcuno spegne. Il buco
     e' DICHIARATO nella nota del controllo, non silenzioso."""
@@ -935,8 +982,8 @@ def lotti_db(db_path):
 def lotti_da_tuple(path_py):
     """La lista TRADES dello script one-off in attic, letta con ast senza ESEGUIRE il modulo
     (come lista_privata): i lotti come li scriveva l'export del broker, col ticker NON
-    normalizzato (un simbolo diverso da quello del DB, che il DB da solo non coprirebbe;
-    misura del 02/09: 35 tuple, 28 non gia' nel DB). Ogni elemento deve essere
+    normalizzato (un simbolo diverso da quello del DB, che il DB da solo non coprirebbe).
+    Ogni elemento deve essere
     (data, ticker, azione, quantita, prezzo) = (str, str, str, numero, numero): uno che non
     lo e' = ValueError coi numeri di riga (review T5 F4: la regex di prima lo perdeva ZITTA e
     il KO scattava solo a zero); file assente = FileNotFoundError; TRADES assente, non lista
@@ -972,16 +1019,14 @@ def lotti_da_tuple(path_py):
 def _forme_lotto(x):
     """Le forme con cui una quantita' o un prezzo del lotto puo' essere ricopiato. INTERO: le
     cifre nude e, da 1.000, con le migliaia all'italiana ('1.234') e all'inglese ('1,234': il
-    ':,' di Python sta in 22 file del tree e ogni export e' inglese, review T5 F2). DECIMALE:
+    ':,' di Python usa la notazione inglese, review T5 F2). DECIMALE:
     repr col punto e con la virgola; a 1, 2, 3 e 4 decimali (review T5 F3: i prezzi medi a
     5+ decimali si ricopiano arrotondati) col punto, con la virgola, con migliaia+virgola e
     con migliaia+punto ('3.117,46' e '3,117.46'); la sola parte intera, nuda e con le migliaia
-    (il leak di T9-bis portava un carico a 12 decimali arrotondato a 4 cifre). Il segno non e'
+    (un prezzo preciso puo' essere copiato troncando i decimali). Il segno non e'
     il segreto. Nessun filtro di lunghezza: una forma vale da sola con 4+ cifre del VALORE
-    (_significative) e insieme all'altro numero sempre — regola stretta del piano: 5 file/14
-    righe sui 303 file del 02/09 sera; quella larga («ticker + una forma qualsiasi di q o p»),
-    rimisurata lo stesso giorno con QUESTE forme, 58 file/150 righe (il piano ne stimava 46/91
-    con meno forme: senza parte intera ne' %.1f). Residui dichiarati in controllo_lotti."""
+    (_significative) e insieme all'altro numero sempre. La regola piu' larga («ticker + una
+    forma qualsiasi di q o p») produce piu' collisioni. Residui dichiarati in controllo_lotti."""
     x = abs(float(x))
     if x == int(x):
         out = {"%d" % int(x)}
@@ -1023,9 +1068,8 @@ def controllo_lotti(tree, lotti, eccezioni=()):
     uno dei due con 4+ cifre (le cifre del valore, non del token: min(_cifre, _significative)).
     Ogni forma si cerca anche sulla riga con le virgole sostituite da spazi (review T5 F1: in
     una cella CSV o in un array compatto — 'T,q,p', la riga stessa di importa_trade_csv — la
-    virgola dopo la quantita' intera la faceva sparire ai confini di _regex_numero: 45/136
-    lotti veri passavano e nessun altro controllo li prendeva; rumore accettato e misurato a 0
-    righe sui 303: un numero italiano con la virgola i cui pezzi coincidono con q e p, 'T 11,9',
+    virgola dopo la quantita' intera la faceva sparire ai confini di _regex_numero.
+    Un numero italiano con la virgola i cui pezzi coincidono con q e p, 'T 11,9',
     si cura con una riga di ECCEZIONI). Per i ticker .L il DB tiene il prezzo in GBX: si cerca
     anche in GBP (p/100, review T5 F9). Una quantita' tonda accanto al ticker e' un hit come
     gli altri (review T5 F5: classe di T4 F5, la decide il PM riga per riga in D5); la nota
@@ -1035,7 +1079,7 @@ def controllo_lotti(tree, lotti, eccezioni=()):
     Buchi dichiarati: il ticker in minuscolo (pre-filtro E regex sono case-sensitive: per
     chiuderlo vanno cambiati entrambi); ticker e numeri su righe diverse; il prezzo
     ARROTONDATO all'intero (si cerca solo la parte intera troncata: l'arrotondato a 1-3 cifre
-    colpiva date ISO e commenti, 3/3 righe false sul tree del 02/09); le migliaia con lo
+    colpiva anche date ISO e commenti); le migliaia con lo
     spazio; 5+ decimali diversi da repr; il mezzo binario di %.2f (23.455 -> '23.45')."""
     if not lotti:
         return Esito("lotti", errore="nessun lotto da cercare: non e' un verde (DB vuoto = path sbagliato?)")
@@ -1095,15 +1139,13 @@ def ticker_db(db_path):
 
 def controllo_ticker_soli(tree, ticker, eccezioni=(), dichiarati=0):
     """Controllo 9 (F1, 04/09): la base di un ticker del DB su una riga, DA SOLA — senza
-    pretendere quantita' e prezzo accanto, che e' la premessa da cui il 03/09 e' uscito il
-    book intero (v. controllo_lotti).
-    Confini ALFANUMERICI (il trattino basso separa e basta: `px_BASE` e' un riscontro —
-    scettici 04/09, 59 riscontri veri su 49 righe in 7 file che il confine con `_` perdeva).
+    pretendere quantita' e prezzo accanto (v. controllo_lotti).
+    Confini ALFANUMERICI (il trattino basso separa e basta: `px_BASE` e' un riscontro).
     ⚠️ NON APPLICARE QUI `_dentro_identificatore` (che il controllo 10 usa apposta): stessa
-    forma, significato OPPOSTO. Nel SORGENTE `px_MSTR` e' un identificatore che NOMINA il
+    forma, significato OPPOSTO. Nel SORGENTE `px_BASE` e' un identificatore che NOMINA il
     titolo, cioe' precisamente la fuga; nel PAYLOAD `get_<venue>_intel` e' il nome di uno
     strumento e il modello non ci legge una posizione. Uniformare i due confini "per
-    coerenza" riaprirebbe quei 59. Cerca anche nei NOMI
+    coerenza" nasconderebbe quelle menzioni. Cerca anche nei NOMI
     DEI FILE, senza distinzione di maiuscole e con riga 0 come controllo_esclusi: un file
     chiamato `test_BASE_x.py` si legge nell'elenco file di GitHub senza aprirlo, e nessun
     controllo guardava i percorsi.
@@ -1136,14 +1178,13 @@ def controllo_ticker_soli(tree, ticker, eccezioni=(), dichiarati=0):
 # I nove controlli precedenti guardano il SORGENTE: cosa viene PUBBLICATO. Questo guarda
 # un'altra cosa, e sono due misure diverse: cosa DECIDE. Un simbolo del book dentro un
 # system prompt o dentro la description di uno schema di tool non e' un problema di
-# privacy, e' un'INCLINAZIONE: misurato il 04/09, due libri identici in importi, volatilita'
-# e correlazioni e diversi solo nelle etichette producono 11.863 EUR di tagli in piu' e
-# 159.883 EUR di capacita' negata, in silenzio.
+# privacy soltanto: puo' orientare il modello in base alle etichette del portafoglio.
+# Il controllo cerca questi riferimenti statici; non misura l'effetto sulle decisioni.
 #
 # COME SI LEGGE UNO ZERO QUI. Il corpus non sono i file: sono le COSTANTI che finiscono nel
-# testo spedito all'API. Si rendono importando i moduli — misurato che l'import non scrive
-# niente: 218 file di data/ identici prima e dopo, e zero file anche nella cartella
-# rediretta. Si importa dal REPO e non dal tree esportato perche' l'export e' una COPIA
+# testo spedito all'API. Nel percorso legacy si rendono importando i moduli; gli effetti
+# degli import vanno verificati in isolamento da backend e scheduler concorrenti.
+# Si importa dal REPO e non dal tree esportato perche' l'export e' una COPIA
 # (`shutil.copy2`, tools/release/export_pubblico.py): le costanti sono le stesse byte per byte.
 #
 # CIO' CHE QUESTO CONTROLLO NON MISURA, dichiarato (regola 14/07, e «il cancello da' PULITO
@@ -1186,10 +1227,8 @@ management investment investments international global europe america asiapac
 banca banco bank banking finance financial insurance assicurazioni technologies
 technology systems industries industrie holdingsa sicav nv ag oyj asa
 healthcare
-""".split())   # `healthcare` 04/09 (Opus 5): e' parola distintiva del nome di un preferito,
-# e faceva contare come fuga OGNI riga che parla del SETTORE (4 riscontri su 160). Misurato:
-# delle 10 parole di settore provate, e' l'unica che oggi muove il conto — le altre 9 sono
-# state tolte, perche' allargare la lista senza una misura e' una perdita di recall zitta.
+""".split())   # I termini generici di settore non identificano da soli una societa'.
+# Allargare questa lista senza misurare le menzioni perse riduce la copertura del controllo.
 
 
 def _rendi(x):
@@ -1201,11 +1240,9 @@ def _rendi(x):
 
 
 def _importa_modulo(nome):
-    """Import per NOME, iniettabile. Misurato il 04/09 isolando un import alla volta:
-    nessuno dei moduli del payload crea un file sotto data/ (220 file identici a ogni
-    passo). I 2 file «nuovi» visti da una prima misura erano i task schedulati e il
-    backend vivo che scrivono in data/ mentre si misura: e' un confondente della MISURA,
-    non un effetto dell'import."""
+    """Import per NOME, iniettabile. Gli effetti sul filesystem vanno misurati isolando
+    gli import: backend e task schedulati concorrenti possono scrivere negli stessi
+    percorsi e confondere la misura."""
     import importlib
     return importlib.import_module(nome)
 
@@ -1348,14 +1385,13 @@ def _parole_distintive(nomi):
 
 def _dentro_identificatore(riga, token):
     """True se OGNI occorrenza del token in questa riga e' incollata a un `_`: allora e' un
-    NOME DI FUNZIONE (`get_hyperliquid_intel`, `pershing_square`), non una menzione del book.
+    NOME DI FUNZIONE (`get_venue_intel`, esempio sintetico), non una menzione del book.
     Il confine del controllo e' `(?<![A-Za-z0-9])`, e l'underscore non e' alfanumerico: senza
-    questa separazione un nome di tool conta come fuga (**7 riscontri** sul corpus del 04/09,
-    misurati DOPO l'implementazione: un conteggio piu' largo ne dava 11, ma la regola qui e'
-    conservativa — una riga che porta ANCHE una menzione nuda non viene separata).
-    ⚠️ Vale SOLO per il controllo 10. Il controllo 9 guarda il SORGENTE e li' `px_MSTR` e'
+    questa separazione un nome di tool conta come fuga. La regola e' conservativa:
+    una riga che porta ANCHE una menzione nuda non viene separata.
+    ⚠️ Vale SOLO per il controllo 10. Il controllo 9 guarda il SORGENTE e li' `px_BASE` e'
     un identificatore che NOMINA il titolo: applicargli questa regola renderebbe invisibili
-    59 riscontri veri su 49 righe in 7 file (misurato 04/09). Due confini diversi APPOSTA.
+    le menzioni dei titoli in quegli identificatori. Due confini diversi APPOSTA.
     Non e' un'esclusione zitta: i separati finiscono nella NOTA dell'esito, col conto e coi
     token mascherati. Prezzo DICHIARATO: una menzione vera scritta dentro uno snake_case
     (`VAL_ACME_X.xlsx`, esempio sintetico) finisce fra i separati — resta visibile nella nota, non nel totale."""
@@ -1422,6 +1458,368 @@ def controllo_payload(testi, ticker, nomi=(), guasti=(), eccezioni=(), dichiarat
     return _esito("payload", prosa, eccezioni, note=note)
 
 
+# --- G3B (13/09): controllo 13, il TESTO LIBERO DELL'UTENTE copiato nel tree -------------------
+# I dodici controlli precedenti cercano numeri, ticker, nomi, stringhe di lista e percorsi: nessuno
+# leggeva il testo libero del DB. Questo controllo cerca copie di quelle frasi, parola per
+# parola, in TUTTO il
+# tree (anche cio' che e' gia' pubblico e che una revisione del solo diff non rilegge).
+#
+# LA CLASSE e' «testo libero dell'utente», non «testo del PM»: `cash_movements.note` la scrive chi
+# registra o importa la riga (a volte parla del PM in terza persona), ma resta testo privato del DB.
+# Il nome del controllo resta `testo_pm` (quello della proposta 13/09).
+#
+# DA DOVE VENGONO LE COLONNE: dal registro delle «parole del PM» che il codice rende ai modelli
+# (`pm_verbatim` in storage/memory_db.py e i suoi chiamanti) PIU' il censimento dello schema: ogni
+# colonna di testo di un DB nuovo sta in COLONNE_TESTO_UTENTE o in COLONNE_TESTO_NON_UTENTE col suo
+# motivo, e un test crea il DB in una cartella temporanea e pretende che nessuna resti fuori (una
+# colonna nuova di testo libero non passa zitta).
+#
+# LA REGOLA, misurata il 13/09 sullo snapshot e sugli oggetti git del clone (due implementazioni
+# indipendenti, stessi numeri): parole NFKD senza segni diacritici, minuscole, SOLO lettere (le
+# cifre separano e non contano); corse contigue di almeno TESTO_MIN_BLOCCO=3 parole in comune fra un
+# testo e un file; corse dello stesso testo concatenate se il buco e' <= TESTO_MAX_BUCO=3 parole sia
+# nel file sia nel testo; riscontro = catena con almeno TESTO_MIN_PAROLE=5 parole in comune.
+# I parametri sono tarati sugli stessi casi osservati usati per verificarli:
+# misura circolare, dichiarata. Rete stretta, non garanzia.
+#
+# CIO' CHE NON MISURA, misurato e dichiarato nella nota: parafrasi, traduzioni, riassunti; copie con
+# meno di 3 parole intatte fra una modifica e l'altra; estratti e testi sotto 5 parole;
+# il testo dei modelli (ripete i prompt
+# del codice: inservibile come corpus); le parole che vivono solo nei documenti privati.
+
+COLONNE_TESTO_UTENTE = (
+    # (tabella, colonna, filtro (colonna, valore) o None, motivo)
+    ("decisions", "pm_feedback", None, "commento del PM su una decisione, reso ai modelli da pm_verbatim"),
+    ("decisions", "veto_reason", None, "motivo obbligatorio del veto del PM, reso da pm_verbatim"),
+    ("pm_feedback", "feedback_text", None, "feedback del PM agli specialisti, reso da pm_verbatim"),
+    ("favorite_companies", "note", None, "nota del PM su un preferito, resa da pm_verbatim"),
+    ("decision_notes", "testo", ("autore", "PM"), "nota del PM su una decisione (quelle con autore AI sono dei modelli)"),
+    ("trade_history", "pm_rationale", None, "motivazione del trade scritta dal PM"),
+    ("trade_history", "note", None, "nota libera del trade (PM o importatore)"),
+    ("cash_movements", "note", None, "causale libera del movimento: la scrive chi registra o importa la riga, non sempre il PM"),
+    ("positions", "tesi", None, "tesi della posizione"),
+    ("positions", "temi_monitoraggio", None, "temi da monitorare della posizione"),
+    ("positions", "note", None, "nota libera della posizione"),
+    ("position_openings", "provenienza", None, "provenienza dichiarata di un saldo iniziale"),
+    ("position_openings", "nota", None, "nota libera di un saldo iniziale"),
+    ("journal_entries", "title", None, "Diario utente (origin = 'user')"),
+    ("journal_entries", "body", None, "Diario utente (origin = 'user')"),
+    ("journal_revisions", "title", None, "revisioni immutabili del Diario utente"),
+    ("journal_revisions", "body", None, "revisioni immutabili del Diario utente"),
+    ("chat_messages", "content", ("role", "user"), "messaggi dell'utente in chat; ci finiscono anche i prompt rapidi dell'app (v. SOGLIA_TEMPLATE); assistant e system sono dei modelli"),
+    ("chat_sessions", "title", None, "titolo della chat: rinominabile a mano dall'utente (altrimenti un default o un titolo generato)"),
+    ("themes_tracked", "theme", None, "tema tracciato: nessuno scrittore nel codice oggi, dentro per prudenza"),
+    ("themes_tracked", "notes", None, "note dei temi: nessuno scrittore nel codice oggi, dentro per prudenza"),
+    ("method_record_reviews", "note", None, "nota del PM sulla revisione di un set di record documentati (D1A, 13/09)"),
+)
+
+COLONNE_TESTO_NON_UTENTE = (
+    # (motivo, colonne "tabella.colonna"): ogni altra colonna di testo di un DB nuovo
+    ("data o ora scritta dal sistema", (
+        "agent_score_history.started_at", "agent_score_history.completed_at", "agent_score_history.captured_at",
+        "cash_movements.date", "cash_movements.created_at", "cash_state.updated_at",
+        "chat_messages.timestamp", "chat_sessions.started_at", "chat_sessions.last_activity",
+        "company_guidance.source_date", "company_guidance.effective_date", "company_guidance.valid_until",
+        "company_guidance.created_at", "decision_notes.timestamp", "decisions.timestamp", "decisions.closed_at",
+        "decisions.veto_at", "decisions.veto_revoked_at", "favorite_companies.added_at",
+        "iv_history.snap_date", "iv_history.expiry", "iv_history.created_at",
+        "journal_entries.created_at", "journal_entries.updated_at", "journal_entries.archived_at",
+        "journal_revisions.created_at", "journal_revisions.saved_at", "journal_revisions.archived_at",
+        "llm_usage.timestamp", "memos.timestamp", "nav_snapshots.date", "nav_snapshots.created_at",
+        "news_feed.published_at", "news_feed.pulled_at", "pm_feedback.timestamp",
+        "position_openings.as_of", "position_openings.created_at", "position_prices.timestamp",
+        "positions.data_apertura", "positions.last_updated", "schema_version.applied_at",
+        "specialist_reports.timestamp", "themes_tracked.first_mentioned", "themes_tracked.last_mentioned",
+        "trade_history.data", "trade_history.created_at", "valuation_snapshot_links.created_at",
+        "valuation_snapshots.created_at", "valuation_theses.date", "method_record_reviews.reviewed_at",
+        "method_record_sets.prepared_at", "method_record_sets.earliest_valid_until",
+        "method_record_sets.latest_as_of")),
+    ("valore di un insieme chiuso (tipo, stato, ruolo, azione, lingua, valuta, sentiment)", (
+        "cash_movements.type", "chat_messages.role", "chat_messages.output_language", "chat_sessions.specialist",
+        "chat_sessions.output_language", "company_guidance.metric", "company_guidance.period",
+        "company_guidance.status", "decision_notes.autore", "decisions.action", "decisions.confidence",
+        "decisions.status", "journal_entries.kind", "journal_entries.origin", "journal_revisions.kind",
+        "journal_revisions.origin", "journal_revisions.action", "llm_usage.agent", "llm_usage.cost_status",
+        "llm_usage.cache_ttl", "llm_usage.output_language", "memos.output_language", "news_feed.sentiment",
+        "pm_feedback.specialist", "pm_feedback.sentiment", "position_openings.valuta",
+        "position_openings.precisione_data", "position_prices.valuta", "positions.valuta",
+        "specialist_reports.specialist", "specialist_reports.output_language", "themes_tracked.conviction",
+        "themes_tracked.status", "trade_history.action", "trade_history.valuta", "valuation_theses.sanity_severity",
+        "method_record_reviews.decision")),
+    ("identificativo tecnico o impronta", (
+        "agent_score_history.run_id", "agent_score_history.payload_sha256", "valuation_snapshot_links.snapshot_id",
+        "valuation_snapshot_links.generation_id", "valuation_snapshots.snapshot_id",
+        "valuation_snapshots.generation_id", "valuation_snapshots.payload_sha256",
+        "method_record_sets.method_id", "method_record_sets.method_version", "method_record_sets.records_sha256")),
+    ("chi prepara o rivede un set di record: etichetta d'identita', non testo libero", (
+        "method_record_sets.prepared_by", "method_record_reviews.reviewer")),
+    ("set di record documentati preparati dai modelli dai documenti ufficiali (D1A): record, motivazioni "
+     "degli scenari e provenienza", (
+        "method_record_sets.records_json", "method_record_sets.scenario_rationale_json",
+        "method_record_sets.provenance")),
+    ("ticker, nome o anagrafica del titolo: li cercano lotti, ticker_soli e payload", (
+        "company_guidance.ticker", "decisions.ticker", "favorite_companies.ticker", "favorite_companies.name",
+        "favorite_companies.sector", "favorite_companies.industry", "iv_history.ticker", "journal_entries.ticker",
+        "journal_revisions.ticker", "news_feed.ticker_mentioned", "position_openings.ticker",
+        "position_prices.ticker", "positions.ticker", "positions.nome", "trade_history.ticker",
+        "valuation_snapshots.ticker", "valuation_theses.ticker", "method_record_sets.ticker")),
+    ("testo generato dai modelli o dal codice che li orchestra: ripete i prompt del codice, "
+     "inservibile come corpus", (
+        "decisions.timing", "decisions.rationale", "memos.title", "memos.full_markdown",
+        "specialist_reports.content", "valuation_theses.variant_view", "valuation_theses.sanity_headline")),
+    ("nota d'esito della decisione: la scrivono il codice (auto-archiviazione in memory_db, AUTO-ESCLUSA "
+     "in action_validator) e tools/maintenance/archivia_run_duplicata.py, da template; PATCH /decisions/{id} "
+     "la accetta ma nessuna pagina dell'app la invia (misurato 13/09): se una pagina comincia a "
+     "scriverla, va fra le colonne dell'utente", (
+        "decisions.outcome_notes",)),
+    ("etichetta o nota scritta dal codice (fonte, provider, modello, motore, esito di un calcolo)", (
+        "cash_state.source", "iv_history.spot_source", "iv_history.source", "llm_usage.model",
+        "llm_usage.fx_source", "memos.notes", "nav_snapshots.source", "position_prices.source",
+        "schema_version.description", "trade_history.link_origin", "trade_history.fx_fonte",
+        "valuation_theses.growth_path", "valuation_theses.engine", "valuation_theses.subsector",
+        "valuation_theses.profile_key")),
+    ("registro guidance: fonte, unita', scadenza e nota le scrive l'agente col tool add_guidance "
+     "(entered_by = il chiamante)", (
+        "company_guidance.unit", "company_guidance.source_doc", "company_guidance.valid_until_source",
+        "company_guidance.entered_by", "company_guidance.note")),
+    ("notizie di terzi e loro sintesi generate", (
+        "news_feed.title", "news_feed.snippet", "news_feed.source", "news_feed.url", "news_feed.theme",
+        "news_feed.provider", "news_feed.headline_it", "news_feed.why_matters")),
+    ("JSON o percorsi prodotti dal sistema", (
+        "agent_score_history.payload_json", "memos.pdf_path", "memos.appendix_path", "memos.dcf_files",
+        "valuation_snapshots.payload_json")),
+)
+TESTO_MIN_BLOCCO = 3
+TESTO_MAX_BUCO = 3
+TESTO_MIN_PAROLE = 5
+# Esenzione per TEMPLATE, non per file (13/09): i prompt rapidi dell'app partono come messaggi
+# dell'utente e tornano nel DB identici al catalogo, e la chat prende per titolo il primo messaggio.
+# Un messaggio o un titolo la cui copertura da un prompt dei cataloghi (parole in blocchi da
+# TESTO_MIN_BLOCCO in su / parole del testo) arriva a SOGLIA_TEMPLATE e' un prompt dell'app: i suoi
+# riscontri si separano e si DICHIARANO nella nota (file:riga), non spariscono. Si separa solo cio'
+# che viene dal prompt: una catena con TESTO_MIN_PAROLE parole in comune FUORI dalle parole coperte
+# dal template (il resto del messaggio, fino al 30%) resta un riscontro (ripresa 13/09 sera: prima
+# l'esenzione valeva per il messaggio intero e sul deposito non fermava). Il catalogo si legge
+# dal tree misurato. Le coperture sono misurate per messaggio e titolo, anche sulla soglia.
+# Un'eccezione per file si sarebbe invecchiata al trasloco dei
+# prompt (misurato: da lib/chat-prompts.ts a i18n) e avrebbe silenziato anche un testo vero copiato in
+# quei file. BUCO DICHIARATO: un testo dell'utente copiato DENTRO un catalogo diventa un template;
+# vale solo per messaggi e titoli della chat, non per le altre colonne.
+CATALOGHI_PROMPT = re.compile(r"^app/src/i18n/[^/]+/communications\.ts$")
+ORIGINI_PROMPT_APP = ("chat_messages.content[user]", "chat_sessions.title")
+SOGLIA_TEMPLATE = 0.7
+_COMBINANTI = re.compile("[\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe20-\ufe2f]")
+_PAROLA = re.compile(r"[a-z]+")
+_VALORE_CATALOGO = re.compile(r'"(?:[^"\\]|\\.)*"\s*:\s*"((?:[^"\\]|\\.)*)"')
+
+
+def _origine_testo(colonna):
+    tab, col, filtro, _ = colonna
+    return "%s.%s%s" % (tab, col, ("[%s]" % filtro[1]) if filtro else "")
+
+
+def _normalizza_testo(testo):
+    """NFKD, via i segni diacritici, minuscolo. Le a-capo restano dove sono (NFKD non ne crea)."""
+    return _COMBINANTI.sub("", unicodedata.normalize("NFKD", testo)).lower()
+
+
+def parole_testo(testo):
+    """Le parole come le confronta il controllo 13: solo lettere a-z dopo la normalizzazione."""
+    return _PAROLA.findall(_normalizza_testo(testo or ""))
+
+
+def testi_utente_db(db_path, colonne=COLONNE_TESTO_UTENTE):
+    """[(origine, testo)] non vuoti delle colonne di testo libero dell'utente, in sola lettura. Una
+    tabella o una colonna assente = OperationalError (un KO dichiarato), mai «0 testi»."""
+    c = _apri_ro(db_path)
+    try:
+        out = []
+        for colonna in colonne:
+            tab, col, filtro, _ = colonna
+            if filtro:
+                righe = c.execute("SELECT %s FROM %s WHERE %s = ?" % (col, tab, filtro[0]), (filtro[1],))
+            else:
+                righe = c.execute("SELECT %s FROM %s" % (col, tab))
+            for (v,) in righe:
+                if isinstance(v, str) and v.strip():
+                    out.append((_origine_testo(colonna), v))
+        return out
+    finally:
+        c.close()
+
+
+def _prompt_di_catalogo(testi, min_blocco=TESTO_MIN_BLOCCO):
+    """[(file, riga, parole)] dei valori stringa dei cataloghi dei prompt nel tree misurato."""
+    out = []
+    for rel in sorted(testi):
+        if not CATALOGHI_PROMPT.match(rel):
+            continue
+        for n, riga in enumerate(_righe(testi[rel]), 1):
+            for m in _VALORE_CATALOGO.finditer(riga):
+                try:
+                    valore = json.loads('"%s"' % m.group(1))
+                except ValueError:
+                    valore = m.group(1)
+                ws = parole_testo(valore)
+                if len(ws) >= min_blocco:
+                    out.append((rel, n, ws))
+    return out
+
+
+def _copertura_template(parole, prompt, min_blocco=TESTO_MIN_BLOCCO):
+    """(copertura massima, posizioni coperte). La copertura di un testo da parte di un prompt del
+    catalogo = parole in blocchi comuni da `min_blocco` in su, sul totale delle parole del testo: si
+    prende la MASSIMA su un prompt solo (e' quella che decide se il testo e' un prompt dell'app). Le
+    posizioni (indici nelle parole del testo) sono quelle dei blocchi di TUTTI i prompt: il prompt per
+    ticker dell'app si compone di piu' voci del catalogo: limitarsi al prompt migliore
+    attribuirebbe all'utente parti delle altre voci. Le parole del testo fuori da ogni
+    blocco restano dell'utente."""
+    migliore, coperte = 0.0, set()
+    for _, _, ws in prompt:
+        sm = difflib.SequenceMatcher(None, parole, ws, autojunk=False)
+        blocchi = [b for b in sm.get_matching_blocks() if b.size >= min_blocco]
+        migliore = max(migliore, sum(b.size for b in blocchi) / float(len(parole)))
+        for b in blocchi:
+            coperte.update(range(b.a, b.a + b.size))
+    return migliore, coperte
+
+
+def _corse_testo(parole_file, indice, primi, b):
+    """[(id testo, inizio nel file, inizio nel testo, lunghezza)]: le corse massimali di parole in
+    comune, lunghe almeno `b`, lungo ogni diagonale (testo, scarto)."""
+    aperte, chiuse = {}, []
+    for i in range(len(parole_file) - b + 1):
+        if parole_file[i] not in primi:
+            continue
+        for tid, p in indice.get(tuple(parole_file[i:i + b]), ()):
+            k = (tid, p - i)
+            r = aperte.get(k)
+            if r is not None and r[2] == i + b - 1:
+                r[2] = i + b
+            else:
+                if r is not None:
+                    chiuse.append((tid, r[0], r[1], r[2] - r[0]))
+                aperte[k] = [i, p, i + b]
+    chiuse.extend((k[0], r[0], r[1], r[2] - r[0]) for k, r in aperte.items())
+    return chiuse
+
+
+def _catene_testo(corse, max_buco):
+    """[(id testo, inizio nel file, parole in comune, posizioni nel testo)]: corse dello stesso testo
+    concatenate quando il buco e' <= max_buco parole sia nel file sia nel testo (una parola cambiata,
+    tolta o aggiunta non spezza la copia). Ogni corsa allunga la catena compatibile con piu' parole,
+    non solo l'ultima aperta: una corsa spuria in mezzo (un trigramma ripetuto altrove nel testo) non
+    spezza la vera. Le posizioni (indici delle parole del testo in comune) servono all'esenzione dei
+    prompt dell'app: si esenta cio' che viene dal template, non il messaggio intero."""
+    per_testo = {}
+    for tid, fi, ti, ln in corse:
+        per_testo.setdefault(tid, []).append((fi, ti, ln))
+    out = []
+    for tid, rs in per_testo.items():
+        rs.sort()
+        catene = []                         # [inizio file, fine file, fine testo, parole, posizioni]
+        for fi, ti, ln in rs:
+            compatibili = [c for c in catene
+                           if -ln < fi - c[1] <= max_buco and -ln < ti - c[2] <= max_buco]
+            if compatibili:
+                c = max(compatibili, key=lambda x: x[3])
+                c[3] += max(0, fi + ln - max(c[1], fi))
+                c[1] = max(c[1], fi + ln)
+                c[2] = max(c[2], ti + ln)
+                c[4].update(range(ti, ti + ln))
+            else:
+                catene.append([fi, fi + ln, ti + ln, ln, set(range(ti, ti + ln))])
+        out.extend((tid, c[0], c[3], c[4]) for c in catene)
+    return out
+
+
+def controllo_testo_pm(tree, testi, eccezioni=(), min_blocco=TESTO_MIN_BLOCCO,
+                       max_buco=TESTO_MAX_BUCO, min_parole=TESTO_MIN_PAROLE):
+    """Controllo 13 (G3B, 13/09), in OSSERVAZIONE: il testo libero dell'utente (testi_utente_db)
+    copiato nel tree. Regola a catena (v. sopra): hit = file:riga della prima parola in comune,
+    token = ORIGINE...(N parole) = parole in comune. MAI il testo, nemmeno una parola. Un hit per file, riga e
+    origine. Zero testi, o nessun testo da `min_parole` parole in su = KO dichiarato. Eccezioni per
+    (file, testo_pm, origine), stantie dichiarate. I messaggi della chat che sono prompt dell'app
+    e i loro titoli (SOGLIA_TEMPLATE) si separano e si dichiarano nella nota."""
+    if not testi:
+        return Esito("testo_pm", errore="nessun testo libero dell'utente dal DB: non e' un verde (DB vuoto = path sbagliato?)")
+    visti, voci, corti = set(), [], 0
+    for origine, testo in testi:
+        ws = parole_testo(testo)
+        if len(ws) < min_parole:
+            corti += 1
+            continue
+        chiave = (origine, tuple(ws))
+        if chiave not in visti:
+            visti.add(chiave)
+            voci.append((origine, ws))
+    if not voci:
+        return Esito("testo_pm", errore="%d testi, nessuno da %d parole in su: niente da cercare, non e' un verde"
+                     % (len(testi), min_parole))
+    indice, primi = {}, set()
+    for tid, (_, ws) in enumerate(voci):
+        for p in range(len(ws) - min_blocco + 1):
+            indice.setdefault(tuple(ws[p:p + min_blocco]), []).append((tid, p))
+            primi.add(ws[p])
+    testi_tree = _testi(tree)
+    grezzi = {}                     # (file, riga, tid) -> [(parole in comune, posizioni nel testo)]
+    for rel in sorted(testi_tree):
+        norm = _normalizza_testo(testi_tree[rel])
+        parole, inizi = [], []
+        for m in _PAROLA.finditer(norm):
+            parole.append(m.group())
+            inizi.append(m.start())
+        if len(parole) < min_parole:
+            continue
+        a_capo = None
+        for tid, inizio, n, posizioni in _catene_testo(_corse_testo(parole, indice, primi, min_blocco), max_buco):
+            if n < min_parole:
+                continue
+            if a_capo is None:
+                a_capo = [m.start() for m in re.finditer("\n", norm)]
+            riga = bisect.bisect_right(a_capo, inizi[inizio]) + 1
+            grezzi.setdefault((rel, riga, tid), []).append((n, posizioni))
+    prompt = _prompt_di_catalogo(testi_tree, min_blocco) if any(
+        voci[tid][0] in ORIGINI_PROMPT_APP for (_, _, tid) in grezzi) else []
+    template = {}                   # tid dei prompt dell'app -> posizioni coperte dai blocchi del catalogo
+    for tid in sorted({t for (_, _, t) in grezzi}):
+        if voci[tid][0] in ORIGINI_PROMPT_APP and prompt:
+            copertura, coperte = _copertura_template(voci[tid][1], prompt, min_blocco)
+            if copertura >= SOGLIA_TEMPLATE:
+                template[tid] = coperte
+    per_riga, separati = {}, set()
+    for (rel, riga, tid), catene in grezzi.items():
+        for n, posizioni in catene:
+            # separato solo se le parole in comune FUORI dal template non fanno da sole un riscontro
+            if tid in template and len(posizioni - template[tid]) < min_parole:
+                separati.add((rel, riga))
+                continue
+            k = (rel, riga, voci[tid][0])
+            per_riga[k] = max(per_riga.get(k, 0), n)
+    rimasti, applicate, senza = _applica_eccezioni(sorted(per_riga), "testo_pm", set(eccezioni or ()))
+    hit = [Hit(r, n, "%s\u2026(%d parole)" % (o, per_riga[(r, n, o)])) for (r, n, o) in rimasti]
+    note = ("%d testi da %d origini, %d cercabili (%d sotto %d parole NON cercabili); catena: blocchi da %d, "
+            "buco <= %d, riscontro da %d parole, solo lettere NFKD" % (
+                len(testi), len({o for o, _ in testi}), len(voci), corti, min_parole,
+                min_blocco, max_buco, min_parole))
+    if separati:
+        elenco = sorted(separati)
+        note += ("; %s dai prompt dell'app (copertura >= %.1f da %d prompt dei cataloghi, meno di %d "
+                 "parole in comune fuori dal prompt) separati e DICHIARATI: %s%s" % (
+                     _plurale(len(elenco), "riscontro", "riscontri"), SOGLIA_TEMPLATE, len(prompt), min_parole,
+                     ", ".join("%s:%d" % x for x in elenco[:20]),
+                     (" ... altri %d" % (len(elenco) - 20)) if len(elenco) > 20 else ""))
+    if applicate:
+        note += "; " + _plurale(applicate, "eccezione applicata", "eccezioni applicate")
+    if senza:
+        note += "; " + _plurale(len(senza), "eccezione senza riscontro", "eccezioni senza riscontro")
+    note += ("; NON misura parafrasi, riassunti, traduzioni, copie con una parola cambiata ogni "
+             "%d o meno, cioe' meno di %d parole intatte fra due modifiche, estratti e testi sotto "
+             "%d parole, testo dei "
+             "modelli, parole che vivono solo nei documenti privati" % (min_blocco, min_blocco, min_parole))
+    return Esito("testo_pm", hit, note=note)
+
+
 # --- T6: controllo 1, gitleaks pinnato (download con sha256, scansione della cartella) ---------
 
 def scarica_gitleaks(url=GITLEAKS_URL, sha256_atteso=GITLEAKS_SHA256, dest_exe=GITLEAKS_EXE, fetch=None):
@@ -1469,7 +1867,7 @@ def _copertura(tree_dir, stderr, stdin_letti=None, raster_pins=None):
     sul tree vero) confrontata coi byte del tree, meno i file che il config di default salta per
     disegno suo (GITLEAKS_SCOPERTI). Torna (errore, nota). Senza questa misura ogni salto del
     motore — lockfile, node_modules, .png, .zip, un file che non riesce ad aprire — usciva
-    «0 hit, PULITO» (review T6 F1: 357.316 byte su 5.887.695 non letti e non dichiarati)."""
+    «0 hit, PULITO» senza dichiarare la copertura incompleta (review T6 F1)."""
     m = re.search(r"scanned ~(\d+) bytes", stderr)
     # 13/09 (Claude Opus 5): ogni motivo di KO resta nel verdetto, nessuno copre l'altro. Il
     # raster che non si certifica non toglie la dichiarazione dei byte che il motore non ha letto
@@ -1775,10 +2173,11 @@ def congela_input(tree_dir, controlli, pubblico, corpus_root):
         "SIMBOLI.txt": lambda t: _simboli_da_testo(t, "SIMBOLI.txt"),
         "GRANDI_AMMESSI.txt": _lista_da_testo,
         "SCREENSHOTS_APPROVATI.json": _raster_pins_da_testo,
+        BUDGET_SCREENSHOTS: _budget_screenshot_da_testo,
     }
     for nome, parser in parser_liste.items():
         path = os.path.join(pubblico, nome)
-        if os.path.isfile(path):
+        if os.path.isfile(path) or (nome == BUDGET_SCREENSHOTS and os.path.lexists(path)):
             try:
                 with open(path, "rb") as fh:
                     raw = fh.read()
@@ -1788,8 +2187,8 @@ def congela_input(tree_dir, controlli, pubblico, corpus_root):
                 out.errori["lista:" + nome] = "%s: %s" % (type(e).__name__, str(e)[:240])
         else:
             out.assenti.append("lista:" + nome)
-            out.valori["lista:" + nome] = (set() if nome in
-                                             {"ECCEZIONI.txt", "SIMBOLI.txt"} else [])
+            out.valori["lista:" + nome] = (None if nome == BUDGET_SCREENSHOTS else
+                                         set() if nome in {"ECCEZIONI.txt", "SIMBOLI.txt"} else [])
             if ((nome == "VIETATE.txt" and richiesti & {"vietate", "vietate_forme"})
                     or (nome == "ESCLUSI.txt" and "esclusi" in richiesti)):
                 out.errori["lista:" + nome] = "FileNotFoundError: lista richiesta assente"
@@ -1829,6 +2228,9 @@ def congela_input(tree_dir, controlli, pubblico, corpus_root):
             cattura("nomi", lambda: nomi_db(db_path), db_path)
     if "lista_privata" in richiesti:
         cattura("lista_privata", lambda: lista_privata(privata_path), privata_path)
+    if "testo_pm" in richiesti:
+        # 13/09 (G3B): i testi liberi dell'utente; nel manifest entrano solo il conteggio e l'impronta
+        cattura("testi_utente", lambda: testi_utente_db(db_path), db_path)
     if "payload" in richiesti:
         cattura("payload", lambda: payload_statico_da_tree(tree_dir), tree_dir)
 
@@ -1880,11 +2282,17 @@ def esegui_controlli(tree_dir, solo=None, blocca_osservazione=False, pubblico=No
                     raster_pins = _raster_pins_da_testo(handle.read())
             else:
                 raster_pins = []
+            budget_path = os.path.join(liste, BUDGET_SCREENSHOTS)
+            budget_screenshot = None
+            if os.path.lexists(budget_path):
+                with open(budget_path, encoding="utf-8-sig") as handle:
+                    budget_screenshot = _budget_screenshot_da_testo(handle.read())
         else:
             ecc = congelati.leggi("lista:ECCEZIONI.txt")
             simboli = congelati.leggi("lista:SIMBOLI.txt")
             grandi = congelati.leggi("lista:GRANDI_AMMESSI.txt")
             raster_pins = congelati.leggi("lista:SCREENSHOTS_APPROVATI.json")
+            budget_screenshot = congelati.leggi("lista:" + BUDGET_SCREENSHOTS)
         tree = _TreeRaster(tree, raster_pins)
         ecc, grandi, upstream = _risolvi_deroghe_upstream(tree, ecc, grandi)
         liste_congelate, errori_liste = {}, {}
@@ -1933,7 +2341,7 @@ def esegui_controlli(tree_dir, solo=None, blocca_osservazione=False, pubblico=No
         except Exception as ex:  # dichiarato nel verdetto, non ingoiato
             e = Esito(nome, errore="%s: %s" % (type(ex).__name__, ex))
         if upstream and nome in ("dimensione", "lista_privata", "lotti", "ticker_soli", "valori_estesi"):
-            e.note += "; %d asset upstream verificati per percorso e SHA-256" % len(upstream)
+            e.note += "; %d asset dichiarati verificati per percorso e SHA-256" % len(upstream)
         e.osservazione = (nome in OSSERVAZIONE) and not blocca_osservazione
         esiti.append(e)
 
@@ -1963,7 +2371,7 @@ def esegui_controlli(tree_dir, solo=None, blocca_osservazione=False, pubblico=No
                            os.path.join(REPO, "archive", "private", "attic", "oneshot",
                                         "import_user_trades.py")))), ecc))
         elif nome == "dimensione":
-            prova(nome, lambda: controllo_dimensione(tree, grandi))
+            prova(nome, lambda: controllo_dimensione(tree, grandi, budget_screenshot=budget_screenshot))
         elif nome == "valori_db":
             prova(nome, lambda: controllo_valori_db(
                 tree, fonte("valori_db", lambda: valori_db(memoria.SQLITE_PATH)), ecc))
@@ -2017,6 +2425,10 @@ def esegui_controlli(tree_dir, solo=None, blocca_osservazione=False, pubblico=No
                 return controllo_payload(testi, ticker | simboli, nomi, guasti, ecc,
                                          dichiarati=len(simboli))
             prova(nome, _payload)
+        elif nome == "testo_pm":
+            # 13/09 (G3B), OSSERVAZIONE: il testo libero dell'utente (COLONNE_TESTO_UTENTE) copiato nel tree
+            prova(nome, lambda: controllo_testo_pm(
+                tree, fonte("testi_utente", lambda: testi_utente_db(memoria.SQLITE_PATH)), ecc))
         else:
             # 04/09: senza questo ramo un nome aggiunto a CONTROLLI e mai cablato qui veniva
             # SALTATO in silenzio, e `non_eseguiti` non lo vedeva (sta in da_fare): il cancello
@@ -2052,7 +2464,8 @@ def esegui_tutti(tree_dir, solo=None, blocca_osservazione=False, corpus_root=Non
             "rigoroso": bool(blocca_osservazione),
             "controlli": [
                 {"nome": e.nome, "hit": len(e.hit), "errore": bool(e.errore),
-                 "osservazione": bool(e.osservazione)}
+                 "osservazione": bool(e.osservazione),
+                 **({"misure": dict(e.misure)} if e.misure else {})}
                 for e in esiti
             ],
             "non_eseguiti": list(non_eseguiti),

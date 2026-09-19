@@ -1,0 +1,477 @@
+BELLOMBERG
+v0.8.0 OBSIDIAN
+NY
+LN
+MI
+HK
+❯
+SEARCH TICKERS · PAGES · ACTIONS
+CTRL+K
+API
+LIVE
+13 SEP 2026
+10:11:40
+UTC+2
+F19
+01
+DASH
+02
+PERF
+03
+FAVS
+04
+MKT
+05
+NEWS
+06
+FUND
+07
+FCTR
+08
+MTC
+09
+VOLS
+10
+EDGE
+11
+CHAT
+12
+LIVE
+13
+SCORE
+14
+MEMO
+15
+DECN
+16
+TRADE
+17
+MOVES
+18
+MNDT
+19
+CONFIG
+F18 // MANDATE AND JOURNAL
+|
+USD/EUR
+0.9000
+GBP/EUR
+1.2000
+GBX/EUR
+0.01200
+CHF/EUR
+1.0500
+JPY/EUR
+0.0060
+HKD/EUR
+0.1154
+FX 60S
+Mandate and Journal
+
+Investment rules, with their effects and verification in view.
+
+Mandate
+Journal
+
+Draft number format: English (1,234.56).
+
+Fill with example profile
+EXAMPLE PROFILE ACTIVE · valid, but not yet personalized.
+Mandate sections
+01
+Profile
+✓
+02
+Risk
+✓
+03
+Position sizing
+✓
+04
+Cash
+✓
+05
+Discipline
+✓
+06
+Options
+✓
+07
+Notes
+✓
+
+47 fields · 7 sections
+
+37 of 37 required fields completed
+
+Status refers to the draft; the server checks full consistency.
+01Profile
+Investment horizon*Prompt
+
+Investment horizon: long term (years), medium term (months), or trading (weeks).
+
+Required
+-- choose --
+Long term
+Medium term
+Short-term trading
+Portfolio style*Prompt
+
+Concentrated: allows high-conviction position weights; diversified: keeps each position within its cap.
+
+Required
+-- choose --
+Concentrated
+Diversified
+Holding horizon*Prompt
+
+Average holding period of a position.
+
+Required · Allowed range: 1–30
+years
+Base currency*Prompt
+
+Currency used to measure wealth (ISO code: EUR, USD, GBP...).
+
+Required
+BrokerInformation
+
+Broker used (information only).
+
+Optional
+0 / 120 characters
+Tax residenceInformation
+
+Country of tax residence (informs the UCITS and vehicle preference).
+
+Optional
+0 / 120 characters
+Accessible markets and preference*Prompt
+
+Accessible exchanges, in order of preference: the first is the home exchange (how to buy from there).
+
+Required
+Milan (MI)
+London (L)
+Frankfurt (DE)
+Frankfurt (FRA)
+Paris (PA)
+Amsterdam (AS)
+Brussels (BR)
+Madrid (MC)
+Zurich (SW)
+Vienna (VI)
+New York (US)
+Toronto (TO)
+Tokyo (T)
+Hong Kong (HK)
+Mumbai (NS)
+Sao Paulo (SA)
+Sydney (AX)
+Preference for UCITS funds*Prompt
+
+Prefers UCITS ETFs/funds (.MI/.L/.DE) for tax efficiency.
+
+Required
+YES
+No
+Leverage allowed*Prompt
+
+The committee may propose leveraged instruments or margin.
+
+Required
+YES
+No
+Short positions allowed*Prompt
+
+The committee may propose short positions.
+
+Required
+YES
+No
+How are these fields used?
+Committee text
+TO VALIDATE
+Complete the seven sections and request a preview. The text appears here only after server validation.
+
+FINGERPRINT
+eba730fb0a8b
+2024-02-20 · Example profile
+No unsaved changes
+Discard changes
+Validate and preview
+Save mandate
+[ BELLOMBERG · OBSIDIAN ]
+ENGINE
+SYNTHETIC DEMO
+AGENTS
+4/6 RUN
+RUN IN PROGRESS
+SESSION 2026-09-13
+WORKSPACE · F1–F19 · CTRL+K
+SETTINGS
+THE WATCH — TONIGHT'S GUARD
+ESC CLOSES
+Choose your language
+
+The interface and new content will follow your choice. You can change it in settings. Existing documents stay in their original language.
+
+Choose your language
+Italiano
+English
+SAVE LANGUAGE
+THE GUARDIANS — 5 AUTOMATIC JOBS
+RESULT OTHER THAN 0 = UNSUCCESSFUL
+AutoBackup
+RESULT 0
+result 0: the job reports success
+12/09 23:00
+next 13/09 23:00
+Briefing
+RESULT 0
+result 0: the job reports success
+11/09 19:30
+next 14/09 07:30
+Consigliere
+DISABLED
+disabled by choice — result 0 is from its last run, not tonight
+27/08 07:30
+next n/a
+NewsFeed
+RESULT 0
+result 0: the job reports success
+11/09 22:45
+next 14/09 07:00
+PriceUpdater
+RESULT 0
+result 0: the job reports success
+13/09 10:05
+next 13/09 10:20
+THE NIGHT CHART — 31 DAYS
+HOLLOW BAR = UNCOVERED NIGHT · HEIGHT = MB · POINT FOR THE EXACT VALUE
+13/08
+01/09
+12/09
+overnight
+manual
+uncovered night
+covered 29 nights out of 31
+uncovered 2 (6.5%)
+THE REGISTER — WHAT THE TERMINAL CLAIMS AND WHAT SUPPORTS IT
+3 ENTRIES
+NOT DECLARED	The zip contents	No read-only request reports this. It becomes available after a backup made here: the response provides the file list and quick_check for each database.
+COMPLETE	The backup list	The backend reports 30 and returns them all. Above 50 it starts truncating the list, so this count must be read as partial.
+CORRECT	The backup folder	C:\Users\demo\bellomberg\data\backups — actual path from the payload.
+IN THE FOLDER — 30 FILES, SORTED BY DATE
+550 MB
+CREATE A BACKUP NOW
+the latest is from 12/09 23:00
+NIGHT
+bellomberg_backup_20260912_230001.zip
+18.63 MB
+12/09 23:00
+NIGHT
+bellomberg_backup_20260911_230001.zip
+18.61 MB
+11/09 23:00
+NIGHT
+bellomberg_backup_20260910_230001.zip
+18.59 MB
+10/09 23:00
+NIGHT
+bellomberg_backup_20260909_230001.zip
+18.64 MB
+09/09 23:00
+NIGHT
+bellomberg_backup_20260908_230001.zip
+18.54 MB
+08/09 23:00
+NIGHT
+bellomberg_backup_20260907_230001.zip
+18.52 MB
+07/09 23:00
+NIGHT
+bellomberg_backup_20260906_230001.zip
+18.50 MB
+06/09 23:00
+NIGHT
+bellomberg_backup_20260905_230001.zip
+18.48 MB
+05/09 23:00
+NIGHT
+bellomberg_backup_20260904_230001.zip
+18.46 MB
+04/09 23:00
+NIGHT
+bellomberg_backup_20260903_230001.zip
+18.44 MB
+03/09 23:00
+NIGHT
+bellomberg_backup_20260902_230001.zip
+18.49 MB
+02/09 23:00
+NIGHT
+bellomberg_backup_20260901_230001.zip
+18.40 MB
+01/09 23:00
+NIGHT
+bellomberg_backup_20260831_230001.zip
+18.38 MB
+31/08 23:00
+NIGHT
+bellomberg_backup_20260830_230001.zip
+18.36 MB
+30/08 23:00
+NIGHT
+bellomberg_backup_20260829_230001.zip
+18.34 MB
+29/08 23:00
+NIGHT
+bellomberg_backup_20260828_230001.zip
+18.32 MB
+28/08 23:00
+NIGHT
+bellomberg_backup_20260827_230001.zip
+18.30 MB
+27/08 23:00
+NIGHT
+bellomberg_backup_20260826_230001.zip
+18.34 MB
+26/08 23:00
+NIGHT
+bellomberg_backup_20260825_230001.zip
+18.25 MB
+25/08 23:00
+NIGHT
+bellomberg_backup_20260824_230001.zip
+18.23 MB
+24/08 23:00
+NIGHT
+bellomberg_backup_20260824_081411.zip
+18.21 MB
+24/08 08:14
+NIGHT
+bellomberg_backup_20260821_230001.zip
+18.19 MB
+21/08 23:00
+NIGHT
+bellomberg_backup_20260820_230001.zip
+18.17 MB
+20/08 23:00
+NIGHT
+bellomberg_backup_20260819_230001.zip
+18.15 MB
+19/08 23:00
+NIGHT
+bellomberg_backup_20260818_230001.zip
+18.20 MB
+18/08 23:00
+NIGHT
+bellomberg_backup_20260817_230001.zip
+18.10 MB
+17/08 23:00
+NIGHT
+bellomberg_backup_20260816_230001.zip
+18.08 MB
+16/08 23:00
+NIGHT
+bellomberg_backup_20260815_230001.zip
+18.06 MB
+15/08 23:00
+NIGHT
+bellomberg_backup_20260814_230001.zip
+18.04 MB
+14/08 23:00
+NIGHT
+bellomberg_backup_20260813_230001.zip
+18.02 MB
+13/08 23:00
+THE MACHINE
+STATUS
+OK
+BACKEND VERSION
+0.8.0
+CHARTS
+TradingView Lightweight Charts · Apache-2.0
+ENABLED JOBS
+4 / 5
+UNSUCCESSFUL
+0
+1 job(s) disabled by choice (Consigliere): their old result does not count as a failure.
+EXCHANGE RATES
+1 USD
+0.900000 EUR
+1 GBP
+1.200000 EUR
+1 GBX
+0.012000 EUR
+1 CHF
+1.050000 EUR
+1 JPY
+0.006000 EUR
+1 HKD
+0.115385 EUR
+ENGINES
+CHAT
+SYNTHETIC-DEMO
+COMMITTEE R1/R2
+SYNTHETIC-DEMO
+COMMITTEE R0
+SYNTHETIC-DEMO
+MACRO COMMITTEE
+SYNTHETIC-DEMO
+QUANT COMMITTEE
+SYNTHETIC-DEMO
+OPTIONS COMMITTEE
+SYNTHETIC-DEMO
+FUNDAMENTALS COMMITTEE
+SYNTHETIC-DEMO
+CRYPTO COMMITTEE
+SYNTHETIC-DEMO
+EVENTS COMMITTEE
+SYNTHETIC-DEMO
+COMMITTEE CHAIR
+SYNTHETIC-DEMO
+RED TEAM
+SYNTHETIC-DEMO
+REFLECTION
+SYNTHETIC-DEMO
+ACTION EXTRACTION
+SYNTHETIC-DEMO
+SYNTHESIS
+SYNTHETIC-DEMO
+DAILY BRIEFING
+SYNTHETIC-DEMO
+NEWS CLASSIFICATION
+SYNTHETIC-DEMO
+F19 OPENS AND CLOSES
+ESC CLOSES
+30 files · 550 MB · 31 days covered
+DEMO · SYNTHETIC DATA
+
+DOCUMENTATION FORM VALUES
+m-tipo_investimento: long_term
+m-stile: diversificato
+m-orizzonte_anni: 5
+m-valuta_base: EUR
+m-broker: 
+m-residenza_fiscale: 
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: on
+: it
+: en

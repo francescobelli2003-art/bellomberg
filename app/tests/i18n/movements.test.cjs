@@ -39,9 +39,12 @@ test('all three movement views change labels and months without another read or 
   const ui = retained(); const it = await ui.ready('it'), en = ui.render('en'); await ui.settle();
   assert.match(it, /REGISTRO — TITOLI E CASSA/); assert.match(en, /REGISTER — SECURITIES AND CASH/);
   assert.match(it, /SETTEMBRE 2026/); assert.match(en, /SEPTEMBER 2026/);
+  assert.match(en, /1 SECURITIES MOVE \+ 1 CASH MOVE/);
+  assert.doesNotMatch(en, /1 SECURITIES MOVES|1 CASH MOVES|1 days/);
   for (const html of [it, en]) { assert.match(html, /Motivo originale 158,50/); assert.match(html, /Causale originale 158,50/); assert.match(html, /SYNTH.X/); }
   const diary = ui.view('en', 'DIARY'); assert.match(diary, /PM COMMENTARY/); assert.match(diary, /Nota PM originale/);
   const lanes = ui.view('en', 'TRAILS'); assert.match(lanes, /weight within the lane/); assert.match(lanes, /conventional/);
+  assert.match(lanes, /TRAILS — 1 LANE × 1 DAY/);
   assert.deepEqual(ui.calls, [['trades', 100], ['cash', 200]]);
 });
 
@@ -50,7 +53,12 @@ test('a first cash archive failure remains visible next to valid securities, inc
   const it = await ui.ready('it'), en = ui.render('en');
   for (const html of [it, en]) { assert.match(html, /Original cash failure/); assert.match(html, /SYNTH.X/); }
   assert.match(en, /Cash archive not read/); assert.match(it, /Archivio cassa non letto/);
+  assert.match(en, /1 SECURITIES MOVE · CASH NOT READ/);
+  assert.match(it, /1 MOSSA SUI TITOLI · CASSA NON LETTA/);
   assert.doesNotMatch(en, /cash is fresh|cash rows from the last successful read/i);
+  const cashOnly = retained({ tradeError: new Error('Securities archive unavailable') });
+  assert.match(await cashOnly.ready('en'), /1 CASH MOVE · SECURITIES NOT READ/);
+  assert.match(cashOnly.render('it'), /1 DI CASSA · TITOLI NON LETTI/);
 });
 
 test('empty transport details and malformed HTTP 200 arrays are declared failures in either language', async () => {

@@ -9,16 +9,23 @@ import pytest
 from tools.release import verifica_deposito as guard
 from tools.release import verifica_pubblico
 
+CONTROLLI_V1_ATTESI = (
+    "gitleaks", "vietate", "env", "esclusi", "lotti", "dimensione",
+    "valori_db", "lista_privata", "ticker_soli", "payload", "valori_estesi", "vietate_forme",
+)
+
 
 def git(repo, *args, check=True):
     return subprocess.run(["git", *args], cwd=repo, capture_output=True,
                           text=True, encoding="utf-8", errors="replace", check=check)
 
 
-def manifest(tree):
+def manifest(tree, versione=2):
+    """A complete green manifest. Version 2 (13/09) carries the CI steps the export ran on the
+    verified copy; version 1 is the shape of the certificates emitted before that."""
     files, sha = guard._files_artifact(tree)
-    return {
-        "versione": 1,
+    doc = {
+        "versione": versione,
         "artefatto": {"file": len(files), "file_prima_suite": len(files),
                       "sha256": sha, "sha256_prima_suite": sha,
                       "immutato_dalla_suite": True},
@@ -29,9 +36,15 @@ def manifest(tree):
             "suite_non_eseguita": False, "sorgente_sporca_file": 0,
             "controlli_solo": [], "non_eseguiti": [],
             "controlli": [{"nome": name, "hit": 0, "errore": False, "osservazione": False}
-                          for name in sorted(guard.CONTROLLI_RICHIESTI)],
+                          for name in sorted(CONTROLLI_V1_ATTESI if versione == 1
+                                             else (*CONTROLLI_V1_ATTESI, "testo_pm"))],
         },
     }
+    if versione >= 2:
+        doc["verifica"]["suite_passi"] = [
+            {"nome": nome, "esito": "OK", "exit": 0, "secondi": 1.5, "motivo": ""}
+            for nome in guard.PASSI_RICHIESTI]
+    return doc
 
 
 @pytest.fixture
@@ -54,6 +67,32 @@ def release(tmp_path):
 
 def test_required_checks_stay_in_sync_with_real_gate():
     assert guard.CONTROLLI_RICHIESTI == set(verifica_pubblico.CONTROLLI)
+
+
+def test_legacy_checks_are_accepted_only_for_a_version_one_rewrite(tmp_path):
+    (tmp_path / "synthetic.txt").write_bytes(b"Synthetic\n")
+    legacy = manifest(tmp_path, versione=1)
+    guard.valida_manifest(legacy, guard.VERSIONI_RISCRITTURA)
+    with pytest.raises(ValueError, match="Manifest"):
+        guard.valida_manifest(legacy)
+    legacy["versione"] = 2
+    legacy["verifica"]["suite_passi"] = manifest(tmp_path)["verifica"]["suite_passi"]
+    with pytest.raises(ValueError, match="Manifest"):
+        guard.valida_manifest(legacy, guard.VERSIONI_RISCRITTURA)
+
+
+def test_the_guard_requires_thirteen_checks_including_testo_pm():
+    """13/09: the thirteenth check (free text of the owner's private database) is required on
+    every deposit like the other twelve. Counted here so that dropping it is a visible change."""
+    assert len(guard.CONTROLLI_RICHIESTI) == 13
+    assert "testo_pm" in guard.CONTROLLI_RICHIESTI
+
+
+def test_required_steps_are_the_steps_the_export_runs():
+    """verify.py is stdlib-only and copied into the public clone: it cannot import the export.
+    Its literal copy of the step names must match the export's own list, in the CI order."""
+    from tools.release import export_pubblico
+    assert guard.PASSI_RICHIESTI == tuple(p.nome for p in export_pubblico.PASSI_SUITE)
 
 
 def test_installed_guard_blocks_push_before_certificate_exists(release):
@@ -93,12 +132,49 @@ def test_force_push_cannot_overwrite_unreviewed_remote_history(release, tmp_path
     lambda d: d["verifica"]["controlli"][0].update(hit=1),
     lambda d: d["artefatto"].update(immutato_dalla_suite=False),
     lambda d: d["input"].update(sha256_corpus_privato=None),
+    # 13/09: the CI steps on the verified copy
+    lambda d: d["verifica"].pop("suite_passi"),
+    lambda d: d["verifica"].update(suite_passi=None),
+    lambda d: d["verifica"]["suite_passi"].pop(),
+    lambda d: d["verifica"]["suite_passi"].reverse(),
+    lambda d: d["verifica"]["suite_passi"].append(dict(d["verifica"]["suite_passi"][0])),
+    lambda d: d["verifica"]["suite_passi"][3].update(esito="KO", exit=1, motivo="exit 1"),
+    lambda d: d["verifica"]["suite_passi"][6].update(esito="NON ESEGUITO", exit=None,
+                                                     motivo="dipende da tsc mandato, KO"),
+    lambda d: d["verifica"]["suite_passi"][0].update(exit=None),
+    lambda d: d["verifica"]["suite_passi"][0].update(exit="0"),
+    lambda d: d["verifica"]["suite_passi"][2].update(exit=2),
+    lambda d: d["verifica"]["suite_passi"][1].pop("esito"),
+    lambda d: d.update(versione=1),
+    lambda d: d.update(versione=3),
+    lambda d: d.update(versione=True),
 ])
 def test_manifest_cannot_certify_missing_or_failed_proofs(release, change):
     doc = manifest(release[2])
+    guard.valida_manifest(doc)            # the untouched manifest is valid: the change is the cause
     change(doc)
     with pytest.raises(ValueError, match="Manifest"):
         guard.valida_manifest(doc)
+
+
+def test_a_version_1_manifest_is_valid_only_where_the_caller_admits_it(release):
+    doc = manifest(release[2], versione=1)
+    assert "suite_passi" not in doc["verifica"]
+    with pytest.raises(ValueError, match="Manifest"):
+        guard.valida_manifest(doc)
+    guard.valida_manifest(doc, versioni=(1, 2))
+    with pytest.raises(ValueError, match="Manifest"):
+        guard.certifica_deposito(release[0], doc, release[2])
+
+
+def test_a_version_1_certificate_does_not_authorize_an_ordinary_push(release):
+    """Before 13/09 the certificate proved only pytest. Accepting it on an ordinary push would
+    reopen the gap the steps close: the guard stops, whatever version the verifier file has."""
+    repo, remote, artifact = release
+    guard.certifica_deposito(repo, manifest(artifact, versione=1), artifact, versioni=(1,))
+    result = git(repo, "push", "origin", "main", check=False)
+    assert result.returncode != 0 and "Manifest incompleto" in result.stderr, result.stderr
+    assert not git(remote, "show-ref", check=False).stdout
 
 
 def test_certified_real_push_succeeds_and_metadata_stays_private(release):
@@ -213,6 +289,32 @@ def test_authorized_message_rewrite_push_preserves_tree_and_cleans_history(relea
     # Consumed permission: normal recertification removes the exceptional path.
     path = guard.certifica_deposito(repo, manifest(artifact), artifact)
     assert "riscrittura_messaggi" not in json.loads(path.read_text())
+
+
+def test_authorized_message_rewrite_still_works_on_a_version_1_certificate(release):
+    """The certificates already emitted carry a version 1 manifest. A metadata-only rewrite of
+    that published history publishes no new content, so it stays allowed: certifica_riscrittura
+    passes the versions to certifica_deposito, and verifica_push admits version 1 only on the
+    rewrite path (the ordinary push is refused, see the test above)."""
+    repo, remote, artifact = release
+    git(repo, "commit", "--amend", "-qm", "Release (Codex GPT-6)")
+    path = guard.certifica_deposito(repo, manifest(artifact, versione=1), artifact, versioni=(1,))
+    previous = json.loads(path.read_text(encoding="utf-8"))
+    assert previous["manifest"]["versione"] == 1
+    # Published before version 2 existed: the guard of that time accepted it.
+    git(repo, "push", "--no-verify", "origin", "main")
+    old, new = _rewrite_messages(repo)
+    path = guard.certifica_riscrittura_messaggi(repo, previous, artifact)
+    assert json.loads(path.read_text())["manifest"]["versione"] == 1
+    result = git(repo, "push", f"--force-with-lease=refs/heads/main:{old}", "origin", "main", check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert git(remote, "rev-parse", "main").stdout.strip() == new
+    # The same version 1 certificate without the rewrite permission is refused again.
+    cert = json.loads(path.read_text())
+    del cert["riscrittura_messaggi"]
+    path.write_text(json.dumps(cert), encoding="utf-8")
+    with pytest.raises(ValueError, match="Manifest"):
+        guard.verifica_push(repo, f"refs/heads/main {new} refs/heads/main {new}", previous["remote_url"])
 
 
 def test_rewritten_messages_still_rejected_without_explicit_certificate(release):

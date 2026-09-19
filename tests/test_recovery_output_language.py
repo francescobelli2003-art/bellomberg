@@ -30,6 +30,26 @@ def test_invalid_choice_is_never_silently_normalized():
         recovery._recovery_language(None, [], "EN")
 
 
+@pytest.mark.parametrize('usage,expected', [({'input_tokens':123, 'output_tokens':456}, (123,456)), ({}, (None,None))])
+def test_recovery_persists_new_appendix_and_measured_capo_usage(tmp_path, monkeypatch, usage, expected):
+    from bellomberg.storage import memory_db
+    monkeypatch.setattr(memory_db.MemoryDB, "_init_chroma", lambda self: self.__dict__.update(
+        chroma_client=None, col_memos=None, col_decisions=None, col_feedback=None))
+    db = memory_db.MemoryDB(db_path=str(tmp_path / "recovery.db"), chroma_path=str(tmp_path / "chroma"))
+    memo_id = db.save_memo("old", pdf_path="old.pdf", appendix_path="old-appendix.pdf",
+                           capo_tokens_in=None, capo_tokens_out=None)
+    with pytest.raises(RuntimeError, match='rollback'):
+        with db._conn() as conn:
+            recovery._persist_recovery_outputs(conn, memo_id, "new", "new.pdf", "new-appendix.pdf", "it", usage)
+            raise RuntimeError('rollback')
+    with db._conn() as conn:
+        assert conn.execute('SELECT appendix_path FROM memos WHERE id=?', (memo_id,)).fetchone()[0] == 'old-appendix.pdf'
+        recovery._persist_recovery_outputs(conn, memo_id, "new", "new.pdf", "new-appendix.pdf", "it", usage)
+    with db._conn() as conn:
+        row = conn.execute("SELECT full_markdown,pdf_path,appendix_path,output_language,capo_tokens_in,capo_tokens_out FROM memos WHERE id=?", (memo_id,)).fetchone()
+    assert tuple(row) == ("new", "new.pdf", "new-appendix.pdf", "it", *expected)
+
+
 @pytest.mark.parametrize("has_memo", [False, True])
 def test_empty_recovery_before_language_resolution_is_bilingual(tmp_path, monkeypatch, capsys, has_memo):
     from bellomberg.storage import memory_db

@@ -455,7 +455,7 @@ export default function Quadrante({ p, w, h, cursor, pinned, onCursor, onPin, ko
             calls.length: «totale n.d.» dichiarato (review 31/08) */}
         <text x={g.cx} y={g.cy + 54} fill="#8D9FC4" fontSize={8} textAnchor="middle" fontFamily={MONO}>
           {fmtDurShort(p.runSec)} · {p.logTappato && p.nCallsTot == null
-            ? tr('dashboard.calls_total_missing') : tr('dashboard.calls_count', {a: p.nCallsTot ?? p.calls.length})}{p.logTappato ? tr('dashboard.calls_recent', {a: p.calls.length}) : ''}
+            ? tr('dashboard.calls_total_missing') : tr((p.nCallsTot ?? p.calls.length) === 1 ? 'dashboard.calls_count_one' : 'dashboard.calls_count', {a: p.nCallsTot ?? p.calls.length})}{p.logTappato ? tr('dashboard.calls_recent', {a: p.calls.length}) : ''}
         </text>
         {/* quante ne sono state fatte fino al cursore: cambia col mouse.
             La forma tappata «N del log fino a MM:SS» e' corta APPOSTA: col

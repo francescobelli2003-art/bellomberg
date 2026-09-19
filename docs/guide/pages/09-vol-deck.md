@@ -2,9 +2,13 @@
 
 [Handbook](../README.md) · [Previous: F8](./08-monte-carlo.md) · [Next: F10](./10-edge-scanner.md)
 
-![F9 Vol Deck: original synthetic DEMO mockup](../../assets/product/09-vol-deck.svg)
+![F9 Vol Deck: Tools — English DEMO screenshot](../../assets/screenshots/vol-deck-tools-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
+
+The [workflow illustration](../../assets/product/09-vol-deck.svg) is a separate,
+simplified diagram with Italian labels.
 
 Vol Deck has four tabs below the **Underlying** (*Sottostante*) field. Controls
 are named here by their English label, with the Italian interface label in
@@ -104,6 +108,11 @@ expiries, with a button back to **Acquisition**.
    panel.
 
 ## Inspect the chain and Greeks
+
+![Vol Deck Chain and contract inspector — English DEMO screenshot](../../assets/screenshots/vol-deck-chain-en.png)
+
+*The Chain tab displays synthetic quotes, Greeks and contract details.*
+
 1. Open **Chain**, or press **Chain, Greeks and strategies** (*Chain, greche e
    strategie*) in **Acquisition**. Choose a date in **Expiry** (*Scadenza*); the
    list is the catalogue and its first date is preselected.
@@ -142,6 +151,11 @@ multiplier applies in the laboratory. Check it; never assume every contract uses
 the same one.
 
 ## Build a strategy
+
+![Vol Deck Laboratory — English DEMO screenshot](../../assets/screenshots/vol-deck-laboratory-en.png)
+
+*The Laboratory tab displays an invented strategy and its authored scenario snapshot.*
+
 Open **Laboratory** (*Laboratorio*). It also works without a ticker, from manual
 assumptions. Create up to twelve legs with **Manual** (*Manuale*) or from the chain.
 For each leg, supply direction, call/put, strike, **Premium / unit** (*Premio /

@@ -30,9 +30,8 @@ REGIMI (documentati nel payload, campo 'regimes' per-data + 'regime_summary'):
                   realized resta rendimento (era nel prezzo durante l'holding period).
                   Dividendi NON trattati come flusso: le chiusure auto_adjust li
                   incorporano gia' nel rendimento (no double counting).
-                  CB storico a FX STORICO del giorno del trade (F-CONT-1 chiusa
-                  23/07, audit/20; prima use_current_fx=True lo faceva ballare
-                  retroattivamente col cambio di oggi — misurati 1.611 EUR).
+                  CB storico a FX STORICO del giorno del trade: usare il cambio
+                  corrente altererebbe retroattivamente il costo storico.
   Transizione: se la ricostruzione copre il giorno del primo snapshot (d0) la catena e'
   continua (r ricostruiti fino a d0, poi r ufficiali da snapshot a snapshot con base =
   NAV totale dello snapshot d0); altrimenti il giorno di salto vale r=0 (dichiarato).
@@ -326,7 +325,11 @@ def get_official_series() -> Dict[str, Any]:
             prev_date = dstr
         pre_ledger = [m for m in ledger if m["date"] <= (d0 or "9999-12-31")]
         if pre_ledger:
-            notes.append(_message("{v0} movimenti del ledger precedono il primo snapshot: nel tratto ricostruito i flussi sono gia' impliciti nei trade (non doppio-contati).", '{v0} ledger movements precede the first snapshot: flows in the reconstructed segment are already implicit in trades (not counted twice).', v0=len(pre_ledger)))
+            notes.append(_message(
+                "{v0} movimento del ledger precede il primo snapshot: nel tratto ricostruito i flussi sono gia' impliciti nei trade (non doppio-contati)." if len(pre_ledger) == 1 else
+                "{v0} movimenti del ledger precedono il primo snapshot: nel tratto ricostruito i flussi sono gia' impliciti nei trade (non doppio-contati).",
+                '{v0} ledger movement precedes the first snapshot: flows in the reconstructed segment are already implicit in trades (not counted twice).' if len(pre_ledger) == 1 else
+                '{v0} ledger movements precede the first snapshot: flows in the reconstructed segment are already implicit in trades (not counted twice).', v0=len(pre_ledger)))
         if not seamless and dates:
             notes.append(_message('transizione {v0}: ricostruzione e snapshot non si sovrappongono, r del giorno di salto = 0 (perimetro non confrontabile).', 'Transition {v0}: reconstruction and snapshots do not overlap; return on the transition day = 0 (non-comparable scope).', v0=d0))
         if not ledger:
@@ -690,7 +693,7 @@ def compute_twr_payload(force: bool = False) -> Dict[str, Any]:
         "as_of": {
             "computed_at": datetime.now().isoformat(timespec="seconds"),
             "price_basis": _message('official: snapshot NAV (prezzi del giro price_updater); reconstructed: chiusure daily yfinance auto-adjusted', 'official: NAV snapshot (prices from the price_updater run); reconstructed: auto-adjusted daily yfinance closes'),
-            "fx_basis": _message('official: FX live al momento dello snapshot; reconstructed: FX daily storico (CB a FX storico dal 23/07, F-CONT-1)', 'official: live FX at snapshot time; reconstructed: historical daily FX (cost basis at historical FX since 23/07, F-CONT-1)'),
+            "fx_basis": _message('official: FX live al momento dello snapshot; reconstructed: FX daily storico (CB al cambio storico)', 'official: live FX at snapshot time; reconstructed: historical daily FX (cost basis at historical FX)'),
         },
         "dates": dates,
         "copertura": _performance_coverage(db, ctx),
@@ -705,11 +708,9 @@ def compute_twr_payload(force: bool = False) -> Dict[str, Any]:
             "n_reconstructed_days": n_recon,
             "seamless_transition": seamless,
         },
-        # F43(3) 31/08: l'ora dell'ultimo snapshot FRA LE CHIAVI TOP-LEVEL.
-        # Dentro reconciliation c'e' dall'11/06 e F1/F2 RENDONO quell'oggetto
-        # dal 23/07 (pannello nav live vs snapshot) — ma il punto che scrive
-        # «IN CORSO» consuma le chiavi top-level, non reconciliation (review
-        # 31/08: la prima stesura di questo commento diceva il contrario).
+        # L'ora dell'ultimo snapshot e' esposta anche fra le chiavi top-level:
+        # l'indicatore «IN CORSO» legge queste; i pannelli di confronto NAV
+        # leggono invece l'oggetto reconciliation.
         # Base oraria LOCALE con la T (record_nav_snapshot usa datetime.now())
         # — NON UTC come cash_movements.created_at. Senza snapshot: null dichiarato.
         "last_snapshot_created_at": (snaps[-1].get("created_at") if snaps else None),

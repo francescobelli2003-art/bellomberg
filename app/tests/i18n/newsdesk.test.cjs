@@ -68,6 +68,16 @@ test('news labels and retained theme memo follow IT/EN without changing original
   for (const html of [it, en]) { assert.match(html, /Original source headline/); assert.match(html, /Original source prose/); assert.match(html, /SYNTH.X/); }
 });
 
+test('active filter count renders zero, one and two in both languages without changing the filters', () => {
+  for (const count of [0, 1, 2]) {
+    const seed = { fPeriod: 'all', fThemes: count > 0 ? ['portfolio'] : [], fTickers: count > 1 ? ['SYNTH.X'] : [] };
+    const before = structuredClone(seed), view = retainedPage(seed);
+    assert.match(view.render('it'), new RegExp(`${count} ${count === 1 ? 'filtro attivo' : 'filtri attivi'}`));
+    assert.match(view.render('en'), new RegExp(`${count} active ${count === 1 ? 'filter(?!s)' : 'filters'}`));
+    assert.deepEqual(seed, before);
+  }
+});
+
 test('stored summary and briefing keep their original language and declare missing English summaries', () => {
   const feed = [{ id: 2, title: 'Titolo sintetico italiano conservato', snippet: 'Sintesi storica conservata', summary_status: 'available', summary_language: 'it' },
     { id: 3, title: 'Original provider headline', summary_status: 'unavailable', summary_language: null, summary_note: 'Original backend note: no English summary' }];
@@ -180,11 +190,15 @@ test('wire colors, chronological filters, relevance ranking and radar coordinate
 });
 
 // 13/09 (Claude Opus 5): frasi attese scritte qui, non lette dai cataloghi sotto prova.
-test('the radar contact count keeps BLIP in Italian and takes the English plural', () => {
+test('the radar contact count handles zero, one and two contacts in IT/EN', () => {
   const now = new Date().toISOString();
-  const view = retainedPage({ feed: [{ id: 1, title: 'First synthetic source', published_at: now }, { id: 2, title: 'Second synthetic source', published_at: now }] });
-  assert.match(view.render('it'), /<span class="side num">2 BLIP<\/span>/);
-  assert.match(view.render('en'), /<span class="side num">2 BLIPS<\/span>/);
+  for (const count of [0, 1, 2]) {
+    const feed = Array.from({ length: count }, (_, id) => ({ id, title: 'Synthetic source', published_at: now }));
+    const before = structuredClone(feed), view = retainedPage({ feed });
+    assert.ok(view.render('it').includes(`<span class="side num">${count} BLIP</span>`));
+    assert.ok(view.render('en').includes(`<span class="side num">${count} ${count === 1 ? 'BLIP' : 'BLIPS'}</span>`));
+    assert.deepEqual(feed, before);
+  }
 });
 
 test('limiter codes of muted providers are translated, while free backend reasons stay verbatim', () => {
@@ -193,13 +207,66 @@ test('limiter codes of muted providers are translated, while free backend reason
     providers_blocked: { newsapi: 'SKIP_BUDGET', gnews: 'SKIP_DISABLED' } };
   const view = retainedPage({ fonti: { declared: true, mute, avviso: null }, giro });
   const it = view.render('it'), en = view.render('en');
-  assert.match(it, /newsapi \(BUDGET ESAURITO\) · gnews \(SOSPESO\) · tiingo \(SENZA_CHIAVE: TIINGO_API_KEY assente nel \.env\)/);
-  assert.match(en, /newsapi \(BUDGET EXHAUSTED\) · gnews \(SUSPENDED\) · tiingo \(SENZA_CHIAVE: TIINGO_API_KEY assente nel \.env\)/);
+  assert.match(it, /newsapi \(BUDGET ESAURITO\) · gnews \(SOSPESO\) · tiingo \(CHIAVE ASSENTE: TIINGO_API_KEY assente nel \.env\)/);
+  assert.match(en, /newsapi \(BUDGET EXHAUSTED\) · gnews \(SUSPENDED\) · tiingo \(MISSING API KEY: TIINGO_API_KEY assente nel \.env\)/);
   assert.match(it, /<span class="mt">BUDGET ESAURITO<\/span>/); assert.match(it, /<span class="mt">SOSPESO<\/span>/);
   assert.match(en, /<span class="mt">BUDGET EXHAUSTED<\/span>/); assert.match(en, /<span class="mt">SUSPENDED<\/span>/);
   assert.match(it, / Bloccati: newsapi \(BUDGET ESAURITO\) · gnews \(SOSPESO\)\./);
   assert.match(en, / Blocked: newsapi \(BUDGET EXHAUSTED\) · gnews \(SUSPENDED\)\./);
   for (const html of [it, en]) assert.doesNotMatch(html, /\((?:BUDGET|DISABLED)\)|>(?:BUDGET|DISABLED)</);
+});
+
+test('missing key and module codes are localized at each news display while suffixes stay verbatim', () => {
+  const suffix = ': Original detail SENZA_CHIAVE: nested code';
+  for (const [code, it, en] of [['SENZA_CHIAVE', 'CHIAVE ASSENTE', 'MISSING API KEY'], ['MODULO_ASSENTE', 'MODULO ASSENTE', 'MODULE UNAVAILABLE']]) {
+    for (const tail of ['', suffix]) {
+      const mute = { synthetic: code + tail };
+      const giro = { stato: 'degradato', timestamp: new Date().toISOString(), fetched: 0, classified: 0, saved: 0, skipped_duplicates: 0, providers_blocked: mute };
+      const before = structuredClone({ mute, giro }), view = retainedPage({ fonti: { declared: true, mute, avviso: null }, giro });
+      for (const [language, label] of [['it', it], ['en', en]]) {
+        const html = view.render(language), reason = label + tail;
+        assert.ok(html.includes(` </b>synthetic (${reason})</span>`), 'muted-source banner');
+        assert.ok(html.includes(`${language === 'it' ? ' Bloccati: ' : ' Blocked: '}synthetic (${reason}).`), 'last feed run');
+        assert.ok(html.includes(`<span class="mt">${reason}</span>`), 'source card');
+      }
+      assert.deepEqual({ mute, giro }, before);
+    }
+  }
+  for (const reason of ['SENZA_CHIAVE_EXTRA: original', 'MODULO_ASSENTE_EXTRA: original', 'Original SENZA_CHIAVE: detail']) {
+    const view = retainedPage({ fonti: { declared: true, mute: { synthetic: reason }, avviso: null } });
+    for (const language of ['it', 'en']) assert.ok(view.render(language).includes(`synthetic (${reason})`));
+  }
+});
+
+// 13/09 (Claude Opus 5): chiavi e codici come li scrive news_aggregator.providers_blocked (TERMINI_MUTI,
+// TEMI_TITOLI_MUTI, "NEGOZIO_{origine}: {motivo}"); le frasi attese sono scritte qui, non lette dai cataloghi.
+// In fonti_mute il motivo arriva nella lingua della richiesta; in ultimo_giro (providers_blocked scritto dal
+// giro del feed) resta nella lingua del giro che l'ha scritto. In entrambi si traduce solo il codice in testa.
+test('the two private stores among muted sources get a reader name, and only the code of their reason is translated', () => {
+  const unreadable = 'JSONDecodeError: DEMO line 3 column 1';
+  const expected = {
+    it: { reason: 'negozio non trovato: DEMO/termini.json (copia DEMO.example.json in data/)', blocked: ' Bloccati: ',
+      terms: 'termini di ricerca news (negozio)', topics: 'titoli per tema (negozio)',
+      missing: 'NEGOZIO ASSENTE', broken: 'NEGOZIO ILLEGGIBILE', sub: 'TITOLI PER TEMA (NEGOZIO) · TERMI…' },
+    en: { reason: 'Store not found: DEMO/termini.json (copy DEMO.example.json into data/)', blocked: ' Blocked: ',
+      terms: 'news search terms (store)', topics: 'securities by topic (store)',
+      missing: 'STORE MISSING', broken: 'STORE UNREADABLE', sub: 'SECURITIES BY TOPIC (STORE) · NEW…' },
+  };
+  for (const [language, x] of Object.entries(expected)) {
+    const mute = { 'termini_news (negozio)': `NEGOZIO_ASSENTE: ${x.reason}`, 'temi_titoli (negozio)': `NEGOZIO_ILLEGGIBILE: ${unreadable}` };
+    const giro = { stato: 'degradato', timestamp: new Date().toISOString(), fetched: 3, classified: 2, saved: 1, skipped_duplicates: 0,
+      providers_blocked: mute };
+    const html = retainedPage({ fonti: { declared: true, mute, avviso: null }, giro }).render(language);
+    const has = text => assert.ok(html.includes(text), `${language} lacks: ${text}`);
+    const listed = `${x.terms} (${x.missing}: ${x.reason}) · ${x.topics} (${x.broken}: ${unreadable})`;
+    has(` </b>${listed}</span>`);
+    has(`${x.blocked}${listed}.`);
+    has(`>${x.sub}</div>`);
+    has(`<span class="nm">${x.terms}</span>`); has(`<span class="nm">${x.topics}</span>`);
+    has(`<span class="mt">${x.missing}: ${x.reason}</span>`); has(`<span class="mt">${x.broken}: ${unreadable}</span>`);
+    has(`title="${x.terms}: `); has(`title="${x.topics}: `);
+    assert.doesNotMatch(html, /termini_n|temi_titoli|NEGOZIO_(?:ASSENTE|ILLEGGIBILE)/i);
+  }
 });
 
 test('a missing cached briefing is not presented as a generated original briefing', () => {

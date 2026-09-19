@@ -1,4 +1,5 @@
 import { useT } from '@/i18n/provider';
+import { localizePayload } from '@/lib/api-presentation';
 import { t as tr } from '@/i18n/t';
 import { linguaCorrente, localeDi } from '@/i18n/lingua';
 import { leggiDetail } from '@/lib/quota';
@@ -96,7 +97,8 @@ function responseError(m: RuntimeMessage) {
 
 export default function Chat() {
   const tr = useT();
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [agentsRaw, setAgents] = useState<Awaited<ReturnType<typeof Bellomberg.agentsList>> | null>(null);
+  const agents = useMemo(() => localizePayload(agentsRaw)?.agents || [], [agentsRaw, tr]);
   const [engines, setEngines] = useState<EnginesInfo | null>(null);
   const [agentsErr, setAgentsErr] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<AgentInfo | null>(null);
@@ -132,7 +134,7 @@ export default function Chat() {
   useEffect(() => {
     setAgentsErr(null);
     Bellomberg.agentsList().then(r => {
-      setAgents(r?.agents || []);
+      setAgents(r || null);
       setEngines(r?.engines || null);
       if (r?.agents?.length && !selectedAgent) setSelectedAgent(r.agents[0]);
     }).catch(e => {
@@ -473,7 +475,7 @@ export default function Chat() {
   }, [sessions, query, agents]);
 
   const sessioneAttiva = sessions.find(s => s.id === activeSession) || null;
-  const agenteCorrente = selectedAgent;
+  const agenteCorrente = agents.find(agent => agent.id === selectedAgent?.id) || selectedAgent;
   const colore = agenteCorrente?.color || '#FFA51E';
 
   return (
@@ -487,7 +489,7 @@ export default function Chat() {
           {ritirato
             ? <b className="ko">{ritirato.toUpperCase()} · {tr('communications.retired')}</b>
             : agenteCorrente
-              ? <><b style={{ color: colore }}>{agenteCorrente.name.toUpperCase()}</b> · <span title={tr('communications.originalSource')}>{agenteCorrente.role}</span></>
+              ? <><b style={{ color: colore }}>{agenteCorrente.name.toUpperCase()}</b> · <span>{agenteCorrente.role}</span></>
               : <b className="ko">{tr('communications.none')}</b>}
         </span>
         <span className="sep" />
@@ -528,7 +530,7 @@ export default function Chat() {
                   <span className="nm" style={{ color: a.id === agenteCorrente?.id && !ritirato ? a.color : '#8D9FC4', display: 'block' }}>
                     {a.name.toUpperCase()}
                   </span>
-                  <span className="rl" style={{ display: 'block' }} title={tr('communications.originalSource')}>{a.role}</span>
+                  <span className="rl" style={{ display: 'block' }}>{a.role}</span>
                 </span>
                 <span className="rt" title={tr('communications.conversationsWith', { a: sessions.filter(s => s.specialist === a.id).length, b: a.name })}>
                   <Istogramma n={sessions.filter(s => s.specialist === a.id).length}
@@ -1034,7 +1036,7 @@ function Turno({ m, agente, hot, pin, onHot, onPin }: {
           <span className="chip a" style={{ marginLeft: 'auto' }}>{tr('communications.noToolsUpper')}</span>
         )}
         {m.tokens && (m.tokens.out != null
-          ? <span className="chip n">{tr('communications.tokenCount', { a: m.tokens.out.toLocaleString(localeDi(linguaCorrente()), { useGrouping: true }) })}</span>
+          ? <span className="chip n">{tr(m.tokens.out === 1 ? 'activity.tokenCountOne' : 'communications.tokenCount', { a: m.tokens.out.toLocaleString(localeDi(linguaCorrente()), { useGrouping: true }) })}</span>
           : <span className="chip a">{tr('communications.tokensUnknownUpper')}</span>)}
       </div>
       <Corpo m={m} hot={hot} pin={pin} onHot={onHot} onPin={onPin} nomiUsati={nomiUsati} />
@@ -1152,7 +1154,7 @@ function Ingresso({ agente, modello, onPrompt, disabled }: {
     <div className="intro">
       <span className="ld" style={{ background: agente.color, boxShadow: '0 0 14px ' + agente.color, width: 9, height: 9 }} />
       <div className="big" style={{ color: agente.color }}>{agente.name}</div>
-      <div className="rl" title={tr('communications.originalSource')}>{agente.role}</div>
+      <div className="rl">{agente.role}</div>
       {/* Nota in RIGA SINGOLA: 64 caratteri stanno nei 430px di `max-width` a 10px
           (0,6em = 6px/car = 71 car per riga). Erano tre righe con tre frasi.
           Il MOTORE non si ripete qui: la barra in alto lo scrive gia' («MOTORE

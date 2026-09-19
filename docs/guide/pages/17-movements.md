@@ -2,9 +2,10 @@
 
 [Handbook](../README.md) · [Previous: F16](./16-trade-entry.md) · [Next: F18](./18-mandate-journal.md)
 
-![F17 Movements: original synthetic DEMO mockup](../../assets/product/17-movements.svg)
+![F17 Movements: Register — English DEMO screenshot](../../assets/screenshots/movements-register-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
 
 Inspect the ledger over time: recorded trades, cash movements and the related
 history. Use this page to verify what was saved after a transaction or to
@@ -21,6 +22,14 @@ its separate opening-position register and receipt in [Trade Entry](16-trade-ent
    event need not belong to a ticker lane.
 5. Return to [Trade Entry](16-trade-entry.md) only after identifying the actual
    missing or incorrect transaction.
+
+![Movements per-security timelines — English DEMO screenshot](../../assets/screenshots/movements-trails-en.png)
+
+*Synthetic securities trades displayed over time; cash flows have no ticker lane.*
+
+![Movements transaction diary — English DEMO screenshot](../../assets/screenshots/movements-diary-en.png)
+
+*Authored transaction notes for the same synthetic register; this is distinct from the F18 Journal.*
 
 ## Table and timeline are not identical evidence
 An entry with an invalid or unplaceable date may remain visible in the list

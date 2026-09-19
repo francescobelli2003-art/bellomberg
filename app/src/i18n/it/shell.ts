@@ -12,7 +12,7 @@ export const shell = {
   fx_stale: 'Ultimo aggiornamento riuscito: i cambi mostrati sono STALE',
   engine: 'Motore', agents: 'Agenti', session: 'SESSIONE', live_run: 'RUN IN CORSO',
   ready: 'PRONTI', unavailable: 'N.D.', engine_restart: 'N.D. · RIAVVIO SERVIZIO NECESSARIO',
-  workspace: 'Spazio locale · Dati in tempo reale · F1–F19 · CTRL+K',
+  workspace: 'Area di lavoro · F1–F19 · CTRL+K',
 };
 
 export const nav = {

@@ -259,6 +259,7 @@ def fundamentals_score(portfolio_data=None, valuations=None, max_names=4):
     no_model = []
     invalid_valuation = []
     valuation_dates = {}
+    observed_comparisons = {}
     for tk in names:
         upside = None
         try:
@@ -269,6 +270,8 @@ def fundamentals_score(portfolio_data=None, valuations=None, max_names=4):
                 if str(v.get("ticker") or "").upper() != tk.upper():
                     invalid_valuation.append(tk)
                     continue
+                from bellomberg.reporting.valuation_quote import quote_comparison_text
+                observed_comparisons[tk] = quote_comparison_text(v)
                 fv = next((v[key] for key in ("fair_value", "fair_value_final", "fair_value_weighted", "fair_value_blend", "fair_value_base")
                            if v.get(key) is not None), None)
                 fv, pr = _finite_number(fv), _finite_number(v.get("price"))
@@ -346,6 +349,8 @@ def fundamentals_score(portfolio_data=None, valuations=None, max_names=4):
                 if str(r.get("ticker") or "").upper() != tk.upper():
                     invalid_valuation.append(tk)
                     continue
+                from bellomberg.reporting.valuation_quote import quote_comparison_text
+                observed_comparisons[tk] = quote_comparison_text(r)
                 # CATENA CANONICA del fair value (review 15/07): nessun engine emette
                 # una chiave piatta "fair_value" (operating_v3 -> _weighted, bank -> _blend).
                 # Zero e' un valore presente; un FV prioritario invalido non va
@@ -382,6 +387,8 @@ def fundamentals_score(portfolio_data=None, valuations=None, max_names=4):
         lines.append(("  " + tk, "{:+.1f}%".format(u), 0 if u >= 0 else 2))
         if tk in valuation_dates:
             lines.append(("  Cutoff flussi/prezzo " + tk, valuation_dates[tk] + _t(" (non upside corrente)"), 0))
+        if tk in observed_comparisons:
+            lines.append((_t("quote.score_label") + tk, observed_comparisons[tk], 0))
     pts = [p_mos, p_rich]
     score = sum(pts); max_score = len(pts) * 3
     verdict = _verdict_bands(score, max_score, [_t("BOOK A SCONTO"), _t("VALUTAZIONE EQUA"), _t("BOOK CARO"), _t("BOOK MOLTO CARO")])

@@ -1,0 +1,263 @@
+BELLOMBERG
+v0.8.0 OBSIDIAN
+NY
+LN
+MI
+HK
+❯
+SEARCH TICKERS · PAGES · ACTIONS
+CTRL+K
+API
+LIVE
+13 SEP 2026
+10:11:40
+UTC+2
+F19
+01
+DASH
+02
+PERF
+03
+FAVS
+04
+MKT
+05
+NEWS
+06
+FUND
+07
+FCTR
+08
+MTC
+09
+VOLS
+10
+EDGE
+11
+CHAT
+12
+LIVE
+13
+SCORE
+14
+MEMO
+15
+DECN
+16
+TRADE
+17
+MOVES
+18
+MNDT
+19
+CONFIG
+F14 // MEMO ARCHIVE
+|
+USD/EUR
+0.9000
+GBP/EUR
+1.2000
+GBX/EUR
+0.01200
+CHF/EUR
+1.0500
+JPY/EUR
+0.0060
+HKD/EUR
+0.1154
+FX 60S
+COMMITTEE ARCHIVE
+MEMO
+3
+DECISIONS
+8
+DCF MODELS
+0
+ROWS WITHOUT CONTENT
+1 of 4
+search the archive — the text of every memo
+CTRL+SHIFT+F
+ARCHIVE
+3 READABLE
+4
+11/09/26
+4 decisions · PDF
+€5,960
+2
+20/02/24
+1 decision · PDF
+€5,530
+1
+13/02/24
+2 decisions · PDF
+€0
+1 row without readable content in 4 sampled rows (maximum 200): insufficient text and PDF unavailable. The list shows readable rows among the most recent 50. This is not a count of committee failures.
+MEMO 4 · BELLOMBERG WEEKLY - 11/09/2026
+ORIGINAL OUTPUT · ENGLISH
+ACTION TABLE — 4 ROWS, DECISION LINK STATUS
+ACTION	SECURITY	EUR	TIMING	CONVICTION	RECORDED OUTCOME	
+BUY	DEMO.D	200	within 2 weeks	MEDIUM	
+PENDING
+	
+BUY	DEMO.E	200	within 2 weeks	LOW	
+SKIPPED
+	
+RESEARCH	DEMO.C	0	2-4 weeks	MEDIUM	
+PENDING
+	
+TRIM	DEMO.A	600	this week	HIGH	
+PENDING
+	
+SECTIONS
+19
+ACTION TABLE
+BLUF (5 lines)
+HIGH-PRIORITY DECISIONS FOR PM (max 3)
+Decision 1: TRIM DEMO.A, 600 EUR this week
+Decision 2: two starter positions, DEMO.D and DEMO.E
+Decision 3: research DEMO.C before any size
+CONTINUITY FROM LAST WEEK
+1. Macro Regime
+2. Portfolio Overview and Position Health
+3. Quantitative Profile
+4. Options and Hedges
+5. New Position Pipeline
+6. Pair Trade
+7. Crypto and DeFi
+8. Political and Prediction Markets
+9. Non-Consensus Theses
+10. Scenario Table
+11. Weekly Watchlist
+12. Closing Note
+THE MEMO
+4,644 CHAR
+BLUF (5 LINES)
+
+1. Most important move: trim DEMO.A by 600 EUR. It is 65.8% of invested assets get_portfolio_live, against a declared single-stock cap of 8%.
+
+2. Most important risk: concentration. Two holdings make up the whole invested book and the risk engine flags the top holding get_portfolio_risk.
+
+3. Cash plan: cash is 4,000 EUR, 40.2% of the 9,960 EUR NAV get_portfolio_live; two starter positions of 200 EUR each, about 2% of NAV, over two weeks.
+
+4. Risk dashboard verdict: concentration is the binding constraint and sizing follows it get_portfolio_risk.
+
+5. What changed: no readable memo since 20/02/2024; continuity below refers to the two February 2024 memos.
+
+HIGH-PRIORITY DECISIONS FOR PM (MAX 3)
+Decision 1: TRIM DEMO.A, 600 EUR this week
+
+DEMO.A is carried at 80 shares with an average cost of 45.00 EUR and a last close of 49.00 EUR get_portfolio_live. A 600 EUR trim is about 15% of the position, inside the reduction the mandate allows without further conditions. It lowers concentration without turning a measured gain into a thesis call.
+
+Decision 2: two starter positions, DEMO.D and DEMO.E
+
+Each is capped at 200 EUR, the top of the declared range for a new position. DEMO.E carries LOW confidence: the evidence is thinner and the PM may prefer to wait.
+
+Decision 3: research DEMO.C before any size
+
+No valuation model is available for DEMO.C get_valuation. The research question is written in the tracker so that the next run can answer it.
+
+CONTINUITY FROM LAST WEEK
+
+The two purchases proposed on 13/02/2024 were executed on 16/02/2024: DEMO.A [Decision #22] for 3,600 EUR, 90% of the 4k proposed, and DEMO.B [Decision #21] for 1,900 EUR, 95% of the 2k proposed check_decision_outcomes. The research on DEMO.C [Decision #23] expired after 30 days without progress; it returns below with a narrower question.
+
+PM feedback incorporated this week: on #22 the PM kept part of the proposed amount in cash, so the new positions are sized at the smallest amount that still counts as a position.
+
+1. MACRO REGIME
+
+This synthetic documentation memo carries no macro view. The section shows where the committee places its reading of rates, growth and liquidity get_macro_dashboard.
+
+2. PORTFOLIO OVERVIEW AND POSITION HEALTH
+DEMO.A: 80 shares, average cost 45.00 EUR, last close 49.00 EUR, weight 65.8% get_portfolio_live
+DEMO.B: 40 shares, average cost 47.50 EUR, last close 51.00 EUR, weight 34.2% get_portfolio_live
+Cash: 4,000 EUR; NAV 9,960 EUR at the previous close
+
+Both holdings trade above their cost. Their health is a sizing question, not a thesis question.
+
+3. QUANTITATIVE PROFILE
+
+The risk engine reports a concentration alert on the top holding get_portfolio_risk. Scoring dashboard: concentration is the only domain with a verdict this week.
+
+4. OPTIONS AND HEDGES
+
+Options are disabled in the declared mandate, so no structure is proposed.
+
+5. NEW POSITION PIPELINE
+
+DEMO.D and DEMO.E are the new candidates the mandate asks for in each memo. Sizes follow the new-position range; entry is spread over two weeks.
+
+6. PAIR TRADE
+
+None: the mandate allows no pair trade per memo.
+
+7. CRYPTO AND DEFI
+
+No exposure and no proposal.
+
+8. POLITICAL AND PREDICTION MARKETS
+
+No event in the synthetic data changes the plan.
+
+9. NON-CONSENSUS THESES
+
+None this week. A contrarian case needs measured signals first get_edge_scan.
+
+10. SCENARIO TABLE
+SCENARIO	PROBABILITY	EFFECT ON THE BOOK
+Trim and starter positions executed	likely, committee judgement	DEMO.A weight falls below 60%
+Trim postponed	possible, committee judgement	concentration unchanged
+New candidates declined	possible, committee judgement	cash stays above the declared range
+11. WEEKLY WATCHLIST
+TICKER	VERDICT	DATED CATALYST	ACTION
+DEMO.C	research first	none in the synthetic data	RESEARCH
+DEMO.D	starter position	none in the synthetic data	BUY 200 EUR
+DEMO.E	starter position, low confidence	none in the synthetic data	BUY 200 EUR
+12. CLOSING NOTE
+
+All names, prices and amounts in this memo are synthetic documentation data. The priority is to bring the book back toward its declared limits in steps the PM can review.
+
+WHAT HAPPENED TO THIS MEMO
+0 of 4
+DECISIONS EXECUTED, INCLUDING PARTIALLY
+3 PENDING
+1 SKIPPED
+SUPPORTING MATERIAL
+MEMO 4
+SECURITIES AT THE TIME
+€5,960
+MARKET OUTCOME
+n/a — outcome_pct recorded on 0 of 8 rows
+HEAD AGENT TOKENS
+72,310 in · 9,488 out
+TEXT
+4,644 char · 19 sections
+DCF MODELS
+0
+MEMO PDF
+APPENDIX
+Declared linkage: The OUTCOME column matches (memo, security, action) between the memo’s ACTION TABLE and archived decisions. An unmatched row is marked NOT LINKED.
+SUPPORTING SOURCES
+12 CITATIONS · 6 DISTINCT STRINGS
+get_portfolio_live
+5
+get_portfolio_risk
+3
+get_valuation
+1
+check_decision_outcomes
+1
+get_macro_dashboard
+1
+get_edge_scan
+1
+[ BELLOMBERG · OBSIDIAN ]
+ENGINE
+SYNTHETIC DEMO
+AGENTS
+4/6 RUN
+RUN IN PROGRESS
+SESSION 2026-09-13
+WORKSPACE · F1–F19 · CTRL+K
+DEMO · SYNTHETIC DATA
+
+DOCUMENTATION FORM VALUES
+

@@ -33,7 +33,7 @@ function stopOwnedBackend() {
 
 function backendError(message: string) {
   console.error('[Bellomberg]', message);
-  if (!quitting) dialog.showErrorBox('Bellomberg — backend non disponibile', message);
+  if (!quitting) dialog.showErrorBox('Bellomberg — backend non disponibile / backend unavailable', message);
 }
 
 // Launch ID univoco per ogni avvio di Electron: il renderer lo confronta
@@ -63,6 +63,10 @@ function pingBackend(): Promise<boolean> {
 }
 
 async function startPythonBackend() {
+  // Il processo principale parte prima del backend, che custodisce la lingua scelta: ogni avviso
+  // dice la stessa cosa in italiano e poi in inglese; i dettagli tecnici compaiono una volta sola.
+  const bilingue = (it: string, en: string, ...dettagli: string[]) =>
+    [it, en, dettagli.join('\n')].filter(Boolean).join('\n\n');
   try {
     if (backendOwned && pythonBackend?.exitCode === null) return;
     const alreadyUp = await pingBackend();
@@ -72,7 +76,9 @@ async function startPythonBackend() {
       return;
     }
     if (!PROJECT_ROOT) {
-      backendError('L’installer contiene l’app desktop. Installa il backend Python e imposta BELLOMBERG_BACKEND_DIR e BELLOMBERG_PYTHON, oppure avvia il backend separatamente. Consulta SETUP_APP.md.');
+      backendError(bilingue(
+        'L’installer contiene solo l’app desktop, non il backend. Installa il backend Python e imposta BELLOMBERG_BACKEND_DIR e BELLOMBERG_PYTHON, oppure avvia il backend separatamente. Consulta SETUP_APP.md.',
+        'The installer contains only the desktop app, not the backend. Install the Python backend and set BELLOMBERG_BACKEND_DIR and BELLOMBERG_PYTHON, or start the backend separately. See SETUP_APP.md.'));
       return;
     }
     const configuredPython = process.env.BELLOMBERG_PYTHON;
@@ -82,16 +88,22 @@ async function startPythonBackend() {
     const python = choice.python;
     if (configuredPython && /[\\/]/.test(configuredPython)
       && !fs.existsSync(path.resolve(PROJECT_ROOT, configuredPython))) {
-      backendError('BELLOMBERG_PYTHON non esiste: ' + configuredPython + '. Correggi il percorso dell’interprete.');
+      backendError(bilingue(
+        'Il percorso in BELLOMBERG_PYTHON non esiste. Correggi il percorso dell’interprete.',
+        'The path in BELLOMBERG_PYTHON does not exist. Fix the interpreter path.',
+        'Percorso / Path: ' + configuredPython));
       return;
     }
     const script = path.join(PROJECT_ROOT, 'bellomberg_api.py');
     if (!fs.existsSync(script)) {
-      backendError('Backend non trovato: ' + script + '. Imposta BELLOMBERG_BACKEND_DIR alla cartella del backend installato.');
+      backendError(bilingue(
+        'Backend non trovato. Imposta BELLOMBERG_BACKEND_DIR alla cartella del backend installato.',
+        'Backend not found. Set BELLOMBERG_BACKEND_DIR to the folder of the installed backend.',
+        'Percorso cercato / Path checked: ' + script));
       return;
     }
     const interpreter = python + ' (' + choice.source + ')'
-      + (choice.tried.length ? '; ambiente virtuale non trovato: ' + choice.tried.join(', ') : '');
+      + (choice.tried.length ? '; ambiente virtuale non trovato / virtual environment not found: ' + choice.tried.join(', ') : '');
     console.log('[Bellomberg] Interprete backend:', interpreter);
     const child = spawn(python, [script], {
       cwd: PROJECT_ROOT,
@@ -108,17 +120,24 @@ async function startPythonBackend() {
     });
     child.once('error', error => {
       if (pythonBackend === child) { pythonBackend = null; backendOwned = false; }
-      backendError('Avvio Python fallito: ' + error.message + '. Interprete: ' + interpreter
-        + '. Controlla BELLOMBERG_PYTHON e le dipendenze del backend.');
+      backendError(bilingue(
+        'Avvio di Python fallito. Controlla BELLOMBERG_PYTHON e le dipendenze del backend.',
+        'Python failed to start. Check BELLOMBERG_PYTHON and the backend dependencies.',
+        'Errore / Error: ' + error.message,
+        'Interprete / Interpreter: ' + interpreter));
     });
-    child.on('exit', code => {
-      console.log('[Bellomberg] backend exited code=', code);
+    child.on('exit', (code, signal) => {
+      console.log('[Bellomberg] backend exited code=', code, 'signal=', signal);
       if (pythonBackend === child) {
         pythonBackend = null; backendOwned = false;
         const lastError = stderrTail.trim().split(/\r?\n/).pop()?.slice(-500);
-        backendError('Il backend Python e’ terminato (codice ' + String(code) + '). Interprete: ' + interpreter
-          + (lastError ? '. Ultimo errore: ' + lastError : '. Nessun dettaglio ricevuto su stderr.')
-          + '. Controlla i log e riavvia l’app.');
+        backendError(bilingue(
+          'Il backend Python è terminato. Controlla i log e riavvia l’app.',
+          'The Python backend exited. Check the logs and restart the app.',
+          'Codice di uscita / Exit code: ' + (code === null ? 'non disponibile / unavailable' : String(code)),
+          'Segnale / Signal: ' + (signal || 'nessuno ricevuto / none received'),
+          'Interprete / Interpreter: ' + interpreter,
+          'Ultimo errore su stderr / Last stderr error: ' + (lastError || 'nessuno ricevuto / none received')));
       }
     });
     const deadline = Date.now() + 30000;
@@ -128,10 +147,15 @@ async function startPythonBackend() {
     }
     if (pythonBackend === child && !quitting) {
       stopOwnedBackend();
-      backendError('Il backend non e’ pronto dopo 30 secondi. Controlla la configurazione e i log Python, poi riavvia l’app.');
+      backendError(bilingue(
+        'Il backend non è pronto dopo 30 secondi. Controlla la configurazione e i log Python, poi riavvia l’app.',
+        'The backend was not ready after 30 seconds. Check the configuration and the Python logs, then restart the app.'));
     }
   } catch (e) {
-    backendError('Avvio backend fallito: ' + String(e));
+    backendError(bilingue(
+      'Avvio del backend fallito.',
+      'The backend failed to start.',
+      'Errore / Error: ' + String(e)));
   }
 }
 

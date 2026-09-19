@@ -1,0 +1,185 @@
+BELLOMBERG
+v0.8.0 OBSIDIAN
+NY
+LN
+MI
+HK
+❯
+SEARCH TICKERS · PAGES · ACTIONS
+CTRL+K
+API
+LIVE
+13 SEP 2026
+10:11:40
+UTC+2
+F19
+01
+DASH
+02
+PERF
+03
+FAVS
+04
+MKT
+05
+NEWS
+06
+FUND
+07
+FCTR
+08
+MTC
+09
+VOLS
+10
+EDGE
+11
+CHAT
+12
+LIVE
+13
+SCORE
+14
+MEMO
+15
+DECN
+16
+TRADE
+17
+MOVES
+18
+MNDT
+19
+CONFIG
+F15 // DECISIONS
+|
+USD/EUR
+0.9000
+GBP/EUR
+1.2000
+GBX/EUR
+0.01200
+CHF/EUR
+1.0500
+JPY/EUR
+0.0060
+HKD/EUR
+0.1154
+FX 60S
+BELLOMBERG <DEC> — DECISIONS TRACKER
+ALL
+PENDING
+EXECUTED
+PARTIAL
+SKIPPED
+EXPIRED
+OPERATIONAL DECISIONS — 4 ACTIVE
+auto-archive after 7d · your action takes precedence
+	SECURITY / ACTION	EUR	STATUS	OUTCOME	ARCHIVE
+
+	
+DEMO.ATRIM
+11/09/2026 · EXISTING POSITION: concentration review at the memo's recorded market close.
+	+€600.00	PENDING	-	
+ARCHIVE
+
+
+	
+DEMO.EBUY⛔ VETO
+11/09/2026
+	+€200.00	SKIPPED	-	
+ARCHIVE
+
+
+	
+DEMO.DBUY
+11/09/2026
+	+€200.00	PENDING	-	
+ARCHIVE
+
+
+	
+DEMO.AADD
+11/09/2026 · DEMO ticket exercise: pending alternative, not an executed trade.
+	+€100.00	PENDING	-	
+ARCHIVE
+▾ OPERATIONAL ARCHIVE (2)
+history remains in the DB · RESTORE TO PAGE when needed
+	SECURITY / ACTION	EUR	STATUS	OUTCOME	ARCHIVE
+
+	
+DEMO.ABUY
+13/02/2024
+	+€4,000.00	EXECUTED	-	
+RESTORE TO PAGE
+
+
+ID: #22
+Confidence: HIGH
+Timing: this week
+From memo #1 (Memo archive)
+Closed: 16/02/2024
+HEAD AGENT RATIONALE
+
+No rationale saved.
+
+PM FEEDBACK
+
+Bought 80 shares for 3,600 EUR; kept the rest in cash for the next idea.
+
+Record linked trade
+Executed €3,600.00 · 90.0% of the proposal · #1, #3 · explicit link
+EXECUTED
+PARTIAL
+SKIPPED
+EXPIRED
+⛔ VETO — permanent
+↺ reopen PENDING
+RESTORE TO PAGE
+
+
+	
+DEMO.BBUY
+13/02/2024
+	+€2,000.00	EXECUTED	-	
+RESTORE TO PAGE
+RESEARCH PIPELINE — 1 ACTIVE
+the committee reads these notes
+DEMO.C
+UNDER RESEARCH · 2d
+memo #4
+#30 · 11/09/2026
+
+▷ trigger: 2-4 weeks
+
+PM · 11/09/2026 18:05
+
+Which evidence would make DEMO.C a buy within the new-position range?
+
+AI · 11/09/2026 18:12
+
+No valuation model is available for DEMO.C yet [src: get_valuation]. The committee will propose a size only after a model with complete data; until then the item stays under research.
+
+SEND
+ARCHIVE AND CLOSE
+▸ RESEARCH ARCHIVE (1)
+closed, promoted or expired — reopenable
+
+OPERATIONAL: automatic archive after 7 days; ARCHIVE/RESTORE overrides it. A row pinned active (📌) stays active. RESEARCH: ARCHIVE AND CLOSE removes the item from future committee research; RESTORE AND REOPEN includes it again. History remains in the DB. The committee reads research notes and replies here.
+
+[ BELLOMBERG · OBSIDIAN ]
+ENGINE
+SYNTHETIC DEMO
+AGENTS
+4/6 RUN
+RUN IN PROGRESS
+SESSION 2026-09-13
+WORKSPACE · F1–F19 · CTRL+K
+DEMO · SYNTHETIC DATA
+
+DOCUMENTATION FORM VALUES
+: 
+: 
+: 
+: 
+: 

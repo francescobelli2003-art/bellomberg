@@ -16,7 +16,7 @@ Regole di casa che questo modulo incarna:
   - assente / illeggibile / incompleto = `MandatoMancante` col percorso e la causa (regola 14/07):
     mai i valori di ieri come ripiego. Il comitato non parte; la chat lo dichiara.
   - il testo per i modelli e' DETERMINISTICO dai campi (`sezioni`, `blocco_prompt`, `compila`):
-    quello che la pagina Mandato mostra in anteprima e' quello che l'AI riceve.
+    quello che la pagina Mandato e Diario mostra in anteprima e' quello che l'AI riceve.
   - «campi VUOTI al primo accesso» (decisione PM): nessun default nel codice; il PROFILO DI
     ESEMPIO e' un'azione dell'utente («Compila con un profilo di esempio»), e finche' i valori
     coincidono con l'esempio il file vale `origine: "esempio"` e l'intestazione lo dice.
@@ -91,13 +91,13 @@ def _c(blocco: str, tipo: str, obbligatorio: bool, descrizione: str, unita: str 
             "scelte": list(scelte) if scelte else None, "massimo_char": massimo_char}
 
 
-# I campi che il codice legge: la pagina Mandato (F18) li rende da qui, `mandato_pm.example.json`
+# I campi che il codice legge: la pagina Mandato e Diario (F18) li rende da qui, `mandato_pm.example.json`
 # li elenca nei due versi (test), `valida` li controlla. Un campo nuovo si aggiunge QUI e in
 # `sezioni` (dove entra nel testo per i modelli): un campo che nessuno legge e' una bugia.
 CAMPI: Dict[str, Dict[str, Any]] = {
     # 1 — PROFILO
-    "tipo_investimento": _c("profilo", "scelta", True, "Orizzonte con cui investe: long_term (anni), medio_termine (mesi), trading (settimane).", scelte=TIPI_INVESTIMENTO),
-    "stile": _c("profilo", "scelta", True, "concentrato = accetta conviction pesanti; diversificato = nessun nome sopra i cap.", scelte=STILI),
+    "tipo_investimento": _c("profilo", "scelta", True, "Orizzonte con cui investe: lungo termine (anni), medio termine (mesi) o trading (settimane).", scelte=TIPI_INVESTIMENTO),
+    "stile": _c("profilo", "scelta", True, "Concentrato: ammette posizioni di peso elevato; diversificato: mantiene ogni posizione entro i limiti.", scelte=STILI),
     "orizzonte_anni": _c("profilo", "int", True, "Orizzonte medio di detenzione di una posizione.", unita="anni", intervallo=(1, 30)),
     "valuta_base": _c("profilo", "valuta", True, "Valuta in cui misura il patrimonio (codice ISO: EUR, USD, GBP...)."),
     "broker": _c("profilo", "testo", False, "Il broker con cui opera (solo informativo).", massimo_char=MAX_CHAR_TESTO),
@@ -179,7 +179,7 @@ ESEMPIO: Dict[str, Dict[str, Any]] = {
 LEGGIMI = ("Il MANDATO del PM: il profilo con cui il comitato e la chat lavorano (quanta cassa e come "
            "impiegarla, orizzonte e concentrazione, tetti del sizing, disciplina dei tagli, opzioni "
            "ammesse, caccia globale). Il file vero e' data/mandato_pm.json, PRIVATO e mai pubblicato: "
-           "lo scrive la pagina Mandato (F18) solo dopo anteprima valida e salvataggio; il comitato "
+           "lo scrive la pagina Mandato e Diario (F18) solo dopo anteprima valida e salvataggio; il comitato "
            "non parte finche' non e' dichiarato. `_campi` e' lo schema (tipo, unita', intervallo, "
            "descrizione) e `_esempio` e' un profilo prudente e generico che la pagina puo' copiare "
            "col comando «Compila con un profilo di esempio»: finche' i valori coincidono, il file "
@@ -203,14 +203,14 @@ class MandatoMancante(Exception):
 
     def _testo(self) -> str:
         if self.causa == "assente":
-            return (_message_fmt('mandato del PM assente: %s non esiste — compila la pagina Mandato (F18), oppure copia %s in data/mandato_pm.json e dichiaraci i TUOI valori (campi vuoti = il comitato non parte)', 'PM mandate absent: %s does not exist — complete Mandate (F18), or copy %s to data/mandato_pm.json and declare YOUR values (empty fields prevent committee execution)', (self.percorso, os.path.basename(ESEMPIO_MANDATO))))
+            return (_message_fmt('mandato del PM assente: %s non esiste — compila la pagina Mandato e Diario (F18), oppure copia %s in data/mandato_pm.json e dichiaraci i TUOI valori (campi vuoti = il comitato non parte)', 'PM mandate absent: %s does not exist — complete Mandate and Journal (F18), or copy %s to data/mandato_pm.json and declare YOUR values (empty fields prevent committee execution)', (self.percorso, os.path.basename(ESEMPIO_MANDATO))))
         if self.causa == "illeggibile":
-            return (_message_fmt('mandato del PM illeggibile (%s): %s — JSON non valido: correggi il file o risalvalo dalla pagina Mandato (F18)', 'PM mandate unreadable (%s): %s — invalid JSON: correct the file or save it again from Mandate (F18)', (self.percorso, self.dettaglio)))
+            return (_message_fmt('mandato del PM illeggibile (%s): %s — JSON non valido: correggi il file o risalvalo dalla pagina Mandato e Diario (F18)', 'PM mandate unreadable (%s): %s — invalid JSON: correct the file or save it again from Mandate and Journal (F18)', (self.percorso, self.dettaglio)))
         if self.causa == "in_uso":
             return (_message_fmt('mandato del PM in uso (%s): un altro processo lo sta scrivendo (%s) — riprova fra un istante', 'PM mandate in use (%s): another process is writing it (%s) — retry shortly', (self.percorso, self.dettaglio)))
         if self.causa == "esempio":
             return (_message_fmt("il profilo di esempio del repo (%s) non si legge: %s — il checkout e' rotto, non il tuo mandato", 'The repository example profile (%s) cannot be read: %s — the checkout is broken, not your mandate', (self.percorso, self.dettaglio)))
-        return (_message_fmt('mandato del PM incompleto o non valido (%s): %d campi da sistemare — %s — compilali nella pagina Mandato (F18)', 'PM mandate incomplete or invalid (%s): %d fields need attention — %s — complete them in Mandate (F18)', (self.percorso, len(self.campi), self.dettaglio)))
+        return (_message_fmt('mandato del PM incompleto o non valido (%s): %d campi da sistemare — %s — compilali nella pagina Mandato e Diario (F18)', 'PM mandate incomplete or invalid (%s): %d fields need attention — %s — complete them in Mandate and Journal (F18)', (self.percorso, len(self.campi), self.dettaglio)))
 
 
 # --------------------------------------------------------------------------- schema e validazione
@@ -223,7 +223,7 @@ def campi_vuoti() -> Dict[str, Any]:
     return out
 
 
-_FIELD_DESCRIPTIONS_EN = {'tipo_investimento': 'Investment horizon: long_term (years), medio_termine (months), trading (weeks).', 'stile': 'concentrato = accepts concentrated convictions; diversificato = no name above its cap.', 'orizzonte_anni': 'Average holding period of a position.', 'valuta_base': 'Currency used to measure wealth (ISO code: EUR, USD, GBP...).', 'broker': 'Broker used (information only).', 'residenza_fiscale': 'Country of tax residence (informs the UCITS and vehicle preference).', 'mercati_accessibili': 'Accessible exchanges, in order of preference: the first is the home exchange (how to buy from there).', 'preferenza_ucits': 'Prefers UCITS ETFs/funds (.MI/.L/.DE) for tax efficiency.', 'leva_ammessa': 'The committee may propose leveraged instruments or margin.', 'short_ammesso': 'The committee may propose short positions.', 'volatilita_target_pct': 'Target annual portfolio volatility.', 'var99_1g_pct': 'Maximum accepted one-day loss (VaR 99%), as a percentage of wealth.', 'drawdown_max_pct': 'Maximum accepted peak-to-trough portfolio drawdown.', 'stress_gfc_pct': 'Maximum accepted loss in a 2008-type stress (GFC replay), as a percentage of NAV.', 'drawdown_bilaterale': 'Assess drawdowns from both sides: possible buying opportunity or selling signal, never an automatic sale.', 'drawdown_significativo_pct': 'Decline from the 52-week high that counts as significant and triggers the two-sided assessment.', 'base_single_pct': 'Reference single-stock weight before volatility and correlation adjustments.', 'cap_single_pct': 'Maximum single-stock weight.', 'base_veicolo_pct': 'Reference weight of an already diversified vehicle (ETF, fund, holding company).', 'cap_veicolo_pct': 'Maximum diversified-vehicle weight.', 'cap_settore_pct': 'Cap on the combined weight of single stocks in the same sector.', 'limite_minimo_pct': 'Adjustments cannot go below this weight (engine floor).', 'posizione_minima_pct': 'Below this threshold, a reduction or available room does not justify action (in line).', 'size_nuova_posizione_pct': 'Typical NEW-position weight (minimum–maximum).', 'max_posizioni': 'Maximum number of portfolio positions.', 'top3_max_pct': 'Maximum combined weight of the three largest positions.', 'cassa_tipica_pct': 'Typical cash holding (minimum–maximum).', 'cassa_max_senza_giustificazione_pct': 'Above this cash range, idle cash requires justification with a dated risk.', 'cassa_minima_pct': 'Cash floor: replenish cash below it.', 'politica_impiego': 'Cash deployment: prudent (only with a catalyst), neutral, aggressive (deployment bias).', 'impiego_default_pct': 'Default share of cash to deploy in the absence of dated risks (minimum–maximum).', 'impiego_finestra_settimane': 'Weeks for deploying that share (minimum–maximum).', 'taglio_max_senza_condizioni_pct': 'Position reduction permitted without the additional conditions (minimum–maximum).', 'taglio_con_condizioni_oltre_pct': 'Beyond this reduction, ALL enabled conditions must hold.', 'condizioni_taglio_oltre': 'Conditions for a large reduction: negative 12-month Sharpe, no catalyst within 90 days, disproved thesis.', 'riproporre_skipped': 'Revisit a skipped decision if the thesis holds (never increase it after two skips).', 'pair_trade_per_memo': 'Maximum pair trades in one memo (0 = none).', 'caccia_globale': 'Search for new ideas WITHOUT geographical restrictions (Japan, India, Brazil, Gulf, frontier markets).', 'nuove_idee_per_memo': 'NEW candidates per memo (outside the book, not repeated proposals), minimum–maximum; 0–0 means the section is not required.', 'rotazione_settoriale': 'No anchoring to existing sectors: reduce a sector with a deteriorated thesis and reallocate the capital.', 'sfidare_le_view': 'The PM’s views are not orders: challenge them with numbers when the evidence contradicts them.', 'opzioni_abilitate': 'The committee may propose option structures.', 'strumenti_ammessi': 'Allowed structures (required when options are enabled).', 'budget_premio_pct': 'Maximum option premium expenditure.', 'note_per_il_comitato': 'Information for the committee: preferred areas, exclusions and personal constraints.', 'aree_gradite': 'Preferred areas, countries or themes (one item per line).', 'esclusioni': 'Excluded sectors, countries or instruments (one item per line).'}
+_FIELD_DESCRIPTIONS_EN = {'tipo_investimento': 'Investment horizon: long term (years), medium term (months), or trading (weeks).', 'stile': 'Concentrated: allows high-conviction position weights; diversified: keeps each position within its cap.', 'orizzonte_anni': 'Average holding period of a position.', 'valuta_base': 'Currency used to measure wealth (ISO code: EUR, USD, GBP...).', 'broker': 'Broker used (information only).', 'residenza_fiscale': 'Country of tax residence (informs the UCITS and vehicle preference).', 'mercati_accessibili': 'Accessible exchanges, in order of preference: the first is the home exchange (how to buy from there).', 'preferenza_ucits': 'Prefers UCITS ETFs/funds (.MI/.L/.DE) for tax efficiency.', 'leva_ammessa': 'The committee may propose leveraged instruments or margin.', 'short_ammesso': 'The committee may propose short positions.', 'volatilita_target_pct': 'Target annual portfolio volatility.', 'var99_1g_pct': 'Maximum accepted one-day loss (VaR 99%), as a percentage of wealth.', 'drawdown_max_pct': 'Maximum accepted peak-to-trough portfolio drawdown.', 'stress_gfc_pct': 'Maximum accepted loss in a 2008-type stress (GFC replay), as a percentage of NAV.', 'drawdown_bilaterale': 'Assess drawdowns from both sides: possible buying opportunity or selling signal, never an automatic sale.', 'drawdown_significativo_pct': 'Decline from the 52-week high that counts as significant and triggers the two-sided assessment.', 'base_single_pct': 'Reference single-stock weight before volatility and correlation adjustments.', 'cap_single_pct': 'Maximum single-stock weight.', 'base_veicolo_pct': 'Reference weight of an already diversified vehicle (ETF, fund, holding company).', 'cap_veicolo_pct': 'Maximum diversified-vehicle weight.', 'cap_settore_pct': 'Cap on the combined weight of single stocks in the same sector.', 'limite_minimo_pct': 'Adjustments cannot go below this weight (engine floor).', 'posizione_minima_pct': 'Below this threshold, a reduction or available room does not justify action (in line).', 'size_nuova_posizione_pct': 'Typical NEW-position weight (minimum–maximum).', 'max_posizioni': 'Maximum number of portfolio positions.', 'top3_max_pct': 'Maximum combined weight of the three largest positions.', 'cassa_tipica_pct': 'Typical cash holding (minimum–maximum).', 'cassa_max_senza_giustificazione_pct': 'Above this cash range, idle cash requires justification with a dated risk.', 'cassa_minima_pct': 'Cash floor: replenish cash below it.', 'politica_impiego': 'Cash deployment: prudent (only with a catalyst), neutral, aggressive (deployment bias).', 'impiego_default_pct': 'Default share of cash to deploy in the absence of dated risks (minimum–maximum).', 'impiego_finestra_settimane': 'Weeks for deploying that share (minimum–maximum).', 'taglio_max_senza_condizioni_pct': 'Position reduction permitted without the additional conditions (minimum–maximum).', 'taglio_con_condizioni_oltre_pct': 'Beyond this reduction, ALL enabled conditions must hold.', 'condizioni_taglio_oltre': 'Conditions for a large reduction: negative 12-month Sharpe, no catalyst within 90 days, disproved thesis.', 'riproporre_skipped': 'Revisit a skipped decision if the thesis holds (never increase it after two skips).', 'pair_trade_per_memo': 'Maximum pair trades in one memo (0 = none).', 'caccia_globale': 'Search for new ideas WITHOUT geographical restrictions (Japan, India, Brazil, Gulf, frontier markets).', 'nuove_idee_per_memo': 'NEW candidates per memo (outside the book, not repeated proposals), minimum–maximum; 0–0 means the section is not required.', 'rotazione_settoriale': 'No anchoring to existing sectors: reduce a sector with a deteriorated thesis and reallocate the capital.', 'sfidare_le_view': 'The PM’s views are not orders: challenge them with numbers when the evidence contradicts them.', 'opzioni_abilitate': 'The committee may propose option structures.', 'strumenti_ammessi': 'Allowed structures (required when options are enabled).', 'budget_premio_pct': 'Maximum option premium expenditure.', 'note_per_il_comitato': 'Information for the committee: preferred areas, exclusions and personal constraints.', 'aree_gradite': 'Preferred areas, countries or themes (one item per line).', 'esclusioni': 'Excluded sectors, countries or instruments (one item per line).'}
 _UNITS_EN = {'anni': 'years', '% annua': '% annually', '% del patrimonio': '% of wealth', '% del NAV': '% of NAV', "% dell'investito": '% of invested assets', '% del capitale': '% of capital', 'posizioni': 'positions', '% della cassa': '% of cash', 'settimane': 'weeks', '% della posizione': '% of the position', 'per memo': 'per memo', 'candidati': 'candidates'}
 
 
@@ -362,7 +362,7 @@ def vol_annua_implicita(var99_1g_pct: Optional[float]) -> Optional[float]:
     252 giorni di borsa. Non e' una misura del portafoglio — e' la traduzione di un
     numero dichiarato dal PM in un altro numero dichiarato dal PM, per poterli
     confrontare. VaR non dichiarato = None, mai uno zero di comodo.
-    La usa `valida` per la coerenza, e serve alla pagina Mandato per mostrare a chi
+    La usa `valida` per la coerenza, e serve alla pagina Mandato e Diario per mostrare a chi
     compila che volatilita' sta implicando col VaR che scrive.
     """
     if var99_1g_pct is None:
@@ -561,7 +561,7 @@ CAUSE_NON_LEGGIBILE = ("in_uso", "illeggibile", "esempio")
 
 
 def stato_per_api(path: Optional[str] = None) -> Tuple[Dict[str, Any], Optional[str]]:
-    """(corpo, non_leggibile) — lo stato del mandato come lo consuma la pagina Mandato (F18).
+    """(corpo, non_leggibile) — lo stato del mandato come lo consuma la pagina Mandato e Diario (F18).
 
     `corpo` porta SEMPRE `campi` (lo schema): senza, la pagina non sa cosa chiedere
     nemmeno al primo accesso, quando di valori non ce n'e' nessuno.
@@ -658,7 +658,7 @@ def salva(mandato: Dict[str, Any], path: Optional[str] = None) -> Dict[str, Any]
         with open(p, encoding="utf-8") as fh:
             vecchio = fh.read()
         _scrivi_atomico(dest, vecchio)
-        # 06/09 (lotto B, difetto 2): la pagina Mandato rimanda i sette blocchi, non le meta.
+        # 06/09 (lotto B, difetto 2): la pagina Mandato e Diario rimanda i sette blocchi, non le meta.
         # Le chiavi «_» che stanno gia' nel file (la provenienza dei valori del PM) restano:
         # un salvataggio non e' il posto dove si perde una nota. Se il file di prima non si
         # legge non c'e' nessuna nota da conservare — non e' un ripiego, e' il vuoto.
@@ -707,7 +707,10 @@ def _data_it(iso: Optional[str]) -> str:
 
 
 def intestazione(m: Dict[str, Any]) -> str:
-    riga = _ui_text("MANDATO DEL PM (dichiarato il %s, impronta %s)", 'PM MANDATE (declared on %s, fingerprint %s)') % (_data_it(m.get("dichiarato_il")), impronta(m)[:8])
+    data = _data_it(m.get("dichiarato_il"))
+    if data == "data n.d.":
+        data = _ui_text("data n.d.", "unavailable date")
+    riga = _ui_text("MANDATO DEL PM (dichiarato il %s, impronta %s)", 'PM MANDATE (declared on %s, fingerprint %s)') % (data, impronta(m)[:8])
     if m.get("origine") == "esempio":
         riga += _ui_text(" — PROFILO DI ESEMPIO, NON PERSONALIZZATO: l'utente non ha ancora dichiarato il suo mandato", ' — EXAMPLE PROFILE, NOT PERSONALIZED: the user has not yet declared their own mandate')
     return riga
@@ -715,7 +718,7 @@ def intestazione(m: Dict[str, Any]) -> str:
 
 def riga_senza_mandato() -> str:
     return (_ui_text("MANDATO NON DICHIARATO: nessuna preferenza del PM va assunta (cassa, concentrazione, tagli, "
-            "opzioni, caccia globale); dillo nel testo e invita a compilare la pagina Mandato (F18).", 'MANDATE NOT DECLARED: do not assume any PM preference (cash, concentration, reductions, options, global search); say so and invite the user to complete Mandate (F18).'))
+            "opzioni, caccia globale); dillo nel testo e invita a compilare la pagina Mandato e Diario (F18).", 'MANDATE NOT DECLARED: do not assume any PM preference (cash, concentration, reductions, options, global search); say so and invite the user to complete Mandate and Journal (F18).'))
 
 
 # --------------------------------------------------------------------------- le frasi per i modelli
@@ -754,7 +757,7 @@ def _sez_profilo_rischio(m: Dict[str, Any]) -> str:
         _ui_text("PROFILO DEL PM: investe %s (orizzonte %d anni), book %s; valuta base %s; mercati accessibili: %s; "
         "preferenza UCITS: %s; broker: %s; residenza fiscale: %s; leva: %s; short: %s.", 'PM PROFILE: invests %s (%d-year horizon), %s book; base currency %s; accessible markets: %s; UCITS preference: %s; broker: %s; tax residence: %s; leverage: %s; short: %s.')
         % (_tipo_frase(p["tipo_investimento"]), p["orizzonte_anni"], stile, p["valuta_base"], _piazze(m),
-           _si_no(p["preferenza_ucits"]), p["broker"] or "n.d.", p["residenza_fiscale"] or "n.d.",
+           _si_no(p["preferenza_ucits"]), p["broker"] or _ui_text("n.d.", "n/a"), p["residenza_fiscale"] or _ui_text("n.d.", "n/a"),
            _ui_text('ammessa', 'allowed') if p["leva_ammessa"] else _ui_text('NON ammessa', 'NOT allowed'), _ui_text('ammesso', 'allowed') if p["short_ammesso"] else _ui_text('NON ammesso', 'NOT allowed')),
         _ui_text("RISCHIO ACCETTATO: volatilita' target %s%% annua; VaR 99%% a 1 giorno max %s%% del patrimonio; "
         "drawdown massimo %s%%; perdita massima in uno stress tipo 2008: %s%% del NAV.", 'RISK ACCEPTED: target volatility %s%% annually; maximum one-day VaR 99%% %s%% of wealth; maximum drawdown %s%%; maximum loss in a 2008-type stress: %s%% of NAV.')
@@ -765,8 +768,8 @@ def _sez_profilo_rischio(m: Dict[str, Any]) -> str:
         % (_fmt(s["base_single_pct"]), _fmt(s["cap_single_pct"]), _fmt(s["base_veicolo_pct"]), _fmt(s["cap_veicolo_pct"]),
            _fmt(s["cap_settore_pct"]), _fmt(s["limite_minimo_pct"]), _fmt(s["posizione_minima_pct"]),
            _fmt_int(s["size_nuova_posizione_pct"]),
-           str(s["max_posizioni"]) if s["max_posizioni"] is not None else "n.d.",
-           (_fmt(s["top3_max_pct"]) + "%") if s["top3_max_pct"] is not None else "n.d."),
+           str(s["max_posizioni"]) if s["max_posizioni"] is not None else _ui_text("n.d.", "n/a"),
+           (_fmt(s["top3_max_pct"]) + "%") if s["top3_max_pct"] is not None else _ui_text("n.d.", "n/a")),
     ]
     n = m["note"]
     extra = []

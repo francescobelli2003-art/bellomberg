@@ -20,8 +20,27 @@ import tempfile
 CONTROLLI_RICHIESTI = frozenset((
     "gitleaks", "vietate", "env", "esclusi", "lotti", "dimensione",
     "valori_db", "lista_privata", "ticker_soli", "payload",
-    "valori_estesi", "vietate_forme",
+    "valori_estesi", "vietate_forme", "testo_pm",
 ))
+# Version 1 predates the free-text check; accepting its exact historical proof is
+# restricted to the metadata-only rewrite path below.
+CONTROLLI_PER_VERSIONE = {
+    1: frozenset(("gitleaks", "vietate", "env", "esclusi", "lotti", "dimensione",
+                  "valori_db", "lista_privata", "ticker_soli", "payload",
+                  "valori_estesi", "vietate_forme")),
+    2: CONTROLLI_RICHIESTI,
+}
+# The CI `test` job steps the export runs on the verified copy, in CI order. A literal copy of
+# export_pubblico.PASSI_SUITE names: this file is stdlib-only and installed without the export.
+PASSI_RICHIESTI = (
+    "npm ci", "pytest", "tsc --noEmit", "test:release", "build:bundles",
+    "tsc mandato", "contratti mandato",
+)
+# Manifest version 2 (13/09) carries verifica.suite_passi. Version 1 certificates were emitted
+# before it and prove pytest only: they are admitted solely for an authorized metadata-only
+# rewrite of history they already published, never for an ordinary push.
+VERSIONI_MANIFEST = (2,)
+VERSIONI_RISCRITTURA = (1, 2)
 
 
 def _git(repo, *args, input=None):
@@ -36,22 +55,33 @@ def _sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def valida_manifest(doc):
+def _passi_ok(steps):
+    """Every required CI step ran on the verified copy, in order, and exited 0."""
+    return (isinstance(steps, list)
+            and [s["nome"] for s in steps] == list(PASSI_RICHIESTI)
+            and all(s["esito"] == "OK" and type(s["exit"]) is int and s["exit"] == 0
+                    for s in steps))
+
+
+def valida_manifest(doc, versioni=VERSIONI_MANIFEST):
     """Reject a green-looking summary unless every required proof is present."""
     try:
         v, artifact, source = doc["verifica"], doc["artefatto"], doc["input"]
         checks = v["controlli"]
         names = [c["nome"] for c in checks]
+        version = doc["versione"]
         valid = (
-            doc["versione"] == 1 and v["stato"] == "OK"
+            type(version) is int and version in versioni
+            and (version < 2 or _passi_ok(v["suite_passi"]))
+            and v["stato"] == "OK"
             and v["rigoroso"] is True
             and type(v["cancello_exit"]) is int and v["cancello_exit"] == 0
             and type(v["suite_exit"]) is int and v["suite_exit"] == 0
             and v["suite_non_eseguita"] is False
             and v["sorgente_sporca_file"] == 0
             and not v["controlli_solo"] and not v["non_eseguiti"]
-            and len(names) == len(CONTROLLI_RICHIESTI)
-            and set(names) == CONTROLLI_RICHIESTI
+            and len(names) == len(CONTROLLI_PER_VERSIONE[version])
+            and set(names) == CONTROLLI_PER_VERSIONE[version]
             and all(c["errore"] is False and c["osservazione"] is False
                     and type(c["hit"]) is int and c["hit"] == 0 for c in checks)
             and artifact["immutato_dalla_suite"] is True
@@ -134,9 +164,9 @@ def _atomic_json(path, value):
             os.unlink(tmp)
 
 
-def certifica_deposito(repo, manifest, artifact):
+def certifica_deposito(repo, manifest, artifact, versioni=VERSIONI_MANIFEST):
     """Bind checked content to Git objects, preserve evidence and install guard."""
-    valida_manifest(manifest)
+    valida_manifest(manifest, versioni)
     expected, digest = _files_artifact(artifact)
     if digest != manifest["artefatto"]["sha256"] or len(expected) != manifest["artefatto"]["file"]:
         raise ValueError("Artefatto modificato dopo i controlli")
@@ -205,7 +235,7 @@ def certifica_riscrittura_messaggi(repo, precedente, artifact):
     Content proofs remain mandatory; this does not certify new application code.
     """
     try:
-        valida_manifest(precedente["manifest"])
+        valida_manifest(precedente["manifest"], VERSIONI_RISCRITTURA)
         history = _git(repo, "rev-list", "HEAD").decode().split()
         old_history = precedente["history"]
         if (precedente["versione"] != 1 or not old_history
@@ -217,7 +247,7 @@ def certifica_riscrittura_messaggi(repo, precedente, artifact):
         _verifica_riscrittura_messaggi(repo, old_history, history)
     except (KeyError, TypeError, AttributeError) as exc:
         raise ValueError("Riscrittura messaggi: certificato precedente illeggibile") from exc
-    path = certifica_deposito(repo, precedente["manifest"], artifact)
+    path = certifica_deposito(repo, precedente["manifest"], artifact, VERSIONI_RISCRITTURA)
     certificate = json.loads(path.read_text(encoding="utf-8"))
     certificate["riscrittura_messaggi"] = {"precedente_head": precedente["head"],
                                           "precedente_history": old_history}
@@ -252,7 +282,10 @@ def verifica_push(repo, refs, remote_url):
     try:
         directory = _git_dir(repo) / "bellomberg-release"
         certificate = json.loads((directory / "certificate.json").read_text(encoding="utf-8"))
-        valida_manifest(certificate["manifest"])
+        rewrite = certificate.get("riscrittura_messaggi")
+        # A version 1 manifest only on the rewrite path, which publishes no new content.
+        valida_manifest(certificate["manifest"],
+                        VERSIONI_RISCRITTURA if rewrite is not None else VERSIONI_MANIFEST)
         if certificate["versione"] != 1 or _sha((directory / "verify.py").read_bytes()) != certificate["verifier_sha256"]:
             raise ValueError("Verifier/certificato non corrispondenti")
         head = _git(repo, "rev-parse", "HEAD").decode().strip()
@@ -273,7 +306,6 @@ def verifica_push(repo, refs, remote_url):
         local_ref, local_oid, remote_ref, remote_oid = lines[0]
         if local_ref != branch or remote_ref != branch or local_oid != head:
             raise ValueError("Ref spinto diverso dal commit/ramo certificato")
-        rewrite = certificate.get("riscrittura_messaggi")
         if rewrite is not None:
             if (not isinstance(rewrite, dict) or remote_oid != rewrite.get("precedente_head")
                     or not rewrite.get("precedente_history")
@@ -282,7 +314,7 @@ def verifica_push(repo, refs, remote_url):
             _verifica_riscrittura_messaggi(repo, rewrite["precedente_history"], certificate["history"])
         elif remote_oid != "0" * len(head) and remote_oid not in certificate["history"]:
             raise ValueError("Storia remota estranea: rifiutato anche un force-push")
-    except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
+    except (OSError, KeyError, TypeError, AttributeError, json.JSONDecodeError) as error:
         raise ValueError("Certificato locale assente o illeggibile") from error
 
 

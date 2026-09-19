@@ -36,6 +36,10 @@ def test_new_preview_captures_language_preserves_original_notes_and_does_not_cha
     assert 'RISK ACCEPTED' in en['testo'] and 'RISCHIO ACCETTATO' not in en['testo']
     assert original in en['testo'] and original in it['testo']
     assert 'Intermediario originale' in en['testo']
+    assert 'data n.d.' not in en['testo']
+    assert 'tax residence: n/a' in en['testo']
+    assert 'unavailable date' in en['testo']
+    assert 'data n.d.' in it['testo']
 
 
 def test_policy_vectors_have_identical_normalized_values_and_field_errors_in_both_languages():

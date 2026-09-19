@@ -54,9 +54,8 @@ export default function Diario({ righe, cancello }: Props) {
               </div>
               {/* ⚠️ etichettata «Causale» come le altre portano «Motivo»/«Nota»:
                   questa vista si chiama «LE PAROLE DEL PM», e il testo di un
-                  movimento spesso NON e' del PM — quello a registro oggi dice
-                  «bonifico ~30k dichiarato dal PM», cioe' parla di lui in terza
-                  persona: l'ha scritto chi ha importato la riga. */}
+                  movimento spesso NON e' del PM: la causale puo' averla scritta
+                  chi ha importato la riga, e parlare di lui in terza persona. */}
               {causale && (
                 <div className="tx pro"><span className="et">{tr('movements.cashReason')}</span>{causale}</div>
               )}

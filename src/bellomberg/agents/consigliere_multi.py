@@ -105,7 +105,7 @@ def mandato_o_esci():
         return mandato_pm.carica()
     except mandato_pm.MandatoMancante as e:
         _log("MANDATO NON DICHIARATO: " + str(e))
-        _log("Il comitato non parte senza il mandato del PM: compila la pagina Mandato (F11) e rilancia.")
+        _log("Il comitato non parte senza il mandato del PM: compila la pagina Mandato e Diario (F18) e rilancia.")
         _MOTIVO_USCITA["testo"] = "MANDATO NON DICHIARATO: " + str(e)[:160]
         raise SystemExit(2)
 

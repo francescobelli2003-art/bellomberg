@@ -28,6 +28,72 @@ def _cancello_sano(*_a, **_k):
     })
 
 
+def _passi_sani():
+    return [{"nome": p.nome, "esito": "OK", "exit": 0, "secondi": 1.0, "motivo": ""}
+            for p in ep.PASSI_SUITE]
+
+
+def _suite_sana(*_a, **_k):
+    """Una suite finta COMPLETA: dal 13/09 il deposito vuole anche i passi della CI, tutti OK."""
+    return ep.EsitoSuite(0, "suite finta verde", _passi_sani())
+
+
+# I passi del job `test` della CI, scritti qui a mano (l'oracolo non viene dal codice sotto test).
+PASSI_ATTESI = ["npm ci", "pytest", "tsc --noEmit", "test:release", "build:bundles",
+                "tsc mandato", "contratti mandato"]
+
+
+def _nome_da_argv(argv):
+    if argv[0] == sys.executable:
+        return "pytest"
+    if "--version" in argv:
+        return "node --version"
+    for segno, nome in (("ci", "npm ci"), ("test:release", "test:release"),
+                        ("build:bundles", "build:bundles"),
+                        ("tests/mandato/tsconfig.json", "tsc mandato"), ("--noEmit", "tsc --noEmit")):
+        if segno in argv:
+            return nome
+    if any(a.endswith("contratti.mjs") for a in argv):
+        return "contratti mandato"
+    raise AssertionError("argv non riconosciuto: %r" % (argv,))
+
+
+def _lancio_finto(codici=None, scrivi=None, pytest_vero=False, node="v99.1.0"):
+    """Al posto di `_lancia`: registra argv, cartella e timeout di ogni processo. `codici` =
+    {passo: exit | (exit, messaggio) | eccezione}; `scrivi` = {passo: funzione(cartella)} per i file
+    che il passo produce; `pytest_vero` lancia il pytest VERO nella copia."""
+    chiamate = []
+
+    def lancia(argv, cwd, env, stdout, stderr, timeout):
+        nome = _nome_da_argv(argv)
+        chiamate.append({"nome": nome, "argv": list(argv), "cwd": cwd, "timeout": timeout})
+        if nome == "node --version":
+            stdout.write((node + "\n").encode())
+            return 0
+        if nome == "pytest" and pytest_vero:
+            return ep._lancia(argv, cwd, env, stdout, stderr, timeout)
+        if nome == "pytest":
+            stdout.write(b"1 passed in 0.01s\n")
+        if scrivi and nome in scrivi:
+            scrivi[nome](cwd)
+        codice = (codici or {}).get(nome, 0)
+        if isinstance(codice, BaseException):
+            raise codice
+        if isinstance(codice, tuple):
+            codice, messaggio = codice
+            stderr.write(messaggio.encode())
+        elif codice:
+            stderr.write(("errore finto di %s\n" % nome).encode())
+        return codice
+    return lancia, chiamate
+
+
+@pytest.fixture
+def npm_finto(monkeypatch):
+    """npm e node «trovati» in un percorso finto: le prove non dipendono dal PATH di chi le lancia."""
+    monkeypatch.setattr(ep.shutil, "which", lambda nome, path=None: os.path.join(os.sep, "finto", nome))
+
+
 def _git(cwd, *args):
     return subprocess.run(["git"] + list(args), cwd=str(cwd), capture_output=True,
                           encoding="utf-8", errors="replace", check=True).stdout
@@ -138,10 +204,13 @@ def test_deposito_completo_installa_guardia_e_certifica_push_locale(
     monkeypatch.setattr(ep, "REPO", str(repo_finto))
     monkeypatch.setattr(ep, "ALLOWLIST", str(allowlist_finta))
     monkeypatch.setattr(ep, "_cancello", _cancello_sano)
+    monkeypatch.setattr(ep, "esegui_suite", _suite_sana)
     assert ep.main(["--dest", str(clone_pubblico), "--commit",
                     "--corpus-root", str(repo_finto)]) == 0
     certificate = clone_pubblico / ".git" / "bellomberg-release" / "certificate.json"
-    assert json.loads(certificate.read_text())["manifest"]["verifica"]["stato"] == "OK"
+    doc = json.loads(certificate.read_text())["manifest"]
+    assert doc["verifica"]["stato"] == "OK" and doc["versione"] == 2
+    assert [p["nome"] for p in doc["verifica"]["suite_passi"]] == PASSI_ATTESI
     branch = _git(clone_pubblico, "symbolic-ref", "--short", "HEAD").strip()
     _git(clone_pubblico, "push", "origin", branch)
     assert _git(remote, "rev-parse", branch) == _git(clone_pubblico, "rev-parse", "HEAD")
@@ -182,7 +251,8 @@ def test_manifest_separa_hash_corpus_e_payload_senza_valori_privati(tmp_path):
     }
     ep.scrivi_manifest(
         str(path), "d" * 40, "e" * 64, 3, input_manifest, 0, 0,
-        esiti_manifest={"rigoroso": True, "controlli": [], "non_eseguiti": []})
+        esiti_manifest={"rigoroso": True, "controlli": [], "non_eseguiti": []},
+        passi=_passi_sani())
     raw = path.read_text(encoding="utf-8")
     doc = json.loads(raw)
     assert doc["input"]["sha256_corpus_privato"] != doc["input"]["sha256_payload"]
@@ -190,6 +260,50 @@ def test_manifest_separa_hash_corpus_e_payload_senza_valori_privati(tmp_path):
     assert doc["artefatto"]["sha256"] == "e" * 64
     assert doc["verifica"]["stato"] == "OK"
     assert doc["verifica"]["rigoroso"] is True
+
+
+def _scrivi_con_passi(tmp_path, passi, rc_suite=0):
+    return ep.scrivi_manifest(
+        str(tmp_path / "manifest.json"), "d" * 40, "e" * 64, 3,
+        {"sha256_corpus_privato": "a" * 64, "sha256_payload": "b" * 64,
+         "hash_liste": {}, "conteggi": {}, "fonti_assenti": [], "fonti_ko": {}},
+        0, rc_suite, esiti_manifest={"rigoroso": True, "controlli": [], "non_eseguiti": []},
+        passi=passi)
+
+
+def test_manifest_versione_2_porta_i_passi_senza_output(tmp_path):
+    """I passi entrano nel manifest con nome, esito, exit, secondi e motivo: mai l'output dei
+    comandi (il manifest resta un sidecar di hash e conteggi)."""
+    passi = _passi_sani()
+    passi[1]["output"] = "testo che non deve uscire"
+    doc = _scrivi_con_passi(tmp_path, passi)
+    assert doc["versione"] == 2 and doc["verifica"]["stato"] == "OK"
+    assert [p["nome"] for p in doc["verifica"]["suite_passi"]] == PASSI_ATTESI
+    assert all(sorted(p) == ["esito", "exit", "motivo", "nome", "secondi"]
+               for p in doc["verifica"]["suite_passi"])
+    assert "testo che non deve uscire" not in (tmp_path / "manifest.json").read_text(encoding="utf-8")
+
+
+def test_manifest_senza_passi_o_con_un_passo_non_eseguito_e_incompleto(tmp_path):
+    doc = _scrivi_con_passi(tmp_path, None)
+    assert doc["verifica"]["stato"] == "INCOMPLETO" and doc["verifica"]["suite_passi"] is None
+    passi = _passi_sani()
+    passi[6].update(esito="NON ESEGUITO", exit=None, motivo="dipende da tsc mandato, KO")
+    assert _scrivi_con_passi(tmp_path, passi)["verifica"]["stato"] == "INCOMPLETO"
+
+
+def test_manifest_con_un_passo_ko_e_ko_anche_se_l_exit_della_suite_e_zero(tmp_path):
+    passi = _passi_sani()
+    passi[3].update(esito="KO", exit=1, motivo="exit 1")
+    assert _scrivi_con_passi(tmp_path, passi, rc_suite=0)["verifica"]["stato"] == "KO"
+
+
+def test_manifest_ko_non_e_nascosto_dai_passi_dipendenti_non_eseguiti(tmp_path):
+    passi = _passi_sani()
+    passi[0].update(esito="KO", exit=1, motivo="installazione fallita")
+    for passo in passi[1:]:
+        passo.update(esito="NON ESEGUITO", exit=None, motivo="dipende da npm ci")
+    assert _scrivi_con_passi(tmp_path, passi, rc_suite=1)["verifica"]["stato"] == "KO"
 
 
 def test_manifest_dichiara_incompleto_se_manca_una_prova(tmp_path):
@@ -530,48 +644,67 @@ def test_la_suite_gira_su_una_copia_e_non_scrive_nell_artefatto(tmp_path):
     assert not os.path.exists(str(tree) + ".suite")
 
 
-def test_la_suite_installa_le_dipendenze_node_dal_lockfile_esportato(tmp_path):
+def test_la_suite_installa_le_dipendenze_node_dal_lockfile_esportato(tmp_path, npm_finto):
     """La CI pubblica fa `npm ci` prima di pytest (ci.yml): senza, 18 rossi del cancello erano
     moduli Node assenti e non difetti (misurato 13/09: 23 rossi, 5 con le dipendenze)."""
     tree = _tree_suite(tmp_path, "import pathlib\n\n\ndef test_node():\n"
                                  "    assert pathlib.Path('app/node_modules/.installato').is_file()\n",
                        lockfile=True)
-    viste = []
 
-    def installa(app_dir, env):
-        viste.append(app_dir)
-        os.makedirs(os.path.join(app_dir, "node_modules"))
-        open(os.path.join(app_dir, "node_modules", ".installato"), "w").close()
-        return 0, "installato"
+    def installa(cwd):
+        os.makedirs(os.path.join(cwd, "node_modules"))
+        open(os.path.join(cwd, "node_modules", ".installato"), "w").close()
 
-    rc, riga = ep.esegui_suite(str(tree), installa_node=installa)
+    lancia, chiamate = _lancio_finto(scrivi={"npm ci": installa}, pytest_vero=True)
+    rc, riga = ep.esegui_suite(str(tree), lancia=lancia)
     assert rc == 0 and "1 passed" in riga
+    viste = [c["cwd"] for c in chiamate if c["nome"] == "npm ci"]
     assert len(viste) == 1 and not viste[0].startswith(str(tree) + os.sep)
     assert not (tree / "app" / "node_modules").exists()
 
 
-def test_un_npm_ci_fallito_e_un_ko_dichiarato_non_una_suite_senza_dipendenze(tmp_path):
+def test_un_npm_ci_fallito_e_un_ko_dichiarato_non_una_suite_senza_dipendenze(tmp_path, npm_finto):
+    """Tutti i passi dipendono da `npm ci`: se cade, nessun altro parte e ognuno lo dice."""
     tree = _tree_suite(tmp_path, "def test_ok():\n    assert 1\n", lockfile=True)
-    rc, riga = ep.esegui_suite(str(tree), installa_node=lambda app_dir, env: (1, "rete assente"))
+    lancia, chiamate = _lancio_finto(codici={"npm ci": (1, "rete assente")})
+    esito = ep.esegui_suite(str(tree), lancia=lancia)
+    rc, riga = esito
     assert rc != 0 and "npm ci" in riga and "rete assente" in riga and "passed" not in riga
+    assert [c["nome"] for c in chiamate if c["nome"] != "node --version"] == ["npm ci"]
+    assert [p["esito"] for p in esito.passi] == ["KO"] + ["NON ESEGUITO"] * 6
+    assert all("dipende da npm ci" in p["motivo"] for p in esito.passi[1:])
 
 
 def test_senza_npm_nel_path_la_suite_con_lockfile_e_un_ko_dichiarato(tmp_path, monkeypatch):
     """Cablaggio dell'installatore VERO: senza npm non si fa finta di aver installato."""
     monkeypatch.setattr(ep.shutil, "which", lambda *a, **k: None)
+
+    def nessun_processo(*_a, **_k):
+        raise AssertionError("senza npm nel PATH non parte nessun processo")
+
+    monkeypatch.setattr(ep, "_lancia", nessun_processo)
     tree = _tree_suite(tmp_path, "def test_ok():\n    assert 1\n", lockfile=True)
-    rc, riga = ep.esegui_suite(str(tree))
+    esito = ep.esegui_suite(str(tree))
+    rc, riga = esito
     assert rc != 0 and "npm" in riga and "passed" not in riga
+    assert esito.passi[0]["esito"] == "KO" and "npm non trovato nel PATH" in esito.passi[0]["motivo"]
+    assert [p["esito"] for p in esito.passi[1:]] == ["NON ESEGUITO"] * 6
 
 
 def test_senza_lockfile_la_suite_dichiara_che_non_ha_installato_node(tmp_path):
     tree = _tree_suite(tmp_path, "def test_ok():\n    assert 1\n")
 
-    def installa(*_a):
-        raise AssertionError("senza lockfile non si installa")
+    def lancia(argv, cwd, env, stdout, stderr, timeout):
+        if argv[0] != sys.executable:
+            raise AssertionError("senza lockfile nessun passo Node parte: %r" % (argv,))
+        return ep._lancia(argv, cwd, env, stdout, stderr, timeout)
 
-    rc, riga = ep.esegui_suite(str(tree), installa_node=installa)
+    esito = ep.esegui_suite(str(tree), lancia=lancia)
+    rc, riga = esito
     assert rc == 0 and "1 passed" in riga and "package-lock.json" in riga
+    assert [(p["nome"], p["esito"]) for p in esito.passi] == (
+        [("npm ci", "NON ESEGUITO"), ("pytest", "OK")] + [(n, "NON ESEGUITO") for n in PASSI_ATTESI[2:]])
+    assert all("package-lock.json" in p["motivo"] for p in esito.passi if p["nome"] != "pytest")
 
 
 def test_la_suite_nomina_i_rossi_e_salva_l_output_completo(tmp_path):
@@ -580,8 +713,384 @@ def test_la_suite_nomina_i_rossi_e_salva_l_output_completo(tmp_path):
     tree = _tree_suite(tmp_path, "def test_rosso():\n    assert 0\n")
     rc, riga = ep.esegui_suite(str(tree))
     assert rc != 0 and "1 failed" in riga and "tests/test_x.py::test_rosso" in riga
-    log = str(tree) + ".pytest.log"
+    log = str(tree) + ".suite.log"
     assert os.path.isfile(log) and "test_rosso" in open(log, encoding="utf-8").read()
+
+
+# --- 13/09 (decisione 3 delegata dal PM): la suite dell'export fa i passi del job `test` della CI ---
+
+def test_i_passi_della_ci_girano_nella_copia_e_nell_ordine_della_ci(tmp_path, npm_finto):
+    tree = _tree_suite(tmp_path, "def test_ok():\n    assert 1\n", lockfile=True)
+    lancia, chiamate = _lancio_finto()
+    esito = ep.esegui_suite(str(tree), lancia=lancia)
+    rc, riga = esito
+    passi = [c for c in chiamate if c["nome"] != "node --version"]
+    assert rc == 0 and [c["nome"] for c in passi] == PASSI_ATTESI
+    copia = str(tree) + ".suite"
+    attese = {"pytest": copia}
+    for c in passi:
+        assert c["cwd"] == attese.get(c["nome"], os.path.join(copia, "app")), c
+    assert [(p["nome"], p["esito"], p["exit"]) for p in esito.passi] == [(n, "OK", 0) for n in PASSI_ATTESI]
+    assert "passi: npm ci OK" in riga and "contratti mandato OK" in riga
+    assert not os.path.exists(copia)
+
+
+@pytest.mark.parametrize("rosso", ["pytest", "test:release"])
+def test_un_passo_rosso_e_un_ko_nominato_e_gli_altri_girano_lo_stesso(tmp_path, npm_finto, rosso):
+    """Una sola corsa mostra TUTTI i rossi: dopo un KO i passi che non ne dipendono girano."""
+    tree = _tree_suite(tmp_path, "def test_ok():\n    assert 1\n", lockfile=True)
+    lancia, chiamate = _lancio_finto(codici={rosso: 1})
+    esito = ep.esegui_suite(str(tree), lancia=lancia)
+    rc, riga = esito
+    assert [c["nome"] for c in chiamate if c["nome"] != "node --version"] == PASSI_ATTESI
+    assert rc == 1
+    fallito = esito.passi[PASSI_ATTESI.index(rosso)]
+    assert (fallito["esito"], fallito["exit"], fallito["motivo"]) == ("KO", 1, "exit 1")
+    assert [p["esito"] for p in esito.passi].count("OK") == 6
+    assert "%s KO (exit 1)" % rosso in riga
+    log = open(str(tree) + ".suite.log", encoding="utf-8").read()
+    assert "errore finto di %s" % rosso in log
+    if rosso != "pytest":
+        assert "errore finto di %s" % rosso in riga
+
+
+def test_contratti_mandato_non_parte_se_tsc_mandato_e_rosso(tmp_path, npm_finto):
+    """I contratti leggono i .mjs che `tsc -p tests/mandato` emette: senza, cadrebbero per un
+    file assente e il rosso vero sarebbe quello di tsc."""
+    tree = _tree_suite(tmp_path, "def test_ok():\n    assert 1\n", lockfile=True)
+    lancia, chiamate = _lancio_finto(codici={"tsc mandato": 2})
+    esito = ep.esegui_suite(str(tree), lancia=lancia)
+    assert "contratti mandato" not in [c["nome"] for c in chiamate]
+    assert esito[0] == 2
+    ultimo = esito.passi[6]
+    assert ultimo["esito"] == "NON ESEGUITO" and ultimo["exit"] is None
+    assert "dipende da tsc mandato" in ultimo["motivo"]
+
+
+@pytest.mark.parametrize("guasto", [subprocess.TimeoutExpired(cmd="npm", timeout=600),
+                                    OSError(13, "Permission denied")])
+def test_un_timeout_o_un_guasto_del_processo_e_un_ko_dichiarato(tmp_path, npm_finto, guasto):
+    tree = _tree_suite(tmp_path, "def test_ok():\n    assert 1\n", lockfile=True)
+    lancia, chiamate = _lancio_finto(codici={"build:bundles": guasto})
+    esito = ep.esegui_suite(str(tree), lancia=lancia)
+    build = esito.passi[4]
+    assert build["esito"] == "KO" and build["exit"] is None and esito[0] == 1
+    parola = "timeout" if isinstance(guasto, subprocess.TimeoutExpired) else "OSError"
+    assert parola in build["motivo"] and parola in esito[1]
+    assert "contratti mandato" in [c["nome"] for c in chiamate]
+
+
+def test_l_argv_vero_non_scarica_pacchetti_e_ogni_passo_ha_un_timeout(tmp_path, npm_finto):
+    """`npx` senza terminale assume --yes e scaricherebbe typescript se mancasse: si chiama
+    `npm exec --no --`, che invece fallisce. Si guarda l'argv che arriva al processo."""
+    tree = _tree_suite(tmp_path, "def test_ok():\n    assert 1\n", lockfile=True)
+    lancia, chiamate = _lancio_finto()
+    ep.esegui_suite(str(tree), lancia=lancia)
+    npm, node = os.path.join(os.sep, "finto", "npm"), os.path.join(os.sep, "finto", "node")
+    argv = {c["nome"]: c["argv"] for c in chiamate}
+    assert argv["npm ci"] == [npm, "ci", "--no-audit", "--no-fund"]
+    assert argv["pytest"][:5] == [sys.executable, "-m", "pytest", "tests/", "-q"]
+    assert argv["tsc --noEmit"] == [npm, "exec", "--no", "--", "tsc", "--noEmit"]
+    assert argv["test:release"] == [npm, "run", "test:release"]
+    assert argv["build:bundles"] == [npm, "run", "build:bundles"]
+    assert argv["tsc mandato"] == [npm, "exec", "--no", "--", "tsc", "-p", "tests/mandato/tsconfig.json"]
+    assert argv["contratti mandato"] == [node, "tests/mandato/.tmp/tests/mandato/contratti.mjs"]
+    for c in chiamate:
+        assert isinstance(c["timeout"], (int, float)) and 0 < c["timeout"] <= 3600, c
+
+
+def test_i_secondi_dei_passi_vengono_dall_orologio(tmp_path, npm_finto):
+    tree = _tree_suite(tmp_path, "def test_ok():\n    assert 1\n", lockfile=True)
+    tempi = iter([0.0, 1.0, 3.0, 6.0, 10.0, 15.0, 21.0, 28.0, 36.0, 45.0, 55.0, 66.0, 78.0, 91.0])
+    lancia, _ = _lancio_finto()
+    esito = ep.esegui_suite(str(tree), lancia=lancia, orologio=lambda: next(tempi))
+    assert [p["secondi"] for p in esito.passi] == [1.0, 3.0, 5.0, 7.0, 9.0, 11.0, 13.0]
+    assert "npm ci OK 1,0 s" in esito[1] and "contratti mandato OK 13,0 s" in esito[1]
+
+
+def test_un_passo_che_scrive_nella_copia_non_tocca_l_artefatto(tmp_path, npm_finto):
+    """build:bundles scrive app/dist, tsc del mandato app/tests/mandato/.tmp: nella copia."""
+    tree = _tree_suite(tmp_path, "def test_ok():\n    assert 1\n", lockfile=True)
+    prima = ep.hash_artefatto(str(tree))
+
+    def dist(cwd):
+        os.makedirs(os.path.join(cwd, "dist"))
+        open(os.path.join(cwd, "dist", "index.html"), "w").close()
+
+    def tmp_mandato(cwd):
+        os.makedirs(os.path.join(cwd, "tests", "mandato", ".tmp"))
+        open(os.path.join(cwd, "tests", "mandato", ".tmp", "contratti.mjs"), "w").close()
+
+    lancia, _ = _lancio_finto(scrivi={"build:bundles": dist, "tsc mandato": tmp_mandato})
+    assert ep.esegui_suite(str(tree), lancia=lancia)[0] == 0
+    assert ep.hash_artefatto(str(tree)) == prima
+    assert not (tree / "app" / "dist").exists() and not (tree / "app" / "tests").exists()
+
+
+def test_la_riga_dichiara_node_e_le_piattaforme_che_non_si_replicano(tmp_path, npm_finto):
+    tree = _tree_suite(tmp_path, "def test_ok():\n    assert 1\n", lockfile=True)
+    (tree / ".github" / "workflows").mkdir(parents=True)
+    (tree / ".github" / "workflows" / "ci.yml").write_text(
+        "jobs:\n  test:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n"
+        "          node-version: \"21.0.1\"\n", encoding="utf-8")
+    lancia, _ = _lancio_finto(node="v99.1.0")
+    rc, riga = ep.esegui_suite(str(tree), lancia=lancia)
+    assert rc == 0
+    assert "v99.1.0" in riga and "21.0.1" in riga
+    assert "macOS e Linux della CI NON replicati localmente" in riga
+    assert "ogni rosso locale blocca il deposito" in riga
+
+
+def test_la_riga_dichiara_un_ci_yml_assente_invece_di_tacere(tmp_path, npm_finto):
+    tree = _tree_suite(tmp_path, "def test_ok():\n    assert 1\n", lockfile=True)
+    lancia, _ = _lancio_finto()
+    assert "ci.yml assente" in ep.esegui_suite(str(tree), lancia=lancia)[1]
+
+
+@pytest.mark.parametrize("workflow", [
+    "jobs:\n  test: x\n",
+    "jobs:\n  test:\n    steps:\n      - uses: actions/setup-node@v4\n        with: x\n",
+])
+def test_workflow_malformato_da_ko_dichiarato_senza_traceback(tmp_path, npm_finto, workflow):
+    tree = _tree_suite(tmp_path, "def test_ok():\n    assert 1\n", lockfile=True)
+    path = tree / ".github" / "workflows" / "ci.yml"
+    path.parent.mkdir(parents=True)
+    path.write_text(workflow, encoding="utf-8")
+    lancia, _ = _lancio_finto()
+    esito = ep.esegui_suite(str(tree), lancia=lancia)
+    assert esito[0] != 0 and "ci.yml illeggibile" in esito[1]
+    assert all(p["esito"] == "OK" for p in esito.passi)
+
+
+def test_exit_della_suite_conserva_il_primo_ko(tmp_path, npm_finto):
+    tree = _tree_suite(tmp_path, "def test_ok():\n    assert 1\n", lockfile=True)
+    lancia, _ = _lancio_finto(codici={"pytest": 1, "build:bundles": 2})
+    assert ep.esegui_suite(str(tree), lancia=lancia)[0] == 1
+
+
+def test_il_log_ha_una_sezione_per_passo_nell_ordine_della_ci(tmp_path, npm_finto):
+    tree = _tree_suite(tmp_path, "def test_ok():\n    assert 1\n", lockfile=True)
+    lancia, _ = _lancio_finto(codici={"tsc mandato": 2})
+    ep.esegui_suite(str(tree), lancia=lancia)
+    log = open(str(tree) + ".suite.log", encoding="utf-8").read()
+    posizioni = [log.find("=== passo %s: " % n) for n in PASSI_ATTESI]
+    assert -1 not in posizioni and posizioni == sorted(posizioni), posizioni
+    assert "=== passo tsc mandato: KO, exit 2" in log
+    assert "=== passo contratti mandato: NON ESEGUITO" in log
+    assert "1 passed in 0.01s" in log
+
+
+def test_uno_stop_prima_dei_passi_li_dichiara_tutti_non_eseguiti(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_ok.py").write_text("def test_ok():\n    assert 1\n", encoding="utf-8")
+    esito = ep.esegui_suite(str(tmp_path), attesi=99)
+    assert esito[0] != 0 and "indice" in esito[1]
+    assert [p["nome"] for p in esito.passi] == PASSI_ATTESI
+    assert all(p["esito"] == "NON ESEGUITO" and "STOP" in p["motivo"] for p in esito.passi)
+
+
+def test_lancia_ferma_il_processo_oltre_il_timeout_e_anche_i_suoi_figli(tmp_path):
+    """Un `npm run` e' un albero (cmd/sh -> node -> vite): uccidere solo il primo lascerebbe i
+    figli a scrivere nella copia. Il nipote qui scrive un battito ogni 50 ms: dopo il timeout
+    il file non deve crescere piu'."""
+    battito = tmp_path / "battito.txt"
+    nipote = ("import time\n"
+              "for _ in range(1200):\n"
+              "    with open(%r, 'a') as fh:\n"
+              "        fh.write('x')\n"
+              "    time.sleep(0.05)\n" % str(battito))
+    figlio = ("import os, subprocess, sys, time\n"
+              "subprocess.Popen([sys.executable, '-c', %r])\n"
+              "fine = time.time() + 60\n"
+              "while not os.path.exists(%r) and time.time() < fine:\n"
+              "    time.sleep(0.05)\n"
+              "time.sleep(60)\n" % (nipote, str(battito)))
+    import tempfile
+    import time
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        inizio = time.monotonic()
+        with pytest.raises(subprocess.TimeoutExpired):
+            ep._lancia([sys.executable, "-c", figlio], str(tmp_path), dict(os.environ), out, err, 6)
+        assert time.monotonic() - inizio < 40
+    assert battito.exists(), "il nipote non era partito entro il timeout: prova non misurata"
+    time.sleep(0.5)
+    dopo_uccisione = battito.stat().st_size
+    time.sleep(1.5)
+    assert battito.stat().st_size == dopo_uccisione, "il nipote scrive ancora: albero non ucciso"
+
+
+# --- parita' con .github/workflows/ci.yml: un comando nuovo della CI senza gemello e' rosso ---
+
+CI_YML = os.path.join(REPO, ".github", "workflows", "ci.yml")
+
+
+def _ci_vero():
+    with open(CI_YML, encoding="utf-8") as fh:
+        return fh.read()
+
+
+WORKFLOW_SINTETICO = """name: X
+on:
+  push:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # commento a livello di passo
+      - uses: actions/checkout@v5
+      - name: Piegato
+        run: >
+          python -m uno --a
+          --b c
+
+          secondo paragrafo
+      - name: Piegato senza a-capo finale
+        run: >-
+          alfa
+          beta
+      - name: Letterale
+        working-directory: app
+        run: |
+          npm ci
+          # un commento di shell non e' un comando
+
+          npm run x
+      - name: Semplice
+        run: pytest tests/ -q   # commento in coda
+      - name: Tra virgolette
+        if: hashFiles('a.txt') != ''
+        run: "echo 'ciao'"
+"""
+
+
+def test_il_parser_legge_i_run_come_li_legge_yaml_sui_blocchi_piegati_e_letterali():
+    import yaml   # arriva con le dipendenze (v. test_ci_workflow.py): se manca, cade con la causa
+    atteso = yaml.safe_load(WORKFLOW_SINTETICO)["jobs"]["test"]["steps"]
+    letto = ep.leggi_workflow(WORKFLOW_SINTETICO)["jobs"]["test"]["steps"]
+    assert [(s.get("run"), s.get("working-directory")) for s in letto] == \
+        [(s.get("run"), s.get("working-directory")) for s in atteso]
+    assert ep.comandi_ci(WORKFLOW_SINTETICO) == [
+        ("python -m uno --a --b c", ""), ("secondo paragrafo", ""), ("alfa beta", ""),
+        ("npm ci", "app"), ("npm run x", "app"), ("pytest tests/ -q", ""), ("echo 'ciao'", "")]
+
+
+def test_il_parser_legge_il_ci_yml_vero_come_yaml_in_ogni_job():
+    import yaml
+    atteso = yaml.safe_load(_ci_vero())["jobs"]
+    letto = ep.leggi_workflow(_ci_vero())["jobs"]
+    assert sorted(letto) == sorted(atteso)
+    for job in atteso:
+        assert [(s.get("run"), s.get("working-directory"), s.get("uses")) for s in letto[job]["steps"]] == \
+            [(s.get("run"), s.get("working-directory"), s.get("uses")) for s in atteso[job]["steps"]], job
+
+
+def test_il_blocco_piegato_su_tre_righe_della_ci_e_un_comando_solo():
+    comandi = [c for c, _ in ep.comandi_ci(_ci_vero())]
+    compileall = [c for c in comandi if "compileall" in c]
+    assert len(compileall) == 1 and compileall[0].endswith("regenerate_memo.py"), compileall
+
+
+@pytest.mark.parametrize("testo, messaggio", [
+    ("jobs:\n  test:\n    steps:\n      - run: >\n          a\n            b\n", "piegato"),
+    ("jobs:\n  test:\n    steps:\n      - run: |2\n          a\n", "indentazione"),
+    ("jobs:\n  test:\n    steps:\n      - run: a\n          b\n", "riga"),
+])
+def test_il_parser_rifiuta_quello_che_non_sa_leggere(testo, messaggio):
+    with pytest.raises(ValueError, match=messaggio):
+        ep.leggi_workflow(testo)
+
+
+def test_ogni_comando_del_job_test_della_ci_ha_un_gemello_o_una_differenza_dichiarata():
+    esito = ep.confronta_con_ci(_ci_vero())
+    assert esito == {"senza_gemello": [], "gemelli_assenti": [], "differenze_stantie": [],
+                     "fuori_ordine": [], "argv_diversi": []}, esito
+
+
+def test_un_comando_nuovo_nella_ci_senza_gemello_nell_export_e_rosso():
+    ancora = "      - name: Contratti puri mandato\n"
+    assert _ci_vero().count(ancora) == 1
+    nuovo = _ci_vero().replace(ancora, (
+        "      - name: Lint\n        working-directory: app\n        run: |\n          npm run lint\n"
+        "      - name: Piegato nuovo\n        run: >\n          python -m nuovo\n          --su-due-righe\n"
+        + ancora))
+    assert ep.confronta_con_ci(nuovo)["senza_gemello"] == [
+        ("npm run lint", "app"), ("python -m nuovo --su-due-righe", "")]
+
+
+def test_un_passo_dell_export_che_la_ci_non_fa_piu_e_rosso():
+    # build:bundles compare anche nei job macOS e Windows: l'ancora e' la coppia del solo job test
+    righe = "          npm run test:release\n          npm run build:bundles\n"
+    assert _ci_vero().count(righe) == 1
+    tolto = _ci_vero().replace(righe, "          npm run test:release\n")
+    assert ep.confronta_con_ci(tolto)["gemelli_assenti"] == ["build:bundles"]
+
+
+def test_una_differenza_dichiarata_che_la_ci_non_ha_piu_e_stantia():
+    riga = "        run: python tools/release/cancello_hook.py --fase ci\n"
+    assert _ci_vero().count(riga) == 1
+    stantie = ep.confronta_con_ci(_ci_vero().replace(riga, "        run: echo tolto\n"))
+    assert stantie["differenze_stantie"] == ["python tools/release/cancello_hook.py --fase ci"]
+    assert stantie["senza_gemello"] == [("echo tolto", "")]
+
+
+def test_la_ci_in_un_ordine_diverso_dall_export_e_rossa():
+    testo = _ci_vero()
+    a, b = "          npm run test:release\n", "          npm run build:bundles\n"
+    assert testo.count(a + b) == 1
+    assert ep.confronta_con_ci(testo.replace(a + b, b + a))["fuori_ordine"] == ["test:release", "build:bundles"]
+
+
+def test_un_argv_che_non_fa_il_comando_della_ci_e_rosso(monkeypatch):
+    passi = [p._replace(argv=("npm", "exec", "--", "tsc", "--noEmit")) if p.nome == "tsc --noEmit" else p
+             for p in ep.PASSI_SUITE]
+    monkeypatch.setattr(ep, "PASSI_SUITE", tuple(passi))
+    assert ep.confronta_con_ci(_ci_vero())["argv_diversi"] == ["tsc --noEmit"]
+
+
+# --- cablaggio in main: i passi della suite VERA arrivano nel manifest, e senza passi OK niente deposito ---
+
+def test_main_scrive_nel_manifest_i_passi_della_suite_vera(repo_finto, allowlist_finta, monkeypatch):
+    catturato = {}
+    scrivi = ep.scrivi_manifest
+
+    def manifest(path, *a, **kw):
+        catturato.update(scrivi(path, *a, **kw))
+        return catturato
+
+    monkeypatch.setattr(ep, "REPO", str(repo_finto))
+    monkeypatch.setattr(ep, "ALLOWLIST", str(allowlist_finta))
+    monkeypatch.setattr(ep, "_cancello", lambda *a, **kw: 0)
+    monkeypatch.setattr(ep, "scrivi_manifest", manifest)
+    assert ep.main([]) == 0
+    passi = catturato["verifica"]["suite_passi"]
+    assert catturato["versione"] == 2 and [p["nome"] for p in passi] == PASSI_ATTESI
+    assert passi[1]["esito"] == "OK" and passi[0]["esito"] == "NON ESEGUITO"   # senza lockfile
+    assert catturato["verifica"]["stato"] == "INCOMPLETO"
+
+
+def test_main_non_deposita_se_un_passo_e_ko_anche_con_l_exit_della_suite_a_zero(
+        repo_finto, clone_pubblico, allowlist_finta, vietate_finte, monkeypatch, capsys):
+    import copy
+    passi = _passi_sani()
+    passi[4].update(esito="KO", exit=1, motivo="exit 1")
+    catturato = {}
+    scrivi = ep.scrivi_manifest
+    monkeypatch.setattr(ep, "scrivi_manifest",
+                        lambda path, *a, **kw: catturato.update(scrivi(path, *a, **kw)) or catturato)
+    monkeypatch.setattr(ep, "REPO", str(repo_finto))
+    monkeypatch.setattr(ep, "ALLOWLIST", str(allowlist_finta))
+    monkeypatch.setattr(ep, "_cancello", _cancello_sano)
+    monkeypatch.setattr(ep, "esegui_suite", lambda *_a, **_k: ep.EsitoSuite(0, "finta", passi))
+    chiamate = []
+    monkeypatch.setattr(ep, "pubblica_in", lambda *_a, **_k: chiamate.append(True))
+    assert ep.main(["--dest", str(clone_pubblico), "--commit", "--corpus-root", str(repo_finto)]) == 2
+    assert chiamate == [] and "Manifest" in capsys.readouterr().out
+    assert catturato["verifica"]["stato"] == "KO"
+    # Controprova: lo stesso manifest con il passo OK e' valido, quindi a fermare e' il passo.
+    sano = copy.deepcopy(catturato)
+    sano["verifica"].update(stato="OK", suite_passi=_passi_sani())
+    ep.valida_manifest(sano)
 
 
 def test_main_ferma_anche_sporco_insieme_a_commit(repo_finto, clone_pubblico, allowlist_finta, vietate_finte,
@@ -610,6 +1119,7 @@ def test_main_un_guasto_del_deposito_esce_2_e_dice_come_recuperare(repo_finto, c
     monkeypatch.setattr(ep, "REPO", str(repo_finto))
     monkeypatch.setattr(ep, "ALLOWLIST", str(allowlist_finta))
     monkeypatch.setattr(ep, "_cancello", _cancello_sano)
+    monkeypatch.setattr(ep, "esegui_suite", _suite_sana)
     assert ep.main(["--dest", str(clone_pubblico), "--commit",
                     "--corpus-root", str(repo_finto)]) == 2
     out = capsys.readouterr().out

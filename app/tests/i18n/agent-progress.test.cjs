@@ -48,6 +48,17 @@ test('the hit rate sample count keeps the Italian jargon and takes the English p
   assert.match(it, /<small>13 esiti corretti \/ 20 call<\/small>/);
   assert.match(en, /<small>13 correct outcomes \/ 20 calls<\/small>/);
 });
+test('the rendered hit-rate sample uses singular only for one outcome and one call', async () => {
+  for (const count of [0, 1, 2]) {
+    const data = fixture();
+    data.agents[0].latest.n = count; data.agents[0].latest.hits = count;
+    const before = structuredClone(data), ui = retained(data);
+    const it = await ui.ready('it'), en = ui.render('en');
+    assert.ok(it.includes(`<small>${count} ${count === 1 ? 'esito corretto' : 'esiti corretti'} / ${count} call</small>`));
+    assert.ok(en.includes(`<small>${count} correct ${count === 1 ? 'outcome' : 'outcomes'} / ${count} ${count === 1 ? 'call' : 'calls'}</small>`));
+    assert.deepEqual(data, before); assert.equal(ui.calls.length, 1);
+  }
+});
 test('keyboard selection preserves exact run and comparison gates, and the control role gets no invented score', async () => {
   const ui = retained(); await ui.ready('en'); const circles = ui.nodes.filter(n => n.type === 'circle' && n.props.role === 'button');
   let prevented = 0; circles[0].props.onKeyDown({ key: 'Enter', preventDefault() { prevented++; } }); const old = ui.render('en');

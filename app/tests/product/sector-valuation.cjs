@@ -88,6 +88,35 @@ test('incomplete research renders acquisition gaps and no fictitious Excel downl
   assert.doesNotMatch(html, /APRI EXCEL|1\.234,56|1,234\.56|1234\.56|>OK</);
 });
 
+test('F17 separates dated model upside from observed-price upside in both languages', () => {
+  const model = fixture();
+  Object.assign(model, { price_at_thesis: 1000, price_model_as_of: '2026-06-30', upside_today_pct: 8.7,
+    market_quote: { status: 'ok', status_at_read: 'ok', price: 1135, currency: 'EUR',
+      observed_at: '2026-09-18T15:30:00Z', source_id: 'synthetic-feed', exchange: 'Synthetic exchange',
+      delayed_minutes: 15, upside_base_pct: 8.7 } });
+  const before = structuredClone(model);
+  for (const language of ['it', 'en']) {
+    const html = render(model, language);
+    assert.match(html, /synthetic-feed/);
+    assert.match(html, /2026-09-18T15:30:00Z/);
+    assert.match(html, language === 'it' ? /\+8,7%/ : /\+8\.7%/);
+    assert.match(html, language === 'it' ? /FV storico non rivalutato/ : /Historical FV without rollforward/);
+    model.market_quote.status_at_read = 'stale';
+    const stale = render(model, language);
+    assert.doesNotMatch(stale, /\+8[.,]7%/);
+    assert.match(stale, language === 'it' ? /quotazione non aggiornata/ : /stale quote/);
+    assert.match(stale, /2026-09-18T15:30:00Z/);
+    model.market_quote.status_at_read = 'ok';
+  }
+  assert.deepEqual(model, before);
+  model.sanity_severity = 'BLOCK';
+  const blocked = presentation.prepareValuationModel(model);
+  assert.equal(blocked.upside_today_pct, null);
+  assert.equal(blocked.market_quote.upside_base_pct, null);
+  assert.equal(blocked.market_quote.price, 1135);
+  assert.doesNotMatch(render(model, 'en'), /\+8\.7%/);
+});
+
 test('managed care renders the real Python pipeline output with cutoff and capital gaps',
   { skip: !process.env.SECTOR_VALUATION_FIXTURE }, () => {
     const models = JSON.parse(fs.readFileSync(process.env.SECTOR_VALUATION_FIXTURE, 'utf8'));

@@ -2,9 +2,10 @@
 
 [Handbook](../README.md) · [Previous: F6](./06-fundamentals.md) · [Next: F8](./08-monte-carlo.md)
 
-![F7 Factor Lab: original synthetic DEMO mockup](../../assets/product/07-factor-lab.svg)
+![F7 Factor Lab: Factors — English DEMO screenshot](../../assets/screenshots/factor-lab-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
 
 Investigate exposures shared by holdings that may look diversified by name.
 Factor Lab combines portfolio risk measures, estimated factor exposures and

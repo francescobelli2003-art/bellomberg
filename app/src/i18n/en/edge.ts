@@ -54,7 +54,7 @@ export const edge = {
   "f047": "row",
   "f048": "rows",
   "f049": "in the signal list do not match the signal contract: hidden (excluded from the count above).",
-  "f050": "Signals calculated from actual market data (signal_engine). Formal validation through backtesting (#148). This is not financial advice.",
+  "f050": "Signals calculated from data supplied by the tools (signal_engine). This is not financial advice.",
   "f051": "the backend does not declare coverage (`copertura` field missing: process ",
   "f052": "predates contract (79) of 22/08 — it appears after a restart)",
   "f053": "positions not counted by the backend",

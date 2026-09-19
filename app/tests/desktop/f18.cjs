@@ -23,7 +23,7 @@ async function runner() {
     else if(route==='/preferences'){if(req.method==='PUT')language=body.language;out={language,selected:true,source:'preferences'};}
     else if(route==='/portfolio')out={positions:[],cash_disponibile_eur:null,cash_source:'uninitialized'};
     else if(route==='/fx')out={rates:{EUR:1}};
-    else if(route==='/system/tasks')out={tasks:[]};
+    else if(route==='/tasks/scheduled')out={tasks:[]};
     else if(route==='/db/backups')out={backups:[],count:0};
     else if(route==='/agents/list')out={agents:[],engines:{}};
     else if(route==='/mandato/anteprima'){fingerprint='synthetic-fingerprint-'+(++serial);out={testo:language==='it'?'Anteprima sintetica verificata':'Verified synthetic preview',impronta:fingerprint,origine:'personalizzato',output_language:language};}

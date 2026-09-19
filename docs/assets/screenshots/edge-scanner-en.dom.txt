@@ -1,0 +1,131 @@
+BELLOMBERG
+v0.8.0 OBSIDIAN
+NY
+LN
+MI
+HK
+❯
+SEARCH TICKERS · PAGES · ACTIONS
+CTRL+K
+API
+LIVE
+13 SEP 2026
+10:11:40
+UTC+2
+F19
+01
+DASH
+02
+PERF
+03
+FAVS
+04
+MKT
+05
+NEWS
+06
+FUND
+07
+FCTR
+08
+MTC
+09
+VOLS
+10
+EDGE
+11
+CHAT
+12
+LIVE
+13
+SCORE
+14
+MEMO
+15
+DECN
+16
+TRADE
+17
+MOVES
+18
+MNDT
+19
+CONFIG
+F10 // EDGE SCANNER
+|
+USD/EUR
+0.9000
+GBP/EUR
+1.2000
+GBX/EUR
+0.01200
+CHF/EUR
+1.0500
+JPY/EUR
+0.0060
+HKD/EUR
+0.1154
+FX 60S
+EDGE SCANNER
+/ OBJECTIVE QUANTITATIVE SIGNALS · RANKED BY STRENGTH · THE AGENT STARTS HERE
+STRENGTH THRESHOLD
+≥30
+≥45
+≥60
+≥75
+CATEGORY
+all
+Factors
+Momentum
+RERUN SCAN
+● Scan at 09:59
+completed 12 min ago
+served from cache (TTL 1 h)
+|
+2/2 positions
+·
+2 z-score only
+·
+factors for 2
+Scanned 2 positions out of 2. For 2 names the only applicable PER-TICKER detector is the price z-score (DEMO.A, DEMO.B): their symbols contain a dot, indicating a non-US listing without OPRA chains or Congress trades. Their lack of volatility signals is NOT a measurement: coverage is missing. Factor exposures still cover them through a separate path. Factor signals: separate path from per-ticker detectors, 2 names. Response served from the in-process cache: scan completed 740 seconds ago (TTL 3600 s); detectors were not queried again for this response.
+STRONG SIGNALS ≥45
+2
+out of 2 total
+BY CATEGORY
+Factors: 1
+Momentum: 1
+DEMO.A
+FACTORS
+Significant Alpha
+t +3.4
+bullish
+strength 100
+
+DEMO.A shows statistically significant positive alpha (t=+3.4): returns unexplained by factors, rare and noteworthy.
+
+src: portfolio_factors · statistically significant alpha
+DEMO.A
+MOMENTUM
+Price Z-Score (20d)
++2.9σ
+bearish
+strength 86
+
+DEMO.A is 2.9 standard deviations above the 20-day average (+9.3% over the period): statistically extended, with a risk of reverting to the mean.
+
+src: yfinance z-score · +9.3% in 20d
+
+Signals calculated from data supplied by the tools (signal_engine). This is not financial advice.
+
+[ BELLOMBERG · OBSIDIAN ]
+ENGINE
+SYNTHETIC DEMO
+AGENTS
+4/6 RUN
+RUN IN PROGRESS
+SESSION 2026-09-13
+WORKSPACE · F1–F19 · CTRL+K
+DEMO · SYNTHETIC DATA
+
+DOCUMENTATION FORM VALUES
+

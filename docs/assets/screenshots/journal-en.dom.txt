@@ -1,0 +1,170 @@
+BELLOMBERG
+v0.8.0 OBSIDIAN
+NY
+LN
+MI
+HK
+❯
+SEARCH TICKERS · PAGES · ACTIONS
+CTRL+K
+API
+LIVE
+13 SEP 2026
+10:11:40
+UTC+2
+F19
+01
+DASH
+02
+PERF
+03
+FAVS
+04
+MKT
+05
+NEWS
+06
+FUND
+07
+FCTR
+08
+MTC
+09
+VOLS
+10
+EDGE
+11
+CHAT
+12
+LIVE
+13
+SCORE
+14
+MEMO
+15
+DECN
+16
+TRADE
+17
+MOVES
+18
+MNDT
+19
+CONFIG
+F18 // MANDATE AND JOURNAL
+|
+USD/EUR
+0.9000
+GBP/EUR
+1.2000
+GBX/EUR
+0.01200
+CHF/EUR
+1.0500
+JPY/EUR
+0.0060
+HKD/EUR
+0.1154
+FX 60S
+The thread of your ideas
+
+Your notes stay here. The committee does not read them automatically.
+
+Mandate
+Journal
+Your notes
+New note
+Search the journal
+Show
+Active notes
+Archived
+All notes
+Type
+All types
+Thesis
+Macro note
+DEMO.A
+v3
+DEMO.A: synthetic subscription thesis
+Hypothesis: Synthetic Company A (DEMO.A) can keep growing its invented subscription revenue for several years, while the market prices it as a one-product business. Evidence: DEMO
+20 Feb 2024, 10:30
+DEMO.B
+v1
+DEMO.B: synthetic balancing holding
+Hypothesis: Synthetic Company B (DEMO.B) is a steady, lower-growth holding that balances DEMO.A. Evidence: DEMO text only; no real company is described. Risks: the balance only wor
+19 Feb 2024, 09:15
+Macro note
+v1
+Synthetic rate scenario
+Hypothesis: an invented interest-rate path for the handbook, with rates flat for two quarters. Evidence: DEMO text, no data source. Risks: this is not a forecast. What would change
+17 Feb 2024, 16:00
+1–3 of 3
+‹
+›
+Note 1 · Version 3
+Saved
+Note type
+Investment thesis
+Macro scenario
+Ticker optional
+Title
+37 / 160 characters
+Hypothesis
+→
+Evidence
+→
+Risks
+→
+What would change my mind
+Your note
+610 / 30,000 characters
+Origin: written by the user
+The previous version will be preserved
+Save new version
+Discard changes
+Archive note
+
+Created 16 Feb 2024, 10:00. Each save preserves the previous version. Journal notes do not change the mandate or position theses.
+
+How your idea evolves
+
+Revisit earlier versions. You can use them as a draft for a new revision.
+
+v3
+Text updated
+20 Feb 2024, 10:30
+v2
+Text updated
+18 Feb 2024, 18:25
+v1
+Note created
+16 Feb 2024, 10:00
+DEMO.A: synthetic subscription thesis
+Investment thesis · DEMO.A
+Hypothesis: Synthetic Company A (DEMO.A) can keep growing its invented subscription revenue for several years, while the market prices it as a one-product business.
+Evidence: DEMO text only; no real company, filing or price is described.
+Risks: one customer segment carries the whole idea.
+What would change my mind: two consecutive quarters of falling subscriptions.
+User-entered · Active in this version
+Use this version as a draft
+[ BELLOMBERG · OBSIDIAN ]
+ENGINE
+SYNTHETIC DEMO
+AGENTS
+4/6 RUN
+RUN IN PROGRESS
+SESSION 2026-09-13
+WORKSPACE · F1–F19 · CTRL+K
+DEMO · SYNTHETIC DATA
+
+DOCUMENTATION FORM VALUES
+: 
+: active
+: 
+: thesis
+: DEMO.A
+: DEMO.A: synthetic subscription thesis
+: Hypothesis: Synthetic Company A (DEMO.A) can keep growing its invented subscription revenue for several years, while the market prices it as a one-product business.
+Evidence: DEMO text only. New checkpoint: the invented quarterly update introduces a second product line. Recorded as a checkpoint, not as proof.
+Risks: one customer segment carries the whole idea, and DEMO.A is now about two thirds of the invested book: concentration is a risk of its own.
+What would change my mind: two consecutive quarters of falling subscriptions, or a second product line that does not reach paying customers within a year.

@@ -255,3 +255,79 @@ test('heartbeat message quotes, desk conjunction, FX source hole and token toolt
   assert.match(it, /title="1\.000 token"/);
   assert.match(en, /title="1,000 tokens"/);
 });
+
+// 13/09 (Claude Opus 5, lotto C2 P3): singolare con conteggio 1, plurale con 2, nelle due lingue.
+// Frasi attese congelate qui, non lette dai cataloghi sotto prova. Prima leggevamo
+// «1 DESKS OUT OF 1 HAVE», «quant report», «1 calls made», «1 desks working», «1 tokens»
+// e in italiano «1 DESK SU 1 HANNO», «quant dichiarano», «1 chiamate fatte», «spesi dai 1 desk».
+test('one desk in API error takes the singular and two desks keep the plural, in both languages', () => {
+  const one = tapeFixture(['get_synthetic_a'], { error_agents: ['quant'] });
+  const oneIt = pageInLanguage('it', { 0: tapeRoster, 3: one }), oneEn = pageInLanguage('en', { 0: tapeRoster, 3: one });
+  assert.match(oneIt, /<b>1 DESK SU 1 HA SBATTUTO CONTRO L&#x27;API<\/b>/);
+  assert.match(oneIt, /<span>quant dichiara <b>status api_error<\/b> e ha comunque consegnato il report<\/span>/);
+  assert.match(oneIt, /\(50%\) spesi da quel desk<\/span>/);
+  assert.match(oneIt, /Dentro ci sono 1,00\s€ spesi da 1 desk in <b>api_error<\/b>\./);
+  assert.match(oneEn, /<b>1 DESK OUT OF 1 HAS ENCOUNTERED API ERRORS<\/b>/);
+  assert.match(oneEn, /<span>quant reports <b>status api_error<\/b> and still delivered the report<\/span>/);
+  assert.match(oneEn, /\(50%\) spent by that desk<\/span>/);
+  assert.match(oneEn, /This includes €1\.00 spent by 1 desk with <b>api_error<\/b>\./);
+  const twoIt = pageInLanguage('it', { 0: tapeRoster, 3: tapeFixture() }), twoEn = pageInLanguage('en', { 0: tapeRoster, 3: tapeFixture() });
+  assert.match(twoIt, /<b>2 DESK SU 2 HANNO SBATTUTO CONTRO L&#x27;API<\/b>/);
+  assert.match(twoIt, /<span>quant e macro dichiarano <b>status api_error<\/b> e hanno comunque consegnato il report<\/span>/);
+  assert.match(twoIt, /\(100%\) spesi da loro<\/span>/);
+  assert.match(twoIt, /Dentro ci sono 2,00\s€ spesi dai 2 desk in <b>api_error<\/b>\./);
+  assert.match(twoEn, /<b>2 DESKS OUT OF 2 HAVE ENCOUNTERED API ERRORS<\/b>/);
+  assert.match(twoEn, /<span>quant and macro report <b>status api_error<\/b> and still delivered the report<\/span>/);
+  assert.match(twoEn, /\(100%\) spent by them<\/span>/);
+  assert.match(twoEn, /This includes €2\.00 spent by the 2 desks with <b>api_error<\/b>\./);
+});
+
+test('the readout footer agrees with one call made and one desk working, in both languages', () => {
+  // seed 8 = cursore in secondi dallo start: a 5 s la prima delle due chiamate e' fatta.
+  const calls = tapeFixture(['get_synthetic_a', 'get_synthetic_b']);
+  assert.match(pageInLanguage('it', { 0: tapeRoster, 3: calls, 8: 5 }), /<div class="ft"><b>1<\/b> chiamata fatta su 2 \(50%\) · <b>1<\/b> desk al lavoro · /);
+  assert.match(pageInLanguage('en', { 0: tapeRoster, 3: calls, 8: 5 }), /<div class="ft"><b>1<\/b> call made out of 2 \(50%\) · <b>1<\/b> desk working · /);
+  assert.match(pageInLanguage('it', { 0: tapeRoster, 3: calls, 8: 20 }), /<div class="ft"><b>2<\/b> chiamate fatte su 2 \(100%\) · <b>0<\/b> desk al lavoro · /);
+  assert.match(pageInLanguage('en', { 0: tapeRoster, 3: calls, 8: 20 }), /<div class="ft"><b>2<\/b> calls made out of 2 \(100%\) · <b>0<\/b> desks working · /);
+});
+
+test('the token tooltip of the run economics reads one token with a count of 1', () => {
+  const usage = tapeFixture(undefined, { in: 2, out: 1 });
+  const it = pageInLanguage('it', { 0: tapeRoster, 3: usage }), en = pageInLanguage('en', { 0: tapeRoster, 3: usage });
+  assert.match(it, /title="2 token"/); assert.match(it, /title="un token"/);
+  assert.match(en, /title="2 tokens"/); assert.match(en, /title="one token"/);
+  assert.doesNotMatch(en, /title="1 tokens"/);
+});
+
+// Chat: stesso harness di communications.test.cjs, ridotto a cio' che serve al chip dei token.
+function chatPage(seed) {
+  let index = 0, refIndex = 0;
+  const states = { ...seed }, refs = [];
+  const hooks = { ...React, useRef(current) { const at = refIndex++; return refs[at] ||= { current }; },
+    useState(initial) {
+      const at = index++;
+      if (!(at in states)) states[at] = typeof initial === 'function' ? initial() : initial;
+      return [states[at], value => { states[at] = typeof value === 'function' ? value(states[at]) : value; }];
+    },
+    useEffect() {},
+  };
+  const carica = creaCaricatore({ stub: { react: hooks, '../lib/api': { Bellomberg: {} }, '@/lib/api': { Bellomberg: {} },
+    'react-markdown': props => React.createElement('div', {}, props.children), 'remark-gfm': () => {},
+    '@/components/ConfirmDialog': () => null, './ConfirmDialog': () => null,
+    '@/lib/useBox': { useBox: () => [{ current: null }, { w: 1000, h: 190 }] },
+  } });
+  const lingua = carica('i18n/lingua.ts'), Chat = carica('pages/Chat.tsx').default;
+  return selected => { index = 0; refIndex = 0; lingua.impostaLinguaCorrente(selected); return renderToStaticMarkup(React.createElement(Chat)); };
+}
+
+test('the chat output token chip reads one token with a count of 1 and keeps the plural with 2', () => {
+  const agent = { id: 'quant', name: 'QUANT', role: 'Original role', color: '#29D3F2' };
+  const chip = out => chatPage({ 0: { agents: [agent] }, 3: agent, 8: [
+    { id: 1, role: 'assistant', content: 'Original synthetic answer', tokens: { in: 10, out } },
+  ] });
+  const one = chip(1), two = chip(2);
+  assert.match(one('it'), /<span class="chip n">un token<\/span>/);
+  assert.match(one('en'), /<span class="chip n">one token<\/span>/);
+  assert.match(two('it'), /<span class="chip n">2 token<\/span>/);
+  assert.match(two('en'), /<span class="chip n">2 tokens<\/span>/);
+});

@@ -579,12 +579,12 @@ export default function AgentsLive() {
       {koIds.length > 0 && (
         <div className="warn">
           <span className="ld r" />
-          <b>{koIds.length} {tr('activity.desksOf')} {nDesk} {tr('activity.desksApiFailed')}</b>
+          <b>{tr(koIds.length === 1 ? 'activity.desksApiFailedOne' : 'activity.desksApiFailedMany', {a: koIds.length, b: nDesk})}</b>
           <span className="dim">·</span>
-          <span>{koIds.join(tr('movements.and'))} {tr('activity.declare')} <b>status api_error</b> {tr('activity.reportAnyway')}</span>
+          <span>{koIds.join(tr('movements.and'))} {tr(koIds.length === 1 ? 'activity.declareOne' : 'activity.declare')} <b>status api_error</b> {tr(koIds.length === 1 ? 'activity.reportAnywayOne' : 'activity.reportAnyway')}</span>
           <span className="dim">·</span>
           <span>{tr('activity.withinTotalPrefix')} {fmtEur(total?.cost_eur)} {tr('activity.include')} <b>{fmtEur(koCost)}</b>
-            {total?.cost_eur ? ` (${fmtN(koCost / total.cost_eur * 100, 0)}%)` : ''} {tr('activity.spentByThem')}</span>
+            {total?.cost_eur ? ` (${fmtN(koCost / total.cost_eur * 100, 0)}%)` : ''} {tr(koIds.length === 1 ? 'activity.spentByThemOne' : 'activity.spentByThem')}</span>
           <span className="dim">{tr('activity.errorAgentsField')}</span>
         </div>
       )}
@@ -725,7 +725,7 @@ export default function AgentsLive() {
                         </>
                       )}
                       <div className="ft">
-                        <b>{fatte}</b> {tr('activity.callsDoneOutOf')} {P.calls.length}
+                        <b>{fatte}</b> {tr(fatte === 1 ? 'activity.callsDoneOutOfOne' : 'activity.callsDoneOutOf')} {P.calls.length}
                         {/* il tappo lo DICE il backend (tool_log_tappato); la
                             disuguaglianza copre un backend NUOVO col flag perso.
                             Il backend VECCHIO non dichiara nulla (review 31/08):
@@ -736,7 +736,7 @@ export default function AgentsLive() {
                           : P.live && P.nCallsTot == null && P.calls.length === 50
                           ? <> {tr('activity.logCapUnknown')}</>
                           : (P.calls.length > 0 ? ` (${fmtN(fatte / P.calls.length * 100, 0)}%)` : '')}
-                        {' · '}<b>{nDeskAlLavoro}</b> {tr('activity.desksWorking')}
+                        {' · '}<b>{nDeskAlLavoro}</b> {tr(nDeskAlLavoro === 1 ? 'activity.desksWorkingOne' : 'activity.desksWorking')}
                         {capoScrive && P.capoT != null && <> {tr('activity.capoSinceHeartbeat')} {hhmm(state?.updated_at)}</>}
                         {fase && <> {tr('activity.phasePrefix')} <b>{phaseText(fase.k)}</b> {fmtClock(fase.t0)}→{fase.open ? tr('activity.inProgress') : fmtClock(fase.t1)}</>}
                       </div>
@@ -912,7 +912,7 @@ function PannelloEconomia({ P, total, sumAgents, koCost, koIds }: {
               <div className="tokrow" key={k}>
                 <span className="k">{k}</span>
                 <span className="bar"><u style={{ width: `${((v || 0) / mx * 100).toFixed(1)}%`, background: c }} /></span>
-                <span className="v num" style={{ color: c }} title={v != null ? tr('communications.tokenCount', {a: fmtN(v)}) : tr('activity.notDeclared')}>
+                <span className="v num" style={{ color: c }} title={v != null ? tr(v === 1 ? 'activity.tokenCountOne' : 'communications.tokenCount', {a: fmtN(v)}) : tr('activity.notDeclared')}>
                   {fmtTok(v)}</span>
               </div>
             ))}
@@ -944,7 +944,7 @@ function PannelloEconomia({ P, total, sumAgents, koCost, koIds }: {
               {total.cost_eur != null && Math.abs(sumAgents - total.cost_eur) < 0.005
                 ? <>{tr('activity.sameAsTotal')}</>
                 : <>{tr('activity.againstTotal')} <b>{fmtEur(total.cost_eur)}</b>: <span className="amc">{tr('activity.unexplainedDelta')}</span>.</>}
-              {koIds.length > 0 && <><br /><span className="ko">{tr('activity.included')} {fmtEur(koCost)} {tr('activity.spentBy')} {koIds.length} {tr('activity.desksWithStatus')} <b>api_error</b>.</span></>}
+              {koIds.length > 0 && <><br /><span className="ko">{tr('activity.included')} {fmtEur(koCost)} {tr(koIds.length === 1 ? 'activity.spentByOne' : 'activity.spentBy')} {koIds.length} {tr(koIds.length === 1 ? 'activity.desksWithStatusOne' : 'activity.desksWithStatus')} <b>api_error</b>.</span></>}
             </div>
           </>
         )}

@@ -144,7 +144,7 @@ test('darwin: a backend that exits reports the interpreter and the last error li
   await scope.context.startPythonBackend();
   assert.equal(scope.errors.length, 1, JSON.stringify(scope.errors));
   const message = scope.errors[0];
-  for (const needle of ['codice 1', VENV, "ModuleNotFoundError: No module named 'fastapi'"]) assert.ok(message.includes(needle), needle + ' in: ' + message);
+  for (const needle of ['Codice di uscita / Exit code: 1', VENV, "ModuleNotFoundError: No module named 'fastapi'"]) assert.ok(message.includes(needle), needle + ' in: ' + message);
 });
 
 test('an owned backend that is still alive is neither pinged nor spawned again (macOS activate)', async () => {

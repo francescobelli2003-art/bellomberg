@@ -641,7 +641,10 @@ def generate_valuation(ticker: str, output_dir: str = None, *, prepared_bundle=N
     from bellomberg.valuation.sector_analysis import (prepare_sector_analysis,
         default_sector_providers, validate_bundle, revise_sector_analysis)
     from bellomberg.valuation.dcf_quality import normalize_valuation_payload
-    if prepared_bundle is None:
+    if kwargs.get("analysis_context") is not None and not isinstance(kwargs["analysis_context"], dict):
+        raise ValueError("analysis_context deve essere un oggetto")
+    acquired_now = prepared_bundle is None
+    if acquired_now:
         sources = providers
         if sources is None:
             sources = default_sector_providers(fetch_info=kwargs.get("fetch_info"),
@@ -661,7 +664,9 @@ def generate_valuation(ticker: str, output_dir: str = None, *, prepared_bundle=N
     bundle = validate_bundle(prepared_bundle, ticker)
     if as_of is not None and as_of != bundle["case"]["as_of"]:
         raise ValueError("Cutoff diverso dal bundle: acquisire un nuovo snapshot")
-    if kwargs.get("analysis_context") is not None and kwargs["analysis_context"] != bundle["analysis_context"]:
+    # A new acquisition may add the approved rationale; a supplied bundle must match.
+    if (not acquired_now and kwargs.get("analysis_context") is not None
+            and kwargs["analysis_context"] != bundle["analysis_context"]):
         raise ValueError("analysis_context diverso dal bundle: preparare una revisione esplicita")
     supplied = {k: v for k, v in kwargs.items()
                 if k not in ("fetch_info", "negozio", "analysis_context") and v is not None}
@@ -2002,8 +2007,8 @@ def sanity_check(fair_value: Optional[float], price: Optional[float]) -> Dict[st
         flag = _lt("FAIR VALUE MOLTO SOPRA il prezzo: assumptions forse troppo ottimistiche, o vero deep value. Verificare margini/WACC.",
                    "FAIR VALUE FAR ABOVE price: assumptions may be too optimistic, or this may be deep value. Verify margins/WACC.")
     elif 0.7 <= ratio <= 1.4:
-        flag = _lt("Fair value coerente col prezzo (entro +/-40%): modello calibrato bene.",
-                   "Fair value consistent with price (within +/-40%): model is well calibrated.")
+        flag = _lt("Fair value vicino al prezzo: la sola vicinanza non dimostra la qualita' del modello.",
+                   "Fair value is near the price; proximity alone does not validate the model.")
     else:
         flag = _lt("Scostamento moderato: possibile sopra/sottovalutazione da approfondire.",
                    "Moderate divergence: investigate possible over/undervaluation.")
@@ -2125,7 +2130,7 @@ def _count_uncached_formulas(path: str) -> int:
 
 # chiavi del payload che alimentano il pannello dettaglio di F17 (opzione B, PM 17/07):
 # sottoinsieme SLIM e json-serializzabile — mai l'intero r (niente path interni doppi).
-_SIDECAR_KEYS = ("ticker", "engine", "profile_key", "subsector", "method", "price",
+_SIDECAR_KEYS = ("ticker", "engine", "profile_key", "subsector", "method", "price", "upside_pct", "market_quote",
                  "fair_value_ri", "fair_value_ptbv", "fair_value_ddm", "fair_value_blend",
                  "fair_value_bear", "fair_value_base", "fair_value_bull",
                  "fair_value_weighted", "fair_value_comps_implied", "fair_value_final",

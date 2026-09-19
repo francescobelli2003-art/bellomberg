@@ -88,7 +88,8 @@ and any scheduled tasks. A different empty directory is a different book.
 
 ## Your mandate and instrument metadata
 
-Configure the mandate through **F18 → Mandato**, validate its preview and save.
+Configure the mandate through **F18 Mandate and Journal** (*Mandato e Diario*) →
+**Mandate** (*Mandato*), validate its preview and save.
 Personal risk limits are not supplied by someone else's portfolio. An example
 profile is an editable starting point that you must review; it is not a
 recommendation or your automatically approved mandate.

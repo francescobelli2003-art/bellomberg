@@ -10,6 +10,9 @@
 # stessi vincoli dei .bat: CRLF, niente BOM, solo ASCII (WSH lo legge come ANSI). Anche qui
 # il guardiano vero e' tests/test_bat_crlf.py, che misura i byte su disco.
 *.vbs text eol=crlf
+# Python sources use the same bytes on Windows and Unix; release size must not
+# depend on core.autocrlf. This does not affect the scheduled Windows launchers.
+*.py text eol=lf
 # 05/09 (voce 7): gli hook di git sono script `sh` e un CR li rompe («\r: command not found»).
 tools/hooks/* text eol=lf
 # 05/09 (voce 8): il template dei segreti resta LF su ogni checkout. Misurato: con CRLF gitleaks
@@ -30,3 +33,9 @@ BELLOMBERG_CONTEXT.md text eol=lf
 tools/release/policy/*.txt text eol=lf
 # Preserve the verified upstream bundle bytes across Windows checkouts.
 app/public/vendor/plotly-2.32.0.min.js -text
+# The generated DEMO fixture has stable bytes on every supported checkout.
+app/tests/fixtures/documentation-demo.json text eol=lf
+# Screenshot approval binds exact bytes, including UTF-8 text companions.
+docs/assets/screenshots/*.png -text
+docs/assets/screenshots/*.dom.txt -text
+docs/assets/screenshots/manifest.json -text

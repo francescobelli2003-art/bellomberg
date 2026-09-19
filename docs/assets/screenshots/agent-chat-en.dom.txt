@@ -1,0 +1,221 @@
+BELLOMBERG
+v0.8.0 OBSIDIAN
+NY
+LN
+MI
+HK
+❯
+SEARCH TICKERS · PAGES · ACTIONS
+CTRL+K
+API
+LIVE
+13 SEP 2026
+10:11:40
+UTC+2
+F19
+01
+DASH
+02
+PERF
+03
+FAVS
+04
+MKT
+05
+NEWS
+06
+FUND
+07
+FCTR
+08
+MTC
+09
+VOLS
+10
+EDGE
+11
+CHAT
+12
+LIVE
+13
+SCORE
+14
+MEMO
+15
+DECN
+16
+TRADE
+17
+MOVES
+18
+MNDT
+19
+CONFIG
+F11 // AGENT CHAT
+|
+USD/EUR
+0.9000
+GBP/EUR
+1.2000
+GBX/EUR
+0.01200
+CHF/EUR
+1.0500
+JPY/EUR
+0.0060
+HKD/EUR
+0.1154
+FX 60S
+CONVERSATIONAL DESK
+AGENT
+QUANT · Quant
+ENGINE
+synthetic-demo
+TOOLSET
+read from the stream on the first message
+ARCHIVE
+6 conversations
+archived conversation
+DESKS
+7 SPECIALISTS
+CAPO
+Senior Analyst PM
+1
+MACRO
+Macro Strategist
+0
+OPTIONS FLOW
+Options Flow
+0
+QUANT
+Quant
+2
+FUNDAMENTALS
+Fundamentals Analyst
+1
+CRYPTO
+Crypto Specialist
+0
+EVENT DESK
+Event Desk (News+Geo)
+0
+ARCHIVE
+2 LEGACY CONVERSATIONS
+6/6
+CAPO
+1
+▸
+MACRO
+0
+▸
+OPTIONS FLOW
+0
+▸
+QUANT
+2
+▾
+Which quantitative signals contradict the current…
+20/02/24
+4 messages
+Which positions contribute most to risk, and how good…
+16/02/24
+2 messages
+FUNDAMENTALS
+1
+▸
+CRYPTO
+0
+▸
+EVENT DESK
+0
+▸
+NEWS
+RETIRED
+1
+▸
+POLITICS
+RETIRED
+1
+▸
+EXECUTION TAPE
+TRACE UNAVAILABLE
+TRACE UNAVAILABLE — the backend stores the response text, but not the tools that produced it: the tape cannot be reconstructed for archived conversations.
+WHICH QUANTITATIVE SIGNALS CONTRADICT THE CURRENT…
+#6 · 20/02/24 · 4 MESSAGES
+PM
+07:52
+Which quantitative signals contradict the current portfolio theses?
+QUANT
+20/02/24 07:52
+Original output · English
+612 tokens
+
+BLUF: only DEMO.A has signals above strength 45, and they pull in opposite directions: a statistically significant alpha and a price stretched above its 20-day average. DEMO.B has none, but on both names part of that silence is a coverage gap, not a measurement.
+
+SIGNAL	DEMO.A	STRENGTH
+Significant alpha (3y factors)	t +3.4	100
+Price z-score (20d)	+2.9σ, +9.3% in 20d	86
+
+src: get_edge_scan
+
+Where the signals contradict each other
+
+DEMO.A is 66.7% of invested assets src: get_portfolio_live. The z-score says the recent move is statistically extended, with a risk of reverting to the mean; the alpha says returns over three years are not explained by the factors. The first argues against adding at this price, the second supports the thesis itself.
+The scan covered 2 positions out of 2, but both symbols contain a dot: the price z-score is the only per-ticker detector that applies, so there is no volatility or positioning reading on either name src: get_edge_scan. For DEMO.B, no signal is not evidence of no dislocation.
+
+Missing data: option-based signals (implied vs realised volatility, dealer gamma) are not available for these listings. The z-score alone is not a sizing argument.
+
+Mandate provenance unavailable
+PM
+07:54
+Is the DEMO.A alpha measured over three years or only the last one?
+QUANT
+20/02/24 07:54
+Original output · English
+318 tokens
+
+The Edge Scanner reads the three-year regression. The one-year window is weaker:
+
+WINDOW	ALPHA T-STAT	MARKET BETA	OBSERVATIONS
+3y	+3.40	0.82	781
+1y	+2.22	1.01	261
+
+src: get_portfolio_factors
+
+Both t-stats clear the 2.0 threshold the scanner applies, so the flag holds in either window. Over the last year the t-stat is lower on a third of the observations and the market beta rises from 0.82 to 1.01: more of the recent return moves with the market than the three-year figure suggests.
+
+Mandate provenance unavailable
+Desk questions and portfolio instruments
+SEND
+FLOW — no samples
+0 characters
+|
+synthetic-demo
+CHAIN OF CUSTODY
+—
+TRACE NOT SAVED — the backend stores the response text, but not the tools that produced it: no chain is available for archived conversations.
+RESPONSE TELEMETRY
+TOOL ITERATIONS
+n/a
+INPUT / OUTPUT TOKENS
+1,264 / 318
+DURATION
+n/a
+ENGINE
+synthetic-demo
+BASIS — tokens from the backend, duration from this page.
+COST — cost_eur arrives with done, not yet displayed.
+[ BELLOMBERG · OBSIDIAN ]
+ENGINE
+SYNTHETIC DEMO
+AGENTS
+4/6 RUN
+RUN IN PROGRESS
+SESSION 2026-09-13
+WORKSPACE · F1–F19 · CTRL+K
+DEMO · SYNTHETIC DATA
+
+DOCUMENTATION FORM VALUES
+: 
+: 
+: 

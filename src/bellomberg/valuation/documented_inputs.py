@@ -188,6 +188,8 @@ def finish_documented(bundle, bound, scenarios, *, metadata, output_dir, engine)
     else:
         result['sanity']={'status':'incomplete','severity':'BLOCK','method_id':method,'exclude_from_action_table':True,
                           'headline':'Dati o riconciliazioni incompleti: FV n.d.'}
+    from .market_quote import build_market_quote
+    result['market_quote']=build_market_quote(bundle,quote,{s:result.get('fair_value_'+s) for s in SCENARIOS})
     result=normalize_valuation_payload(result,expected_decision=bundle['decision'],as_of=bundle['case']['as_of'])
     if not result['valuation_usability']['usable']:
         result['ok']=False
@@ -210,6 +212,8 @@ def build_documented_workbook(payload, output_dir):
     for row in [[payload['method'],payload['ticker']],[_xt('Fair value Base'),payload.get('fair_value_base')],
                 [_xt('Valuation date'),payload.get('valuation_date')],[_xt('Basis'),payload['valuation_basis']],
                 [_xt('Assumptions'),_xt('Regenerate the documented inputs; this workbook is a calculation snapshot.')]]: ws.append(row)
+    from bellomberg.reporting.valuation_quote import append_market_quote_rows
+    append_market_quote_rows(ws,payload.get('market_quote'),usable=payload['valuation_usability']['usable'])
     def flatten(value,prefix=''):
         if isinstance(value,dict):
             for key,child in value.items(): yield from flatten(child,prefix+'.'+str(key) if prefix else str(key))

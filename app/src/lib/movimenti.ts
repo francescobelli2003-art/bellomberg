@@ -10,14 +10,12 @@ import { linguaCorrente, localeDi } from '../i18n/lingua.js';
 // dove la pagina di oggi sbaglia — averli in un posto solo li rende
 // leggibili senza montare React.
 //
-// ⚠️ I conteggi citati nei commenti sotto ("69 righe", "27 ticker") sono le
-// misure del 27/07 e restano come DATA di quella misura, non come stato di oggi:
-// rimisurato il 21/08 sul DB vero sono **75 trade su 29 ticker**. Un numero in
-// un commento invecchia; quello che non deve invecchiare e' il MOTIVO per cui
-// e' stato scritto, ed e' quello che i commenti spiegano.
+// ⚠️ I commenti sotto non riportano i conteggi del registro vero: il file e'
+// pubblico e un numero in un commento invecchia. Quello che non deve invecchiare
+// e' il MOTIVO per cui sono stati scritti, ed e' quello che i commenti spiegano.
 //
-// REGOLA CHE ATTRAVERSA TUTTO IL FILE: il portafoglio ha tre valute
-// (misurato 27/07: EUR 45 · USD 14 · GBX 10). Un controvalore TOTALE
+// REGOLA CHE ATTRAVERSA TUTTO IL FILE: il portafoglio ha piu' valute
+// (EUR, USD, GBX). Un controvalore TOTALE
 // non esiste senza un cambio, e il cambio qui non si fa. Ogni
 // confronto di grandezza avviene DENTRO una valuta sola.
 // ============================================================
@@ -30,7 +28,7 @@ export interface Trade {
   quantita: number;
   prezzo: number;
   valuta: string;
-  data: string;                      // ISO, col timestamp: 69 righe su 69 ce l'hanno
+  data: string;                      // ISO, col timestamp (sulle righe misurate c'era sempre)
   note?: string | null;
   pm_rationale?: string | null;
   linked_decision_id?: number | null;
@@ -76,7 +74,7 @@ export const ggmmaa = (iso?: string | null) =>
 
 /**
  * L'ora, che oggi la pagina BUTTA con `.slice(0,10)` pur avendola su
- * 69 righe su 69. `null` se il backend ha mandato la sola data: e'
+ * ogni riga misurata. `null` se il backend ha mandato la sola data: e'
  * un'assenza vera e va resa come tale, non come `00:00:00`.
  */
 export const oraDi = (iso?: string | null) =>
@@ -89,9 +87,8 @@ export const ORA_SEGNAPOSTO = '12:00:00';
  * Quante righe portano l'ora SEGNAPOSTO.
  *
  * ⚠️ Rendere `12:00:00` come se fosse un orario misurato e' una precisione
- * inventata. Verificato il 27/07 sul DB: **35 righe su 69** — rimisurato il
- * 21/08: **36 su 75**, il libro e' cresciuto — hanno esattamente
- * quell'ora, e sono le stesse 35 dell'estratto del broker — perche'
+ * inventata. Verificato sul DB alla review del 27/07: una parte consistente delle
+ * righe ha esattamente quell'ora, e sono le stesse dell'estratto del broker — perche'
  * `import_user_trades.py:121` fa `dt.replace(hour=12, minute=0, second=0)`
  * quando l'estratto porta solo la data (review 27/07, MEDIA).
  *
@@ -148,10 +145,10 @@ export function controvalore(t: Trade): number | null {
  * Le righe in ordine di DATA VERA, dalla piu' recente.
  *
  * Il backend le manda con `ORDER BY id DESC` (`memory_db.py:1989`),
- * cioe' per ordine di INSERIMENTO. Misurato il 27/07: 14 coppie
- * adiacenti invertite e 34 righe su 69 in posizione diversa da quella
+ * cioe' per ordine di INSERIMENTO. Misurato alla review del 27/07: coppie
+ * adiacenti invertite e righe in posizione diversa da quella
  * cronologica — su un import di broker le due cose non coincidono.
- * Si corregge qui perche' il `data` arriva completo su 69 righe su 69.
+ * Si corregge qui perche' il `data` arriva completo su tutte le righe.
  * Pareggio sciolto con `id` quando c'e' (oggi non arriva: vedi cancello).
  */
 export function perDataDesc(trades: Trade[]): Trade[] {
@@ -217,10 +214,10 @@ export const versoDi = (tipo: string): VersoCassa =>
  *
  * ⚠️ I due `quando` NON hanno la stessa precisione, ed e' il motivo per cui
  * il pareggio si scioglie in modo dichiarato invece che per caso: un trade
- * porta l'ISO col timestamp (`2026-08-12T17:48:53`), un movimento di cassa
+ * porta l'ISO col timestamp (`AAAA-MM-GGThh:mm:ss`), un movimento di cassa
  * porta il SOLO giorno — il backend normalizza alla data valuta prima
  * dell'INSERT (`memory_db.py:1087`), quindi un'ora non ce l'ha proprio.
- * Per confronto di stringhe `'2026-08-12' < '2026-08-12T00:00:00'`, quindi a
+ * Per confronto di stringhe `'AAAA-MM-GG' < 'AAAA-MM-GGT00:00:00'`, quindi a
  * parita' di giorno la riga di cassa cade SOTTO i trade di quel giorno. Non e'
  * un caso da sciogliere meglio: il movimento non SA a che ora e' avvenuto, e
  * dargli una posizione dentro la giornata sarebbe una precisione inventata.
@@ -374,7 +371,7 @@ export interface Arco { da: string; a: string; giorni: number; }
  * Prima si sceglievano gli estremi per confronto di STRINGHE e si faceva
  * `Date.parse` senza guardare: una sola riga con `data` vuota o non ISO
  * vinceva come minimo, l'arco diventava `NaN`, e a valle `frazione`
- * tornava 0 per OGNI riga — cioe' 69 segni accatastati sul bordo sinistro
+ * tornava 0 per OGNI riga — cioe' tutti i segni accatastati sul bordo sinistro
  * come se fossero avvenuti nello stesso istante, senza che niente lo
  * dicesse. Uno zero muto travestito da grafico (review 27/07, BASSA).
  * Ora una data illeggibile e' semplicemente fuori dall'arco, e se non ne
@@ -450,9 +447,9 @@ export interface Corsia {
  * stessa valuta**.
  *
  * ⚠️ La prima versione divideva per il massimo dell'INTERA corsia, dando per
- * scontato che una corsia avesse una valuta sola. **E' falso sui dati veri**:
- * `MSTR` ha 5 righe su DUE valute (3 in USD, 2 in EUR — verificato in DB, ed
- * e' l'unico caso su 27 ticker), quindi i due segni in euro venivano misurati
+ * scontato che una corsia avesse una valuta sola. Una corsia puo' invece
+ * contenere righe in valute diverse, quindi i
+ * segni in euro venivano misurati
  * contro un massimo in dollari. Cioe' esattamente il confronto fra valute che
  * l'intestazione della pagina dichiara di NON fare (review 27/07, ALTA).
  * Ora ogni valuta ha il suo metro dentro la corsia, e la corsia dichiara

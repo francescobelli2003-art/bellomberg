@@ -937,6 +937,11 @@ class MemoryDB:
             if fresh:
                 for statement in VALUATION_SNAPSHOT_STATEMENTS:
                     conn.execute(statement)
+                # D1A (13/09, Claude Opus 5): archivio append-only dei record documentati,
+                # stesso patto degli snapshot: i DB nuovi lo ricevono qui, gli esistenti
+                # SOLO da tools/migrations/migra_method_records.py (dry-run, backup).
+                from bellomberg.storage.method_records_store import crea_tabelle as _crea_archivio_record
+                _crea_archivio_record(conn)
                 conn.commit()
             self._migrate_trade_history_check(conn)
             self._migrate_archive_override(conn)

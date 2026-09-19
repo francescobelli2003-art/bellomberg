@@ -520,6 +520,10 @@ def assess_valuation_usability(payload, *, expected_decision=None, as_of=None):
                         or any(binding.get(key) != record.get(key) for key in
                                ("field", "scenario", "driver", "entity", "period", "source_id"))):
                     raise ValueError(_message('consumed_records: identita diversa dai record acquisiti', 'consumed_records: identity differs from acquired records'))
+            from bellomberg.valuation.market_quote import attest_market_quote
+            quotations = [row.get('value') for row in records
+                          if row.get('driver') == 'quotation' and row.get('scenario') == 'model']
+            reasons.extend(attest_market_quote(payload, bundle, quotations[0] if len(quotations) == 1 else {}))
         except (ValueError, TypeError, KeyError, AttributeError) as exc:
             reasons.append(_message('input_consumption: {error}', 'input_consumption: {error}', error=error_text(exc)))
 

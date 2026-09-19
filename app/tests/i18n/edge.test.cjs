@@ -107,3 +107,13 @@ test('zero coverage classifications and scan age are equivalent in both language
   assert.deepEqual(results[0], results[1]);
   assert.deepEqual(results[0], { measured: 'misurato', partial: 'parziale', unknown: 'nd', seconds: 130, expired: false });
 });
+
+
+test('the scanner footer describes supplied data without asserting a completed backtest or real account', async () => {
+  const { render } = retained();
+  render('it'); await render.effects();
+  const it = render('it'), en = render('en');
+  assert.match(it, /Segnali calcolati sui dati forniti dagli strumenti/);
+  assert.match(en, /Signals calculated from data supplied by the tools/);
+  for (const html of [it, en]) assert.doesNotMatch(html, /#148|actual market data|dati di mercato reali|Formal validation through backtesting|Validazione formale via backtest/);
+});

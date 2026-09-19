@@ -705,7 +705,7 @@ def compute_nav_history(start_date: Optional[str] = None,
 
     trades = _trade_history()
     if not trades:
-        return {"error": _message('trade_history empty: importa i trade (pagina Cassa/Trade, o tools/ops/importa_trade_csv.py).', 'Empty trade_history: import trades (Cash/Trade page, or tools/ops/importa_trade_csv.py).'),
+        return {"error": _message('trade_history vuota: importa i trade dalla pagina Inserimento operazioni (F16) o con tools/ops/importa_trade_csv.py.', 'Empty trade_history: import trades from the Trade Entry page (F16) or with tools/ops/importa_trade_csv.py.'),
                 "timestamp": datetime.now().isoformat()}
 
     timeline = _build_position_timeline(trades)
@@ -1353,7 +1353,7 @@ def compute_var_contribution(lookback_days: int = 252,
 
     return {
         "portfolio_var_pct_daily": round(VaR_p_pct, 2),
-        "portfolio_var_eur_daily": round(VaR_p_eur, 0),
+        "portfolio_var_eur_daily": round(VaR_p_eur, 2),
         "portfolio_vol_annual_pct": round(sigma_p * 100, 2),
         "confidence_level": confidence,
         "z_alpha": round(z_alpha, 3),

@@ -432,8 +432,8 @@ def tool_get_portfolio_state():
            "note": "senza prezzi di mercato: per valore, P&L e allocazione usa get_portfolio_live",
            "n_positions": len(positions)}
     if not positions:
-        out["hint"] = ("Nessuna posizione attiva nel DB: si aprono dalla pagina Cassa/Trade "
-                       "(VERSAMENTO, poi BUY) o con tools/ops/importa_trade_csv.py")
+        out["hint"] = ("Nessuna posizione attiva nel DB: si aprono dalla pagina Inserimento operazioni, F16 "
+                       "(VERSAMENTO, poi BUY), o con tools/ops/importa_trade_csv.py")
     out["positions"] = positions          # ultima: se il tetto taglia, taglia qui
     try:
         from bellomberg.agents.chat_tools import TETTO_TOOL_RESULT as _tetto   # fonte unica del tetto
@@ -2439,7 +2439,7 @@ def tool_build_dcf_model(ticker, wacc=None, perpetual_growth=None, horizon_years
                          prepared_bundle=None, sector_providers=None, as_of=None,
                          method_records=None, analysis_context=None):
     """Genera la valutazione col MOTORE A SUB-SETTORI (#165/#182): instrada al motore
-    giusto (operativa 9-sheet DIGITRUST-style / banca DDM-residual income / ETF nota),
+    giusto (operativa buy-side a 9 fogli / banca DDM-residual income / ETF nota),
     con peer omogenei del sotto-settore, valuta convertita e WACC Damodaran.
     Solo per candidati GREEN del Quant. Gli errori non attivano motori alternativi.
     """

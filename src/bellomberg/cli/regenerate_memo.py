@@ -63,12 +63,23 @@ def main(language=None):
         mandato_pm.carica()
     except mandato_pm.MandatoMancante as _mm:
         _log(text("MANDATO NON DICHIARATO: ", "MANDATE NOT DECLARED: ", language=selected) + str(_mm))
-        _log(text("Il recupero del memo non parte senza il mandato del PM: compila la pagina Mandato (F18) e rilancia.",
-                  "Memo recovery requires the PM mandate: complete the Mandate page (F18) and run again.", language=selected))
+        _log(text("Il recupero del memo non parte senza il mandato del PM: compila la pagina Mandato e Diario (F18) e rilancia.",
+                  "Memo recovery requires the PM mandate: complete the Mandate and Journal page (F18) and run again.", language=selected))
         raise SystemExit(2)
     with language_context(selected):
         bb = Blackboard(memory_db=db, memo_id=memo_id)
     return _regenerate(db, memo_id, rows, bb, language=selected)
+
+
+def _persist_recovery_outputs(conn, memo_id, memo, pdf_path, appendix_path, selected, usage):
+    """Persist every regenerated artifact and measured Capo token count together."""
+    usage = usage if isinstance(usage, dict) else {}
+    tokens_in = usage.get("input_tokens")
+    tokens_out = usage.get("output_tokens")
+    conn.execute(
+        "UPDATE memos SET full_markdown=?, pdf_path=?, appendix_path=?, output_language=?, "
+        "capo_tokens_in=?, capo_tokens_out=? WHERE id=?",
+        (memo, pdf_path, appendix_path, selected, tokens_in, tokens_out, memo_id))
 
 
 @scoped_language
@@ -207,8 +218,7 @@ def _regenerate(db, memo_id, rows, bb):
     # update memo nel DB + email
     try:
         with db._conn() as conn:
-            conn.execute("UPDATE memos SET full_markdown=?, pdf_path=?, output_language=? WHERE id=?",
-                         (memo, pdf_path, selected, memo_id))
+            _persist_recovery_outputs(conn, memo_id, memo, pdf_path, appendix_path, selected, usage)
             # idempotente: cancella le decisioni gia' estratte per questo memo prima di ri-estrarre
             conn.execute("DELETE FROM decisions WHERE memo_id=? AND status='PENDING'", (memo_id,))
             # #204b HARD (review Lotto C, F1c): via anche le auto-chiusure di codice

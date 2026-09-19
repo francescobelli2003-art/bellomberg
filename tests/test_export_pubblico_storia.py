@@ -343,7 +343,12 @@ def test_main_dichiara_il_commit_fatto_quando_il_registro_non_si_scrive(clone_ve
                           for n in ep.vp.CONTROLLI],
         })
     monkeypatch.setattr(ep, "_cancello", cancello_sano)
-    monkeypatch.setattr(ep, "esegui_suite", lambda temp_dir, attesi=None: (0, "1 passed (finto)"))
+    # Dal 13/09 la suite completa porta anche i passi della CI, tutti OK: senza, il manifest e'
+    # INCOMPLETO e il deposito si ferma prima del commit che questo test deve raggiungere.
+    passi = [{"nome": p.nome, "esito": "OK", "exit": 0, "secondi": 1.0, "motivo": ""}
+             for p in ep.PASSI_SUITE]
+    monkeypatch.setattr(ep, "esegui_suite",
+                        lambda temp_dir, attesi=None: ep.EsitoSuite(0, "1 passed (finto)", passi))
 
     def esplode(registro, h, messaggio):
         raise OSError("disco pieno")

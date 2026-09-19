@@ -4,9 +4,7 @@ import { t as tr } from '@/i18n/t';
 // Spec: docs/superpowers/specs/2026-07-27-f7-trade-entry-la-cassa-design.md
 //
 // LA DOMANDA A CUI RISPONDE LA PAGINA E' UNA SOLA: posso permettermelo, e cosa
-// divento dopo? Prima leggeva `snap.positions` e buttava tutto il resto — 189
-// valori resi su 478, e fra i buttati c'erano i 26.247 € di cassa che stanno
-// nello stesso payload.
+// divento dopo? Legge posizioni, cassa e NAV, dichiarando i dati mancanti.
 //
 // La logica di validazione (bugfix #164), il congelamento del corpo fra
 // conferma e scrittura (Lotto D) e `ConfirmDialog` sono quelli di prima.
@@ -27,6 +25,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Bellomberg } from '@/lib/api';
 import type { Decision, MovimentoCassa, PortfolioSnapshot, Position } from '@/lib/api';
+import { portfolioValues } from '@/lib/portfolio-values';
 import { congelaAnteprima, dataTrade, decisioneCompatibile, legameTrade, FrontendTradeError } from '@/lib/trade-entry';
 import type { TradeRequest, TradePreview, TradeResult } from '@/lib/trade-entry';
 import { preparaPosizioneIniziale, congelaPosizioneIniziale, leggiRicevutaPosizione, leggiPosizioniIniziali } from '@/lib/position-opening';
@@ -1482,7 +1481,7 @@ function TradeOperationEntry() {
               </div>
             ) : cassa == null ? (
               <div className="vuoto">
-                <span><b>{tr('trade.cash_payload_absent')}</b> (<code>cash_disponibile_eur</code>{' '}
+                <span><b>{tr('trade.cash_payload_absent')}</b> — {portfolioValues(snap).note}.{' '}
                   {tr('trade.missing_nonnumeric_capacity')} <b>{tr('trade.cannot_verify')}</b> {tr('trade.empty_bar_looks_zero')}</span>
               </div>
             ) : cassa <= 0 ? (

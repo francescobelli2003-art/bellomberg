@@ -24,6 +24,7 @@ import { t as tr } from '../i18n/t.js';
 // tutti e quattro i punti: le correzioni sono annotate una per una.
 // ============================================================================
 import type { Position, PortfolioSnapshot } from '@/lib/api';
+import { portfolioValues } from '@/lib/portfolio-values';
 import { linguaCorrente, type Lingua } from '../i18n/lingua.js';
 import { analizzaNumero, scriviNumero } from '../i18n/numeri.js';
 import { traduci } from '../i18n/t.js';
@@ -114,6 +115,7 @@ export type Muto =
   | 'carico-assente'         // la posizione non ha un prezzo medio in DB
   | 'posizione-chiusa'       // dopo l'ordine non resta nessun titolo
   | 'book-assente'           // il portafoglio non e' caricato: non so cosa possiedi
+  | 'nav-assente'            // cassa non verificata o NAV non disponibile
   | 'non-posseduto'          // vendere/incassare su un ticker che non e' in book
   | 'prezzo-ignoto'          // manca il prezzo di mercato per valutare il residuo
   | 'cambio-assente';        // senza euro non si tocca ne' cassa ne' peso
@@ -175,11 +177,7 @@ export function simula(
   /** il portafoglio non e' caricato (errore di fetch): `pos` assente NON prova nulla */
   bookAssente = false,
 ): Simulazione {
-  const cassaPrima = snap && typeof snap.cash_disponibile_eur === 'number'
-    && isFinite(snap.cash_disponibile_eur) ? snap.cash_disponibile_eur : null;
-  const navPrima = snap && typeof snap.nav_total_eur === 'number' ? snap.nav_total_eur : null;
-  const mvPrima = snap && typeof snap.totale_valore_mercato_eur === 'number'
-    ? snap.totale_valore_mercato_eur : null;
+  const { cash: cassaPrima, nav: navPrima, invested: mvPrima } = portfolioValues(snap);
 
   // ⚠ REGOLA 4: senza un ordine scritto non si simula NIENTE. Prima, con i
   // campi vuoti, `eur` valeva 0 e su cassa negativa la pagina accendeva
@@ -298,7 +296,7 @@ export function simula(
   else if (mercatoEur == null) navMuto = qtaMuta || 'prezzo-ignoto';
   else navDelta = entra ? (mercatoEur - eur) : (eur - mercatoEur);
   const navDopo = (navPrima == null || navDelta == null) ? null : navPrima + navDelta;
-  if (navPrima == null) navMuto = navMuto || 'book-assente';
+  if (navPrima == null) navMuto = navMuto || 'nav-assente';
 
   return {
     valido: true,
@@ -321,6 +319,7 @@ export function perche(m: Muto, valute?: string[]): string {
     case 'carico-assente': return tr('trade.cost_missing');
     case 'posizione-chiusa': return tr('trade.position_closed');
     case 'book-assente': return tr('trade.portfolio_unloaded');
+    case 'nav-assente': return tr('trade.nav_unavailable');
     case 'non-posseduto': return tr('trade.holding_not_active');
     case 'prezzo-ignoto': return tr('trade.residual_market_missing');
     case 'cambio-assente': return tr('trade.euro_fx_missing');

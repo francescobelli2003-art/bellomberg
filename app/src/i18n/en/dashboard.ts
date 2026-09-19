@@ -210,6 +210,7 @@ export const dashboard = {
   "from_failed_desks": "from desks with errors",
   "calls_total_missing": "calls: total n/a",
   "calls_count": "{a} calls",
+  "calls_count_one": "{a} call",
   "calls_recent": " · latest {a} in log",
   "calls_until": "{a} in log up to {b}",
   "calls_at_minute": "{a} up to minute {b}",

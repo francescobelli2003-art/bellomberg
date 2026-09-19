@@ -93,7 +93,9 @@ async function runner() {
     else if (route === '/fx') response = { rates: { EUR: 1, USD: currentFx } };
     else if (route === '/portfolio') response = {
       source: 'synthetic-memory', n_positions: 1, cash_disponibile_eur: 1000,
-      cash_source: 'synthetic-memory', nav_total_eur: 1570,
+      cash_source: mode === 'untrusted-cash' ? 'portfolio.json' : 'sqlite:cash_state',
+      cash_source_note: mode === 'untrusted-cash' ? 'SYNTHETIC_CASH_SOURCE_UNAVAILABLE' : null,
+      nav_total_eur: 1570,
       totale_valore_mercato_eur: 570, totale_pl_eur: 190, timestamp: '2024-02-20T09:00:00',
       positions: [{ ticker: 'SYNTH', nome: 'Synthetic position', quantita: 20,
         prezzo_medio: 20, prezzo_live: 30, valuta: 'USD', valore_mercato: 570,
@@ -290,6 +292,15 @@ async function renderer(config) {
       localStorage.setItem('bellomberg_unlocked_v1', JSON.stringify({ ts: Date.now() }));
       localStorage.setItem('bellomberg_last_launch_id', 'synthetic-trade-launch');
     });
+
+    await open('untrusted-cash'); await fill();
+    const unverified = await js(() => document.body.innerText);
+    assert.match(unverified, /Cassa non disponibile/);
+    assert.match(unverified, /SYNTHETIC_CASH_SOURCE_UNAVAILABLE/);
+    assert.match(unverified, /NAV non disponibile/);
+    assert.equal(await js(() => document.querySelector('.f7c .binario') === null), true);
+    await counts(0, 0);
+    scenarios.push('unverified numeric cash produces no cash bar, coverage or NAV forecast; source reason retained');
 
     await open('success', '?decision=31');
     assert.equal(await js(() => document.querySelector('#f7-tk').value), 'SYNTH');

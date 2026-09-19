@@ -6,9 +6,12 @@ research keeps its original text. This guide is in English; the glossary also
 explains Italian labels. Function numbers follow the shared navigation registry.
 **F19 opens the settings panel; it is not a separate research page.**
 
-Every illustration is an original **DEMO mockup** made with invented instruments,
-text and values. These are explanatory diagrams, not screenshots, investment
-results or data shipped into your portfolio.
+The chapters show the actual English interface using one invented **DEMO**
+account. Analytics, histories and research text are authored synthetic snapshots;
+they are not real investment results or data shipped into your portfolio.
+The [asset gallery](assets.md) keeps these screenshots separate from the
+explanatory SVG illustrations. See [reproducing screenshots](screenshots.md)
+for their source, fixed clock and capture process.
 
 ## Start here
 

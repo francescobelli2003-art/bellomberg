@@ -280,7 +280,7 @@ export interface CimaF1 {
  *  questa sul valore animato, così il conteggio e il giudizio non possono
  *  divergere. */
 export function formattaCifra(c: CimaF1, valore: number): string {
-  if (!c.numerabile || !isFinite(valore)) return 'n/a';
+  if (!c.numerabile || !isFinite(valore)) return tr('dashboard.na');
   return c.unita === 'quota' ? fmtNum(valore, 2) : fmtEUR(valore);
 }
 

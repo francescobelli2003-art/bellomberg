@@ -63,7 +63,7 @@ test('new desk prompts resolve IT/EN at invocation with identical domain IDs and
 
 test('chat labels change while historical prose, source language and a draft remain intact', () => {
   const agent = { id: 'quant', name: 'QUANT', role: 'Original role from backend', color: '#29D3F2' };
-  const page = component('pages/Chat.tsx', {}, { 0: [agent], 3: agent, 8: [
+  const page = component('pages/Chat.tsx', {}, { 0: { agents: [agent] }, 3: agent, 8: [
     { id: 1, role: 'user', content: 'My original user question' },
     { id: 2, role: 'assistant', content: 'Testo storico originale in italiano', storico: true, output_language: 'it' },
     { id: 3, role: 'assistant', content: 'Original legacy reply', storico: true, output_language: null },
@@ -82,7 +82,7 @@ test('chat labels change while historical prose, source language and a draft rem
 // 13/09 (Claude Opus 5): frasi attese scritte qui, non lette dal catalogo sotto prova.
 test('the output token chip keeps the Italian jargon and takes the English plural with locale grouping', () => {
   const agent = { id: 'quant', name: 'QUANT', role: 'Original role', color: '#29D3F2' };
-  const page = component('pages/Chat.tsx', {}, { 0: [agent], 3: agent, 8: [
+  const page = component('pages/Chat.tsx', {}, { 0: { agents: [agent] }, 3: agent, 8: [
     { id: 1, role: 'assistant', content: 'Original synthetic answer', tokens: { in: 10, out: 1234 } },
   ] });
   assert.match(page.render('it'), /<span class="chip n">1\.234 token<\/span>/);
@@ -92,7 +92,7 @@ test('the output token chip keeps the Italian jargon and takes the English plura
 test('chat errors re-render in the selected language without mutating their original evidence', () => {
   const original = 'Original failure from source';
   const agent = { id: 'quant', name: 'QUANT', role: 'Original role', color: '#29D3F2' };
-  const page = component('pages/Chat.tsx', {}, { 0: [agent], 3: agent,
+  const page = component('pages/Chat.tsx', {}, { 0: { agents: [agent] }, 3: agent,
     6: { kind: 'delete', id: 9, detail: original }, 9: { kind: 'create', detail: original },
     8: [{ role: 'assistant', content: 'Original partial response', errore: 'stream terminato senza conferma del server; risposta incompleta', erroreKind: 'incomplete' }],
   });
@@ -156,4 +156,37 @@ test('execution tape localises accessible measurements while preserving tool IDs
   const geometry = html => [...html.matchAll(/<(?:rect|line|path)\b[^>]*>/g)].map(m => m[0]);
   assert.deepEqual(geometry(en), geometry(it));
   assert.match(en, /get_synthetic_data/);
+});
+
+
+test('chat projects authored agent roles from the retained response at every language switch', async () => {
+  let reads = 0;
+  const payload = { agents: [
+    { id: 'quant', name: 'QUANT', role: 'Ruolo quantitativo dichiarato', color: '#29D3F2', model: 'synthetic-demo' },
+    { id: 'custom', name: 'CUSTOM', role: 'Original unmarked role', color: '#29D3F2', model: 'synthetic-demo' },
+  ], _presentation_v1: { version: 1, texts: [
+    { path: ['agents', 0, 'role'], it: 'Ruolo quantitativo dichiarato', en: 'Authored quantitative role' },
+  ] } };
+  const before = structuredClone(payload);
+  const page = component('pages/Chat.tsx', {
+    agentsList: async () => { reads++; return payload; },
+    chatListSessions: async () => ({ sessions: [] }),
+    portfolio: async () => ({ positions: [] }),
+  }, { 8: [{ id: 1, role: 'assistant', content: 'Original archived answer', storico: true }],
+       10: 'Original draft 12,50' });
+  page.render('it'); await page.effects();
+  const it = page.render('it'); await page.effects();
+  const en = page.render('en'); await page.effects();
+  const again = page.render('it'); await page.effects();
+  assert.match(it, /Ruolo quantitativo dichiarato/);
+  assert.ok((en.match(/Authored quantitative role/g) || []).length >= 2, 'selected desk and list use the same authored English role');
+  assert.doesNotMatch(en, /Ruolo quantitativo dichiarato/);
+  assert.match(again, /Ruolo quantitativo dichiarato/);
+  for (const html of [it, en, again]) {
+    assert.match(html, /Original unmarked role/);
+    assert.match(html, /Original draft 12,50/);
+    assert.match(html, /synthetic-demo/);
+  }
+  assert.equal(reads, 1, 'language selection must not fetch or start a model');
+  assert.deepEqual(payload, before);
 });

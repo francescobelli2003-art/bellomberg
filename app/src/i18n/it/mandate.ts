@@ -55,6 +55,7 @@ export const mandate = {
   "discard": "Scarta modifiche",
   "intro": "Regole di investimento, con effetto e verifica in vista.",
   "local_draft": "Bozza locale · {a} sezioni modificate",
+  "local_draft_one": "Bozza locale · {a} sezione modificata",
   "unchanged": "Nessuna modifica da salvare",
   "field_count": "{a} campi · {b} sezioni",
   "required_count": "{a} di {b} obbligatori compilati",

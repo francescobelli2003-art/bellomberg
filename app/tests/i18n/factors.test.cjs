@@ -74,6 +74,24 @@ test('factor helpers translate presentation and preserve identifiers, confidence
   assert.equal(factors.intervallo(0.7, 0).lo, null);
 });
 
+test('dataset and skipped-security captions handle zero, one and two without changing coverage', async () => {
+  for (const datasets of [0, 1, 2]) for (const skipped of [0, 1, 2]) {
+    const data = fixtures();
+    data.fac.regions = Object.fromEntries(Array.from({ length: datasets }, (_, i) => [`synthetic${i}`, { label: `Synthetic region ${i}`, n_holdings: 1, weight_pct: 40 }]));
+    data.fac.ff_data_by_region = Object.fromEntries(Object.keys(data.fac.regions).map(key => [key, { n_obs: 200, last_date: '2026-06-01' }]));
+    data.fac.n_holdings_skipped = skipped;
+    data.fac.skipped_detail = Array.from({ length: skipped }, (_, i) => ({ ticker: `OMIT.${i}`, weight_pct: 10, reason: 'Original missing history' }));
+    const before = structuredClone(data), { render } = retained(data);
+    render('it'); await render.effects();
+    const it = render('it'), en = render('en');
+    if (datasets) {
+      assert.match(en, new RegExp(`${datasets} ${datasets === 1 ? 'DATASET' : 'DATASETS'} · ${skipped} ${skipped === 1 ? 'SECURITY' : 'SECURITIES'} SKIPPED`));
+      assert.match(it, new RegExp(`${datasets} DATASET · ${skipped} ${skipped === 1 ? 'TITOLO SCARTATO' : 'TITOLI SCARTATI'}`));
+    } else { assert.doesNotMatch(en, /0 DATASETS/); assert.doesNotMatch(it, /0 DATASET/); }
+    assert.deepEqual(data, before);
+  }
+});
+
 test('Factors updates labels and authored backend variants without repeating its ordered expensive pipeline', async () => {
   const data = fixtures(), before = structuredClone(data), { render, calls } = retained(data);
   render('it'); await render.effects(); const it = render('it'); await render.effects();

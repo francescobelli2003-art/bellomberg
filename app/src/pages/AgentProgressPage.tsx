@@ -173,7 +173,7 @@ export default function AgentProgressPage() {
             ? tr('progress.collective')
             : unsupported ? tr('progress.unsupported') : data.method.attribution}</p>
           {!unsupported && <div className="ap-metrics" aria-live="polite">
-            <div><span>{tr('progress.hitRate')}</span><strong>{pct(point?.hit_rate_pct)}</strong><small>{num(point?.hits, 0)} {tr('progress.hits')} {tr('progress.callsCount', { a: num(point?.n, 0) })}</small></div>
+            <div><span>{tr('progress.hitRate')}</span><strong>{pct(point?.hit_rate_pct)}</strong><small>{num(point?.hits, 0)} {tr(point?.hits === 1 ? 'progress.hitsOne' : 'progress.hits')} {tr(point?.n === 1 ? 'progress.callsCountOne' : 'progress.callsCount', { a: num(point?.n, 0) })}</small></div>
             <div><span>{tr('progress.confidence')}</span><strong className="ap-medium">{point?.ci95 ? `${num(point.ci95.low_pct)}–${num(point.ci95.high_pct)}%` : tr('progress.na')}</strong><small>{tr('progress.wilson')}</small>
               {point?.ci95 && point.hit_rate_pct != null && <div className="ap-confidence-bar" role="img" aria-label={tr('progress.confidenceAria', { low: num(point.ci95.low_pct), high: num(point.ci95.high_pct), rate: num(point.hit_rate_pct) })}>
                 <svg viewBox="0 0 100 15" preserveAspectRatio="none" aria-hidden="true"><line x1="0" x2="100" y1="8" y2="8" className="ap-midline" />

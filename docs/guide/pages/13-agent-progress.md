@@ -2,9 +2,13 @@
 
 [Handbook](../README.md) · [Previous: F12](./12-agents-live.md) · [Next: F14](./14-memo-archive.md)
 
-![F13 Agent Progress: original synthetic DEMO mockup](../../assets/product/13-agent-progress.svg)
+![F13 Agent Progress: Metrics and history — English DEMO screenshot](../../assets/screenshots/agent-progress-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
+
+The [workflow illustration](../../assets/product/13-agent-progress.svg) is a separate,
+simplified diagram with Italian labels.
 
 See what was actually saved about agents, runs and later outcomes. The page
 helps distinguish execution progress, measured forecasting results and recorded

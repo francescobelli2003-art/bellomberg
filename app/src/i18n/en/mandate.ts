@@ -55,6 +55,7 @@ export const mandate = {
   "discard": "Discard changes",
   "intro": "Investment rules, with their effects and verification in view.",
   "local_draft": "Local draft · {a} sections changed",
+  "local_draft_one": "Local draft · {a} section changed",
   "unchanged": "No unsaved changes",
   "field_count": "{a} fields · {b} sections",
   "required_count": "{a} of {b} required fields completed",

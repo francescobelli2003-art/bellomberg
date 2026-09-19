@@ -51,6 +51,24 @@ opening cutoff, not an observed historical fair value or an implicit comparison
 against today's price. FX, quotation scale and share-class conversions are
 explicit. GBX/GBp is accepted only as GBP multiplied by 100.
 
+Documented adapters additionally retain a `market_quote/1` block from the same
+hashed acquisition snapshot. Its only price source is the profile's
+`regularMarketPrice`, paired with `regularMarketTime`, instrument identity and
+exchange time zone. Missing, stale or incompatible observations have an explicit
+status and no observed-price upside. There is no substitute from the portfolio,
+model quotation or another price field. A different financial/quote currency
+leaves that upside unavailable: the model's historical FX rate is not rolled.
+
+`upside_pct` remains the comparison with the model-date price. The separate
+`market_quote.upside_base_pct` compares the historical base FV with the observed
+price; it does not roll the FV forward. Scenario observations and source metadata
+are retained in the payload, sidecar and workbook. API/committee/email/score views
+recheck freshness without changing the stored observation. Freshness uses the
+previous weekday, not an exchange holiday calendar; it is an observation-age
+rule, not a live-market guarantee. The model's sanity checks and score calculation
+continue to use its historical price. Unsupported legacy observations are shown
+as unavailable.
+
 `analysis_context.scenario_rationale` supplies explicit `bear`, `base`, `bull`
 explanations. Assumption changes require a new generation. Prior acquisition
 snapshots remain immutable. Revision attribution that is not reconciled to this
@@ -80,7 +98,7 @@ The opening EV/equity bridge is a scenario assumption at the common opening
 valuation date; it is not forecast terminal debt. The whole-forecast record
 period identifies the scenario in which that bridge is used.
 
-`revenue_build` has exactly `basis`, `volume`, `unit_price`, `utilization`,
+The volume/price form of `revenue_build` has exactly `basis`, `volume`, `unit_price`, `utilization`,
 `other_revenue`. Each numeric key is a complete path. Volume times unit price
 times utilization plus other revenue must equal the engine's projected revenue
 in every period. The product is measured in millions of financial currency;
@@ -104,6 +122,36 @@ Multi-business assets, finite concessions, development assets and resource
 reserves require their applicable methods. A cohort, capacity, backlog or product
 analysis must reconcile upstream to these consumed amounts. Its unsupported extra
 fields cannot be attached and silently ignored.
+
+Manufacturing also accepts `segment_guidance`. This alternative has exactly
+`basis` and `segments`, with at least two operating segments and at most one
+explicit consolidation item. Each item has exactly `segment_id`, `label`,
+`role` (`segment` or `consolidation`), `base`, `base_evidence`, `growth` and
+`growth_evidence`. A segment base must be positive; a consolidation base may be
+negative but cannot be zero. Omit consolidation when there is none.
+
+`base_evidence` has exactly `kind` (`historical`), `sources`,
+`observation_period` (`start`/`end` ISO dates) and `derivation`. Its observation
+period is the whole year ending on the valuation date. Each source has exactly
+`source_id` (URL) and a nonempty `locator`. The same segment IDs, labels, roles,
+bases and base evidence must appear in all scenarios; their order is immaterial.
+Their sum must reconcile to opening historical revenue.
+
+`growth` contains one finite rate greater than -100% per model period.
+`growth_evidence` has one item per period, each with exactly `kind`, `sources`,
+`guidance_period` and `derivation`. The source structure is the same as above;
+`guidance_period` is either a `start`/`end` pair or null. `company_guidance` is
+accepted only for operating segments when that period exactly matches the model
+period. Interpolation, a change of period, or consolidation requires
+`analyst_estimate`. If any cell is an estimate, both the `revenue_build` and
+aggregate `revenue_growth` record kinds must also be `analyst_estimate`.
+
+For every period, opening segment revenue compounded by its declared growth must
+sum to group revenue compounded by the group's declared growth. The adapter
+checks the evidence structure and arithmetic; it cannot authenticate a source or
+decide whether an economic assumption is sound. There is no inferred segment,
+balancing residual, seasonal split or forecast. The existing volume/price form,
+annual calendar and valuation method version remain unchanged.
 
 `accounting_policies` has exactly these supported values:
 
@@ -292,7 +340,9 @@ These methods use a dated snapshot: `calendar.periods=[]` and
 `calendar.discount_convention=snapshot`. Every record's period is the valuation
 date. There is no discount-rate requirement, invented forecast year, implicit
 premium or private vehicle default. Missing targets leave fair value unavailable.
-The returned comparison is to the quotation at that same date, not today's price.
+The model comparison uses the quotation at that same date. The separate observed
+quote comparison follows the common rules above and never substitutes a child
+asset's quote for its parent's quoted instrument.
 
 The exact source-bound contracts are `nav_adapter.FUND` and `nav_adapter.DIGITAL`,
 also exposed by the public tools. Every scenario supplies a positive `nav_target`

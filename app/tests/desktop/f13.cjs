@@ -38,7 +38,7 @@ async function runner() {
     else if(route==='/preferences'){if(req.method==='PUT')language=body.language;out={language,selected:true,source:'preferences'};}
     else if(route==='/portfolio')out={positions:[],cash_disponibile_eur:null,cash_source:'uninitialized'};
     else if(route==='/fx')out={rates:{EUR:1}};
-    else if(route==='/system/tasks')out={tasks:[]};
+    else if(route==='/tasks/scheduled')out={tasks:[]};
     else if(route==='/db/backups')out={backups:[],count:0};
     else if(route==='/agents/list')out={agents:[],engines:{}};
     else if(route==='/mandato')out={dichiarato:true,causa:null,dettaglio:null,campi_mancanti:[],valori:{},origine:'esempio',impronta:'synthetic-f13',dichiarato_il:'2026-09-12',campi:[],errori:[],esempio:{}};

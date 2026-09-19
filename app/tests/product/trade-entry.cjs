@@ -7,7 +7,10 @@ const ts = require('typescript');
 function load(file) {
   const exports = {};
   const scope = { exports, module: { exports }, require(name) {
-    return load(path.resolve(path.dirname(file), name.replace(/\.js$/, '') + '.ts'));
+    const target = name.startsWith('@/')
+      ? path.resolve(__dirname, '../../src', name.slice(2).replace(/\.js$/, '') + '.ts')
+      : path.resolve(path.dirname(file), name.replace(/\.js$/, '') + '.ts');
+    return load(target);
   }};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },

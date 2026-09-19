@@ -1,18 +1,6 @@
 import { t as tr } from '@/i18n/t';
 import { useT } from '@/i18n/provider';
-// F14 · vista REGISTRO — l'atterraggio (Opus 5, 27/07; cassa 21/08)
-//
-// Le righe in ordine di DATA VERA, coi separatori di mese che portano la
-// cadenza. Tre cose che la pagina di prima non faceva: rende l'ORA (c'e' su
-// tutte le righe e veniva tagliata), mostra ENTRAMBI i testi di una riga
-// (`pm_rationale || note` ne buttava uno: 306 caratteri su una vendita sintetica), e marca
-// le uscite dichiarando lo stato del loro P&L.
-// ⚠️ I conteggi del 27/07 dicevano «69 righe»: erano quelle di allora. Rimisurati
-// il 21/08 sul DB vero: **75 trade su 29 ticker**, e l'ora e' un segnaposto
-// `12:00:00` su **36 righe su 75** (v. `contaOreSegnaposto`) — quindi «rende
-// l'ORA» non vuol dire che quell'ora sia misurata, e la pagina lo dichiara.
-// Da oggi il registro ospita anche i FLUSSI DI CASSA (impianto scelto dal PM il
-// 21/08): due specie di riga, non due vestiti della stessa.
+// Registro unificato: tempi convenzionali e provenienza restano dichiarati.
 import { Fragment } from 'react';
 import { fmtNum } from '@/lib/format';
 import {
@@ -50,33 +38,9 @@ function realizzato(t: Trade, cancello: StatoCancello) {
   );
 }
 
-/**
- * Una riga di cassa nelle OTTO colonne del registro.
- *
- * ⚠️ QUATTRO celle su otto non hanno niente da dire, e il trattino e' la
- * verita': un versamento non ha ticker, quantita', prezzo ne' realizzato.
- * L'unica colonna che lo accoglie senza forzarlo e' CONTROVALORE, perche'
- * porta gia' la valuta accanto al numero — e un flusso di cassa e' in EUR
- * per costruzione (`amount_eur`).
- *
- * ⚠️ La cella QUANDO porta la sola data, SENZA il trattino dell'ora. Il `—` in
- * quella colonna significa gia' «l'ora manca dal payload» (:189, e su 36 righe
- * su 75 l'ora c'e' ma e' il segnaposto `12:00:00` dell'importatore): usarlo
- * anche per «questa specie non ha un'ora» sarebbe un terzo significato sullo
- * stesso glifo. Meglio niente che un segno ambiguo.
- *
- * ⚠️ E `created_at` NON e' la data valuta: e' quando la riga e' entrata nel
- * libro. Vive nel `title`/`aria-label`, dichiarato per quello che e' e col fuso
- * detto — SQLite lo scrive con `datetime('now')`, cioe' in **UTC**
- * (`memory_db.py:337`), e renderlo nudo faceva leggere al PM le 16:18 dove il
- * suo orologio diceva 18:18. E' la stessa trappola gia' pagata su
- * `position_prices.timestamp` (ponte (73), 19/08).
- *
- * ⚠️ E nemmeno `date` e' garantita essere la data valuta: `memory_db.py:1090`
- * fa `data = data or datetime.now()...`, quindi la colonna vale «data valuta
- * OPPURE giorno di registrazione» e dal payload le due non si distinguono. La
- * riga vera a registro lo dice da sola nella causale («data valuta effettiva
- * non specificata»). Quindi l'etichetta dice `Data`, non `Data valuta`.
+/** Riga di cassa nelle colonne comuni: senza ticker, quantita, prezzo o P&L.
+ * L'importo e in EUR. La data della riga e distinta da created_at, che e
+ * l'istante UTC di registrazione; una data presente non prova un'ora misurata.
  */
 function RigaCassa({ m }: { m: RigaCassaT }) {
   const tr = useT();
@@ -162,13 +126,9 @@ export default function Registro({ righe, mesi, cancello }: Props) {
               <td colSpan={8}>
                 <span className="mm">{m.etichetta}</span>
                 <span className="mn">
-                  {/* il singolare esiste: un mese da una riga sola c'e' gia'
-                      sui dati veri (gennaio 2026, il versamento iniziale) */}
+                  {/* Una sola riga richiede il singolare. */}
                   {m.n} {m.n === 1 ? tr('movements.oneMovement') : tr('movements.manyMovements')}
-                  {/* ⚠️ «0 TITOLI» e' rumore, non un dato: da quando il registro
-                      ospita anche la cassa esistono mesi di SOLI flussi, e li'
-                      quel conteggio non ha niente da contare. Misurato sulla
-                      sonda: «GENNAIO 2026 · 1 MOVIMENTI · 0 TITOLI · 1 DI CASSA». */}
+                  {/* Un mese composto solo da flussi non conta titoli. */}
                   {/* «SU n TITOLI» e non «n TITOLI»: in una fila di conteggi di
                       RIGHE, l'unico che conta altro (ticker distinti) si
                       leggeva come una riga in piu' e la somma non tornava. */}

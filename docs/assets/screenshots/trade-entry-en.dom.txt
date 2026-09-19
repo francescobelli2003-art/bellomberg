@@ -1,0 +1,224 @@
+BELLOMBERG
+v0.8.0 OBSIDIAN
+NY
+LN
+MI
+HK
+❯
+SEARCH TICKERS · PAGES · ACTIONS
+CTRL+K
+API
+LIVE
+13 SEP 2026
+10:11:40
+UTC+2
+F19
+01
+DASH
+02
+PERF
+03
+FAVS
+04
+MKT
+05
+NEWS
+06
+FUND
+07
+FCTR
+08
+MTC
+09
+VOLS
+10
+EDGE
+11
+CHAT
+12
+LIVE
+13
+SCORE
+14
+MEMO
+15
+DECN
+16
+TRADE
+17
+MOVES
+18
+MNDT
+19
+CONFIG
+F16 // TRADE ENTRY
+|
+USD/EUR
+0.9000
+GBP/EUR
+1.2000
+GBX/EUR
+0.01200
+CHF/EUR
+1.0500
+JPY/EUR
+0.0060
+HKD/EUR
+0.1154
+FX 60S
+Trade
+Opening position
+// TRADE TICKET
+WRITES TO THE OFFICIAL PORTFOLIO
+BUY
+ADD
+TRIM
+SELL
+DIVIDEND
+TICKER
+IN BOOK
+80 shares at a cost of 45.00 EUR
+QUANTITY
+SHARES
+PRICE
+EUR
+live 50.00 EUR · 0.00% from the live price
+CURRENCY
+EUR
+USD
+GBP
+GBX
+CHF
+JPY
+HKD
+1 EUR = 1.000000 EUR
+TRADE DATE (OPTIONAL)
+Blank: now. Date only: conventional noon, declared in the register.
+EXECUTION TIME (OPTIONAL)
+LINK TO A DECISION
+Manual trade, no decision
+Link not declared
+#22 · BUY DEMO.A · 2024-02-13 · EXECUTED · executed 3,600.00 €
+#32 · ADD DEMO.A · 2026-09-11 · PENDING
+The link also records partial executions; the decision status remains under your control.
+ESTIMATE ON THE CURRENT STATE → 100.00 EUR
+2
+×
+50.00 EUR
+=
+100.00 EUR
+×
+1.000000
+=
+100.00 €
+The order is already in euros.
+WHY YOU ARE DOING THIS
+NOTE
+≡
+Covered: remaining cash 3,900.00 € · this order is worth 0.1× your median order size.
+CHECK ADD AND CONFIRM
+// CASH REGISTER
+1 MOVEMENT SHOWN · CASH 4,000.00 €
+DEPOSIT
+WITHDRAW
+AMOUNT
+EUR
+VALUE DATE
+ISO
+determines the day on which the flow enters TWR
+DESCRIPTION
+stored in note, with surrounding spaces removed
+RECORD THE DEPOSIT
+16/02
+DEPOSIT
++9,500 €
+flows 9,500 €
+flows = cumulative deposits and withdrawals shown below. This is not the cash balance: trades also affect cash and are absent from this register.
+// BEFORE → AFTER
+SIMULATION ON THE CURRENT BOOK
+CASH
+4,000.00 €
+→
+3,900.00 €
+-100.00 €
+SHARES DEMO.A
+80
+→
+82
++2
+COST BASIS
+45.00 EUR
+→
+45.12 EUR
++0.12
+WEIGHT IN SECURITIES
+66.67%
+→
+67.21%
++0.55 pt
+NAV
+10,000 €
+→
+10,000 €
+unchanged
+≡
+This is a simulation. Cash changes at the price you entered; securities are valued at the market price. NAV changes by the difference between the two; it is not constant by definition. The resulting cost basis uses our arithmetic: it normally matches the backend calculation, but this is not guaranteed.
+// YOUR LATEST RECORDED ORDERS
+SAME SCALE AS THE CASH BAR
+NOW
+DEMO.A
+100 €
+16/02
+DEMO.A
+915 €
+16/02
+DEMO.B
+1,900 €
+16/02
+DEMO.A
+2,685 €
+// CASH
+4,000.00 € · CURRENT BALANCE
+REFRESH
+THIS ORDER IS AN OUTFLOW
+−100.00 €
+3,900.00 € REMAINING
+MEDIAN 1,900 €
+YOUR MAXIMUM 2,685 €
+cash outflow —
+2.5%
+of the scale
+your
+3
+recorded orders, converted to EUR at today's exchange rates
+median and maximum
+the full width represents current cash
+: 4,000.00 €
+// THE BOOK
+SORTED BY VALUE — 0/2 ROWS ARRIVE IN A DIFFERENT ORDER
+TICKER	CCY	QTY	COST	LIVE	VALUE	WEIGHT	P&L	RANK CHANGE
+DEMO.A	EUR	80	45.00	50.00	4,000 €	66.67%	+11.11%	·
+DEMO.B	EUR	40	47.50	50.00	2,000 €	33.33%	+5.26%	·
+[ BELLOMBERG · OBSIDIAN ]
+ENGINE
+SYNTHETIC DEMO
+AGENTS
+4/6 RUN
+RUN IN PROGRESS
+SESSION 2026-09-13
+WORKSPACE · F1–F19 · CTRL+K
+DEMO · SYNTHETIC DATA
+
+DOCUMENTATION FORM VALUES
+f7-tk: DEMO.A
+f7-qt: 2
+f7-pz: 50
+f7-vl: EUR
+f7-data: 
+f7-ora: 
+f7-decisione: 32
+f7-rz: DEMO ticket exercise: two shares; preview only, no execution.
+f7-nt: 
+f7-mv-imp: 
+f7-mv-dt: 2026-09-13
+f7-mv-nt: 

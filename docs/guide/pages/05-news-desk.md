@@ -2,9 +2,10 @@
 
 [Handbook](../README.md) · [Previous: F4](./04-global-markets.md) · [Next: F6](./06-fundamentals.md)
 
-![F5 News Desk: original synthetic DEMO mockup](../../assets/product/05-news-desk.svg)
+![F5 News Desk: Wire — English DEMO screenshot](../../assets/screenshots/news-wire-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
 
 Read the news relevant to your book and research interests, then open the source
 before relying on a headline. News refresh and generated briefings depend on
@@ -35,6 +36,10 @@ check the origin label rather than assuming every event sentence is a quotation.
 An unreadable briefing cache is reported as an error, distinct from a briefing
 that has not yet been generated. Use the explicit refresh action when you intend
 to request new generated content.
+
+![News Desk briefing and calendars — English DEMO screenshot](../../assets/screenshots/news-desk-en.png)
+
+*The Desk tab with an authored DEMO briefing, invented events and source coverage.*
 
 ## Calendars need source checks
 Event calendars can combine provider data and recurring-date heuristics.

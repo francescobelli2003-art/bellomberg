@@ -42,21 +42,9 @@ const viste = (): { id: Vista; nome: string }[] => [
   { id: 'diario', nome: tr('movements.diary') },
 ];
 
-// Il tetto chiesto al backend. Serve come COSTANTE e non come letterale
-// dentro la chiamata perche' va confrontato con le righe rese: se ne
-// tornano esattamente LIMITE, quello che vedi e' una finestra e non lo
-// storico — e va detto invece di far passare 100 per il totale
-// (review 27/07, ALTA latente: oggi le righe sono 69).
+// Il limite della richiesta non equivale al totale dello storico.
 const LIMITE = 100;
-// Il tetto per i movimenti di cassa: 200, lo STESSO che chiede gia' il libretto
-// di F7 (`TradeEntryPage.tsx:55`), tenuto identico di proposito — due tetti
-// diversi sulla stessa tabella darebbero due verita' su due pagine. Il backend
-// lo clampa a 1..1000 (`memory_db.py:1119`).
-// ⚠️ SUI TRADE quel principio NON vale ed e' un debito, non una scelta: qui
-// `LIMITE = 100`, in F7 `LIMITE_TRADES = 200` (`TradeEntryPage.tsx:49`).
-// Oggi non si vede — il libro ha 75 righe — ma a 100 F14 dichiarera' una
-// finestra e F7 no. Allineare i due cambia cosa il PM vede in questa pagina,
-// quindi la decisione e' sua: voce aperta, non toccata qui.
+// I limiti trade delle due pagine differiscono: dichiarare la finestra quando satura.
 const LIMITE_CASSA = 200;
 
 export default function MovementsPage() {
@@ -137,10 +125,7 @@ export default function MovementsPage() {
        axios 30s, `api.ts`). Trenta secondi di dati stantii senza che nulla lo
        dicesse, e se la rilettura falliva di nuovo erano stati una bugia. Ogni
        errore si sostituisce quando la SUA risposta arriva, non prima. */
-    /* `allSettled` e non `all`: i due archivi sono INDIPENDENTI, e con `all`
-       un rifiuto della cassa avrebbe buttato anche una lettura dei titoli
-       andata a buon fine — cioe' avrebbe fatto sparire 75 righe vere per un
-       guasto che non le riguarda. */
+    /* Le due letture sono indipendenti: un errore di cassa non elimina i trade letti. */
     Promise.allSettled([
       Bellomberg.trades(LIMITE),
       Bellomberg.cashMovements(LIMITE_CASSA),
@@ -182,13 +167,8 @@ export default function MovementsPage() {
   };
   useEffect(carica, []);
 
-  // ── derivazioni sui TITOLI: la cassa non entra qui, e non deve ──────
-  // corsie, realizzato, cancello e arco parlano di titoli. Un flusso di cassa
-  // non ha ticker, prezzo ne' realizzato: lasciarlo entrare qui lo farebbe
-  // contare dove non c'entra, in silenzio.
-  // ⚠️ `perDataDesc` non si chiama piu' da qui: l'ordinamento e' passato dentro
-  // `fondiRegistro`, che deve ordinare DUE specie insieme. Il `useMemo` era
-  // rimasto e riordinava 75 righe a ogni cambio di `trades` per nessuno.
+  // Il registro unificato ordina entrambe le specie; evitare un secondo ordinamento.
+  // Arco, corsie e realizzato si derivano dai soli trade: la cassa non ha ticker.
   const arco = useMemo(() => arcoDi(trades), [trades]);
   const corsie = useMemo(() => (arco ? costruisciCorsie(trades, arco) : []), [trades, arco]);
   const cancello = useMemo(() => statoCancello(trades), [trades]);
@@ -300,16 +280,13 @@ export default function MovementsPage() {
               onClick={() => setVista(v.id)}
             >
               {v.nome}
-              {/* il numero sulla linguetta e' quello che QUELLA vista rende
-                  davvero: prima diceva 69 mentre il registro, filtrato, ne
-                  mostrava 9 (review 27/07, MEDIA). Le SCIE ignorano i filtri
-                  per progetto, quindi il loro numero non cambia. */}
+              {/* Il conteggio della linguetta descrive le righe rese; le corsie ignorano i filtri. */}
               <span className="k">
                 {v.id === 'registro' ? nd(filtrate.length)
                   /* le CORSIE parlano solo di titoli: leggere la cassa non le
                      rende note, e il loro n.d. non deve spegnersi per sbaglio */
-                  : v.id === 'scie' ? tr('movements.laneCount', {a: ndT(corsie.length)})
-                  : tr('movements.noteCount', {a: nd(soloConTesto.length)})}
+                  : v.id === 'scie' ? tr(lettoT && corsie.length === 1 ? 'movements.laneCountOne' : 'movements.laneCount', {a: ndT(corsie.length)})
+                  : tr(lettoQualcosa && soloConTesto.length === 1 ? 'movements.noteCountOne' : 'movements.noteCount', {a: nd(soloConTesto.length)})}
               </span>
             </button>
           ))}
@@ -374,24 +351,21 @@ export default function MovementsPage() {
                 a «cose successe». Il sub dice di cosa e' fatto — e se un
                 archivio non e' stato letto lo dice, invece di lasciar passare
                 un parziale per un totale. */}
-            {/* ⚠️ «MOSSE SUI TITOLI» e non «TITOLI»: due tessere piu' in la'
-                «Titoli 29» conta i ticker DISTINTI. Con la stessa parola per due
-                cose diverse nella stessa fascia, 75 e 29 sembravano lo stesso
-                genere di numero e non tornavano. */}
+            {/* Distinguere il numero delle operazioni dal numero dei ticker distinti. */}
             {lettoQualcosa && (
               <span className="sub">
                 {totaleIntero
-                  ? tr('movements.bothCounts', {a: trades.length, b: cassa.length})
+                  ? tr('movements.bothCounts', {a: tr(trades.length === 1 ? 'movements.tradeCountOne' : 'movements.tradeCount', {a: trades.length}), b: tr(cassa.length === 1 ? 'movements.cashCountOne' : 'movements.cashMovementCount', {a: cassa.length})})
                   : lettoT
-                    ? tr('movements.tradesOnlyCount', {a: trades.length})
-                    : tr('movements.cashOnlyCount', {a: cassa.length})}
+                    ? tr('movements.tradesOnlyCount', {a: tr(trades.length === 1 ? 'movements.tradeCountOne' : 'movements.tradeCount', {a: trades.length})})
+                    : tr('movements.cashOnlyCount', {a: tr(cassa.length === 1 ? 'movements.cashCountOne' : 'movements.cashMovementCount', {a: cassa.length})})}
               </span>
             )}
           </div>
           <div><span className="k">{tr('movements.securities')}</span><span className="v num">{ndT(corsie.length)}</span></div>
           <div>
             <span className="k">{tr('movements.span')}</span>
-            <span className="v num">{arco ? tr('movements.days', {a: arco.giorni}) : tr('movements.nd')}</span>
+            <span className="v num">{arco ? tr(arco.giorni === 1 ? 'movements.dayOne' : 'movements.days', {a: arco.giorni}) : tr('movements.nd')}</span>
           </div>
           <div>
             <span className="k">{tr('movements.flows')}</span>
@@ -452,11 +426,7 @@ export default function MovementsPage() {
                     <span className={'v num ' + (realizzato.somma >= 0 ? 'su' : 'giu')}>
                       {(realizzato.somma >= 0 ? '+' : '') + fmtNum(realizzato.somma, 2)} €
                     </span>
-                    {/* la somma non compare MAI da sola: porta con se' quante
-                        uscite la fanno e quanto pesa la piu' grossa. Sui dati
-                        veri una sola uscita vale il 62% dei guadagni, e una
-                        cifra nuda racconterebbe un risultato diffuso dove i
-                        dati dicono una posizione sola. */}
+                    {/* Accompagnare la somma con il numero delle uscite e la concentrazione del risultato. */}
                     <span className="sub">
                       {realizzato.n} {tr('movements.exitsDot')} {realizzato.vinte}↑ {realizzato.perse}↓
                       {realizzato.pari > 0 && ` ${realizzato.pari}=`}
@@ -494,14 +464,11 @@ export default function MovementsPage() {
                  lettura della cassa (era `noto`, che da oggi comprenderebbe
                  anche un archivio che con le corsie non c'entra) */
               : vista === 'scie' ? (lettoT
-                  ? tr('movements.trailsTitle', {a: corsie.length, b: arco ? tr('movements.timesDays', {a: arco.giorni}) : ''})
+                  ? tr(corsie.length === 1 ? 'movements.trailsTitleOne' : 'movements.trailsTitle', {a: corsie.length, b: arco ? tr(arco.giorni === 1 ? 'movements.timesDayOne' : 'movements.timesDays', {a: arco.giorni}) : ''})
                   : tr('movements.trailsUnknown'))
               : tr('movements.diaryTitle')}
           </h1>
-          {/* Ogni numero di questa riga descrive la STESSA popolazione: prima
-              "54 VOCI SU 69 MOVIMENTI" mescolava il filtrato col globale, e
-              col filtro BUY diceva 44 su 69 dove le 44 erano solo dei BUY
-              (review 27/07, MEDIA). Ora il denominatore e' dichiarato. */}
+          {/* Numeratore e denominatore descrivono la stessa popolazione filtrata. */}
           <span className="side">
             {vista === 'scie'
               ? tr('movements.heightMeaning')
@@ -522,15 +489,7 @@ export default function MovementsPage() {
                    (`bellomberg_api.py:1894`, `count = len(rows)`). F7 lo scrive
                    già così: «almeno N movimenti» (`TradeEntryPage.tsx:925`). */
                 ? tr('movements.renderedCount', {a: filtrate.length, b: finestra || finestraCassa ? tr('movements.atLeast') : '', c: nMov})
-                  /* ⚠️ La composizione «(75 SUI TITOLI + 2 DI CASSA)» NON sta
-                     qui quando entrambi sono letti: la dice gia' il `sub` del
-                     KPI Movimenti, sullo stesso schermo. Questa riga ha
-                     `text-overflow:ellipsis` e a `terzo` (1706px) ha 1302px
-                     utili: misurata, la parentesi costava **203px**, e i
-                     puntini passavano da 7 a 35 caratteri — mangiandosi
-                     l'avviso ⚠ sulle ore segnaposto, cioe' un buco DICHIARATO
-                     che diventava illeggibile. Nello stato PARZIALE resta,
-                     perche' li' e' l'informazione piu' importante della riga. */
+                  /* La composizione completa e gia nel KPI; ripeterla solo se una fonte non e stata letta. */
                   + (totaleIntero
                       ? ''
                       : lettoT
@@ -541,8 +500,7 @@ export default function MovementsPage() {
                      falso (es. CON COMMENTO con tutte le righe commentate) */
                   + (filtroAttivo ? tr('movements.filterActive') : '')
                 : tr('movements.commentsCount', {a: soloConTesto.length, b: filtrate.length})}
-            {/* la concentrazione sta ACCANTO alla somma, mai la somma da sola:
-                sui dati veri una sola uscita fa il 62% dei guadagni */}
+            {/* Rendere visibile la concentrazione del risultato, oltre alla sua somma. */}
             {realizzato && realizzato.stato === 'ok' && vista !== 'scie'
               && tr('movements.realizedCounts', {a: realizzato.n, b: realizzato.vinte, c: realizzato.perse})
                  + (realizzato.pari > 0 ? tr('movements.flatCount', {a: realizzato.pari}) : '')

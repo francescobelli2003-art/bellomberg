@@ -2,9 +2,10 @@
 
 [Handbook](../README.md) · [Previous: F18](./18-mandate-journal.md)
 
-![F19 Settings: original synthetic DEMO mockup](../../assets/product/19-settings.svg)
+![F19 Settings: Settings panel — English DEMO screenshot](../../assets/screenshots/settings-en.png)
 
-*DEMO illustration: invented instruments, values and text; not a screenshot.*
+*English app screenshot with invented DEMO data. Analytics and histories are
+authored synthetic snapshots, not results measured on a real account.*
 
 **F19** opens the settings panel. It is the last navigation destination and is
 also reachable through **Ctrl+K → F19**. It is a panel over the current workspace,

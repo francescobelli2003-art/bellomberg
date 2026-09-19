@@ -35,36 +35,50 @@ const fmtModel = (m: string) =>
   m.replace('claude-', '').replace(/-\d{8}$/, '').toUpperCase().replace(/-/g, ' ');
 
 function useTelemetry() {
-  const [tel, setTel] = useState<{ engine: string | null; engineMissing: boolean; total: number | null; done: number | null; running: boolean; ok: boolean }>(
-    { engine: null, engineMissing: false, total: null, done: null, running: false, ok: true });
+  const [tel, setTel] = useState<{ engine: string | null; engineMissing: boolean; total: number | null; done: number | null; running: boolean | null; ok: boolean }>(
+    { engine: null, engineMissing: false, total: null, done: null, running: null, ok: true });
   useEffect(() => {
     let mounted = true;
     // Mai un 8 inventato: senza payload il conteggio è n.d. (regola 14/07)
     let total: number | null = null;
+    let inFlight = false;
     Bellomberg.agentsList().then(r => {
-      total = r.agents?.length || null;
+      total = Array.isArray(r?.agents) ? r.agents.length : null;
       // ENGINE = motore del COMITATO (engines.committee_r1_r2, voce ponte 26/07);
       // agents[].model è il modello CHAT e qui mentirebbe. engines assente
       // (backend pre-riavvio) o import fallito = buco dichiarato, mai proxy.
-      const eng = r.engines;
+      const eng = r?.engines;
       const m = eng?.committee_r1_r2 ? fmtModel(eng.committee_r1_r2)
         : eng?.committee_r1_r2_error ? 'ERR: ' + eng.committee_r1_r2_error
         : null;
-      if (mounted) setTel(t => ({ ...t, engine: m, engineMissing: m === null, total }));
-    }).catch(() => { if (mounted) setTel(t => ({ ...t, engine: 'OFFLINE', total: null, ok: false })); });
+      if (mounted) setTel(t => ({ ...t, engine: m, engineMissing: m === null,
+        total: t.running === false ? total : t.total }));
+    }).catch(() => {
+      total = null;
+      if (mounted) setTel(t => ({ ...t, engine: 'OFFLINE', engineMissing: false,
+        total: t.running === false ? null : t.total }));
+    });
     const poll = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const live = await Bellomberg.agentsLive();
         if (!mounted) return;
-        if (live.running) {
-          const st = live.specialist_status || {};
-          const done = Object.values(st).filter(v => v === 'done').length;
-          const tot = Object.keys(st).length || total;
+        if (typeof live?.running !== 'boolean' || live.heartbeat === 'illeggibile') {
+          setTel(t => ({ ...t, done: null, total: null, running: null, ok: true }));
+        } else if (live.running) {
+          const st = live.specialist_status;
+          const valid = st != null && typeof st === 'object' && !Array.isArray(st)
+            && Object.entries(st).every(([key, value]) => key.trim().length > 0
+              && ['idle', 'running', 'done', 'error'].includes(value));
+          const done = valid ? Object.values(st).filter(v => v === 'done').length : null;
+          const tot = valid ? Object.keys(st).length : null;
           setTel(t => ({ ...t, done, total: tot, running: true, ok: true }));
         } else {
           setTel(t => ({ ...t, done: null, total, running: false, ok: true }));
         }
-      } catch { if (mounted) setTel(t => ({ ...t, ok: false })); }
+      } catch { if (mounted) setTel(t => ({ ...t, done: null, total: null, running: null, ok: false })); }
+      finally { inFlight = false; }
     };
     poll();
     const i = setInterval(poll, 15000);
@@ -383,12 +397,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <span className="flex items-center gap-1.5">
           <span className="text-faint uppercase">{t('shell.agents')}</span>
           <span className={tel.running ? 'text-emerald' : 'text-amber'}>{tel.running
-            ? `${tel.done}/${tel.total ?? t('shell.unavailable')} RUN`
+            ? `${tel.done ?? t('shell.unavailable')}/${tel.total ?? t('shell.unavailable')} RUN`
             : tel.total == null ? t('shell.unavailable') : `${tel.total} ${t('shell.ready')}`}</span>
         </span>
         <span className="flex items-center gap-1">
           {tel.running
             ? <span className="text-emerald flex items-center gap-1"><Zap size={9} /> {t('shell.live_run')}</span>
+            : tel.ok && tel.running === null
+              ? <span className="text-amber">{t('shell.unavailable')}</span>
             : tel.ok
               ? <span className="text-cyan flex items-center gap-1"><Zap size={9} /> ONLINE</span>
               : <span className="text-crimson">OFFLINE</span>}
