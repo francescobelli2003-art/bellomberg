@@ -19,6 +19,7 @@ Cosa deve essere vero:
 
 Client finto, zero rete (idioma di test_tetto_specialisti_16k).
 """
+import pytest
 from test_tetto_specialisti_16k import bb, _FakeClient, _Resp, _TextBlock, _Usage, _MockSpecialist  # noqa: F401
 
 
@@ -28,13 +29,18 @@ def _vuoto_poi_report(n, kw):
     return _Resp("end_turn", [_TextBlock("REPORT DOPO IL RITENTATIVO")], _Usage(out=300))
 
 
-def test_troncatura_a_zero_char_ritenta_una_volta_senza_ragionamento(bb, capsys):
+@pytest.mark.parametrize("model,thinking", [
+    ("google/gemini-3.8-flash", {"type": "adaptive"}),
+    ("meta/muse-spark-1.3", {"type": "effort", "effort": "max"}),
+])
+def test_troncatura_a_zero_char_ritenta_una_volta_senza_ragionamento(bb, capsys, monkeypatch, model, thinking):
+    monkeypatch.setenv("CONSIGLIERE_QUANT_MODEL", model)
     client = _FakeClient(_vuoto_poi_report)
     out = _MockSpecialist(bb, client=client).run(2)
     assert "REPORT DOPO IL RITENTATIVO" in out
     assert "No output produced" not in out
     assert len(client.calls) == 2, [c.get("thinking") for c in client.calls]
-    assert client.calls[0]["thinking"] == {"type": "adaptive"}
+    assert client.calls[0]["thinking"] == thinking
     assert client.calls[1]["thinking"] == {"type": "disabled"}
     # 12/09: fino a f710bd3 qui si asseriva `== {"type": "none"}`, cioe' si FISSAVA che il
     # ritentativo non potesse chiamare tool. Verso invertito con la via A del mandato:

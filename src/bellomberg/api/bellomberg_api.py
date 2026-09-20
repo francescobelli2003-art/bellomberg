@@ -658,11 +658,13 @@ if FASTAPI_OK:
     from bellomberg.api.agent_progress_routes import create_agent_progress_router
     from bellomberg.api.options_routes import create_options_router
     from bellomberg.api.language_routes import create_language_router
+    from bellomberg.api.filing_routes import create_filing_router
 
     app.include_router(create_journal_router(get_db, require_session))
     app.include_router(create_agent_progress_router(require_session))
     app.include_router(create_options_router(require_session))
     app.include_router(create_language_router(require_session))
+    app.include_router(create_filing_router(require_session))
 
     @app.get("/health")
     def health():

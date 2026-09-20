@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { externalWebUrl } from '../../electron/security';
 import { Bellomberg, MktSearchHit, MktQuote, MktNewsItem, MktFinancials, MktHolders, FinBlock, MktOverview, MktOverviewRow } from '@/lib/api';
 import TvChartPanel from '@/components/TvChartPanel';
+import FilingDiffPanel from '@/components/FilingDiffPanel';
 import { Search, Cpu, Heart, Activity, RefreshCw, AlertOctagon } from 'lucide-react';
 import { isInPulse, togglePulse } from '@/lib/pulse';
 import { useT } from '@/i18n/provider';
@@ -513,6 +514,8 @@ export default function MarketPage() {
               </div>
             </div>
           </div>
+
+          <FilingDiffPanel key={tk} ticker={tk} />
 
           {/* PROFILO */}
           {quote?.summary && (

@@ -37,7 +37,12 @@ def relazione(anno, *, inizio=None, fine=None, rischio="Demand is uncertain.", t
 
 def rete(monkeypatch, pagine):
     from bellomberg.market_data import lettore_trimestrali
+    import socket
     chiamate = []
+    # Il resolver e' sintetico come l'HTTP: il guard public_only deve vedere un
+    # indirizzo pubblico, senza fare DNS reale per gli host *.example del test.
+    monkeypatch.setattr(lettore_trimestrali.socket, "getaddrinfo",
+                        lambda *_a, **_k: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))])
 
     class Risposta:
         def __init__(self, url, content):

@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Bellomberg, ValuationModel, ValuationDetail, API_BASE } from '@/lib/api';
 import { FileSpreadsheet, Download, AlertTriangle } from 'lucide-react';
 import { prepareValuationModel, valuationBadge } from '@/lib/sector-valuation';
+import FilingDiffPanel from '@/components/FilingDiffPanel';
 
 // F17 Fundamentals — OPZIONE B scelta dal PM (17/07, mockup renderizzato, regola
 // 15/07): master-detail stile terminal. Sinistra: tabella densa (un modello canonico
@@ -676,6 +677,8 @@ export default function FundamentalsPage() {
           )}
         </div>
       </div>
+
+      {sel?.ticker && <FilingDiffPanel key={sel.ticker} ticker={sel.ticker} />}
 
       {vecchi.length > 0 && (
         <div className="panel">

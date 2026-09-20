@@ -22,6 +22,8 @@ in data/trimestrali/<ticker>/ (runtime, non committato).
 import os
 import re
 import hashlib
+import ipaddress
+import socket
 import tempfile
 from io import BytesIO
 from html.parser import HTMLParser
@@ -160,8 +162,33 @@ def _estrai_html(grezzo: bytes) -> dict:
             "pagine": None, "formato": "html", "codifica": codifica}
 
 
+def _richiedi_indirizzi_pubblici(host: str, port: int) -> None:
+    """Fail closed on local/private DNS answers before an I-20 HTTP request.
+
+    Requests performs its own resolution later; this is a preflight, not peer pinning.
+    """
+    canonical = host.rstrip(".").lower()
+    if canonical == "localhost" or canonical.endswith(".localhost"):
+        raise ValueError("host locale non consentito")
+    try:
+        literal = ipaddress.ip_address(canonical)
+    except ValueError:
+        literal = None
+    if literal is not None:
+        if not literal.is_global:
+            raise ValueError("indirizzo IP non pubblico")
+        return
+    answers = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    if not answers:
+        raise ValueError("DNS senza indirizzi: documento non scaricato")
+    for answer in answers:
+        address = ipaddress.ip_address(answer[4][0].split("%", 1)[0])
+        if not address.is_global:
+            raise ValueError("DNS risolve a indirizzo IP non pubblico")
+
+
 def scarica_documento(url: str, dest_dir: str, timeout: int = 30, *,
-                      host_consentiti=None) -> dict:
+                      host_consentiti=None, public_only: bool = False) -> dict:
     """Snapshot immutabili; host curati opzionali, controllati prima di ogni GET.
 
     Senza host_consentiti resta il download legacy con redirect automatici.
@@ -169,6 +196,8 @@ def scarica_documento(url: str, dest_dir: str, timeout: int = 30, *,
     """
     temporaneo = None
     try:
+        if public_only and host_consentiti is None:
+            raise ValueError("public_only richiede host_consentiti espliciti")
         if host_consentiti is None:
             if urlsplit(url).scheme not in ("http", "https"):
                 raise ValueError("URL HTTP(S) richiesto")
@@ -194,6 +223,8 @@ def scarica_documento(url: str, dest_dir: str, timeout: int = 30, *,
                     raise ValueError("credenziali negli URL non consentite")
                 if not parti.hostname or parti.hostname not in consentiti:
                     raise ValueError(f"host non consentito: {parti.hostname}")
+                if public_only:
+                    _richiedi_indirizzi_pubblici(parti.hostname, parti.port or (443 if parti.scheme == "https" else 80))
                 if corrente in visitati:
                     raise ValueError("redirect circolare: URL gia' visitato")
                 visitati.add(corrente)

@@ -7,6 +7,46 @@ import type { AnteprimaMandato, StatoMandato, ValoriMandato } from './mandato';
 
 export const API_BASE = (window as any).bellomberg?.apiUrl || 'http://127.0.0.1:8765';
 
+export interface FilingCitation {
+  sezione?: string; testo?: string; url?: string; sha256?: string;
+  pagine_fisiche?: number[]; inizio?: number; fine?: number; src?: string;
+}
+export interface FilingDiff {
+  stato: string; motivi?: string[]; limiti?: string[]; sezioni_confrontate?: string[];
+  similarita_sezioni?: Record<string, { jaccard?: number | null; coseno?: number | null; metodo?: string }>;
+  misure?: { segmenti_prima?: number; segmenti_dopo?: number; cambiamenti?: number };
+  cambiamenti?: { tipo: string; prima?: FilingCitation; dopo?: FilingCitation }[];
+  segmenti_non_confrontabili?: { prima?: FilingCitation; dopo?: FilingCitation }[];
+  ambito?: string;
+}
+export interface FilingResult {
+  stato: string; motivi?: string[]; candidati?: { fonte?: string; url?: string; stato: string; motivi?: string[]; sha256?: string; metadati?: Record<string, string> }[];
+  copertura?: { stato?: string; limiti?: string[]; candidati_osservati?: number; max_documenti?: number; documenti_tentati?: number };
+  freschezza?: { stato: string; checked_at?: string; ultimo_periodo?: string; next_report_date?: string; next_report_source?: string; verificato_il?: string; motivi?: string[] };
+  fonti?: { nome?: string; stato?: string; motivi?: string[] }[];
+  coppia?: { ambito?: string; prima?: { url?: string; sha256?: string; metadati?: Record<string, string> }; dopo?: { url?: string; sha256?: string; metadati?: Record<string, string> } } | null;
+  confronto_corrente?: FilingDiff | null; confronto_storico?: FilingDiff | null;
+  ultimo_non_verificato?: boolean;
+}
+export interface FilingRun {
+  id: number; ticker: string; status: string; started_at?: string | null; finished_at?: string | null;
+  trigger?: string; profile_version?: number | null; reason?: string | null;
+}
+export interface FilingProfile {
+  ticker: string; profile: Record<string, unknown>; version: number; enabled: boolean;
+  interval_hours: number; qualitative_enabled: boolean; next_due_at?: string | null;
+}
+export interface FilingListing {
+  ticker: string; status: string; reason?: string | null; profile: FilingProfile | null;
+  runs: FilingRun[]; active_run: FilingRun | null;
+}
+export interface FilingRunDetail extends FilingRun {
+  result?: FilingResult | null;
+  judgment?: { status: string; findings?: { category?: string; assessment?: string; citations?: string[] }[]; reason?: string; model?: string; usage?: Record<string, unknown>;
+    coverage?: { shown?: number; total?: number }; citations_available?: { id: string; testo: string; sezione?: string; url: string; sha256: string }[] } | null;
+  index?: { status: string; reason?: string } | null;
+}
+
 const api = axios.create({
   baseURL: API_BASE,
   timeout: 30000,
@@ -1091,6 +1131,11 @@ export const Bellomberg = {
   fx: () => api.get<{rates: Record<string, number>}>('/fx').then(r => r.data),
   memos: (limit = 20) => api.get<{memos: Memo[]}>(`/memos?limit=${limit}`).then(r => r.data),
   valuationModels: () => api.get<{count: number; models: ValuationModel[]; nota?: string}>('/fundamentals/models').then(r => r.data),
+  filingList: (ticker: string) => api.get<FilingListing>(`/filings/${encodeURIComponent(ticker)}`).then(r => r.data),
+  filingRun: (runId: number) => api.get<FilingRunDetail>(`/filings/runs/${encodeURIComponent(runId)}`).then(r => r.data),
+  filingRefresh: (ticker: string) => api.post<{run_id: number; status: 'queued'}>(`/filings/${encodeURIComponent(ticker)}/refresh`).then(r => r.data),
+  filingSaveProfile: (ticker: string, data: { profile: Record<string, unknown>; enabled: boolean; interval_hours: number; qualitative_enabled: boolean }) =>
+    api.put<FilingProfile>(`/filings/${encodeURIComponent(ticker)}/profile`, data).then(r => r.data),
   memoById: (id: number) => api.get<Memo>(`/memos/${id}`).then(r => r.data),
   // include_empty=true fa vedere anche le run FALLITE (markdown < 100 char):
   // in DB sono 46 righe e la lista di default ne mostra 18. F9 le conta per

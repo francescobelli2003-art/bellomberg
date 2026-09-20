@@ -77,6 +77,18 @@ class _MockSpecialist(Specialist):
     tools_used = []
 
 
+@pytest.mark.parametrize("round_n", [0, 1, 2])
+def test_muse_specialist_sends_explicit_max_for_every_round(bb, monkeypatch, round_n):
+    from bellomberg.core.llm_client import costruisci_corpo
+    monkeypatch.setenv("CONSIGLIERE_R0_MODEL", "meta/muse-spark-1.3")
+    monkeypatch.setenv("CONSIGLIERE_QUANT_MODEL", "meta/muse-spark-1.3")
+    client = _FakeClient(lambda n, kw: _text_resp("Synthetic report."))
+    _MockSpecialist(bb, client=client).run(round_n)
+    assert client.calls
+    for call in client.calls:
+        assert costruisci_corpo(**call)["reasoning"] == {"effort": "max"}
+
+
 @pytest.fixture
 def bb(tmp_path, monkeypatch):
     monkeypatch.setattr(Blackboard, "HEARTBEAT_PATH",
@@ -107,6 +119,16 @@ def bb(tmp_path, monkeypatch):
     board = Blackboard()  # memory_db=None: nessuna scrittura DB
     yield board
     llm_pricing.reset_fx_memo()
+
+
+def test_missing_model_still_returns_a_declared_round_error(bb, monkeypatch):
+    monkeypatch.delenv("CONSIGLIERE_QUANT_MODEL", raising=False)
+    monkeypatch.delenv("CONSIGLIERE_MODEL", raising=False)
+    client = _FakeClient(lambda n, kw: pytest.fail("Missing model must not call the API"))
+    report = _MockSpecialist(bb, client=client).run(1)
+    assert report.startswith("[ERROR quant round 1]")
+    assert "CONSIGLIERE_MODEL" in report
+    assert not client.calls
 
 
 def test_report_forzato_alla_decima_iterazione(bb, capsys):

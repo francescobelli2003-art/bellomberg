@@ -942,6 +942,8 @@ class MemoryDB:
                 # SOLO da tools/migrations/migra_method_records.py (dry-run, backup).
                 from bellomberg.storage.method_records_store import crea_tabelle as _crea_archivio_record
                 _crea_archivio_record(conn)
+                from bellomberg.storage.filing_store import ensure_schema as _crea_archivio_filing
+                _crea_archivio_filing(conn)
                 conn.commit()
             self._migrate_trade_history_check(conn)
             self._migrate_archive_override(conn)

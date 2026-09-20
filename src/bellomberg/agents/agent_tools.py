@@ -2688,3 +2688,15 @@ TOOL_DISPATCHER["get_congress_trades"] = tool_get_congress_trades
 TOOL_DISPATCHER["get_lobbying"] = tool_get_lobbying
 TOOL_DISPATCHER["get_gov_contracts"] = tool_get_gov_contracts
 TOOL_DISPATCHER["get_insider_trades"] = tool_get_insider_trades
+
+
+def tool_get_filing_changes(ticker):
+    from bellomberg.agents.filing_context import get_filing_changes
+    return get_filing_changes(ticker)
+
+
+TOOLS_SCHEMA.append({"name": "get_filing_changes",
+                     "description": "Sola lettura archivio locale dei filing: confronto, citazioni, copertura, freschezza e giudizio; nessun nuovo fetch o fair value.",
+                     "input_schema": {"type": "object", "properties": {"ticker": {"type": "string"}},
+                                      "required": ["ticker"]}})
+TOOL_DISPATCHER["get_filing_changes"] = tool_get_filing_changes

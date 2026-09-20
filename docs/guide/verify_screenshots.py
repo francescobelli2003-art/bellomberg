@@ -27,6 +27,10 @@ MAX_PIXELS = 16 * 1024 * 1024
 SOURCE_DIRS = ("app/src/", "app/electron/", "app/public/", "app/resources/")
 ROOT_SOURCE_SUFFIXES = {".json", ".js", ".cjs", ".mjs", ".ts", ".html", ".css"}
 ROOT_SOURCE_NAMES = {".npmrc", ".nvmrc", ".browserslistrc"}
+# PM-ratified capture of 2026-09-19. Only these exact manifest bytes may be
+# described as historical after the app sources change; never as a live rebuild.
+HISTORICAL_MANIFEST_SHA256 = "af18462e50732f2c90c328f538f477180dbedc8006e9ce4c6a5a61fe163b49ab"
+HISTORICAL_CAPTURE_DATE = "2026-09-19"
 
 
 class ScreenshotError(ValueError):
@@ -183,7 +187,10 @@ def verify_tree(tree, manifest_path=MANIFEST_PATH):
     _require(isinstance(manifest["app_version"], str) and manifest["app_version"]
              and isinstance(package, dict) and package.get("version") == manifest["app_version"], "Application version drift")
     _digest(build["bundle_sha256"])
-    _require(build_source_digest(tree) == _digest(build["source_sha256"]), "Build source digest drift")
+    captured_source = _digest(build["source_sha256"])
+    current_source = build_source_digest(tree)
+    historical = _sha(tree[manifest_path]) == HISTORICAL_MANIFEST_SHA256
+    _require(current_source == captured_source or historical, "Build source digest drift")
     _require(isinstance(manifest["images"], list) and manifest["images"], "Empty or invalid screenshot inventory")
     receipts, dom_paths = {}, set()
     for item in manifest["images"]:
@@ -205,6 +212,8 @@ def verify_tree(tree, manifest_path=MANIFEST_PATH):
             raise ScreenshotError("DOM companion is not UTF-8") from exc
         _require("\x00" not in text and WATERMARK in text, "DOM companion lacks the synthetic watermark")
         receipts[path] = {**info, "manifest_sha256": _sha(tree[manifest_path]), "dom_path": dom_path,
+                          "source_status": "historical" if historical and current_source != captured_source else "current",
+                          "captured_source_sha256": captured_source, "current_source_sha256": current_source,
                           "dom_sha256": item["dom_sha256"], "language": item["language"], "route": item["route"]}
         dom_paths.add(dom_path)
     _require(set(receipts) == candidates, "PNG inventory differs from capture manifest")
@@ -253,6 +262,10 @@ def main(argv=None):
     except (OSError, ScreenshotError) as exc:
         print("Screenshot verification failed: " + str(exc))
         return 1
+    historical = sum(row["source_status"] == "historical" for row in receipts.values())
+    if historical:
+        print(f"{historical} historical screenshots captured by {HISTORICAL_CAPTURE_DATE}; "
+              "they do not depict the current renderer")
     print(f"{len(receipts)} screenshots structurally verified; pixels require visual review, not secret-scanner certification")
     return 0
 

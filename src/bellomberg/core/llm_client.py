@@ -101,6 +101,9 @@ _MSG_RAGIONAMENTO_OBBLIGATORIO = "reasoning is mandatory"
 # cache_control conservato solo qui: gli altri provider (Z.ai, DeepSeek, Google) cachano da
 # soli e riportano cached_tokens; mandare loro il campo non aggiunge nulla e puo' essere rifiutato.
 PREFISSI_CACHE_CONTROL = ("anthropic/",)
+# 20/09: capacita' verificate sullo slug standard (non Contributor): auto-only
+# per tool_choice, Max disponibile. La scelta dei modelli resta nel .env.
+MUSE_STANDARD = "meta/muse-spark-1.3"
 
 VARIABILI_BASE = (
     "OPENROUTER_API_KEY", "CHAT_MODEL", "CHAT_MAX_TOKENS", "CONSIGLIERE_MODEL",
@@ -522,10 +525,22 @@ def _tool_choice_openai(tc):
     raise ValueError("tool_choice non riconosciuto: " + repr(tc))
 
 
+def thinking_consigliere(model):
+    """Scelta PM 20/09: Max solo per i desk Muse; gli altri ruoli restano invariati."""
+    if model == MUSE_STANDARD:
+        return {"type": "effort", "effort": "max"}
+    return {"type": "adaptive"}
+
+
 def _reasoning_openai(thinking, model=""):
     if thinking is None:
         return None
     tipo = thinking.get("type")
+    if tipo == "effort":
+        effort = thinking.get("effort")
+        if effort not in ("minimal", "low", "medium", "high", "xhigh", "max"):
+            raise ValueError("reasoning effort non riconosciuto: " + repr(effort))
+        return {"effort": effort}
     if tipo == "adaptive":
         if str(model).startswith(PREFISSI_RAGIONAMENTO_NATIVO):
             return None   # misurato: su GLM ogni effort azzera il ragionamento; omesso = acceso
@@ -551,11 +566,14 @@ def costruisci_corpo(model, max_tokens, messages, system=None, tools=None, tool_
         msgs.append(s)
     msgs.extend(_messaggi_openai(messages, conserva))
     corpo = {"model": model, "messages": msgs, "max_tokens": int(max_tokens)}
-    if tools:
-        corpo["tools"] = _tools_openai(tools)
     tc = _tool_choice_openai(tool_choice)
-    if tc is not None:
-        corpo["tool_choice"] = tc
+    # Muse rifiuta anche `none`: omettere entrambi disabilita davvero i tool
+    # nel turno finale. Cronologia, risultati e nudge restano nel payload.
+    if not (model == MUSE_STANDARD and tc == "none"):
+        if tools:
+            corpo["tools"] = _tools_openai(tools)
+        if tc is not None:
+            corpo["tool_choice"] = tc
     r = _reasoning_openai(thinking, model)
     if r is not None:
         corpo["reasoning"] = r

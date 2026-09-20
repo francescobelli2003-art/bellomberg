@@ -451,6 +451,16 @@ def run_multi_agent():
     # chi replica in R2: per gli ALTRI il report R1 e' il finale e va persistito
     # come tale (v. Blackboard.write) — senza questo la memoria li perderebbe
     bb.r2_specialists = set(R2_SPECIALISTS)
+    # I-20: fotografia read-only dell'archivio per i ticker realmente presenti nel DB.
+    # Il contesto non e' un desk e non altera expected_reports o i round.
+    try:
+        from bellomberg.agents.filing_context import committee_filing_context
+        _filing_tickers = [p.get("ticker") for p in (portfolio or {}).get("positions", [])
+                           if isinstance(p, dict) and p.get("ticker")]
+        bb.data["_filing_context"] = committee_filing_context(_filing_tickers)
+    except Exception as exc:
+        bb.data["_filing_context"] = ("ARCHIVIO FILING NON DISPONIBILE: "
+                                      + type(exc).__name__ + ": " + str(exc)[:200])
 
     # HEALTH-CHECK PRE-RUN (audit/07 §3, P1): il giorno del memo #42 var_contribution
     # rispondeva "insufficient history: 0 obs" e la run e' partita comunque, senza

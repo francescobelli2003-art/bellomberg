@@ -34,7 +34,7 @@ def _scarica(url, archivio, hosts):
     from bellomberg.market_data.lettore_trimestrali import scarica_documento
     if _host(url) not in hosts:
         raise ValueError(f"host documentale non autorizzato: {_host(url)}")
-    result = scarica_documento(url, str(archivio), host_consentiti=hosts)
+    result = scarica_documento(url, str(archivio), host_consentiti=hosts, public_only=True)
     if result.get("stato") != "ok":
         raise ValueError(result.get("motivo", "download non disponibile"))
     finale = result.get("url_finale") or url

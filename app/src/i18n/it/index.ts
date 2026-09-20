@@ -4,6 +4,7 @@ import { activity } from './activity.js';
 import { settings } from './settings.js';
 import { newsdesk } from './newsdesk.js';
 import { fundamentals } from './fundamentals.js';
+import { filings } from './filings.js';
 import { factors } from './factors.js';
 import { montecarlo } from './montecarlo.js';
 import { edge } from './edge.js';
@@ -25,6 +26,7 @@ export const it = {
   settings,
   newsdesk,
   fundamentals,
+  filings,
   factors,
   montecarlo,
   edge,

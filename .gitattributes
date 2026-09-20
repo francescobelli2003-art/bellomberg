@@ -39,3 +39,9 @@ app/tests/fixtures/documentation-demo.json text eol=lf
 docs/assets/screenshots/*.png -text
 docs/assets/screenshots/*.dom.txt -text
 docs/assets/screenshots/manifest.json -text
+
+# Frontend source size is stable across checkouts, like Python above.
+*.ts text eol=lf
+*.tsx text eol=lf
+*.cjs text eol=lf
+app/tests/fixtures/filing-pipeline.json text eol=lf

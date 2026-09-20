@@ -181,3 +181,17 @@ def test_empty_inventory_is_explicit_and_cli_never_reads_runtime(tmp_path, capsy
     assert screenshots.main(["--root", str(tmp_path)]) == 1
     assert any(path.name == "demo-en.dom.txt" for path in observed)
     assert any(path.name == "main.ts" for path in observed)
+
+
+def test_only_exact_historical_manifest_allows_later_source_drift(monkeypatch):
+    tree, manifest = capture_tree()
+    exact_hash = hashlib.sha256(tree[screenshots.MANIFEST_PATH]).hexdigest()
+    monkeypatch.setattr(screenshots, "HISTORICAL_MANIFEST_SHA256", exact_hash)
+    tree["app/src/main.ts"] += b"later feature\n"
+    receipts = screenshots.verify_tree(tree)
+    assert all(row["source_status"] == "historical" for row in receipts.values())
+    # An unratified candidate remains bound to its live app sources.
+    manifest["images"][0]["route"] = "/other"
+    tree[screenshots.MANIFEST_PATH] = json.dumps(manifest).encode()
+    with pytest.raises(screenshots.ScreenshotError, match="Build source digest drift"):
+        screenshots.verify_tree(tree)

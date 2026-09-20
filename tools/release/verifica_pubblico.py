@@ -56,9 +56,21 @@ GITLEAKS_EXIT_HIT = 7   # il codice che gitleaks usa per «leak trovati» SOLO s
 GITLEAKS_SCOPERTI = ("app/package-lock.json",)   # l'allowlist globale del config di default 8.30.1
                         # salta i lockfile: il MOTORE non li legge (li leggono i
                         # controlli in memoria). Ogni altro salto e' un KO, non una nota.
-MAX_TREE = 15 * 1024 * 1024 + 256 * 1024
+MAX_TREE = 15 * 1024 * 1024 + 384 * 1024
 MAX_FILE = 2 * 1024 * 1024
 BUDGET_SCREENSHOTS = "BUDGET_SCREENSHOTS_APPROVATO.json"
+# Exact private PM ratification metadata for the one historical public manifest.
+HISTORICAL_MANIFEST_SHA256 = "af18462e50732f2c90c328f538f477180dbedc8006e9ce4c6a5a61fe163b49ab"
+# Git index uses LF; the observed Windows checkout uses CRLF. These are the
+# only two approved byte strings for each metadata file, not a line-ending rule.
+HISTORICAL_PINS_SHA256 = frozenset({
+    "4946f2c9bfb1baca09f9380eca25f09e3d20f065ad490ada6946b54f26a67f38",
+    "d484d627b5700d026c13dd3795fedaa74d2da9c01a9da5ce53cb9efb0b88fbe7",
+})
+HISTORICAL_BUDGET_SHA256 = frozenset({
+    "3a59bf9e00a7337d63f2cbe54242c1dafdc723e683c5515e44618dccefab83c4",
+    "7d231c9032f771e926504363852a661a9174e3abcd69af6bc158639d6b4f9197",
+})
 MIN_ENV = 8
 MIN_TOKEN = 6
 CONTROLLI = ("gitleaks", "vietate", "env", "esclusi", "lotti", "dimensione",
@@ -1511,6 +1523,9 @@ COLONNE_TESTO_UTENTE = (
     ("themes_tracked", "theme", None, "tema tracciato: nessuno scrittore nel codice oggi, dentro per prudenza"),
     ("themes_tracked", "notes", None, "note dei temi: nessuno scrittore nel codice oggi, dentro per prudenza"),
     ("method_record_reviews", "note", None, "nota del PM sulla revisione di un set di record documentati (D1A, 13/09)"),
+    ("filing_runs", "reason", None, "solo suffisso di 'recovery esplicito: ' scritto dall'operatore via recover_run; altri reason vengono da servizio/pipeline"),
+    ("filing_profiles", "profile_json", None, "JSON configurato dall'utente: campi extra liberi possono contenere note private oltre a ticker, URL e regex"),
+    ("filing_runs", "profile_json", None, "copia congelata del profilo utente al claim della run: conserva anche eventuali note private"),
 )
 
 COLONNE_TESTO_NON_UTENTE = (
@@ -1533,7 +1548,8 @@ COLONNE_TESTO_NON_UTENTE = (
         "trade_history.data", "trade_history.created_at", "valuation_snapshot_links.created_at",
         "valuation_snapshots.created_at", "valuation_theses.date", "method_record_reviews.reviewed_at",
         "method_record_sets.prepared_at", "method_record_sets.earliest_valid_until",
-        "method_record_sets.latest_as_of")),
+        "method_record_sets.latest_as_of",
+        "filing_profiles.created_at", "filing_runs.started_at", "filing_runs.finished_at")),
     ("valore di un insieme chiuso (tipo, stato, ruolo, azione, lingua, valuta, sentiment)", (
         "cash_movements.type", "chat_messages.role", "chat_messages.output_language", "chat_sessions.specialist",
         "chat_sessions.output_language", "company_guidance.metric", "company_guidance.period",
@@ -1545,12 +1561,14 @@ COLONNE_TESTO_NON_UTENTE = (
         "position_openings.precisione_data", "position_prices.valuta", "positions.valuta",
         "specialist_reports.specialist", "specialist_reports.output_language", "themes_tracked.conviction",
         "themes_tracked.status", "trade_history.action", "trade_history.valuta", "valuation_theses.sanity_severity",
-        "method_record_reviews.decision")),
+        "method_record_reviews.decision", "filing_runs.judgment_language",
+        "filing_runs.trigger", "filing_runs.status")),
     ("identificativo tecnico o impronta", (
         "agent_score_history.run_id", "agent_score_history.payload_sha256", "valuation_snapshot_links.snapshot_id",
         "valuation_snapshot_links.generation_id", "valuation_snapshots.snapshot_id",
         "valuation_snapshots.generation_id", "valuation_snapshots.payload_sha256",
-        "method_record_sets.method_id", "method_record_sets.method_version", "method_record_sets.records_sha256")),
+        "method_record_sets.method_id", "method_record_sets.method_version", "method_record_sets.records_sha256",
+        "filing_profiles.profile_sha256", "filing_runs.profile_sha256", "filing_runs.evidence_key")),
     ("chi prepara o rivede un set di record: etichetta d'identita', non testo libero", (
         "method_record_sets.prepared_by", "method_record_reviews.reviewer")),
     ("set di record documentati preparati dai modelli dai documenti ufficiali (D1A): record, motivazioni "
@@ -1562,7 +1580,17 @@ COLONNE_TESTO_NON_UTENTE = (
         "favorite_companies.sector", "favorite_companies.industry", "iv_history.ticker", "journal_entries.ticker",
         "journal_revisions.ticker", "news_feed.ticker_mentioned", "position_openings.ticker",
         "position_prices.ticker", "positions.ticker", "positions.nome", "trade_history.ticker",
-        "valuation_snapshots.ticker", "valuation_theses.ticker", "method_record_sets.ticker")),
+        "valuation_snapshots.ticker", "valuation_theses.ticker", "method_record_sets.ticker",
+        "filing_profiles.ticker", "filing_runs.ticker")),
+    ("risultato documentale estratto da filing esterni: URL, citazioni e fatti vanno comunque "
+     "passati per i controlli payload/ticker e la revisione dell'export", (
+        "filing_runs.result_json",)),
+    ("giudizio LLM sui filing: testo generato, puo' ripetere citazioni o informazioni "
+     "private; non e' materiale automaticamente pubblicabile", (
+        "filing_runs.judgment_json",)),
+    ("stato indice derivato Chroma: codici tecnici o motivi di errore, non testo libero "
+     "del PM; ancora soggetto ai controlli del payload", (
+        "filing_runs.index_json",)),
     ("testo generato dai modelli o dal codice che li orchestra: ripete i prompt del codice, "
      "inservibile come corpus", (
         "decisions.timing", "decisions.rationale", "memos.title", "memos.full_markdown",
@@ -1628,6 +1656,26 @@ def parole_testo(testo):
     return _PAROLA.findall(_normalizza_testo(testo or ""))
 
 
+def _stringhe_profilo_filing(raw):
+    """Chiavi e valori JSON sono frammenti distinti, mai prosa concatenata."""
+    parsed = json.loads(raw)  # JSON malformato: KO dichiarato dal chiamante, non skip.
+    if not isinstance(parsed, dict):
+        raise ValueError("profilo filing JSON: oggetto richiesto")
+
+    def visita(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                yield key
+                yield from visita(item)
+        elif isinstance(value, list):
+            for item in value:
+                yield from visita(item)
+        elif isinstance(value, str):
+            yield value
+
+    return visita(parsed)
+
+
 def testi_utente_db(db_path, colonne=COLONNE_TESTO_UTENTE):
     """[(origine, testo)] non vuoti delle colonne di testo libero dell'utente, in sola lettura. Una
     tabella o una colonna assente = OperationalError (un KO dichiarato), mai «0 testi»."""
@@ -1642,7 +1690,16 @@ def testi_utente_db(db_path, colonne=COLONNE_TESTO_UTENTE):
                 righe = c.execute("SELECT %s FROM %s" % (col, tab))
             for (v,) in righe:
                 if isinstance(v, str) and v.strip():
-                    out.append((_origine_testo(colonna), v))
+                    origine = _origine_testo(colonna)
+                    if (tab, col) in (("filing_profiles", "profile_json"), ("filing_runs", "profile_json")):
+                        out.extend((origine, item) for item in _stringhe_profilo_filing(v)
+                                   if item.strip())
+                    elif (tab, col) == ("filing_runs", "reason"):
+                        prefix = "recovery esplicito: "
+                        if v.startswith(prefix) and v[len(prefix):].strip():
+                            out.append((origine, v[len(prefix):]))
+                    else:
+                        out.append((origine, v))
         return out
     finally:
         c.close()
@@ -2293,6 +2350,14 @@ def esegui_controlli(tree_dir, solo=None, blocca_osservazione=False, pubblico=No
             grandi = congelati.leggi("lista:GRANDI_AMMESSI.txt")
             raster_pins = congelati.leggi("lista:SCREENSHOTS_APPROVATI.json")
             budget_screenshot = congelati.leggi("lista:" + BUDGET_SCREENSHOTS)
+        manifest_bytes = tree.get(_screenshot_verifier().MANIFEST_PATH)
+        if manifest_bytes and hashlib.sha256(manifest_bytes).hexdigest() == HISTORICAL_MANIFEST_SHA256:
+            for name, expected in (("SCREENSHOTS_APPROVATI.json", HISTORICAL_PINS_SHA256),
+                                   (BUDGET_SCREENSHOTS, HISTORICAL_BUDGET_SHA256)):
+                actual = (congelati.hash_liste.get(name) if congelati is not None else
+                          hashlib.sha256(Path(os.path.join(liste, name)).read_bytes()).hexdigest())
+                if actual not in expected:
+                    raise ValueError("ratifica storica modificata: " + name)
         tree = _TreeRaster(tree, raster_pins)
         ecc, grandi, upstream = _risolvi_deroghe_upstream(tree, ecc, grandi)
         liste_congelate, errori_liste = {}, {}

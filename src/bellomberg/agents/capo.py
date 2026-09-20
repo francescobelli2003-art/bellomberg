@@ -564,6 +564,9 @@ def run_capo(blackboard, portfolio_data=None, memory_db=None, sizing_context=Non
         prompt_for_language("3500-5500 parole, TUTTO IN ITALIANO scorrevole e leggibile. Espandi i ticker col nome esteso alla prima menzione. Spiega ogni metrica tecnica in prosa. Cita le decisioni passate per ID dove rilevante."),
         "",
     ]
+    filing_context = blackboard.data.get("_filing_context")
+    if filing_context:
+        user_msg_parts.extend([filing_context, ""])
 
     # MEMORIA PERSISTENTE (Phase 1)
     if memory_db:

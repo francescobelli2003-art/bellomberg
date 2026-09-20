@@ -217,14 +217,19 @@ def test_T1_il_ritentativo_chiude_i_messaggi_con_un_nudge_dichiarato(bb_fund):
     assert "usa i tool" in ritentativo.lower(), ritentativo[-400:]
 
 
-def test_T1_dopo_il_ritentativo_il_ragionamento_torna_acceso(bb_fund):
+@pytest.mark.parametrize("model,thinking", [
+    ("google/gemini-3.8-flash", {"type": "adaptive"}),
+    ("meta/muse-spark-1.3", {"type": "effort", "effort": "max"}),
+])
+def test_T1_dopo_il_ritentativo_il_ragionamento_torna_acceso(bb_fund, monkeypatch, model, thinking):
     """Recon 12/09 par. 2.3: `_thinking` restava `disabled` per il resto del round. La
     terza call (il report dopo il tool) deve tornare al valore di prima del ritentativo."""
+    monkeypatch.setenv("CONSIGLIERE_FUNDAMENTALS_MODEL", model)
     client = _ClientCheRispettaIlContratto(_copione_vuoto_poi_lavoro)
     _MockFundamentals(bb_fund, client=client).run(2)
-    assert client.calls[0]["thinking"] == {"type": "adaptive"}
+    assert client.calls[0]["thinking"] == thinking
     assert client.calls[1]["thinking"] == {"type": "disabled"}
-    assert client.calls[2]["thinking"] == {"type": "adaptive"}, client.calls[2]["thinking"]
+    assert client.calls[2]["thinking"] == thinking, client.calls[2]["thinking"]
 
 
 # ---------------------------------------------- T2: zero tool = dichiarato

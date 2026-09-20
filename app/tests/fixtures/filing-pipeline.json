@@ -1,0 +1,397 @@
+{
+  "listing": {
+    "ticker": "ACME.TEST",
+    "profile": {
+      "ticker": "ACME.TEST",
+      "version": 1,
+      "profile": {
+        "emittente_id": "EMITTENTE:ACME",
+        "fonti": [
+          "ir"
+        ],
+        "host_documenti": [
+          "cdn.acme.example"
+        ],
+        "ir_urls": [
+          "https://acme.example/investors"
+        ],
+        "lingua": "en",
+        "perimetro": "consolidato",
+        "sezioni": {
+          "gestione": {
+            "fine": "^Other information$",
+            "inizio": "^Management discussion$"
+          },
+          "rischi": {
+            "fine": "^Management discussion$",
+            "inizio": "^Risk factors$"
+          }
+        },
+        "ticker": "ACME.TEST",
+        "tipo": "annuale",
+        "verifica": {
+          "emittente": "Acme European plc",
+          "lingua": "Report language: English",
+          "perimetro": "Consolidated financial statements",
+          "periodo": "Reporting period: (?P<inizio>\\d{4}-\\d{2}-\\d{2}) to (?P<fine>\\d{4}-\\d{2}-\\d{2})",
+          "tipo": "Annual report"
+        }
+      },
+      "profile_sha256": "d5988fcf308d9749b46f8258a4cb71b8748f49924b1d35e2ae3470024f6d2c9f",
+      "enabled": true,
+      "interval_hours": 168,
+      "qualitative_enabled": false,
+      "created_at": "2026-09-20T06:30:07.480278+00:00",
+      "next_due_at": "2026-09-27T06:30:07.485221+00:00"
+    },
+    "runs": [
+      {
+        "id": 1,
+        "ticker": "ACME.TEST",
+        "status": "ok",
+        "reason": null,
+        "started_at": "2026-09-20T06:30:07.485221+00:00",
+        "finished_at": "2026-09-20T06:30:08.139894+00:00",
+        "trigger": "manual",
+        "profile_version": 1,
+        "judgment_language": "it"
+      }
+    ],
+    "active_run": null,
+    "status": "ok",
+    "reason": null,
+    "last_attempt": "2026-09-20T06:30:07.485221+00:00"
+  },
+  "detail": {
+    "id": 1,
+    "ticker": "ACME.TEST",
+    "profile_version": 1,
+    "profile_sha256": "d5988fcf308d9749b46f8258a4cb71b8748f49924b1d35e2ae3470024f6d2c9f",
+    "judgment_language": "it",
+    "trigger": "manual",
+    "started_at": "2026-09-20T06:30:07.485221+00:00",
+    "finished_at": "2026-09-20T06:30:08.139894+00:00",
+    "status": "ok",
+    "reason": null,
+    "evidence_key": null,
+    "profile": {
+      "emittente_id": "EMITTENTE:ACME",
+      "fonti": [
+        "ir"
+      ],
+      "host_documenti": [
+        "cdn.acme.example"
+      ],
+      "ir_urls": [
+        "https://acme.example/investors"
+      ],
+      "lingua": "en",
+      "perimetro": "consolidato",
+      "sezioni": {
+        "gestione": {
+          "fine": "^Other information$",
+          "inizio": "^Management discussion$"
+        },
+        "rischi": {
+          "fine": "^Management discussion$",
+          "inizio": "^Risk factors$"
+        }
+      },
+      "ticker": "ACME.TEST",
+      "tipo": "annuale",
+      "verifica": {
+        "emittente": "Acme European plc",
+        "lingua": "Report language: English",
+        "perimetro": "Consolidated financial statements",
+        "periodo": "Reporting period: (?P<inizio>\\d{4}-\\d{2}-\\d{2}) to (?P<fine>\\d{4}-\\d{2}-\\d{2})",
+        "tipo": "Annual report"
+      }
+    },
+    "qualitative_enabled": false,
+    "result": {
+      "candidati": [
+        {
+          "fonte": "IR",
+          "metadati": {
+            "emittente_id": "EMITTENTE:ACME",
+            "lingua": "en",
+            "perimetro": "consolidato",
+            "periodo_fine": "2025-12-31",
+            "periodo_inizio": "2025-01-01",
+            "tipo": "annuale"
+          },
+          "motivi": [],
+          "pagina_ir": "https://acme.example/investors",
+          "path": "synthetic/filing_archive/ACME.TEST/documents/annual-2025-3924af60617d7f33c1516bbf54fc7ca3d2092bb1639b58d3fc2427f048278706.html",
+          "sha256": "3924af60617d7f33c1516bbf54fc7ca3d2092bb1639b58d3fc2427f048278706",
+          "stato": "verificato",
+          "url": "https://cdn.acme.example/annual-2025.html"
+        },
+        {
+          "fonte": "IR",
+          "metadati": {
+            "emittente_id": "EMITTENTE:ACME",
+            "lingua": "en",
+            "perimetro": "consolidato",
+            "periodo_fine": "2024-12-31",
+            "periodo_inizio": "2024-01-01",
+            "tipo": "annuale"
+          },
+          "motivi": [],
+          "pagina_ir": "https://acme.example/investors",
+          "path": "synthetic/filing_archive/ACME.TEST/documents/annual-2024-95c28e8cd94460ef8488e6c615250ee706715c3662a3add9e6d0ec93a9678d12.html",
+          "sha256": "95c28e8cd94460ef8488e6c615250ee706715c3662a3add9e6d0ec93a9678d12",
+          "stato": "verificato",
+          "url": "https://cdn.acme.example/annual-2024.html"
+        }
+      ],
+      "confronto_corrente": {
+        "ambito": "ultimo_verificato",
+        "cambiamenti": [
+          {
+            "dopo": {
+              "fine": 173,
+              "inizio": 153,
+              "pagine_fisiche": [],
+              "sezione": "rischi",
+              "sha256": "3924af60617d7f33c1516bbf54fc7ca3d2092bb1639b58d3fc2427f048278706",
+              "src": "filing_diff",
+              "testo": "Demand is declining.",
+              "url": "https://cdn.acme.example/annual-2025.html"
+            },
+            "prima": {
+              "fine": 173,
+              "inizio": 153,
+              "pagine_fisiche": [],
+              "sezione": "rischi",
+              "sha256": "95c28e8cd94460ef8488e6c615250ee706715c3662a3add9e6d0ec93a9678d12",
+              "src": "filing_diff",
+              "testo": "Demand is uncertain.",
+              "url": "https://cdn.acme.example/annual-2024.html"
+            },
+            "tipo": "modificato"
+          }
+        ],
+        "limiti": [
+          "Confronto testuale; rilevanza economica non valutata.",
+          "Identita', lingua e periodi dichiarati dal chiamante.",
+          "Spostamenti cercati soltanto nelle sezioni selezionate."
+        ],
+        "misure": {
+          "cambiamenti": 1,
+          "segmenti_dopo": 2,
+          "segmenti_prima": 2
+        },
+        "motivi": [],
+        "segmenti_non_confrontabili": [],
+        "sezioni_confrontate": [
+          "gestione",
+          "rischi"
+        ],
+        "similarita_sezioni": {
+          "gestione": {
+            "coseno": 1.0,
+            "jaccard": 1.0,
+            "metodo": "token Unicode, minuscolo, frequenze; nessuna soglia decisionale",
+            "src": "filing_diff"
+          },
+          "rischi": {
+            "coseno": 0.6666666666666666,
+            "jaccard": 0.5,
+            "metodo": "token Unicode, minuscolo, frequenze; nessuna soglia decisionale",
+            "src": "filing_diff"
+          }
+        },
+        "src": "filing_diff",
+        "stato": "ok"
+      },
+      "confronto_storico": null,
+      "copertura": {
+        "candidati_osservati": 2,
+        "documenti_tentati": 2,
+        "limiti": [
+          "IR: copertura della singola pagina osservata e dei suoi link candidati, non dell'intero sito."
+        ],
+        "max_documenti": 20,
+        "stato": "limitata"
+      },
+      "coppia": {
+        "ambito": "ultimo_verificato",
+        "dopo": {
+          "filed_date": null,
+          "metadati": {
+            "emittente_id": "EMITTENTE:ACME",
+            "lingua": "en",
+            "perimetro": "consolidato",
+            "periodo_fine": "2025-12-31",
+            "periodo_inizio": "2025-01-01",
+            "tipo": "annuale"
+          },
+          "path": "synthetic/filing_archive/ACME.TEST/documents/annual-2025-3924af60617d7f33c1516bbf54fc7ca3d2092bb1639b58d3fc2427f048278706.html",
+          "prove_verifica": {
+            "emittente": {
+              "fine": 17,
+              "inizio": 0,
+              "sha256": "3924af60617d7f33c1516bbf54fc7ca3d2092bb1639b58d3fc2427f048278706",
+              "supporto": "testo",
+              "testo": "Acme European plc",
+              "unita_offset": "caratteri Unicode nel testo estratto",
+              "url": "https://cdn.acme.example/annual-2025.html"
+            },
+            "lingua": {
+              "fine": 58,
+              "inizio": 34,
+              "sha256": "3924af60617d7f33c1516bbf54fc7ca3d2092bb1639b58d3fc2427f048278706",
+              "supporto": "testo",
+              "testo": "Report language: English",
+              "unita_offset": "caratteri Unicode nel testo estratto",
+              "url": "https://cdn.acme.example/annual-2025.html"
+            },
+            "perimetro": {
+              "fine": 93,
+              "inizio": 60,
+              "sha256": "3924af60617d7f33c1516bbf54fc7ca3d2092bb1639b58d3fc2427f048278706",
+              "supporto": "testo",
+              "testo": "Consolidated financial statements",
+              "unita_offset": "caratteri Unicode nel testo estratto",
+              "url": "https://cdn.acme.example/annual-2025.html"
+            },
+            "periodo": {
+              "fine": 137,
+              "inizio": 95,
+              "sha256": "3924af60617d7f33c1516bbf54fc7ca3d2092bb1639b58d3fc2427f048278706",
+              "supporto": "testo",
+              "testo": "Reporting period: 2025-01-01 to 2025-12-31",
+              "unita_offset": "caratteri Unicode nel testo estratto",
+              "url": "https://cdn.acme.example/annual-2025.html"
+            },
+            "tipo": {
+              "fine": 32,
+              "inizio": 19,
+              "sha256": "3924af60617d7f33c1516bbf54fc7ca3d2092bb1639b58d3fc2427f048278706",
+              "supporto": "testo",
+              "testo": "Annual report",
+              "unita_offset": "caratteri Unicode nel testo estratto",
+              "url": "https://cdn.acme.example/annual-2025.html"
+            }
+          },
+          "sha256": "3924af60617d7f33c1516bbf54fc7ca3d2092bb1639b58d3fc2427f048278706",
+          "url": "https://cdn.acme.example/annual-2025.html"
+        },
+        "prima": {
+          "filed_date": null,
+          "metadati": {
+            "emittente_id": "EMITTENTE:ACME",
+            "lingua": "en",
+            "perimetro": "consolidato",
+            "periodo_fine": "2024-12-31",
+            "periodo_inizio": "2024-01-01",
+            "tipo": "annuale"
+          },
+          "path": "synthetic/filing_archive/ACME.TEST/documents/annual-2024-95c28e8cd94460ef8488e6c615250ee706715c3662a3add9e6d0ec93a9678d12.html",
+          "prove_verifica": {
+            "emittente": {
+              "fine": 17,
+              "inizio": 0,
+              "sha256": "95c28e8cd94460ef8488e6c615250ee706715c3662a3add9e6d0ec93a9678d12",
+              "supporto": "testo",
+              "testo": "Acme European plc",
+              "unita_offset": "caratteri Unicode nel testo estratto",
+              "url": "https://cdn.acme.example/annual-2024.html"
+            },
+            "lingua": {
+              "fine": 58,
+              "inizio": 34,
+              "sha256": "95c28e8cd94460ef8488e6c615250ee706715c3662a3add9e6d0ec93a9678d12",
+              "supporto": "testo",
+              "testo": "Report language: English",
+              "unita_offset": "caratteri Unicode nel testo estratto",
+              "url": "https://cdn.acme.example/annual-2024.html"
+            },
+            "perimetro": {
+              "fine": 93,
+              "inizio": 60,
+              "sha256": "95c28e8cd94460ef8488e6c615250ee706715c3662a3add9e6d0ec93a9678d12",
+              "supporto": "testo",
+              "testo": "Consolidated financial statements",
+              "unita_offset": "caratteri Unicode nel testo estratto",
+              "url": "https://cdn.acme.example/annual-2024.html"
+            },
+            "periodo": {
+              "fine": 137,
+              "inizio": 95,
+              "sha256": "95c28e8cd94460ef8488e6c615250ee706715c3662a3add9e6d0ec93a9678d12",
+              "supporto": "testo",
+              "testo": "Reporting period: 2024-01-01 to 2024-12-31",
+              "unita_offset": "caratteri Unicode nel testo estratto",
+              "url": "https://cdn.acme.example/annual-2024.html"
+            },
+            "tipo": {
+              "fine": 32,
+              "inizio": 19,
+              "sha256": "95c28e8cd94460ef8488e6c615250ee706715c3662a3add9e6d0ec93a9678d12",
+              "supporto": "testo",
+              "testo": "Annual report",
+              "unita_offset": "caratteri Unicode nel testo estratto",
+              "url": "https://cdn.acme.example/annual-2024.html"
+            }
+          },
+          "sha256": "95c28e8cd94460ef8488e6c615250ee706715c3662a3add9e6d0ec93a9678d12",
+          "url": "https://cdn.acme.example/annual-2024.html"
+        }
+      },
+      "fonti": [
+        {
+          "motivi": [],
+          "nome": "IR",
+          "snapshot": {
+            "bytes": 153,
+            "content_type": "text/html; charset=utf-8",
+            "path": "synthetic/filing_archive/ACME.TEST/documents/investors-cf417f329733d13684714fa4077ce6abff0092574f4826ffab6207ac07cb317f",
+            "sha256": "cf417f329733d13684714fa4077ce6abff0092574f4826ffab6207ac07cb317f",
+            "stato": "ok",
+            "url": "https://acme.example/investors",
+            "url_finale": "https://acme.example/investors"
+          },
+          "stato": "ok",
+          "url": "https://acme.example/investors"
+        }
+      ],
+      "freschezza": {
+        "checked_at": "2026-09-10",
+        "motivi": [
+          "Ultimo periodo osservato e diff riuscito non provano l'assenza di nuovi filing.",
+          "Calendario non documentato: servono next_report_date valida, next_report_source HTTP(S) e verificato_il valido non futuro; freschezza n.d."
+        ],
+        "next_report_date": "n.d.",
+        "next_report_source": "n.d.",
+        "stato": "n.d.",
+        "ultimo_periodo": "2025-12-31",
+        "verificato_il": "n.d."
+      },
+      "motivi": [],
+      "src": "filing_pipeline",
+      "stato": "ok",
+      "ticker": "ACME.TEST",
+      "ultimo_non_verificato": false
+    },
+    "judgment": {
+      "findings": [],
+      "model": null,
+      "reason": "giudizio qualitativo disabilitato",
+      "status": "skipped",
+      "usage": null
+    },
+    "index": {
+      "count": 2,
+      "diff_chunks": 2,
+      "judgment_chunks": 0,
+      "reason": null,
+      "status": "ok"
+    }
+  },
+  "citation_ids": [
+    "C1-dopo",
+    "C1-prima"
+  ]
+}

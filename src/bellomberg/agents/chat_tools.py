@@ -35,6 +35,9 @@ from bellomberg.core.paths import REPORT_DIR
 # ============================================================
 
 TOOL_DEFINITIONS: List[Dict[str, Any]] = [
+    {"name": "get_filing_changes",
+     "description": "Legge SOLO l'archivio locale dei confronti filing verificati. Espone periodo, copertura, freschezza, confronto corrente/storico, citazioni e stato del giudizio qualitativo. Nessuna acquisizione o nuova valutazione; un cambiamento e' un tripwire, non un segnale di trading o aggiornamento del FV.",
+     "input_schema": {"type": "object", "properties": {"ticker": {"type": "string"}}, "required": ["ticker"]}},
     # ---- QUANT (deterministic Python) ----
     {
         "name": "get_portfolio_risk",
@@ -1333,6 +1336,9 @@ def dispatch(tool_name: str, tool_input: Dict[str, Any], caller: str = None, *,
     "specialista-run:fundamentals", "red-team") — oggi usato per l'attribuzione
     fine di entered_by nel registro guidance; opzionale e retrocompatibile."""
     try:
+        if tool_name == "get_filing_changes":
+            from bellomberg.agents.filing_context import get_filing_changes
+            return _stamp(get_filing_changes(tool_input.get("ticker")), "filing_archive")
         if tool_name == "get_portfolio_risk":
             from bellomberg.portfolio.portfolio_risk import compute_portfolio_risk
             r = compute_portfolio_risk(force=bool(tool_input.get("force_refresh", False)))
@@ -1956,7 +1962,7 @@ def get_tools_for_agent(agent_id: str) -> List[Dict[str, Any]]:
                   "get_vol_surface_summary", "get_edge_scan", "get_position_doctor",
                   "get_advanced_metrics", "get_var_backtest", "get_cef_lookthrough",
                   "get_sector_exposure", "get_attribution", "get_tearsheet"],
-        "fundamentals": ["get_valuation", "get_fundamentals", "get_price_live", "search_news",
+        "fundamentals": ["get_filing_changes", "get_valuation", "get_fundamentals", "get_price_live", "search_news",
                          "get_sector_exposure",
                          "tavily_search", "get_portfolio_live", "compare_assets",
                          "search_past_memos", "get_position_doctor",

@@ -17,6 +17,7 @@ import threading
 import time
 from datetime import datetime
 from bellomberg.core.llm_client import OpenRouterClient, modello as _modello_llm, somma_usage as _somma_usage
+from bellomberg.core.llm_client import thinking_consigliere
 from bellomberg.storage.memory_db import DB_DIR   # B4 (02/09): heartbeat e rescue sotto la cartella dati
 from bellomberg.core.llm_refusal import refusal_reason as _refusal_reason
 from bellomberg.core.language import capture_language, prompt_for_language, scoped_language
@@ -1305,6 +1306,9 @@ class Specialist:
             )
         else:
             preamble = "Round " + str(round_n)
+        filing_context = self.blackboard.data.get("_filing_context")
+        if filing_context:
+            preamble += "\n\n" + filing_context
         # SCORE DETERMINISTICO (#186): ancora numerica calcolata in codice, l'LLM narra.
         # Cache per-run nel blackboard: lo scorer (anche pesante, es. DCF) gira UNA volta.
         if round_n in (0, 1):
@@ -1407,7 +1411,7 @@ class Specialist:
         # call esce a max_tokens con ZERO char di testo (tutto il tetto speso in ragionamento,
         # 4 report persi in una run). La troncatura CON testo resta dichiarata e non ritenta.
         _retry_vuoto = 0
-        _thinking = {"type": "adaptive"}
+        _thinking = None  # risoluzione nel try: configurazione mancante dichiarata nel round
         # 12/09 (Fable 5.1, prerequisito 3 del mandato): il ragionamento spento dal
         # ritentativo si RIPRISTINA dopo quella call — prima restava spento per il resto
         # del round (recon 12/09 par. 2.3). None = nessun ripristino in sospeso.
@@ -1438,6 +1442,8 @@ class Specialist:
             try:
                 # fatti volatili spostati nel primo messaggio user (v. run()):
                 # il system resta IDENTICO per tutta la run -> cache stabile.
+                if _thinking is None:
+                    _thinking = thinking_consigliere(self._model_for_round(round_n))
                 _sys = system_round + "\n\n" + prompt_for_language(SPECIALIST_STYLE_RULES)
                 # P1 26/07: se l'arsenale e' degradato il MODELLO deve saperlo e
                 # dirlo, altrimenti il PM legge un report che tace un buco. Nel

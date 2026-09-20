@@ -2265,6 +2265,8 @@ UTENTE_ATTESO = {
     ("chat_messages", "content", ("role", "user")), ("chat_sessions", "title", None),
     ("themes_tracked", "theme", None), ("themes_tracked", "notes", None),
     ("method_record_reviews", "note", None),
+    ("filing_runs", "reason", None),
+    ("filing_profiles", "profile_json", None), ("filing_runs", "profile_json", None),
 }
 # Le colonne che il codice rende ai modelli come «parola del PM» (pm_verbatim), misurate il 13/09.
 RESE_DA_PM_VERBATIM_ATTESE = {"decisions.pm_feedback", "decisions.veto_reason",
@@ -2587,6 +2589,67 @@ def test_censimento_schema_ogni_colonna_di_testo_e_classificata(tmp_path, monkey
     assert set(non_utente) - schema == set(), sorted(set(non_utente) - schema)
     assert schema - nomi_utente - set(non_utente) == set(), sorted(schema - nomi_utente - set(non_utente))
     assert vp.testi_utente_db(db) == []                    # ogni SELECT del controllo gira sullo schema vero
+
+
+def test_profilo_filing_privato_e_motivo_recovery_entrano_nel_controllo(tmp_path, monkeypatch):
+    """Il JSON del profilo e la sua copia nel run non sono automaticamente pubblicabili."""
+    from bellomberg.storage.filing_store import FilingStore
+
+    db = _db_schema_nuovo(tmp_path, monkeypatch)
+    store = FilingStore(db)
+    nota = "la stanza privata custodisce il quaderno delle idee viola"
+    chiave = "il codice segreto vive nella stanza blu"
+    escaped = "la pagina dice \"fonte nascosta\" e conserva note interne"
+    motivo = "recupero deciso dopo una nota riservata sulla ricerca interna"
+    profile = {
+        "ticker": "SYNTH", "emittente_id": "CIK:123", "lingua": "en", "tipo": "annuale",
+        "perimetro": "consolidato", "verifica": {"lingua": "English", "tipo": "annual", "perimetro": "consolidated"},
+        "sezioni": {"rischi": {"inizio": "Risk", "fine": "End"}}, "fonti": [],
+        "private_note": nota,
+        "extra": {chiave: [{"memo": escaped}]},
+    }
+    store.set_profile("SYNTH", profile)
+    run = store.start_run("SYNTH")
+    store.recover_run(run["id"], motivo)
+    texts = vp.testi_utente_db(db)
+    for origin in ("filing_profiles.profile_json", "filing_runs.profile_json"):
+        assert (origin, nota) in texts
+        assert (origin, chiave) in texts
+        assert (origin, escaped) in texts
+        assert not any(k == origin and "private_note " + nota in v for k, v in texts)
+    assert ("filing_runs.reason", motivo) in texts
+    tree = _tree(**PULITO, **{"leak.py": f"# {nota}\n# {motivo}\n# {chiave}\n# {escaped}\n"})
+    hits = _hit_testo(vp.controllo_testo_pm(tree, texts))
+    assert {("leak.py", n) for n in (1, 2, 3, 4)} <= set(hits)
+
+
+def test_filing_reason_tecnico_non_diventa_prosa_pm_e_json_malformato_fa_ko(synthetic_policy, tmp_path, monkeypatch):
+    import sqlite3
+    from bellomberg.storage.filing_store import FilingStore
+
+    db = _db_schema_nuovo(tmp_path, monkeypatch)
+    store = FilingStore(db)
+    profile = {"ticker": "SYNTH", "emittente_id": "CIK:123", "lingua": "en", "tipo": "annuale",
+               "perimetro": "consolidato", "verifica": {"lingua": "English", "tipo": "annual", "perimetro": "consolidated"},
+               "sezioni": {"rischi": {"inizio": "Risk", "fine": "End"}}, "fonti": []}
+    store.set_profile("SYNTH", profile)
+    boilerplate = "omologo dell'anno immediatamente precedente non disponibile nessun salto di anno"
+    store.finish_run(store.start_run("SYNTH")["id"], status="non_disponibile", reason=boilerplate)
+    texts = vp.testi_utente_db(db)
+    assert not any(k == "filing_runs.reason" for k, _ in texts)
+    assert _hit_testo(vp.controllo_testo_pm(_tree(**PULITO, **{"code.py": "# " + boilerplate}), texts)) == []
+    with sqlite3.connect(db) as conn:
+        conn.execute("INSERT INTO filing_profiles(ticker,version,profile_json,profile_sha256,enabled,interval_hours,qualitative_enabled,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                     ("BROKEN", 1, '{"private_note": ', "invalid", 1, 168, 0, "2026-01-01"))
+    with pytest.raises(json.JSONDecodeError):
+        vp.testi_utente_db(db)
+    import types
+    monkeypatch.setattr(vp, "_importa_memory_db", lambda: types.SimpleNamespace(SQLITE_PATH=db))
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    (tree / "code.py").write_text("# fixture sintetica\n", encoding="utf-8")
+    results, _ = vp.esegui_controlli(str(tree), solo=["testo_pm"])
+    assert any("JSONDecodeError" in str(result.errore) for result in results)
 
 
 def _colonne_rese_da_pm_verbatim():

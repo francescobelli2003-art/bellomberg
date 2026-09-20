@@ -163,9 +163,13 @@ script, app version, source and built renderer. Source drift during the operatio
 fails the capture. The public PNG verifier checks structure and provenance; it
 does not perform OCR or prove that every pixel is free of private content.
 
-Review the actual PNGs and text before using them. Capture again after changing
-app sources or the fixture. A successful candidate run does not publish or approve
-the images. Release approval and the complete export checks are separate steps.
+Review the actual PNGs and text before using them. The 2026-09-19 PM-ratified
+package is retained with its exact PNG, DOM, manifest and private ratification
+bytes as a historical view. After source changes it is labelled historical and
+does not claim to show the current renderer. New candidate captures still require
+clean committed inputs and a live source digest, followed by visual ratification.
+A successful candidate run does not publish or approve the images. Release
+approval and the complete export checks are separate steps.
 
 The deterministic guards can be run with `node app/tests/desktop/capture-docs.cjs`;
 set `BB_DOCS_PYTHON` to the installed interpreter first. They do not build the
