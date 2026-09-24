@@ -46,6 +46,55 @@ BASE_EVIDENCE_KEYS={'kind','sources','observation_period','derivation'}
 GROWTH_EVIDENCE_KEYS={'kind','sources','guidance_period','derivation'}
 
 
+def terminal_bridge_errors(numbers, scenario):
+    """Shared numerical terminal checks for final valuation and staged preparation."""
+    terminal = scenario['terminal_bridge']
+    research = numbers['research_amortization'][-1] - numbers['revenue'][-1] * scenario['capdev_pct'][-1]
+    bridged = (numbers['ebit'][-1] + terminal['capitalized_research_adjustment'] + terminal['cycle_adjustment']
+               - terminal['expiring_product_loss'] + terminal['replacement_product_income'] + terminal['other_adjustment'])
+    issues = []
+    if not isclose(terminal['capitalized_research_adjustment'], research, rel_tol=1e-9, abs_tol=1e-8):
+        issues.append('ricerca terminale deve essere interamente spesata; rettifica non riconciliata all ammortamento transitorio')
+    if not isclose(bridged, terminal['normalized_ebit'], rel_tol=1e-9, abs_tol=1e-8):
+        issues.append('EBIT normalizzato non riconciliato a ultimo periodo/ciclo/scadenze/ricerca')
+    return issues
+
+
+def operating_revenue_errors(revenue, historical_revenue, revenue_growth):
+    """Shared unit/price reconciliation for staged proposals and final valuation."""
+    keys = {'basis', 'volume', 'unit_price', 'utilization', 'other_revenue'}
+    if not isinstance(revenue, dict) or set(revenue) != keys:
+        return ['base economica o campi non compatibili col profilo']
+    count = len(revenue_growth)
+    if any(not isinstance(revenue[k], list) or len(revenue[k]) != count
+           or any(not _finite(v) or v < 0 for v in revenue[k]) for k in keys - {'basis'}):
+        return ['percorsi non negativi completi richiesti; unita del prodotto in milioni valuta bilancio']
+    if any(v > 1 for v in revenue['utilization']):
+        return ['utilizzo fuori [0,1]']
+    issues = []
+    projected = historical_revenue
+    for i, growth in enumerate(revenue_growth):
+        projected *= 1 + growth
+        built = revenue['volume'][i] * revenue['unit_price'][i] * revenue['utilization'][i] + revenue['other_revenue'][i]
+        if not _finite(projected) or not _finite(built) or not isclose(projected, built, rel_tol=1e-9, abs_tol=1e-8):
+            issues.append('driver operativi non riconciliati ai ricavi nel periodo ' + str(i))
+    return issues
+
+
+def operating_revenue_path(revenue):
+    """Evaluate already validated operating inputs with the workbook's formulas."""
+    if revenue['basis'] == 'segment_guidance':
+        segments = revenue['segments']
+        levels = [item['base'] for item in segments]
+        path = []
+        for i in range(len(segments[0]['growth'])):
+            levels = [level * (1 + item['growth'][i]) for level, item in zip(levels, segments)]
+            path.append(sum(levels))
+        return path
+    return [volume * price * utilization + other for volume, price, utilization, other in zip(
+        revenue['volume'], revenue['unit_price'], revenue['utilization'], revenue['other_revenue'])]
+
+
 def _segment_sources(sources):
     return (isinstance(sources,list) and bool(sources)
             and all(isinstance(source,dict) and set(source)=={'source_id','locator'}
@@ -149,11 +198,14 @@ def generate_operating(bundle, *, output_dir, metadata):
                 problem('calendar','FCFF richiede esercizi annuali interi: ammortamenti e terminale non annualizzano stub implicitamente')
             previous=end
         if model['shares']<=0 or model['historical_revenue']<=0: problem('shares','Azioni e ricavi iniziali devono essere positivi')
-        if type(model['capdev_amortization_years']) is not int or model['capdev_amortization_years']<=0:
-            problem('capdev_amortization_years','Vita utile intera positiva esplicita richiesta')
+        life=model['capdev_amortization_years']
+        if type(life) is not int or life<0:
+            problem('capdev_amortization_years','Vita utile intera positiva oppure 0 = non applicabile esplicito richiesti')
         openings={}
         for scenario in SCENARIOS:
             sc=bound['values'][scenario]
+            if life==0 and any(v!=0 for key in ('capdev_pct','opening_intangible_amortization') for v in sc[key]):
+                problem('capdev_amortization_years',scenario+': non applicabile solo senza capitalizzazione e ammortamenti iniziali in ogni periodo')
             policies={'tax':'no_loss_tax_credit','sbc':'included_in_operating_costs',
                       'leases':'operating_rent_in_costs','research':'expensed_except_explicit_capdev',
                       'cycle':'explicit_forecast','patents':'explicit_forecast'}
@@ -189,17 +241,9 @@ def generate_operating(bundle, *, output_dir, metadata):
                 keys={'basis','volume','unit_price','utilization','other_revenue'}
                 if set(revenue)!=keys or revenue.get('basis')!=REVENUE_BASES.get(bundle['decision']['profile_id']):
                     problem('revenue_build',scenario+': base economica o campi non compatibili col profilo')
-                elif any(not isinstance(revenue[k],list) or len(revenue[k])!=len(bound['times']) or any(not _finite(v) or v<0 for v in revenue[k]) for k in keys-{'basis'}):
-                    problem('revenue_build',scenario+': percorsi non negativi completi richiesti; unita del prodotto in milioni valuta bilancio')
-                elif any(v>1 for v in revenue['utilization']):
-                    problem('revenue_build',scenario+': utilizzo fuori [0,1]')
                 else:
-                    projected=model['historical_revenue']
-                    for i,growth in enumerate(sc['revenue_growth']):
-                        projected*=1+growth
-                        built=revenue['volume'][i]*revenue['unit_price'][i]*revenue['utilization'][i]+revenue['other_revenue'][i]
-                        if not isclose(projected,built,rel_tol=1e-9,abs_tol=1e-8):
-                            problem('revenue_build',scenario+': driver operativi non riconciliati ai ricavi nel periodo '+str(i))
+                    for reason in operating_revenue_errors(revenue, model['historical_revenue'], sc['revenue_growth']):
+                        problem('revenue_build', scenario + ': ' + reason)
         if openings and (set(openings)!=set(SCENARIOS) or any(openings[scenario]!=openings['base'] for scenario in SCENARIOS)):
             problem('revenue_build','segment_guidance: stessa base di ricavo e stesse aperture dei segmenti in bear/base/bull; l apertura e una sola osservazione')
     if not bound['issues']:
@@ -210,18 +254,14 @@ def generate_operating(bundle, *, output_dir, metadata):
                   'shares_m':model['shares'],'diluted_shares_m':model['shares'], 'mid_year':False,
                   'equity_adjustments':[{'label':'Documented aggregate bridge','value_m':sc['equity_adjustments']}]}
             try:
-                numbers=_scenario_numbers(spec,sc,model['historical_revenue'],nwc0=model['opening_nwc'])
+                numbers=_scenario_numbers(spec,sc,model['historical_revenue'],nwc0=model['opening_nwc'],
+                                          revenue_path=operating_revenue_path(sc['revenue_build']))
             except ArithmeticError as exc:
                 problem('reinvestment',scenario+': calcolo non definito: '+str(exc))
                 continue
             terminal=sc['terminal_bridge']
-            research_adjustment=numbers['research_amortization'][-1]-numbers['revenue'][-1]*sc['capdev_pct'][-1]
-            bridged=(numbers['ebit'][-1]+terminal['capitalized_research_adjustment']+terminal['cycle_adjustment']
-                     -terminal['expiring_product_loss']+terminal['replacement_product_income']+terminal['other_adjustment'])
-            if not isclose(terminal['capitalized_research_adjustment'],research_adjustment,rel_tol=1e-9,abs_tol=1e-8):
-                problem('terminal_bridge',scenario+': ricerca terminale deve essere interamente spesata; rettifica non riconciliata all ammortamento transitorio')
-            if not isclose(bridged,terminal['normalized_ebit'],rel_tol=1e-9,abs_tol=1e-8):
-                problem('terminal_bridge',scenario+': EBIT normalizzato non riconciliato a ultimo periodo/ciclo/scadenze/ricerca')
+            for reason in terminal_bridge_errors(numbers, sc):
+                problem('terminal_bridge', scenario+': '+reason)
             try:
                 valuation_bridge=_dcf_value(spec,numbers['ufcf'],sc['wacc'],sc['terminal_growth'],
                               ebit_terminal=terminal['normalized_ebit'],ronic=sc['terminal_ronic'],
@@ -233,4 +273,5 @@ def generate_operating(bundle, *, output_dir, metadata):
                 'rows':numbers,'valuation_bridge':valuation_bridge,'wacc':sc['wacc'],
                 'terminal_growth':sc['terminal_growth'],'terminal_ronic':sc['terminal_ronic'],
                 'terminal_bridge':terminal,'value_basis':'equity'}
+            results[scenario]['revenue_calculation_basis'] = 'validated_operating_build; aggregate growth reconciled separately'
     return finish_documented(bundle,bound,results,metadata=metadata,output_dir=output_dir,engine='operating')

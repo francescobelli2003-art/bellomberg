@@ -373,6 +373,17 @@ def _require_mandato_run(request: "Request"):
 # APP LIFESPAN
 # ============================================================
 
+def _notify_model_tracking(db_path, ticker, trigger):
+    """Post-commit model state never asks the caller to repeat a financial write."""
+    try:
+        from bellomberg.valuation.valuation_automation_installation import notify_tracking
+        return notify_tracking(db_path, ticker, trigger)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Model tracking notification failed: %s", type(exc).__name__)
+        return {"status": "error", "reason": type(exc).__name__ + ": " + str(exc)[:500]}
+
+
 @asynccontextmanager
 async def lifespan(app):
     print("=" * 60)
@@ -385,7 +396,14 @@ async def lifespan(app):
         print("[SECURITY][A-M1] BELLOMBERG_PIN assente o == '1234': LOGIN BLOCCATO (fail-closed).")
         print("  Imposta un PIN forte nel .env  ->  BELLOMBERG_PIN=<il-tuo-pin>  e riavvia.")
         print("!" * 60)
-    yield
+    from bellomberg.valuation.valuation_automation_installation import start_installation
+    app.state.valuation_automation = start_installation(SQLITE_PATH)
+    try:
+        yield
+    finally:
+        runner = app.state.valuation_automation["runner"]
+        if runner is not None:
+            runner.stop()
 
 
 def _hardcoded_economic_calendar(today, days_ahead: int):
@@ -639,7 +657,7 @@ if app:
         # ora che OGNI verbo esposto dall'API stia in questa lista.
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "X-BB-Token", "X-BB-Language", "Accept", "Cache-Control", "X-Requested-With"],
-        expose_headers=["Content-Language", "X-BB-Language-Source", "X-BB-Language-Warning"],
+        expose_headers=["Content-Language", "X-BB-Language-Source", "X-BB-Language-Warning", "X-Valuation-Generation"],
     )
 
 
@@ -659,17 +677,44 @@ if FASTAPI_OK:
     from bellomberg.api.options_routes import create_options_router
     from bellomberg.api.language_routes import create_language_router
     from bellomberg.api.filing_routes import create_filing_router
+    from bellomberg.api.valuation_automation_routes import create_valuation_automation_router
+    from bellomberg.core.paths import SQLITE_PATH as valuation_db_path
 
     app.include_router(create_journal_router(get_db, require_session))
     app.include_router(create_agent_progress_router(require_session))
     app.include_router(create_options_router(require_session))
     app.include_router(create_language_router(require_session))
     app.include_router(create_filing_router(require_session))
+    def _active_valuation_automation():
+        binding = getattr(app.state, "valuation_automation", None)
+        runner = binding.get("runner") if binding else None
+        if runner is None or runner.status().get("status") not in ("running", "idle"):
+            raise HTTPException(503, {"code": "worker_unavailable", "message": "Automazione non avviata"})
+        return runner.manager
+
+    from bellomberg.core.paths import DATA_DIR as valuation_data_root
+    app.include_router(create_valuation_automation_router(require_session,
+        db_provider=lambda: valuation_db_path, roots=[REPORT_DIR, MODELS_DIR],
+        automation_provider=_active_valuation_automation,
+        variants_root=valuation_data_root / "valuation_variants"))
 
     @app.get("/health")
     def health():
         return {"status": "ok", "brand": BRAND_NAME, "version": VERSION,
                 "timestamp": datetime.now().isoformat()}
+
+    @app.get("/valuation/automation/status", dependencies=[Depends(require_session)])
+    def valuation_automation_status():
+        binding = getattr(app.state, "valuation_automation", None)
+        if binding is None:
+            return {"status": "not_started", "reason": "backend_lifespan_not_started"}
+        runner = binding["runner"]
+        from bellomberg.valuation.preparation_runtime import installation_runtime
+        try:
+            configuration = installation_runtime().status()
+        except Exception as exc:
+            configuration = {"status": "error", "reason": type(exc).__name__ + ": " + str(exc)[:500]}
+        return {"configuration": configuration, "worker": runner.status() if runner else binding["state"]}
 
     # ===== DATABASE BACKUP =====
     @app.post("/db/backup", dependencies=[Depends(require_session), Depends(throttle)])
@@ -1011,7 +1056,8 @@ if FASTAPI_OK:
                        "ON CONFLICT(ticker) DO UPDATE SET name=excluded.name, sector=excluded.sector, industry=excluded.industry",
                        (t, (name or "")[:120], (sector or "")[:60], (industry or "")[:80], (note or "")[:1000]))
             cx.commit(); cx.close()
-            return {"ok": True, "ticker": t}
+            return {"ok": True, "ticker": t,
+                    "valuation_automation": _notify_model_tracking(SQLITE_PATH, t, "watchlist")}
         except HTTPException:
             raise
         except Exception as e:
@@ -1512,6 +1558,22 @@ if FASTAPI_OK:
             snapshots = {}
             notices.append(_api_text('snapshot valutazioni non disponibili: ', 'Valuation snapshots unavailable: ') + str(exc))
 
+        # A failed/held attempt never displaces the explicitly published head.
+        # Legacy installations stay readable, with the missing registry declared.
+        from bellomberg.api.valuation_automation_routes import model_catalog_state
+        catalog = {}
+        automation_status = "available"
+        try:
+            catalog = model_catalog_state(db.db_path, roots=_val_dirs())
+            snapshots = dict(snapshots)
+            for ticker, item in catalog.items():
+                if item["payload"]:
+                    snapshots[ticker] = {"payload": item["payload"], "created_at": item["created_at"]}
+        except Exception as exc:
+            automation_status = "unavailable"
+            notices.append(_api_text("Registro versioni correnti non disponibile: ",
+                                     "Current version registry unavailable: ") + str(exc))
+
         def generation_key(payload):
             if not all(isinstance(payload.get(key), str) and payload[key]
                        for key in ("snapshot_id", "generation_id")):
@@ -1715,6 +1777,7 @@ if FASTAPI_OK:
                     seen_generations.add((fields["snapshot_id"], fields["generation_id"]))
                 models.append({
                     "file": fn, "dir": os.path.basename(d), "engine": engine,
+                    "_artifact_path": artifact_path(os.path.join(d, fn)),
                     "ticker": tk_label,
                     "identity_status": identity_status,
                     "matched": matched,     # False = nome file non riconducibile a un titolo del book
@@ -1739,25 +1802,87 @@ if FASTAPI_OK:
                            "canonical": True, "current_generation": True,
                            "generated_at": snapshot["created_at"].replace("T", " "),
                            "flagged": fields["sanity_severity"] == "BLOCK", **fields})
+        represented = {model["ticker"] for model in models}
+        for ticker, item in catalog.items():
+            job = item["state"].get("latest_prepare_job")
+            if ticker in represented or not job:
+                continue
+            reason = _api_text("Modello non disponibile; preparazione: ",
+                               "Model unavailable; preparation: ") + str(job.get("reason") or job["status"])
+            fields = model_fields({"ticker": ticker, "status": "incomplete", "warnings": [reason],
+                                   "sanity": {"severity": "BLOCK", "headline": reason}})
+            models.append({"file": "", "dir": "queue", "engine": "n.d.", "ticker": ticker,
+                           "identity_status": "canonical", "matched": ticker in known,
+                           "canonical": False, "current_generation": False,
+                           "generated_at": None, "flagged": True, **fields})
         # Apply the same KO to any duplicate file rows of this generation as well.
         for model in models:
             failures = artifact_failures.get(generation_key(model["detail"]), [])
             if failures:
                 model.update(model_fields(block_artifact(model["detail"], failures)))
                 model["flagged"] = True
+            item = catalog.get(model["ticker"])
+            if not item:
+                item = {"payload": None, "state": {"ticker": model["ticker"],
+                    "status": "no_current" if automation_status == "available" else "unavailable",
+                    "current": None, "locked": None, "artifact": {"available": False}}}
+            if item:
+                state = item["state"]
+                current = state["current"]
+                matches = bool(current and model.get("generation_id") == current["generation_id"]
+                               and model.get("snapshot_id") == current["snapshot_id"]
+                               and (not model["file"] or model.get("_artifact_path") == artifact_path(item["payload"].get("path"))))
+                model["current_generation"] = matches
+                if automation_status == "available":
+                    model["canonical"] = matches
+                model["automation"] = state
+                if matches:
+                    # Current figures and prose come from immutable storage, never a copied sidecar.
+                    model.update(model_fields(item["payload"]))
+                    model["flagged"] = model["sanity_severity"] == "BLOCK"
+                    thesis = item.get("thesis") or {}
+                    model["thesis_date"] = thesis.get("date")
+                    model["variant_view"] = item["payload"].get("variant_view") or thesis.get("variant_view")
+                    price_job = state.get("latest_price_job")
+                    if price_job:
+                        from bellomberg.valuation.market_quote import market_quote_view, CONTRACT, FRESHNESS_POLICY
+                        quote = price_job.get("market_quote") or {"contract": CONTRACT,
+                            "freshness_policy": FRESHNESS_POLICY, "status": "source_unavailable",
+                            "message": str(price_job.get("reason") or price_job["status"])}
+                        model["market_quote"] = market_quote_view(quote, usable=model["valuation_usability"]["usable"])
+                        model["upside_today_pct"] = model["market_quote"].get("upside_base_pct")
+                        model["detail"]["market_quote"] = model["market_quote"]
+                elif automation_status == "available":
+                    reason = _api_text("Revisione non pubblicata come corrente; candidato o copia conservati.",
+                                       "Revision not published as current; candidate or copy preserved.")
+                    model.update(model_fields(block_artifact(model["detail"], [reason])))
+                    model["flagged"] = True
+                if matches and not state["artifact"]["available"]:
+                    model.update(model_fields(block_artifact(model["detail"], [state["artifact"]["reason"]])))
+                    model["flagged"] = True
+                if matches and state["artifact"]["available"]:
+                    model["current_download"] = ("/valuation/models/" + model["ticker"] + "/generations/"
+                                                 + model["generation_id"] + "/workbook")
+            model["historical_download"] = bool(model.get("file") and
+                "preparation" not in (model.get("detail") or {}) and not re.search(
+                    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", model["file"], re.I))
+            model.pop("_artifact_path", None)
         models.sort(key=lambda x: (x.get("current_generation"), x.get("canonical"),
                                    x.get("generated_at") or ""), reverse=True)
-        out = {"count": len(models), "models": models}
+        out = {"count": len(models), "models": models, "automation_status": automation_status}
         if missing_dirs:
             notices.append(_api_text("cartelle runtime assenti (dichiarato, non e' 'zero file'): ", "Missing runtime directories (disclosed; this does not mean 'zero files'): ") + ", ".join(missing_dirs))
         if notices:
             out["nota"] = "; ".join(notices)
         return out
 
-    @app.get("/fundamentals/models/{name}/download")
+    @app.get("/fundamentals/models/{name}/download", dependencies=[Depends(require_session)])
     def download_valuation_model(name: str):
-        """Serve un singolo xlsx di valutazione. Whitelist: solo basename esistenti
-        nelle due cartelle note (niente path traversal)."""
+        """Dated legacy copy only; versioned workbooks use the verified registry route."""
+        from hashlib import sha256
+        from pathlib import Path
+        from fastapi import Response
+        from urllib.parse import quote
         # review 16/07: anche ':' bloccato — 'C:file.xlsx' e' drive-relative e os.path.join
         # lo risolverebbe FUORI dalle cartelle whitelisted.
         if os.sep in name or "/" in name or ".." in name or ":" in name or not name.lower().endswith(".xlsx"):
@@ -1765,9 +1890,27 @@ if FASTAPI_OK:
         for d in _val_dirs():
             p = os.path.join(d, name)
             if os.path.isfile(p):
-                return FileResponse(
-                    p, filename=name,
-                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                path = Path(p).resolve()
+                if not path.is_relative_to(Path(d).resolve()):
+                    raise HTTPException(400, "Workbook outside trusted directory")
+                sidecar = path.with_suffix(".payload.json")
+                try:
+                    payload = json.loads(sidecar.read_text(encoding="utf-8")) if sidecar.exists() else {}
+                    if not isinstance(payload, dict):
+                        raise ValueError("invalid workbook metadata")
+                    versioned = ("preparation" in payload or re.search(
+                        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", name, re.I))
+                    if versioned:
+                        raise HTTPException(409, "Versioned workbook requires the verified current-generation route")
+                    contents = path.read_bytes()
+                    digest = payload.get("workbook_sha256")
+                    if digest and sha256(contents).hexdigest() != digest:
+                        raise ValueError("workbook differs from recorded hash")
+                except (OSError, ValueError) as exc:
+                    raise HTTPException(409, "Legacy workbook unavailable: " + str(exc)) from exc
+                return Response(contents, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Cache-Control": "no-store", "X-Valuation-Copy": "historical",
+                             "Content-Disposition": "attachment; filename*=UTF-8''" + quote(name)})
         raise HTTPException(404, _api_text(f"file '{name}' non trovato in report/ o models/", f"File '{name}' not found in report/ or models/"))
 
     @app.get("/memos/{memo_id}")
@@ -2137,7 +2280,8 @@ if FASTAPI_OK:
                 performance_note = _api_text(f'Trade registrato; cache performance non aggiornata ({type(exc).__name__}).', f'Trade recorded; performance cache not updated ({type(exc).__name__}).')
             return {**prepared["response"], "trade_id": result["trade_id"],
                     "cash_disponibile_eur": result["cash_eur"], "ricalcolo": result["ricalcolo"],
-                    "performance_note": performance_note}
+                    "performance_note": performance_note,
+                    "valuation_automation": _notify_model_tracking(db.db_path, prepared["trade"]["ticker"], "portfolio")}
         except Exception as exc:
             _trade_error(exc)
 
@@ -2194,7 +2338,8 @@ if FASTAPI_OK:
                 note += _api_text(f' Cache performance non aggiornata ({type(exc).__name__}).', f' Performance cache not updated ({type(exc).__name__}).')
             return {"ok": True, "opening": opening, "position": prepared["position"],
                     "cash_delta_eur": 0, "cash_disponibile_eur": prepared["cash_disponibile_eur"],
-                    "performance_note": note}
+                    "performance_note": note,
+                    "valuation_automation": _notify_model_tracking(db.db_path, preview["request"]["ticker"], "portfolio")}
         except Exception as exc:
             _trade_error(exc)
 

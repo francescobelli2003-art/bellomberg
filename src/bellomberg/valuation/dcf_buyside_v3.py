@@ -327,7 +327,7 @@ def _merge_scenarios(agent, defaults):
 
 
 # ---------- mirror numerico: UFCF + DCF per scenario ----------
-def _scenario_numbers(spec, sc, last_rev, nwc0=None):
+def _scenario_numbers(spec, sc, last_rev, nwc0=None, *, revenue_path=None):
     """B12 (14/07): nwc0 = NWC storico reale da XBRL (CA-CL, in milioni) quando
     disponibile -> il delta NWC anno-1 parte dal bilancio vero invece del proxy
     rev x nwc_pct. B11: D&A tangibile dal driver esplicito (ex 2% hardcoded)."""
@@ -342,18 +342,28 @@ def _scenario_numbers(spec, sc, last_rev, nwc0=None):
         nwc_prev = 0.9 * last_rev * (1 + sc["revenue_growth"][0]) * sc["nwc_pct"][0]
     documented = spec.get("documented_inputs") is True
     count = len(sc["revenue_growth"]) if documented else N_FWD
+    if revenue_path is not None:
+        from .dcf_quality import _finite
+        if (not documented or not isinstance(revenue_path, list) or len(revenue_path) != count
+                or any(not _finite(v) or v <= 0 for v in revenue_path)):
+            raise ValueError('Complete positive documented revenue path required')
     da_tan_path = sc["da_tan_pct"] if documented else sc.get("da_tan_pct") or [0.02] * N_FWD
     amortization_years = spec["capdev_amortization_years"] if documented else 4
+    # Zero explicitly means not applicable, never a zero-year useful life.
+    research_not_applicable = documented and type(amortization_years) is int and amortization_years == 0
+    if research_not_applicable and any(
+            value != 0 for key in ('capdev_pct', 'opening_intangible_amortization') for value in sc[key]):
+        raise ValueError('Research amortization not applicable requires zero capitalization and opening runoff')
     capdev_hist = []
     for t in range(count):
-        rev = rev * (1 + sc["revenue_growth"][t])
+        rev = revenue_path[t] if revenue_path is not None else rev * (1 + sc["revenue_growth"][t])
         gp = rev * sc["gross_margin"][t]
         opex = rev * (sc["rnd_pct"][t] + sc["sga_pct"][t])
         capdev = rev * sc["capdev_pct"][t]
         capdev_hist.append(capdev)
         ebitda = gp - opex + capdev
         da_tan = rev * da_tan_path[t]
-        da_int = sum(capdev_hist[-amortization_years:]) / float(amortization_years)
+        da_int = 0.0 if research_not_applicable else sum(capdev_hist[-amortization_years:]) / float(amortization_years)
         if documented:
             da_int += sc["opening_intangible_amortization"][t]
             rows.setdefault('research_amortization', []).append(da_int)

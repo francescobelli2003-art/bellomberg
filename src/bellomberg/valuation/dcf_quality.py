@@ -353,6 +353,8 @@ _DERIVED_VALUATION_KEYS = frozenset({"fv", "fv_ps", "upside", "downside", "targe
                                   "raw_equity_value", "owned_equity_value"})
 _SOURCE_BRANCHES = frozenset({"case", "analysis_context", "valuation_decision", "evidence",
                               "acquisition_tasks", "input_consumption"})
+_PREPARATION_EVIDENCE_PATHS = frozenset({'payload.preparation.review_basis',
+                                        'payload.preparation.proposal.plan'})
 _CALCULATED_VALUATION_KEYS = frozenset({'common_equity_nav','nav_per_share',
     'residual_income_value','cash_equity_value','terminal_common_equity_value',
     'value_contribution','asset_value','gross_assets','terminal_equity','terminal_value',
@@ -581,6 +583,11 @@ def assess_valuation_usability(payload, *, expected_decision=None, as_of=None):
             child_values = {}
 
     def inspect(value, path="payload"):
+        if path in _PREPARATION_EVIDENCE_PATHS:
+            # Immutable preparation evidence, never a competing valuation output.
+            # Raw provider labels such as units.equity are not calculated amounts.
+            # A future refresh recompiles this basis with its own original contract.
+            return
         if isinstance(value, list):
             for index, child in enumerate(value):
                 inspect(child, path + "[%s]" % index)
@@ -648,6 +655,8 @@ def normalize_valuation_payload(payload, *, expected_decision=None, as_of=None):
     usability = assess_valuation_usability(result, expected_decision=expected_decision, as_of=as_of)
     if not usability["usable"]:
         def hide(value, *, irr=False, path='payload'):
+            if path in _PREPARATION_EVIDENCE_PATHS:
+                return deepcopy(value)  # Keep archived evidence intact even on a blocked result.
             if isinstance(value, dict):
                 cleaned = {}
                 for key, child in value.items():

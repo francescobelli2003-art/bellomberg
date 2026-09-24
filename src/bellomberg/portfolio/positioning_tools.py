@@ -23,7 +23,7 @@ from bellomberg.core.paths import PROJECT_ROOT
 from bellomberg.core.language import scoped_language
 from bellomberg.core.presentation import error_text, message
 import os
-from datetime import datetime
+from datetime import datetime, date
 from typing import Dict, Any, Optional, List
 
 try:
@@ -195,18 +195,21 @@ def compute_gex(ticker: str, max_expiries: int = 5,
 
 
 # ============================================================
-# 2) COT — CFTC Commitments of Traders (TFF, gratis)
+# 2) COT — CFTC Commitments of Traders (TFF/Disaggregated, gratis)
 # ============================================================
 
 _COT_URL = "https://publicreporting.cftc.gov/resource/gpe5-46if.json"  # TFF Futures Only
+_COT_DISAGGREGATED_URL = "https://publicreporting.cftc.gov/resource/72hh-3qpy.json"
+_COT_COMMODITIES = {
+    "WTI": "067651", "CL": "067651",  # WTI-PHYSICAL, NYMEX
+    "GOLD": "088691", "GC": "088691",  # GOLD, COMEX
+}
 
 COT_MARKET_ALIASES = {
     "ES": "E-MINI S&P 500", "SPX": "E-MINI S&P 500", "SP500": "E-MINI S&P 500",
     "NQ": "NASDAQ MINI", "NASDAQ": "NASDAQ MINI",
     "EUR": "EURO FX", "EURUSD": "EURO FX",
     "JPY": "JAPANESE YEN", "GBP": "BRITISH POUND",
-    "GOLD": "GOLD", "GC": "GOLD",
-    "OIL": "CRUDE OIL", "WTI": "CRUDE OIL", "CL": "CRUDE OIL",
     "10Y": "10-YEAR U.S. TREASURY NOTES", "ZN": "10-YEAR U.S. TREASURY NOTES",
     "VIX": "VIX FUTURES", "BTC": "BITCOIN", "BITCOIN": "BITCOIN",
 }
@@ -224,38 +227,71 @@ def _cot_net(row: Dict[str, Any], prefix: str) -> Optional[int]:
     return None
 
 
+def _cot_net_fields(row: Dict[str, Any], long_key: str, short_key: str) -> Optional[int]:
+    """Disaggregated: nomi esatti, senza usare varianti Old/Other come proxy."""
+    try:
+        if row.get(long_key) is not None and row.get(short_key) is not None:
+            return int(float(row[long_key])) - int(float(row[short_key]))
+    except (TypeError, ValueError, OverflowError):
+        pass
+    return None
+
+
+_COT_DISAGGREGATED_CATS = {
+    "producer_merchant": ("prod_merc_positions_long", "prod_merc_positions_short"),
+    "swap_dealers": ("swap_positions_long_all", "swap__positions_short_all"),
+    "managed_money": ("m_money_positions_long_all", "m_money_positions_short_all"),
+    "other_reportables": ("other_rept_positions_long", "other_rept_positions_short"),
+}
+
+
 @scoped_language
 def get_cot_positioning(market: str = "ES", weeks: int = 52) -> Dict[str, Any]:
-    """Posizionamento CFTC TFF (settimanale, gratis): Dealer / Asset Manager /
-    Leveraged Funds net su un future. Include variazione WoW e percentile 1y
-    del net Leveraged Funds (estremi = segnale contrarian)."""
-    src = "CFTC publicreporting.cftc.gov (TFF futures-only)"
+    """CFTC futures-only: TFF finanziari, Disaggregated per WTI e oro."""
+    market_key = (market or "").upper().strip()
+    commodity = market_key in _COT_COMMODITIES
+    src = ("CFTC publicreporting.cftc.gov (Disaggregated futures-only)" if commodity
+           else "CFTC publicreporting.cftc.gov (TFF futures-only)")
+    if market_key in {"OIL", "CRUDE OIL"}:
+        return {"error": message(
+            "'OIL/CRUDE OIL' e' ambiguo: specifica WTI o CL (WTI-PHYSICAL NYMEX, CFTC 067651); altri contratti petroliferi non sono supportati",
+            "'OIL/CRUDE OIL' is ambiguous: specify WTI or CL (WTI-PHYSICAL NYMEX, CFTC 067651); other oil contracts are unsupported"),
+            "_source": "CFTC Commitments of Traders"}
     if not REQ_OK:
         return {"error": message("requests non disponibile", "requests unavailable"), "_source": src}
-    name = COT_MARKET_ALIASES.get((market or "").upper().strip(), market.upper().strip())
+    name = COT_MARKET_ALIASES.get(market_key, market_key)
     try:
+        if not 1 <= int(weeks) <= 104:
+            return {"error": message("weeks deve essere tra 1 e 104", "weeks must be between 1 and 104"), "_source": src}
+        code = _COT_COMMODITIES.get(market_key)
         params = {
-            "$where": f"upper(contract_market_name) like '%{name}%'",
+            "$where": (f"cftc_contract_market_code = '{code}'" if commodity else
+                       f"upper(contract_market_name) like '%{name}%'"),
             "$order": "report_date_as_yyyy_mm_dd DESC",
             # audit/11 §4: il limit va preso LARGO — le 52 righe piu' recenti del LIKE
             # includono le varianti (MICRO E-MINI...) e dopo il filtro esatto la storia
             # per il percentile 1y restava troncata. Si taglia a 'weeks' DOPO il dedup.
             "$limit": int(weeks) * 4,
         }
-        r = requests.get(_COT_URL, params=params, timeout=20)
+        r = requests.get(_COT_DISAGGREGATED_URL if commodity else _COT_URL,
+                         params=params, timeout=20)
         if r.status_code != 200:
             return {"error": f"HTTP {r.status_code}", "_body": r.text[:200], "_source": src}
         rows = r.json()
         if not rows:
-            return {"error": message("nessun mercato TFF matcha '{name}'", "no TFF market matches '{name}'", name=name), "_source": src}
+            return {"error": message("nessun contratto CFTC trovato per '{name}'", "no CFTC contract found for '{name}'", name=name), "_source": src}
 
-        # Fix #177: il LIKE matcha anche varianti (es. MICRO E-MINI S&P 500).
-        # Tieni SOLO lo stesso identico contratto: match esatto se esiste,
-        # altrimenti il nome del primo risultato. Poi 1 riga per data.
-        exact = [x for x in rows if (x.get("contract_market_name") or "").upper() == name]
-        target = name if exact else (rows[0].get("contract_market_name") or "")
-        rows = [x for x in rows
-                if (x.get("contract_market_name") or "").upper() == target.upper()]
+        # Commodity: codice CFTC esatto. TFF: conserva selezione storica #177.
+        if commodity:
+            rows = [x for x in rows if x.get("cftc_contract_market_code") == code]
+            if not rows:
+                return {"error": message("risposta CFTC senza contratto {code}",
+                                         "CFTC response missing contract {code}", code=code), "_source": src}
+        else:
+            exact = [x for x in rows if (x.get("contract_market_name") or "").upper() == name]
+            target = name if exact else (rows[0].get("contract_market_name") or "")
+            rows = [x for x in rows
+                    if (x.get("contract_market_name") or "").upper() == target.upper()]
         seen_dates = set()
         dedup = []
         for x in rows:
@@ -269,27 +305,49 @@ def get_cot_positioning(market: str = "ES", weeks: int = 52) -> Dict[str, Any]:
             return {"error": message("nessuna riga per contratto '{target}'", "no rows for contract '{target}'", target=target), "_source": src}
 
         latest, prev = rows[0], (rows[1] if len(rows) > 1 else None)
-        cats = {"dealer": "dealer", "asset_manager": "asset_mgr", "leveraged_funds": "lev_money"}
-        nets_now = {label: _cot_net(latest, pref) for label, pref in cats.items()}
-        nets_prev = {label: _cot_net(prev, pref) for label, pref in cats.items()} if prev else {}
+        if commodity:
+            nets_now = {label: _cot_net_fields(latest, *keys)
+                        for label, keys in _COT_DISAGGREGATED_CATS.items()}
+            nets_prev = {label: _cot_net_fields(prev, *keys)
+                         for label, keys in _COT_DISAGGREGATED_CATS.items()} if prev else {}
+            hist_key = "managed_money"
+            hist = [n for n in (_cot_net_fields(x, *_COT_DISAGGREGATED_CATS[hist_key])
+                                for x in rows) if n is not None]
+        else:
+            cats = {"dealer": "dealer", "asset_manager": "asset_mgr", "leveraged_funds": "lev_money"}
+            nets_now = {label: _cot_net(latest, pref) for label, pref in cats.items()}
+            nets_prev = {label: _cot_net(prev, pref) for label, pref in cats.items()} if prev else {}
+            hist_key = "leveraged_funds"
+            hist = [n for n in (_cot_net(x, "lev_money") for x in rows) if n is not None]
 
-        # percentile 1y del net leveraged funds
-        lev_hist = [n for n in (_cot_net(x, "lev_money") for x in rows) if n is not None]
-        lev_now = nets_now.get("leveraged_funds")
+        # Percentile sullo storico disponibile della categoria pertinente.
+        lev_now = nets_now.get(hist_key)
         pctile = None
-        if lev_now is not None and len(lev_hist) > 10:
-            pctile = round(100.0 * sum(1 for v in lev_hist if v <= lev_now) / len(lev_hist), 0)
+        if lev_now is not None and len(hist) > 10:
+            pctile = round(100.0 * sum(1 for v in hist if v <= lev_now) / len(hist), 0)
+
+        report_date = (latest.get("report_date_as_yyyy_mm_dd") or "")[:10]
+        try:
+            age_days = (date.today() - date.fromisoformat(report_date)).days
+            freshness_status = "FRESH" if 0 <= age_days <= 14 else "STALE"
+        except ValueError:
+            age_days, freshness_status = None, "UNKNOWN"
+        if commodity and freshness_status != "FRESH":
+            pctile = None  # non presentare una lettura contrarian come corrente
 
         return {
-            "market_query": market.upper(),
+            "market_query": market_key,
             "contract_market_name": latest.get("contract_market_name"),
-            "report_date": latest.get("report_date_as_yyyy_mm_dd", "")[:10],
+            "cftc_contract_market_code": latest.get("cftc_contract_market_code"),
+            "report_date": report_date,
+            "freshness": {"status": freshness_status, "age_days": age_days},
             "open_interest": latest.get("open_interest_all"),
             "net_positions": nets_now,
             "wow_change": {k: (nets_now[k] - nets_prev[k])
                            for k in nets_now
                            if nets_now.get(k) is not None and nets_prev.get(k) is not None},
-            "leveraged_funds_net_percentile_1y": pctile,
+            ("managed_money_net_percentile_1y" if commodity else
+             "leveraged_funds_net_percentile_1y"): pctile,
             "reading": (None if pctile is None else
                         (message("ESTREMO LONG (≥90° pct): crowded, rischio squeeze ribassista — contrarian bearish", "EXTREME LONG (≥90th pct): crowded, downside squeeze risk — contrarian bearish") if pctile >= 90 else
                          message("ESTREMO SHORT (≤10° pct): crowded short, fuel per squeeze rialzista — contrarian bullish", "EXTREME SHORT (≤10th pct): crowded short, upside squeeze fuel — contrarian bullish") if pctile <= 10 else

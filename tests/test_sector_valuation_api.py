@@ -15,11 +15,11 @@ from test_sector_usability import payload_for
 from bellomberg.core.language import language_context, text
 
 
-def endpoint(tmp_path, snapshots=None):
+def endpoint(tmp_path, snapshots=None, *, model_db=None):
     source = Path("src/bellomberg/api/bellomberg_api.py").read_text(encoding="utf-8")
     node = next(n for n in ast.walk(ast.parse(source)) if isinstance(n, ast.FunctionDef) and n.name == "list_valuation_models")
     node.decorator_list = []
-    db = SimpleNamespace(get_latest_valuation_snapshots=lambda: snapshots or {})
+    db = model_db or SimpleNamespace(get_latest_valuation_snapshots=lambda: snapshots or {})
     namespace = {"os": os, "json": json, "datetime": datetime,
                  "_api_text": text,
                  "get_db": lambda: db, "_known_tickers": lambda db: set(),
@@ -116,7 +116,8 @@ def test_latest_snapshot_wins_over_touched_older_workbook_even_on_same_day(tmp_p
     data = endpoint(tmp_path, {"SYNTH": {"created_at": "2026-09-10T10:00:00", "payload": current}})
     stored, old = data["models"]
     assert stored["file"] == "" and stored["generation_id"] == current["generation_id"]
-    assert stored["canonical"] is True and stored["current_generation"] is True
+    assert stored["canonical"] is True and stored["current_generation"] is False
+    assert stored["automation"]["status"] == "unavailable"
     assert old["file"] == workbook.name
     assert old["canonical"] is False and old["current_generation"] is False
     assert old["valuation_usability"]["usable"] is False
@@ -141,7 +142,8 @@ def test_current_matching_sidecar_keeps_its_value_and_uses_snapshot_revision_tim
     data = endpoint(tmp_path, {"SYNTH": {"created_at": "2026-09-10T10:00:00", "payload": current}})
     assert data["count"] == 1
     model = data["models"][0]
-    assert model["current_generation"] is True and model["canonical"] is True
+    assert model["current_generation"] is False and model["canonical"] is True
+    assert model["automation"]["status"] == "unavailable"
     assert model["fair_value"] == 120
     assert model["generated_at"] == "2026-09-10 10:00:00"
 

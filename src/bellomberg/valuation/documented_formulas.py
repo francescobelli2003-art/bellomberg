@@ -77,6 +77,10 @@ def _inputs(wb, evidence, years):
                     c = _put(ws, row, index + 4, value, fmt)
                     c.font = Font(name='Arial', size=10, color='0000FF')
                     c.comment = Comment(str(record.get('evidence', {})), 'Source')
+                    if record['driver'] == 'capdev_amortization_years':
+                        c.comment.text += '\n' + tr(
+                            '0 = non applicabile: nessuna capitalizzazione o ammortamento iniziale della ricerca, in tutti i periodi e scenari.',
+                            '0 = not applicable: no capitalized research or opening research amortization, in all periods and scenarios.')
                     refs[(scenario, record['driver'], *path, *((index,) if vector else ()))] = f"'Model Inputs'!{c.coordinate}"
                 row += 1
         row += 2
@@ -168,6 +172,7 @@ def apply_operating_formulas(wb, payload):
     calendar = values[('model', 'calendar')]
     years = [p['end'] for p in calendar['periods']]
     n, end = len(years), len(years) + 3
+    quote_usable = (payload.get('market_quote') or {}).get('status') == 'ok'
     refs = _inputs(wb, evidence, years)
     _revenue_build(wb, values, refs, years)
     checks_sheet = _sheet(wb, 'Input Checks', tr('Vincoli numerici degli input', 'Numeric input constraints'), 5)
@@ -288,8 +293,14 @@ def apply_operating_formulas(wb, payload):
             _formula(wb['Summary'], 8, c, f'IF(ISNUMBER(\'{scenario}\'!D55),ROUND(\'{scenario}\'!D55,2),"n.d.")', PRICE)
             _formula(wb['Summary'], 11, c, ref(scenario, 'wacc'), PERCENT)
             _formula(wb['Summary'], 12, c, ref(scenario, 'terminal_growth'), PERCENT)
-            if isinstance(wb['Summary']['E19'].value, (int, float)):
+            if quote_usable and isinstance(wb['Summary']['E19'].value, (int, float)):
                 _formula(wb['Summary'], 9, c, f'IF(AND(ISNUMBER({col(c)}8),$E$19>0),{col(c)}8/$E$19-1,"n.d.")', PERCENT)
+            elif not quote_usable:
+                _put(wb['Summary'], 9, c, 'n.d.', PERCENT)
+    if not quote_usable:
+        message = (payload.get('market_quote') or {}).get('message') or tr('Quotazione non utilizzabile.', 'Quote unavailable.')
+        previous = str(wb['Summary']['B26'].value or '')
+        _line(wb['Summary'], 26, previous + '\n' + tr('Confronto prezzo n.d.: ', 'Price comparison unavailable: ') + message, 6, height=55)
     if payload['valuation_usability']['usable']:
         _line(wb['Summary'], 5, tr('Formule interattive. Le modifiche richiedono una nuova validazione.',
                                  'Interactive formulas. Changes require fresh validation.'), 6, True, height=36)
@@ -303,7 +314,7 @@ def apply_operating_formulas(wb, payload):
             wb['Segments'].cell(row, 3).font = Font(name='Arial', size=10, color='0000FF')
     wb.calculation = CalcProperties(calcId=0, fullCalcOnLoad=True, forceFullCalc=True)
     _terminal_bridge(wb, refs, n, payload['financial_currency'])
-    _sensitivity(wb, refs, n)
+    _sensitivity(wb, refs, n, quote_usable=quote_usable)
     _checks(wb, payload, n)
     wb._model_link = {'refs': refs, 'raw': {s: f"'{s}'!D54" for s in ('bear','base','bull')},
         'shares': {s: refs[('model','shares')] for s in ('bear','base','bull')},
@@ -327,9 +338,13 @@ def _validity(refs, values, scenario, n):
         checks.append(f'ISNUMBER({address})')
     life = ref('capdev_amortization_years', model=True)
     growth, wacc, ronic = (ref(k) for k in ('terminal_growth', 'wacc', 'terminal_ronic'))
-    checks += [f'{life}>0', f'{life}=INT({life})', f'{growth}>-1',
+    checks += [f'{life}>=0', f'{life}=INT({life})', f'{growth}>-1',
                f'{wacc}>MAX(0,{growth})', f'{ronic}>MAX(0,{growth})',
                f'{ref("shares",model=True)}>0', f'{ref("historical_revenue",model=True)}>0']
+    # The model-wide N/A policy must hold across every scenario after Excel edits.
+    for other in ('bear', 'base', 'bull'):
+        for driver in ('capdev_pct', 'opening_intangible_amortization'):
+            checks += [f'OR({life}>0,AND(ISNUMBER({refs[(other,driver,i)]}),{refs[(other,driver,i)]}=0))' for i in range(n)]
     for i in range(n):
         checks += [f'{ref("revenue_growth",i)}>-1', f'{ref("tax_rate",i)}>=0',
                    f'{ref("tax_rate",i)}<=1', f'{ref("capdev_pct",i)}<={ref("rnd_pct",i)}']
@@ -394,7 +409,7 @@ def _terminal_bridge(wb, refs, n, currency):
     ws.page_setup.fitToHeight=1
 
 
-def _sensitivity(wb, refs, n):
+def _sensitivity(wb, refs, n, *, quote_usable):
     ws = _sheet(wb, 'Sensitivity', tr('Sensibilita e attese implicite', 'Sensitivity and implied expectations'), 7)
     _line(ws, 4, tr('Scenario base: shock esplorativi, non probabilita. Tutte le altre ipotesi restano ferme.',
                     'Base case: exploratory shocks, not probabilities. All other assumptions held fixed.'), 7, height=36)
@@ -404,7 +419,7 @@ def _sensitivity(wb, refs, n):
         ws.cell(7, c).font = Font(name='Arial', size=10, color='FFFFFF', bold=True)
     last = col(n + 3)
     for row, shock in enumerate((-.01, -.005, 0., .005, .01), 8):
-        _formula(ws, row, 2, f"'base'!D33+({shock})", '0.00%')
+        _formula(ws, row, 2, f'IF(\'base\'!D5="OK",\'base\'!D33+({shock}),"n.d.")', '0.00%')
         for c in range(3, 8):
             rate, growth = f'$B{row}', f'{col(c)}$7'
             pv = '+'.join(f"'base'!{col(i+4)}26/(1+{rate})^'base'!{col(i+4)}34" for i in range(n))
@@ -412,7 +427,7 @@ def _sensitivity(wb, refs, n):
             factor = '*'.join(refs[('model', 'quotation', k)] for k in ('financial_to_quote_rate', 'quote_units_per_currency', 'shares_per_quote'))
             fv = f"(({pv})+({tv})-'base'!D50+'base'!D51)/'base'!D53*({factor})"
             valid = f"AND('base'!D5=\"OK\",{rate}>MAX({growth},0),'base'!D42>MAX({growth},0),{growth}>-1,'base'!D53>0)"
-            _formula(ws, row, c, f'IF({valid},{fv},"n.d.")', PRICE)
+            _formula(ws, row, c, f'IF(\'base\'!D5="OK",IF({valid},{fv},"n.d."),"n.d.")', PRICE)
     _line(ws, 15, tr('EBIT stabile implicito nel prezzo osservato', 'Stable EBIT implied by the observed price'), 7, True)
     _line(ws, 17, tr('Inferenza condizionata: stessi flussi espliciti, WACC, g, RONIC, imposte e bridge del base. Non e consensus.',
                      'Conditional inference: same base explicit cash flows, WACC, g, RONIC, taxes and bridge. This is not consensus.'), 7, height=44)
@@ -422,7 +437,10 @@ def _sensitivity(wb, refs, n):
     numerator = f"('Summary'!E19/({factor})*'base'!D53+'base'!D50-'base'!D51-'base'!D48)*(1+'base'!D33)^'base'!{last}34*('base'!D33-'base'!D41)"
     denominator = "(1+'base'!D41)*(1-'base'!D40)*(1-'base'!D43)"
     condition = f"AND(ISNUMBER('Summary'!E19),'Summary'!E19>0,'base'!D33>'base'!D41,'base'!D42>'base'!D41,({denominator})>0)"
-    _formula(ws, 20, 4, f'IF(\'base\'!D5="OK",IF({condition},({numerator})/({denominator}),"n.d."),"n.d.")')
+    if quote_usable:
+        _formula(ws, 20, 4, f'IF(\'base\'!D5="OK",IF({condition},({numerator})/({denominator}),"n.d."),"n.d.")')
+    else:
+        _put(ws, 20, 4, 'n.d.')
     _finish(ws, 22, 7)
 
 

@@ -9,6 +9,356 @@ This guide describes the documented adapters being delivered in the sector plan.
 Managed care retains its [existing input contract](../managed-care-inputs.md).
 Runtime activation and metadata migration are separate operations.
 
+## Shared automatic preparation
+
+The committee and the background queue use the same source collector, documented
+input compiler, economic engine and workbook generator. Automatic assumptions are
+labelled as such; they are not a PM approval. Approved and user-locked versions
+retain precedence. An incomplete case is recorded with its reason, without a
+promised workbook or an old attachment labelled as new.
+
+For selected SEC annual filings, the collector also follows explicitly linked
+EX-13 financial statements and EX-21 subsidiary lists. Same-accession attachments
+retain the parent filing date. An explicit incorporation reference to another
+accession of the same issuer requires its own SEC index: issuer, accession,
+document name, exhibit type and original filing date must agree. That original
+date is retained separately from the referencing filing date; an old subsidiary
+list is not silently dated at the current opening. Downloaded bytes and the index
+are identified by SHA-256. An unavailable, changed or ambiguous declared
+attachment blocks preparation before AI spending. Acquisition does not certify
+a complete or current legal entity ledger. Other exhibit types require separate
+acquisition; a reference within the primary document remains incomplete until
+the referenced section is verified.
+
+Model-wide economic policies retain narrative accounting evidence; a numeric
+opening-balance projection is insufficient for useful-life assumptions. In staged
+FCFF preparation, terminal normalization follows the completed explicit forecast.
+Bank continuing ledgers and closing capital amounts likewise follow the parent
+and subsidiary forecasts, while preserving the configured stage size.
+An unavailable opening amortization schedule remains a source gap; moving the
+terminal step does not supply it or authorize substitution from acquired assets.
+
+Oversized SEC FCFF requests can use declared stage views of a matched annual,
+current-quarter and prior-year-quarter set with accession-bound XBRL. Opening
+views retain accounting policies and both quarters' financial statements and
+notes. Forecast views retain the whole current report and annual financial notes.
+After the opening compiles, a further forecast view can retain only XBRL facts
+ending at that opening date, preserving their array indices, values and periods.
+Omitted facts, labels and repeated metadata are declared; an omitted entry never
+means zero. Original documents stay intact, quoted JSON values must equal the
+original source, and previously paid request forms take precedence. These views
+reduce context size without certifying source sufficiency or economic completeness.
+
+The opening working-capital compiler recognizes current deferred revenue as a
+negative operating component and rejects adding it to the alternative current
+customer-liability tag as if they were separate balances. Recognition of individual
+components does not establish a complete operating working-capital balance. Mixed
+current assets and liabilities still require a documented operating/financing
+bridge; an arithmetically valid subtotal must not be presented as full coverage.
+
+Preparation is disabled on a new installation. The private configuration is
+`valuation_automation.json` inside `BELLOMBERG_DATA_DIR` (the normal data directory
+when that override is absent). The disabled configuration is:
+
+```json
+{"version": 1, "enabled": false}
+```
+
+Enabling it requires `version: 1`, `enabled: true`, a new canonical UUID in
+`authorization_id`, a positive decimal `authorized_usd`, and an explicit `triggers`
+list. The implemented application bindings are `committee`, `portfolio`,
+`watchlist`, `startup`, `filing_diff`, `guidance`, `price` and `manual_refresh`.
+The limit belongs to that authorization for its whole
+lifetime; it never refills at a calendar boundary. Changing a cap under the same
+UUID is rejected. There are no model or token-limit overrides in this file.
+An authorization for an isolated pilot is not installation-wide authorization.
+
+Before enabling the queue, stop the backend and run the migration's dry-run;
+inspect its result before applying it. The apply operation makes and verifies a
+backup, rehearses on a copy and checks that the backend port is free:
+
+```powershell
+python tools/migrations/migra_valuation_automation.py --dry-run
+python tools/migrations/migra_valuation_automation.py --apply
+```
+
+Restart the backend after configuration. Adding an active holding or a watchlist
+entry then queues preparation within the authorized triggers. Reading a page,
+previewing a trade or mentioning a ticker does not launch paid research. Queue
+failure after a committed trade is reported separately; do not repeat the trade
+to retry its model. The session-protected `/valuation/automation/status` endpoint
+reports current configuration, worker state and recovery outcomes.
+
+With the backend off, no background preparation runs. On startup, the worker
+recovers interrupted jobs only after their provider costs are reconciled and,
+when `startup` is authorized, scans SQLite holdings and watchlist for missed
+initial requests. Sources are checkpointed before AI work and paid responses
+are reused. Unknown billing blocks recovery. Disabling or changing authorization
+blocks later stages and publication; it cannot cancel a request already sent.
+Cache identity excludes a validated download receipt's clock timestamp and
+validated download/reuse counters; the full acquisition report and receipt remain
+in provenance. Source coverage, catalog status, gaps, explicit availability dates,
+source content, completed drivers and the request contract remain part of the
+identity. Literal requests paid before this projection are verified and reused
+without rewriting their billing history; truncated or unresolved responses still
+block a paid retry.
+
+The specific OpenRouter `402 / in_flight_budget_exhausted` rejection, with
+`limit_source=openrouter_in_flight_budget`, is documented as occurring before
+provider execution. Its verified metadata and positive `Retry-After` are retained
+in a separate rejection history with zero inference cost; this is a policy-based
+reconciliation, not a generation usage receipt. The queue keeps its source
+checkpoint and remains deferred until that deadline. Recovery then reuses paid
+stages and may retry the identical request after checking current prices and the
+remaining authorization again. At most three transmissions of that rejected
+request are permitted, also subject to the queue's own attempt limit. No immediate
+network retry loop is used. Other errors, missing metadata or uncertain delivery
+remain unresolved and block spending. Historical manual billing reconciliations
+do not by themselves authorize retry.
+
+After an explicitly reconciled, nonbillable platform credit refusal, an operator
+can authorize one controlled recovery with `authorize_credit_retry`. It requires
+the exact original receipt hash, a recent verified account-credit observation,
+remaining authorized budget and resolved costs. The original request identity,
+receipt and previous refusals are retained in the append-only attempt history.
+Recharging the account does not raise the configured spending authorization.
+The next invocation still checks current prices, budget, concurrency and the
+shared transmission limit. Ambiguous delivery and provider errors remain blocked.
+
+An explicitly supplied `StagedProposer(seed=...)` can resume a partial candidate
+without invoking completed stages. `make_seed` binds the plan to the source dossier
+and contract; restoring it requires a complete opening and consecutive, complete
+groups under the current stage partition. All supplied drivers, citations and bank
+ledger arithmetic are checked again before another stage can spend. Changed sources,
+contracts, incomplete groups and invalid values stop the resume. This opt-in is not
+automatic source refresh or dependency regeneration: a caller revising assumptions
+must retain response/revision provenance and reconcile dependent assumptions.
+Hashes establish identity, not authorship, payment or economic approval. They do not
+create a paid-cache entry or an approval; candidates remain `automatic_non_approved`.
+
+`apply_revision(seed, dossier, contract, revision, view=...)` optionally merges
+scenario replacements and explicit reuse of the same named driver from another
+scenario in that original seed. Each reference binds the source plan and driver
+hashes and supplies its own rationale. References never resolve through newly
+edited values. Existing historical drivers and the opening model cannot be
+overwritten, and citations must be visible in the supplied source view. The
+returned lineage records both candidate hashes and the changed/copied drivers.
+This merge does not validate economic dependencies: pass the new seed through the
+staged preparer before continuing. Its ordinary stage-order, citation, expiry and
+arithmetic checks still apply; neither a shared value nor its hash is an approval.
+
+When authorized, startup and periodic reconciliation inspect committed Filing
+Diff results and active guidance for tracked securities. Verified document bytes,
+issuer, period and publication date identify a source event. Repeated observations
+reuse its persisted job. A newer unverified filing, unavailable archive or expired
+guidance is reported and cannot silently reuse older evidence. Guidance changes
+trigger source acquisition; their rows are not automatically approved inputs.
+Alongside this poll, a separate worker discovers SEC statement notices and
+8-K/8-K-A Item 2.02 earnings releases using Filing Diff's SEC catalog code.
+Discovery makes no AI calls. It scans one tracked ticker at a time, at most two
+catalog pages over 400 days; each ticker is due again after six hours, or one
+hour after an error. The first scan establishes a baseline when no current model
+exists (initial preparation remains the tracking worker's responsibility). With
+a current model, previously unknown notices published on or after its information
+cutoff also trigger refresh. A private SQLite journal preserves observations and
+pending deliveries across restarts; repeated notices and an enqueue/receipt crash
+reuse the same job. Disabling authorization or removing the ticker stops delivery.
+Incomplete catalogs and conflicting issuer/document metadata are explicit errors.
+Notices identify publications; the common preparer still acquires and validates
+their contents before proposing inputs. This does not cover every guidance channel.
+Non-SEC securities and 6-K/40-F filings need configured Filing Diff coverage;
+with `filing_diff` authorization, the source worker also acquires one due enabled
+profile per cycle for tracked securities. It respects the existing profile
+intervals and active-run locks, explicitly skips paid judgment/indexing, and
+leaves verification and event deduplication to the existing Filing Diff path.
+Missing/disabled profiles and active runs appear separately in automation status.
+Generic 6-K notices do not establish financial coverage; standalone guidance
+outside the configured rules remains uncovered. Discovery state and limitations
+appear in the automation status response. No scans run while the backend is off,
+and a slow source request does not block the model worker. Interrupted Filing Diff
+runs retain their existing explicit recovery procedure; this scan cannot declare
+an apparently active run dead or restart it automatically.
+A source event can replace an initial request that has not started. An initial
+request already running is preserved; complete deduplication between concurrent
+source channels is not yet certified.
+If approved inputs exist without an active approved current version, the source
+job first publishes those inputs without AI. Its persisted continuation then
+proposes the separate candidate. Startup repairs an interruption between these
+steps, preserving event order and the original source cutoff. At its first claim,
+an expired queued intent with no source/result checkpoint or bundled inputs is
+closed before acquisition or AI. A linked, deduplicated request uses the current
+cutoff and reacquires sources. Startup repairs the finish/enqueue crash window;
+both requests stay immutable and authorization is checked again. Work already
+attempted or paid follows the original journal/recovery rules: an expired cutoff
+there still requires a fresh explicit refresh, never a silent replay.
+
+The `price` trigger observes changes in stored quotes and acquires a dated market
+comparison for the current model, without AI preparation or changes to its
+workbook. Missing stored prices, including watchlist entries with no observations,
+remain unavailable. Interrupted price jobs do not require an AI billing receipt.
+
+Price-only jobs can publish a separate `market_quote/2` comparison for different
+financial and quote currencies. They acquire and archive the exact quote-day ECB
+reference rate, recompile its raw CSV and reconcile the original unrounded
+financial-currency values to the existing model before translating them. Quotation
+units and shares per quote are preserved. This does not change the valuation date,
+assumptions, original fair values, workbook, sanity checks or personal variants.
+The app shows the valuation date, FX date, pair and rate separately. The API
+recompiles this comparison from its persisted source checkpoint and exact current
+generation; interrupted jobs reuse acquired evidence without another AI call.
+Currently this supports explicit ISO currency pairs with EUR on one side. Missing
+exact-day observations (including before ECB publication), unsupported pairs or
+inconsistent sources leave the job incomplete. No previous-day rate is substituted.
+A subsequent price event can acquire the then-available evidence. Reference FX is
+an informational daily rate, not a transaction or equity closing-time price.
+Historical payloads and workbooks retain their original `/1` evidence.
+
+Refreshes of approved inputs create separate automatic candidates; approved and
+locked current versions retain precedence. Each queued refresh captures the
+current generation when work begins and cannot replace a subsequently changed
+head after a crash or concurrent publication.
+
+Fundamentals provides explicit refresh, lock/unlock and personal-variant actions.
+Refresh requires an active worker and `manual_refresh` authorization; it only
+queues work and reports its state. A retry after a transport failure uses the same
+request ID. Lock and variant creation name the displayed generation: if current
+changes before the write, the action is rejected. Unlocking does not automatically
+publish a previous candidate. A named personal variant copies the verified current
+workbook into a separate private archive with immutable lineage. Later personal
+edits are preserved, reported and downloadable; they are not imported into the
+official model. Pending copy failures can be retried without overwriting files.
+All model downloads require a session. The old filename endpoint serves dated
+legacy copies only; versioned workbooks use the verified generation route.
+
+Current delivery limits: automatic input preparation covers FCFF, banks and fund NAV;
+other documented adapters continue to require their own complete inputs. Offline
+synthetic tests do not certify a complete live economic model or native
+spreadsheet compatibility.
+
+For bank-method preparation in explicit USD reporting currency, the shared
+collector looks up up to four bank names appearing on standalone lines in verified
+SEC EX-21 exhibits. It queries the exact opening quarter and requires one result,
+matching bank and regulatory top-holder names; case, whitespace and a terminal
+period are the only display differences accepted. No fuzzy entity aliases or bank
+identifiers are hardcoded. It archives the original response, verifies its byte
+hash and final URL, and uses the existing FDIC normalizer. The source report retains
+the exact exhibit name quote and source hash. Missing, ambiguous, redirected or
+inconsistent observations prevent paid preparation. Other layouts and non-FDIC
+banks remain explicitly unsupported by this collector. Candidate acquisition does
+not certify a complete legal inventory, ownership or capital/liquidity scope. The common service and
+persistent queue pass the resolved method to the same collector; nonbank requests
+do not perform these lookups. See the [FDIC API documentation](https://api.fdic.gov/banks/docs).
+
+For a verified FDIC top holder, the same collector requests FFIEC parent-only
+reports for that exact RSSD and quarter. It considers FR Y-9LP and, at half-year
+ends, FR Y-9SP; it does not infer the applicable form from institution size.
+The downloaded PDF must retain its byte hash, final URL, original cover identity
+and period, with the existing PC/SC normalizer verifying its tables. Exactly one
+verified form is required. Failed attempts and competing reports remain explicit.
+Availability is the observed retrieval date, never a publication date inferred
+from the reporting period. An unavailable PDF does not discard an independently
+verified SEC parent-only source; without either, opening preparation remains
+incomplete. Source presence does not certify complete parent debt, unrestricted
+cash, distribution capacity or a complete valuation. An offline replay of an
+attested PDF proves processing only, not successful automatic retrieval. See
+[FFIEC financial reports](https://www.ffiec.gov/npw/Help/FinancialReports).
+
+Successful parent-report downloads retain immutable PDF bytes and their original
+receipts under the source archive. If a later request is unavailable, the collector
+can reuse one unambiguous archived version for the exact report URL, after checking
+its hash and re-extracting the legal identity, quarter and tables. It preserves the
+original availability date and explicitly reports that the current remote version
+could not be verified. A redirected or invalid live response is not replaced by an
+archived report. Corrupt receipts, changed bytes, competing archived versions or
+failed archive writes remain errors. This reuse neither renews expired analyst
+judgments nor certifies that no amendment has appeared online.
+
+An explicit `RefreshProposer` can review a previously compiled plan against a
+current dossier using the same preparation and workbook service. Every driver
+requires a hash-bound reuse decision or a complete replacement; missing evidence
+stops before another scope can spend. Reuse preserves facts and observation dates.
+Changed source identities, including observed availability dates, are identified
+before each request; those drivers cannot select reuse in the response schema.
+Repeated primary-statement share receipts retain separate source identities. One
+explicit selection can cover equivalent receipts only when their URL, dates,
+normalized statement proof, facts and full tag comparison match; actual source
+disagreements remain blocking and the selected tag conflict stays disclosed.
+Only an explicitly reviewed same-day policy advances; a source-stated expiry is
+never extended. Changed source text requires replacement, and a changed calendar,
+perimeter or legal structure requires fresh preparation. No human approval is
+inferred. The ordinary compiler and valuation engine remain mandatory.
+
+The service records a plain-JSON review basis and the actual review lineage in
+the generation. The archived basis is source evidence: provider labels are not
+treated as calculated valuation outputs, and output masking leaves this evidence
+intact. Reusing it still requires recompilation under its original contract.
+Review prompts declare omitted provider/acquisition payloads and
+value-only views of other scenarios; original dossiers and plans remain intact.
+Identical response-schema fragments use acyclic definitions, with equivalent
+expanded constraints. Interrupted review scopes reuse the existing paid journal.
+Explicit compact scopes can index driver names and review citations through
+request-bound tables. Every driver still needs its own decision and rationale;
+replacement fact proofs retain the ordinary full source identifiers. The wire
+response and reference tables are retained alongside the expanded review.
+Unknown, aliased, duplicated or missing references fail validation. Changing only
+the remaining scopes' format preserves the paid requests for completed scopes.
+An explicit `repair_terminal=True` permits one additional review per failed bank
+scope when the engine identifies a terminal equity/debt arithmetic mismatch.
+Only the identified drivers can be replaced; other paid decisions stay fixed.
+The request includes calculated targets without changing the proposed inputs.
+The rejected response, correction and identities remain in the lineage. The
+complete compiler runs again; an invalid correction stops without another retry.
+This option retains the same paid journal, budget and model limits.
+
+Before paid preparation, the event queue pins the verified current generation
+and its recompilable research basis in the acquired-source checkpoint. Recovery
+uses that exact basis even if another generation becomes current; publication
+still checks the captured head and cannot replace a concurrent version. Missing
+legacy research is an explicit fresh-preparation reason, not an inferred plan.
+Historical documents keep their original dates and hashes; retaining them does
+not clear current acquisition failures or claim a new download.
+
+An identical dossier and contract reuse the recompiled plan without AI. Changed
+evidence or information cutoff requires explicit compact reviews for the opening
+and all scenarios, with the bounded terminal correction above enabled. A changed
+method contract starts fresh preparation. If the opening review changes the
+calendar, perimeter or legal structure, that validated opening starts fresh
+scenario preparation without paying for the opening twice. Old scenario paths
+are not carried into the new structure. The selection, original generation and
+actual review evidence remain recorded; none of these paths grants PM approval.
+Existing checkpoints without a prior basis retain their original preparation
+path and paid request identities. The real pilot's larger authorized output
+limit does not certify completion under ordinary application limits.
+
+Literal opening evidence retains the exact source text and requires one unique,
+contiguous span binding the measured number to its date. The compiler recognizes
+ISO dates and full English month/day/year dates with a comma; it does not infer
+numeric date locales. Numbers may use plain decimals or comma groups of three
+with a decimal dot. Unsupported signs, accounting parentheses, malformed grouping,
+multiple measures and conflicting dates are rejected. Unit, period and scale
+checks still apply; recognizing a printing convention never changes the source.
+
+## Preparation arithmetic and workbook presentation
+
+Before proceeding to another FCFF scenario, staged preparation checks each
+completed terminal bridge against the same cash-flow engine used by final
+valuation. An inconsistent saved candidate also stops before another paid call.
+New forecast prompts explain revenue-based expense ratios, the separate
+depreciation/research deductions and the terminal reinvestment equation, and
+expose computed final-year amounts when all required paths are present.
+Source accounting still requires an explicit reconciliation; these equations do
+not certify an analyst's classification. Literal paid requests remain reusable
+unchanged, with their results subject to the current arithmetic checks.
+
+Bank Summary uses the reviewed FCFF presentation while preserving the bank's
+guarded valuation formulas. It shows scenario Ke and perpetual growth, model
+valuation date and price, observed quote timestamp/source/status, cited source
+dates, input cutoff/expiry and generation identity. An unavailable or unusable
+quote leaves upside unavailable; it never substitutes the model price. A valid
+observed-price simulation changes upside only, without rolling fair value forward.
+Workbook input checks do not imply PM approval. Other bank sheets retain their
+legal-capital, cash and source organization.
+
 ## Common record contract
 
 ### Shared research standard
@@ -143,7 +493,7 @@ All listed scalar/path records are mandatory, including an explicit zero:
 | Scope | Drivers | Interpretation |
 |---|---|---|
 | model/opening | `historical_revenue`, `opening_nwc`, `shares` | Reconciled opening revenue, working capital and diluted denominator |
-| model/future | `capdev_amortization_years` | Explicit positive integral useful life, not a sector default |
+| model/future | `capdev_amortization_years` | Explicit positive integral useful life, not a sector default; integer `0` explicitly means **not applicable**, only when every scenario has zero `capdev_pct` and zero `opening_intangible_amortization` in every period. Document the expensing policy and absence of opening capitalized research; no inferred zero or zero-year useful life. |
 | each scenario/future | `revenue_growth`, `gross_margin`, `rnd_pct`, `sga_pct`, `capdev_pct`, `da_tan_pct`, `tax_rate`, `capex_pct`, `nwc_pct` | Paths for every fiscal period, ratios in decimal units |
 | each scenario/future | `opening_intangible_amortization` | Monetary amortization path of opening capitalized research |
 | each scenario/future | `wacc`, `terminal_growth`, `terminal_ronic` | Explicit sourced rates; invalid relations are rejected, never clamped |
@@ -153,6 +503,70 @@ All listed scalar/path records are mandatory, including an explicit zero:
 The opening EV/equity bridge is a scenario assumption at the common opening
 valuation date; it is not forecast terminal debt. The whole-forecast record
 period identifies the scenario in which that bridge is used.
+For `net_debt` and `equity_adjustments`, an observed opening amount may therefore
+use `historical` evidence. The preparer verifies its numerical proof, entity,
+currency and exact `calendar.valuation_date`; a future-dated balance is rejected.
+Existing estimated bridges and the saved scenario-period format remain valid.
+This exception does not apply to WACC, terminal rates or operating forecasts.
+
+WACC, terminal growth and terminal RONIC may be `analyst_estimate` judgments;
+the issuer is not required to publish perpetual guidance. Cite the evidence
+supporting the economic premises and explain how each scenario rate is chosen.
+WACC needs dated currency-consistent risk-free/ERP inputs and an explicit
+exposure, financing and tax method. Explain mature-state growth using the
+business's scale and nominal economic setting. Explain incremental returns and
+competitive fade separately from observed average ROIC; the latter is not a
+silent substitute for RONIC. Neither a short growth target nor a sector label
+determines a perpetual rate. Missing supporting premises remain an explicit
+gap; an invented observed input or a default rate is never an analyst judgment.
+
+For an explicit USD financial currency, the common collector acquires dated
+Treasury 10-year par yields and the monthly Damodaran ERP workbook through the
+existing verified downloader. It preserves byte hashes, original rows/cells,
+observation dates and observed download availability; it does not infer a
+publication date. ERP variants and their paired rates remain separate. Missing,
+ambiguous or stale sources are declared. Other financial currencies currently
+have no market-reference acquisition; quote currency is never substituted.
+These references do not determine issuer beta, financing weights, WACC or
+terminal assumptions. `preparation_ready` still describes opening-source
+coverage; economic completeness is checked by the hypothesis compiler.
+
+For a verified SEC opening filing, the common collector also checks recent
+8-K/8-K/A Item 2.02 filings between the opening date and the information cutoff.
+It acquires their explicitly linked EX-99 earnings documents with the existing
+verified downloader, preserving SEC filing dates, issuer/accession identity,
+original byte hashes and text. These documents may support company guidance;
+they are not extracted forecasts or consensus. Selection is bounded to four
+filings and four exhibits per filing, with caps, unavailable sources and
+conflicting metadata reported explicitly. For a foreign SEC opening filing,
+recent 6-K/6-K-A reports are collected instead, as supplemental narrative;
+this does not classify them as guidance or certify financial coverage.
+Explicit English call access/replay phrases followed by a textual HTTP(S) URL
+are recorded with an exact quote, offsets and source hash. A URL absent from
+the acquired documents produces a missing-material issue, without following
+external links. Acquisition alone does not certify a transcript or completeness.
+The recognizer is bounded; other wording and guidance channels remain uncovered.
+These issues propagate to the preparer's dossier. Supplemental incompleteness
+alone does not invalidate otherwise complete opening statements or relax the
+separate Filing Diff coverage gate. Earnings documents never change the opening
+balance date or imply that historical facts have been rolled forward.
+
+With a verified ordinary listing, the USD collector also supplies a historical
+beta reference from five years of daily Yahoo adjusted closes versus the S&P
+500 price index. It archives the normalized price observations, checks identity,
+currency and window coverage, and reuses the quant tool's covariance calculation
+on matching return intervals. The current incomplete trading day is excluded.
+Stock distribution adjustments and the price-index convention are disclosed;
+this is not the provider's monthly beta or a selected forward exposure. Missing
+or stale history leaves a declared gap. Blank prices remain null in the archive;
+the reference declares the excluded dates and last observed return, without
+filling prices. Insufficient coverage or stale observations produce no reference.
+Neither beta nor WACC is substituted.
+
+In AI proposals, analyst estimates carry source IDs and rationale without
+numerical fact-proof fields. Historical observations retain their exact proof;
+company guidance uses literal evidence rather than historical JSON pointers.
+The transport schema and deterministic compiler enforce this distinction.
 
 The volume/price form of `revenue_build` has exactly `basis`, `volume`, `unit_price`, `utilization`,
 `other_revenue`. Each numeric key is a complete path. Volume times unit price
@@ -242,9 +656,9 @@ RONIC must exceed growth; growth at or below minus 100% is invalid. No implicit
 fade, floor, scenario weighting, comparable multiple or extra equity bridge is
 introduced.
 
-Excel is an immutable numeric snapshot with shared quality and acquisition sheets.
-It does not claim that editing a cell recalculates a second model. Regeneration
-creates new UUID workbook/sidecar files and preserves previous files. The same
+Excel uses the linked scenario formulas described in the common record contract.
+Local numeric edits are marked as simulations and leave stored records unchanged.
+Regeneration creates new UUID workbook/sidecar files and preserves previous files. The same
 snapshot and value travel through cache, research, database metadata, committee,
 score and F17. A blocked value is suppressed in nested calculation details too.
 
@@ -270,10 +684,86 @@ OCI/FX; an incompatible basis is a precise acquisition/valuation block. A future
 IFRS or nonzero-OCI bridge must be implemented and tested before it is usable.
 The inherited ledger evaluates period ends, not intraperiod liquidity.
 
+The preparer accepts parent-only observations from attested FR Y-9LP Schedule PC
+and FR Y-9SP Schedule SC PDFs. Each form has its own field codes, labels and
+line items. Cash requires both reported deposit components; common equity
+requires total equity less perpetual preferred equity from the same form,
+entity and date. The original PDF remains in the catalog and its normalization
+is checked again before use. Blank or ambiguous amounts remain missing.
+These observations do not certify unrestricted cash, transfers from subsidiaries
+or complete parent debt. Supplemental FR Y-9SP observations include investments
+in subsidiaries, bank goodwill/receivables, reported short/long-term borrowings
+and balances due to related entities. They remain individual carrying balances:
+long-term borrowings may include limited-life preferred stock, issue costs may
+reduce book debt, and related balances need not all be financing. The normalized
+`unavailable_fields` identifies absent or blank supplemental boxes; it never
+converts a conditional blank into zero or certifies absence of that subsidiary.
+Invalid or ambiguous reported amounts still block normalization. Cash/equity
+components remain required. The official [Federal Reserve FR Y-9SP form and
+instructions](https://www.federalreserve.gov/apps/reportingforms/Report/Index/FR_Y-9SP)
+define the source fields; a blank template is never issuer evidence.
+
+SEC 10-K/10-Q inline-XBRL is also supported for parent common equity and cash
+when the filing explicitly uses `ConsolidatedEntitiesAxis/ParentCompanyMember`.
+The current reader requires US GAAP concepts and USD units: stockholders' equity
+less reported preferred capital, and cash and cash equivalents. A verified
+issuer-capital preferred-stock zero is accepted; an absent amount is never zero.
+The reader verifies the acquired filing bytes, CIK, accession, opening date,
+namespaces, contexts, units and numeric transformation. Ambiguous contexts,
+conflicting observations, unsupported scopes and missing components remain
+incomplete. The original source retains the extracted packet; catalog ingestion
+recompiles the observations from that packet. As with PDF fields, packet hashes
+do not independently authenticate the publisher. These parent observations may
+participate in the scoped common-equity reconciliation, but never replace
+consolidated balances, subsidiary capital, transfer restrictions or debt evidence.
+
+Filled PDF text widgets are acquired separately from the original page text.
+The attestor retains qualified field names, physical pages, original byte identity
+and a hash of the extracted field packet. The parent normalizer binds each amount
+to its exact field code, page, printed label and units. If XFA data is present,
+its selected values must agree with the AcroForm values; conflicts, hidden fields,
+missing values and malformed XFA remain explicit failures. The original PDF and
+page text are not flattened or modified. Acquisition receipt authenticity remains
+the acquiring caller's responsibility; a field hash is not publisher authentication.
+See [pypdf's form model](https://pypdf.readthedocs.io/en/stable/user/forms.html).
+
 Use the common perimeter/calendar/quotation records above. The exact bank schema
 is `bank_adapter.SCHEMA`; the tool publishes it. Monetary amounts are millions of
 the financial currency. Opening balances use the valuation date, forecast paths
 use the joined start/end spans, and terminal contracts use the final period end.
+
+The consolidated perimeter and parent-only ledger may identify the same legal
+issuer. Their drivers, source proofs and accounting reconciliations still remain
+separate: a parent-only regulatory observation cannot prove consolidated equity.
+Subsidiary identifiers must be unique and cannot equal the parent or group issuer.
+
+For `opening_consolidation_adjustments`, the preparer supports the explicit
+`consolidation_equity` calculation: reported group common equity minus parent-only
+common equity minus every modeled bank subsidiary's common GAAP equity.
+`terms` contains `group`, `parent` and `subsidiaries` keyed by the legal IDs.
+Each balance contains exactly `value`, one normalized `evidence_ids` entry and
+its signed `sum` calculation. Group equity requires SEC GAAP `StockholdersEquity`
+less `PreferredStockValue`; parent and bank components use the policies below/above.
+All dates and entities must match, the outer source IDs must equal the operand
+union, and these balances must equal the model and each supplied scenario opening.
+The record explicitly labels this an aggregate reconciliation of reported values.
+It does not identify individual consolidation entries or assert that a difference
+is caused by rounding. The complete legal perimeter still requires separate source
+support; no ownership percentage or missing subsidiary is inferred by subtraction.
+
+`fdic_evidence.normalize_fdic_financials` accepts an acquired original BankFind
+financials JSON response for one exact certificate, bank RSSD, regulatory top
+holder RSSD and quarter. The catalog recompiles its observations from that response.
+Availability is the observed acquisition date; the API index timestamp is not a
+filing publication date. Monetary fields retain the FDIC thousands-of-USD unit.
+For an insured domestic bank outside CBLR, the supported subsidiary opening proofs
+are `EQ - EQPP` for common GAAP equity, `RBCT1C` for CET1 and
+`RBCT1C - EQ + EQPP` for their reconciliation. The reporting flags must be present;
+missing amounts and an inapplicable CET1 basis remain incomplete. These observations
+do not establish direct ownership, ownership percentage, distribution capacity,
+future regulatory regime or parent debt. Source acquisition/authentication remains
+the caller's responsibility. See the [FDIC API field definitions](https://api.fdic.gov/banks/docs/risview_properties.yaml)
+and [financial reports](https://banks.data.fdic.gov/bankfind-suite/financialreporting/report).
 
 | Records | Consumption |
 |---|---|
@@ -307,7 +797,7 @@ constraints is an analyst/source assertion, not independent legal certification.
 consume cash and common capital once; required shareholder contributions are
 included as negative cash flows and cannot exceed documented funding capacity.
 
-`terminal_ledger` contains exactly `capital`, `capital_constraints` and
+`terminal_ledger` contains `capital`, `capital_constraints` and
 `liquidity_bridge`, describing the next full year using the same contracts.
 Its balances start at forecast closing balances, discount interval is one year,
 and the one-year checking ledger's terminal equity is explicitly zero. It is a
@@ -315,6 +805,17 @@ cash/capital proof, not an additional value in the headline valuation. Income is
 closing common book × terminal ROE. Retained income must reconcile to book
 growth; capital, cash, debt and the following capital requirement must sustain
 the declared continuing growth. Negative continuing shareholder cash is blocked.
+
+The optional `statutory_projection: "retained_flows_at_g"` explicitly projects
+statutory capital flows and requirements at g, instead of requiring statutory
+stocks themselves to grow exactly at g. No other additional key is accepted.
+For opening statutory capital S0, first-year change d and first-year requirement
+R1, require `S0+d >= R1` and `d*(1+g) >= g*R1` when g>0; `d>=0` when g=0;
+`d>=g*S0` when -1<g<0. These conditions cover the entire perpetual trajectory.
+Without that field the proportional-stock rule remains. Parent cash/debt,
+bank cash, common-book growth and all other reconciliation checks remain binding.
+Neither policy establishes economic support for a tax benefit or funding flow;
+finite resources cannot be silently extended into perpetuity.
 
 The existing bank engine computes residual income with the actual distributions
 and discount intervals. It must equal the existing ledger's shareholder cash PV
@@ -391,6 +892,48 @@ consistent with [Ofgem's explanation of regulatory financial performance](https:
 No numeric regulatory assumption is imported from that reference.
 
 ## Funds, investment holdings and digital-asset NAV: version 2
+
+The common automatic preparer supports `fund_nav` for funds and investment
+holdings. This is compiler/service coverage, not certification of a live vehicle
+or automatic source acquisition for every reporting layout. Digital-asset NAV
+still requires its existing documented inputs; its automatic preparer is not yet
+implemented. ETFs retain their own method and are never forced into fund NAV.
+
+New fund candidates use verified primary-source proofs. Each component, including
+zero claims, needs its own labelled number, unit and unique contiguous dated
+excerpt identifying the legal entity and share class. Gross assets exclude cash.
+Accepted source labels and the exact envelope are exposed in
+`contract.fund_nav_preparation`; unsupported languages/layouts stay incomplete.
+Publication requires an exact source excerpt identifying publisher, publication
+and valuation dates, class, entity and common-equity net basis. It must cite the
+same primary document as reported NAV, directly or through its verified statement
+normalization. Precision is derived from the digits printed in that NAV quote,
+without monetary scaling; a float cannot recover trailing zeros.
+Perimeter, calendar, policy and scenario premium/discount targets are explicit
+analyst judgments. The existing adapter still checks claims, dates, dilution
+policy and reconciliation against the reported NAV before usability/publication.
+
+Supplied PDF financial-position tables can produce `fund_nav_statement_v1`
+observations automatically before the proposal. This bounded reader requires the
+full legal issuer, complete dated comparative columns, explicit reporting currency
+and verified physical-page offsets/hashes. It reconciles assets less liabilities
+to equity, class allocations to equity, and each class's balance, shares and NAV
+at the printed precision. The primary text remains available; unsupported or
+ambiguous layouts are reported as gaps. No missing amount or zero is inferred.
+Only shares, published NAV per share and its printed precision can use these
+structured facts. Proofs select the exact entity, class and opening date through
+`/facts/N/value`, `/facts/N/unit` and `/facts/N/end`; precision must belong to the
+same NAV row and column. The compiler reproduces each normalized document from
+the original and rejects changed or orphaned facts. Group equity is never silently
+divided by one class's shares. These observations do not supply the component
+bridge, publication proof, quotation, dilution policy or scenario targets, and do
+not certify discovery of current sources for an issuer.
+
+The common service retains the original candidate plan and its pinned review
+basis as evidence, including the documented `nav_target` envelope. These are
+inputs, not alternate fair-value outputs. Unchanged research can be recompiled
+without another AI request; a new cutoff requires explicit review. A blocked
+valuation still hides its calculated fair values while retaining those sources.
 
 These methods use a dated snapshot: `calendar.periods=[]` and
 `calendar.discount_convention=snapshot`. Every record's period is the valuation

@@ -61,6 +61,7 @@ import os
 import time
 import math
 import asyncio
+from email.utils import parsedate_to_datetime
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
@@ -556,7 +557,7 @@ def _reasoning_openai(thinking, model=""):
 
 
 def costruisci_corpo(model, max_tokens, messages, system=None, tools=None, tool_choice=None,
-                     thinking=None, stream=False, **ignorati):
+                     thinking=None, stream=False, provider_max_price=None, response_format=None, **ignorati):
     """Il corpo JSON per chat/completions a partire dai kwargs Anthropic dei call site.
     `extra_headers` e altri kwargs Anthropic-only finiscono in `ignorati` (non partono)."""
     conserva = _conserva_cache(model)
@@ -566,6 +567,25 @@ def costruisci_corpo(model, max_tokens, messages, system=None, tools=None, tool_
         msgs.append(s)
     msgs.extend(_messaggi_openai(messages, conserva))
     corpo = {"model": model, "messages": msgs, "max_tokens": int(max_tokens)}
+    if provider_max_price is not None:
+        from math import isfinite
+        if (not isinstance(provider_max_price, dict)
+            or set(provider_max_price) != {"prompt", "completion", "request"}
+            or any(isinstance(v, bool) or not isinstance(v, (int, float)) or not isfinite(v) or v < 0
+                   for v in provider_max_price.values())):
+            raise ValueError("provider_max_price richiede tariffe prompt/completion/request finite non negative")
+        corpo["provider"] = {"max_price": dict(provider_max_price)}
+    if response_format is not None:
+        if response_format != {"type": "json_object"}:
+            spec = response_format.get("json_schema") if isinstance(response_format, dict) else None
+            if (not isinstance(spec, dict) or set(response_format) != {"type", "json_schema"}
+                    or response_format["type"] != "json_schema" or set(spec) != {"name", "strict", "schema"}
+                    or not isinstance(spec["name"], str) or not spec["name"].strip()
+                    or type(spec["strict"]) is not bool or not isinstance(spec["schema"], dict)):
+                raise ValueError("response_format richiede json_object o json_schema con strict booleano esplicito")
+        corpo["response_format"] = json.loads(json.dumps(response_format, allow_nan=False))
+        # Reject a provider that would silently ignore the requested JSON mode.
+        corpo.setdefault("provider", {})["require_parameters"] = True
     tc = _tool_choice_openai(tool_choice)
     # Muse rifiuta anche `none`: omettere entrambi disabilita davvero i tool
     # nel turno finale. Cronologia, risultati e nudge restano nel payload.
@@ -870,6 +890,45 @@ def _pausa(tentativo):
     return BACKOFF_S[min(tentativo, len(BACKOFF_S) - 1)]
 
 
+class _RetryBudget:
+    """Un solo budget per HTTP e SSE; mai ripetere token gia' consegnati."""
+    def __init__(self, max_retries):
+        self.limit = max_retries
+        self.used = 0
+
+    def delay(self, error, headers=None):
+        if self.used >= self.limit or not (isinstance(error, APIConnectionError)
+                or isinstance(error, APIStatusError) and _ritentabile(error.status_code)):
+            return None
+        delay = _pausa(self.used)
+        raw = (headers or {}).get("retry-after")
+        if raw is not None:
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                try:
+                    value = max(0.0, parsedate_to_datetime(raw).timestamp() - time.time())
+                except (TypeError, ValueError, OverflowError):
+                    value = float("nan")
+            if math.isfinite(value) and value >= 0:
+                # Non anticipare il provider ne' tenere la chat sospesa per ore.
+                if value > 60:
+                    return None
+                delay = value
+        self.used += 1
+        try:
+            print(f"[llm_client] retry {self.used}/{self.limit}: "
+                  f"status={getattr(error, 'status_code', 'rete')}, attesa={delay:g}s")
+        except OSError:
+            pass  # Una pipe di log chiusa non deve interrompere il recupero.
+        return delay
+
+
+def _stream_senza_output(ric):
+    return not (ric.blocchi or ric.reasoning or ric.refusal or ric.finish
+                or ric.usage is not None)
+
+
 def _decodifica(resp):
     try:
         return resp.json()
@@ -913,9 +972,11 @@ class OpenRouterClient:
         self.messages = _Messages(self)
 
     # -- una POST con retry sugli status/errori transitori; ritorna la Response (status < 400)
-    def _invia(self, corpo, stream=False):
+    def _invia(self, corpo, stream=False, retry=None):
+        retry = retry or _RetryBudget(self.max_retries)
         ultimo = None
-        for tentativo in range(self.max_retries + 1):
+        while True:
+            headers = None
             try:
                 req = self._http.build_request("POST", URL_CHAT, json=corpo,
                                                headers=_intestazioni(self.api_key))
@@ -930,12 +991,14 @@ class OpenRouterClient:
                 if stream:
                     resp.read()
                 ultimo = _errore_da_corpo(resp.status_code, _decodifica(resp))
+                headers = resp.headers
                 resp.close()
                 if not _ritentabile(resp.status_code):
                     raise ultimo
-            if tentativo < self.max_retries:
-                time.sleep(_pausa(tentativo))
-        raise ultimo
+            delay = retry.delay(ultimo, headers)
+            if delay is None:
+                raise ultimo
+            time.sleep(delay)
 
     def _post_json(self, corpo):
         resp = self._invia(corpo, stream=False)
@@ -954,16 +1017,17 @@ class _StreamSync:
         self._resp = None
         self._ric = _Ricomposizione()
         self._esaurito = False
+        self._retry = _RetryBudget(client.max_retries)
 
     def __enter__(self):
         try:
-            self._resp = self._c._invia(self._corpo, stream=True)
+            self._resp = self._c._invia(self._corpo, stream=True, retry=self._retry)
         except APIStatusError as e:
             if not _e_ragionamento_obbligatorio(e, self._corpo):
                 raise
             _forza_minimal(self._corpo)
             self._forzato = True
-            self._resp = self._c._invia(self._corpo, stream=True)
+            self._resp = self._c._invia(self._corpo, stream=True, retry=self._retry)
         return self
 
     def __exit__(self, *a):
@@ -977,14 +1041,26 @@ class _StreamSync:
         if self._esaurito:
             return
         try:
-            for riga in self._resp.iter_lines():
-                chunk = _payload_sse(riga)
-                if chunk is None:
-                    continue
-                if chunk == "[DONE]":
+            while True:
+                try:
+                    for riga in self._resp.iter_lines():
+                        chunk = _payload_sse(riga)
+                        if chunk is None:
+                            continue
+                        if chunk == "[DONE]":
+                            break
+                        for ev in self._ric.alimenta(chunk):
+                            yield ev
                     break
-                for ev in self._ric.alimenta(chunk):
-                    yield ev
+                except APIStatusError as error:
+                    delay = (self._retry.delay(error, self._resp.headers)
+                             if _stream_senza_output(self._ric) else None)
+                    if delay is None:
+                        raise
+                    self._resp.close()
+                    time.sleep(delay)
+                    self._ric = _Ricomposizione()
+                    self.__enter__()
         except httpx.HTTPError as e:
             raise APIConnectionError("stream interrotto: " + type(e).__name__ + ": " + str(e))
         finally:
@@ -1033,9 +1109,11 @@ class AsyncOpenRouterClient:
         self._http = _nuovo_client_http_async(self.timeout, trasporto)
         self.messages = _MessagesAsync(self)
 
-    async def _invia(self, corpo, stream=False):
+    async def _invia(self, corpo, stream=False, retry=None):
+        retry = retry or _RetryBudget(self.max_retries)
         ultimo = None
-        for tentativo in range(self.max_retries + 1):
+        while True:
+            headers = None
             try:
                 req = self._http.build_request("POST", URL_CHAT, json=corpo,
                                                headers=_intestazioni(self.api_key))
@@ -1050,12 +1128,14 @@ class AsyncOpenRouterClient:
                 if stream:
                     await resp.aread()
                 ultimo = _errore_da_corpo(resp.status_code, _decodifica(resp))
+                headers = resp.headers
                 await resp.aclose()
                 if not _ritentabile(resp.status_code):
                     raise ultimo
-            if tentativo < self.max_retries:
-                await asyncio.sleep(_pausa(tentativo))
-        raise ultimo
+            delay = retry.delay(ultimo, headers)
+            if delay is None:
+                raise ultimo
+            await asyncio.sleep(delay)
 
     async def _post_json(self, corpo):
         resp = await self._invia(corpo, stream=False)
@@ -1074,16 +1154,17 @@ class _StreamAsync:
         self._resp = None
         self._ric = _Ricomposizione()
         self._esaurito = False
+        self._retry = _RetryBudget(client.max_retries)
 
     async def __aenter__(self):
         try:
-            self._resp = await self._c._invia(self._corpo, stream=True)
+            self._resp = await self._c._invia(self._corpo, stream=True, retry=self._retry)
         except APIStatusError as e:
             if not _e_ragionamento_obbligatorio(e, self._corpo):
                 raise
             _forza_minimal(self._corpo)
             self._forzato = True
-            self._resp = await self._c._invia(self._corpo, stream=True)
+            self._resp = await self._c._invia(self._corpo, stream=True, retry=self._retry)
         return self
 
     async def __aexit__(self, *a):
@@ -1097,14 +1178,26 @@ class _StreamAsync:
         if self._esaurito:
             return
         try:
-            async for riga in self._resp.aiter_lines():
-                chunk = _payload_sse(riga)
-                if chunk is None:
-                    continue
-                if chunk == "[DONE]":
+            while True:
+                try:
+                    async for riga in self._resp.aiter_lines():
+                        chunk = _payload_sse(riga)
+                        if chunk is None:
+                            continue
+                        if chunk == "[DONE]":
+                            break
+                        for ev in self._ric.alimenta(chunk):
+                            yield ev
                     break
-                for ev in self._ric.alimenta(chunk):
-                    yield ev
+                except APIStatusError as error:
+                    delay = (self._retry.delay(error, self._resp.headers)
+                             if _stream_senza_output(self._ric) else None)
+                    if delay is None:
+                        raise
+                    await self._resp.aclose()
+                    await asyncio.sleep(delay)
+                    self._ric = _Ricomposizione()
+                    await self.__aenter__()
         except httpx.HTTPError as e:
             raise APIConnectionError("stream interrotto: " + type(e).__name__ + ": " + str(e))
         finally:

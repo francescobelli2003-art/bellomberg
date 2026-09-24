@@ -24,8 +24,10 @@ def bind_capital_inputs(bundle,schema,*,entity_schema=None):
         errors.append('Entita legali e regimi completi richiesti'); subs=[]
     ids=[s['id'] for s in subs]; parent=legal.get('parent_entity')
     group=next((r.get('value',{}).get('entity') for r in records if r.get('driver')=='perimeter' and isinstance(r.get('value'),dict)),None)
-    if not _text(parent) or not _text(group) or len(set(ids+[parent,group]))!=len(ids)+2:
-        errors.append('Identita parent/consolidato/entita devono essere distinte')
+    # Parent-only and consolidated reporting can name the same legal issuer.
+    if (not _text(parent) or not _text(group) or len(set(ids))!=len(ids)
+            or any(identity in (parent,group) for identity in ids)):
+        errors.append('Subsidiaries distinte tra loro e da parent/consolidato; emittenti espliciti richiesti')
     entities={'opening_parent_equity':parent}
     drivers=['capital.'+key for key in CAPITAL_FIELDS-{'subsidiaries','parent_cash_flows'}]
     drivers+=['capital.parent_cash_flows.'+key for key in CASH_SIGNS]
@@ -55,6 +57,28 @@ def assemble_capital(values,ids):
     return result
 
 
+def constraint_paths(item, n):
+    """Validate one entity's declared constraints and calculate each binding path."""
+    if (not isinstance(item, dict) or set(item) != {'basis', 'constraints'}
+            or item['basis'] != 'common_equity' or not isinstance(item['constraints'], list)
+            or not item['constraints']):
+        raise ValueError('elenco completo dei vincoli common-equity applicabili richiesto')
+    limits = {}
+    for row in item['constraints']:
+        if (not isinstance(row, dict) or set(row) != {'id', 'exposure', 'ratio', 'buffer', 'absolute_floor', 'terminal_requirement'}
+                or not _text(row['id']) or row['id'] in limits
+                or any(not isinstance(row[k], list) or len(row[k]) != n
+                       or any(not _finite(x) or x < 0 for x in row[k])
+                       for k in ('exposure', 'ratio', 'buffer', 'absolute_floor'))
+                or not _finite(row['terminal_requirement']) or row['terminal_requirement'] < 0):
+            raise ValueError('vincolo incompleto/duplicato/non numerico')
+        path = [max(e*r+b, f) for e,r,b,f in zip(row['exposure'],row['ratio'],row['buffer'],row['absolute_floor'])]
+        if any(not _finite(x) for x in path):
+            raise ValueError('requisito calcolato non finito')
+        limits[row['id']] = path
+    return limits
+
+
 def validate_constraints(capital,constraints,liquidity,problem):
     """Regulatory and cash bridges; nothing inferred from an institution label."""
     ids={s['id'] for s in capital['subsidiaries']}; n=len(capital['discount_periods'])
@@ -66,21 +90,13 @@ def validate_constraints(capital,constraints,liquidity,problem):
     fees=[0.]*n; taxes=[0.]*n
     for sub in capital['subsidiaries']:
         identity=sub['id']; item=constraints[identity]; bridge=liquidity[identity]
-        if not isinstance(item,dict) or set(item)!={'basis','constraints'} or item['basis']!='common_equity' or not isinstance(item['constraints'],list) or not item['constraints']:
-            problem('capital_constraints',identity+': elenco completo dei vincoli common-equity applicabili richiesto'); continue
-        limits=[]; names=set()
-        for constraint in item['constraints']:
-            if (not isinstance(constraint,dict) or set(constraint)!={'id','exposure','ratio','buffer','absolute_floor','terminal_requirement'} or
-                    not _text(constraint['id']) or constraint['id'] in names or
-                    any(not path(constraint[k]) or any(x<0 for x in constraint[k]) for k in ('exposure','ratio','buffer','absolute_floor')) or
-                    not _finite(constraint['terminal_requirement']) or constraint['terminal_requirement']<0):
-                problem('capital_constraints',identity+': vincolo incompleto/duplicato/non numerico'); continue
-            names.add(constraint['id'])
-            limits.append([max(e*r+b,f) for e,r,b,f in zip(constraint['exposure'],constraint['ratio'],constraint['buffer'],constraint['absolute_floor'])])
-        if limits:
-            for i in range(n):
-                if not equal(max(v[i] for v in limits),sub['required_statutory_capital'][i]):
-                    problem('capital_constraints',identity+': capitale richiesto non riconciliato ai vincoli nel periodo '+str(i))
+        try:
+            limits = constraint_paths(item, n)
+        except ValueError as exc:
+            problem('capital_constraints', identity+': '+str(exc)); continue
+        for i in range(n):
+            if not equal(max(v[i] for v in limits.values()),sub['required_statutory_capital'][i]):
+                problem('capital_constraints',identity+': capitale richiesto non riconciliato ai vincoli nel periodo '+str(i))
         keys={'opening_cash','operating_cash','investing_cash','financing_cash','parent_fees_paid','parent_tax_paid'}
         if not isinstance(bridge,dict) or set(bridge)!=keys or not _finite(bridge['opening_cash']) or bridge['opening_cash']<0 or any(not path(bridge[k]) for k in keys-{'opening_cash'}):
             problem('liquidity_bridge',identity+': movimenti cash completi richiesti'); continue
@@ -96,10 +112,32 @@ def validate_constraints(capital,constraints,liquidity,problem):
             problem('liquidity_bridge','Trasferimenti entita non riconciliati a parent '+key)
 
 
-def validate_terminal(terminal,capital,ledger,closing_book,sc,problem,*,terminal_income):
+def continuing_capital_coverage(opening,closing,required,g):
+    """All-year coverage when retained capital flows and requirements grow at g.
+
+    S(t)=S(0)+d*((1+g)**t-1)/g and R(t)=R(1)*(1+g)**(t-1).
+    With positive g, coverage needs the first year and the asymptotic coefficient;
+    at zero g it needs nonnegative retention; at negative g it needs a nonnegative
+    limiting balance. These endpoint conditions cover every intervening year.
+    This arithmetic proof does not certify the economic/source assumptions.
+    """
+    if (not all(_finite(x) for x in (opening,closing,required,g)) or g<=-1
+            or min(opening,closing,required)<0):
+        raise ValueError('Saldi/requisiti/crescita continuing non validi')
+    retained=closing-opening
+    left,right=(retained*(1+g),g*required) if g>0 else (retained,g*opening) if g<0 else (retained,0.)
+    if not all(_finite(x) for x in (retained,left,right,left-right)):
+        raise ValueError('Copertura continuing non finita')
+    return {'retained_capital':retained,'perpetual_margin':left-right,
+            'sustainable':(closing>=required or equal(closing,required)) and (left>=right or equal(left,right))}
+
+
+def validate_terminal(terminal,capital,ledger,closing_book,sc,problem,*,terminal_income,allow_retained_flows=False):
     """One forward year proves continuing cash and capital, without reusing TV as cash."""
     keys={'capital','capital_constraints','liquidity_bridge'}
-    if not isinstance(terminal,dict) or set(terminal)!=keys:
+    retained_mode=(isinstance(terminal,dict) and allow_retained_flows
+                   and terminal.get('statutory_projection')=='retained_flows_at_g')
+    if not isinstance(terminal,dict) or set(terminal)!=(keys|{'statutory_projection'} if retained_mode else keys):
         problem('terminal_ledger','Un anno continuing di ledger, vincoli e liquidita richiesto');return
     cap=terminal['capital']; income=terminal_income
     result=project_distributable_equity(cap,[income],[ledger['rows'][-1]['year']+1])
@@ -133,7 +171,15 @@ def validate_terminal(terminal,capital,ledger,closing_book,sc,problem,*,terminal
             problem('terminal_ledger','Saldo parent '+key+' non sostenibile alla crescita continuing dichiarata')
     for end in continuing['subsidiaries']:
         sub=by_id[end['id']]
-        if not equal(end['closing_statutory_capital'],sub['opening_statutory_capital']*growth):
+        if retained_mode:
+            try:
+                coverage=continuing_capital_coverage(sub['opening_statutory_capital'],
+                    end['closing_statutory_capital'],sub['required_statutory_capital'][0],sc['terminal_growth'])
+                if not coverage['sustainable']:
+                    problem('terminal_ledger',end['id']+': capitale insufficiente nella prosecuzione perpetua dei flussi')
+            except ValueError as exc:
+                problem('terminal_ledger',end['id']+': '+str(exc))
+        elif not equal(end['closing_statutory_capital'],sub['opening_statutory_capital']*growth):
             problem('terminal_ledger',end['id']+': capitale continuing non cresce alla base dichiarata')
         bridge=terminal['liquidity_bridge']
         if isinstance(bridge,dict) and isinstance(bridge.get(end['id']),dict):

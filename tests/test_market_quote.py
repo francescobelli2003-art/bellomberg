@@ -259,6 +259,95 @@ def test_missing_current_quote_does_not_block_historical_valuation(tmp_path):
     assert result['market_quote']['upside_base_pct'] is None
 
 
+def repricing_fixture():
+    from test_fx_evidence import CSV, source
+    from bellomberg.valuation.fx_evidence import normalize_fx
+    bundle, quotation, _ = fixture()
+    quotation.update(financial_currency='USD', financial_to_quote_rate=.5)
+    raw = source(CSV.replace(b'2026-06-30', DAY.encode()))
+    from bellomberg.valuation.fx_evidence import reference_url
+    raw['url'] = raw['retrieval']['url'] = reference_url('USD', 'EUR', DAY)
+    raw['retrieval']['retrieved_at'] = DAY + 'T18:00:00+00:00'
+    doc = normalize_fx(raw, financial_currency='USD', quote_currency='EUR', on=DAY, as_of=DAY)
+    payload = {'valuation_usability': {'usable': True}, 'valuation_date': '2026-06-30',
+        'financial_currency': 'USD', 'currency': 'EUR',
+        'calculation_details': {'scenarios': {s: {'fair_value_per_share': 20.} for s in SCENARIOS}},
+        **{'fair_value_' + s: 10. for s in SCENARIOS}}
+    return payload, bundle, quotation, {'status': 'ready', 'documents': [raw, doc], 'issues': []}
+
+
+def reprice(*args):
+    build = getattr(api(), 'build_repriced_quote', None)
+    assert callable(build), 'cross-currency repricing must use verified current FX'
+    return build(*args)
+
+
+def test_reprice_uses_unrounded_financial_value_and_exact_day_fx_without_mutation():
+    args = repricing_fixture()
+    args[0]['calculation_details']['scenarios']['base']['fair_value_per_share'] = 20.004
+    before = deepcopy(args)
+    quote = reprice(*args)
+    assert quote['status'] == 'ok' and quote['contract'] == 'market_quote/2'
+    # USD 20 * EUR/USD .8 = EUR 16; 16/30 - 1 = -46.7%, not the old EUR 10.
+    assert quote['comparison_fair_values'] == pytest.approx({'bear': 16., 'base': 16.0032, 'bull': 16.})
+    assert quote['upside_base_pct'] == -46.7
+    assert quote['fx']['rate'] == .8 and quote['fx']['on'] == DAY
+    assert quote['fx']['financial_currency'] == 'USD'
+    assert quote['fv_basis'] == 'valuation_date_current_fx_no_rollforward'
+    assert args == before
+    assert api().market_quote_view(quote, as_of=DAY)['upside_base_pct'] == -46.7
+    stale = api().market_quote_view(quote, as_of='2026-09-14')
+    assert stale['upside_base_pct'] is None
+
+
+@pytest.mark.parametrize('fault', ['no_fx', 'raw_hash', 'derived_value', 'fx_date', 'missing_raw',
+                                  'unusable', 'inconsistent_value', 'missing_projection', 'future', 'stale_price'])
+def test_cross_currency_reprice_cannot_bypass_evidence_or_model_gates(fault):
+    payload, bundle, quotation, fx = repricing_fixture()
+    if fault == 'no_fx': fx = None
+    if fault == 'raw_hash': fx['documents'][0]['sha256'] = '0' * 64
+    if fault == 'derived_value':
+        body = json.loads(fx['documents'][1]['text']); body['facts'][0]['value'] = 2.
+        fx['documents'][1]['text'] = json.dumps(body)
+    if fault == 'fx_date': fx['documents'][1]['metadata']['report_date'] = '2026-09-08'
+    if fault == 'missing_raw': fx['documents'].pop(0)
+    if fault == 'unusable': payload['valuation_usability']['usable'] = False
+    if fault == 'inconsistent_value': payload['fair_value_base'] = 11.
+    if fault == 'missing_projection': del payload['calculation_details']['scenarios']['base']
+    if fault == 'future': fx['documents'][0]['retrieval']['retrieved_at'] = '2026-09-11T18:00:00Z'
+    if fault == 'stale_price': bundle['case']['info']['regularMarketTime'] = timestamp('2026-09-01')
+    quote = reprice(payload, bundle, quotation, fx)
+    assert quote['status'] != 'ok'
+    assert all(quote['upside_' + s + '_pct'] is None for s in SCENARIOS)
+    assert quote.get('comparison_fair_values') in (None, {})
+
+
+def test_reprice_does_not_use_fx_when_same_currency_or_price_identity_is_invalid():
+    payload, bundle, quotation, fx = repricing_fixture()
+    bundle['case']['info']['symbol'] = 'OTHER'
+    assert reprice(payload, bundle, quotation, fx)['status'] == 'identity_mismatch'
+    bundle, quotation, fvs = fixture()
+    payload.update({'fair_value_' + s: v for s, v in fvs.items()})
+    assert reprice(payload, bundle, quotation, None) == api().build_market_quote(bundle, quotation, fvs)
+
+
+def test_current_fx_preserves_penny_scale_and_multiple_shares_per_quote():
+    from hashlib import sha256
+    from bellomberg.valuation.fx_evidence import reference_url, normalize_fx
+    payload, bundle, quotation, fx = repricing_fixture()
+    raw = fx['documents'][0]; raw['text'] = raw['text'].replace('USD', 'GBP')
+    raw['id'] = raw['sha256'] = raw['document_sha256'] = sha256(raw['text'].encode()).hexdigest()
+    raw['url'] = raw['retrieval']['url'] = reference_url('EUR', 'GBP', DAY)
+    raw['retrieval']['document_sha256'] = raw['sha256']
+    fx['documents'] = [raw, normalize_fx(raw, financial_currency='EUR', quote_currency='GBP', on=DAY, as_of=DAY)]
+    quotation.update(financial_currency='EUR', quote_currency='GBP', quote_unit='GBX',
+                     quote_units_per_currency=100., shares_per_quote=2.)
+    bundle['case']['info']['currency'] = 'GBp'
+    payload.update(financial_currency='EUR', currency='GBX', **{'fair_value_' + s: 2000. for s in SCENARIOS})
+    quote = reprice(payload, bundle, quotation, fx)
+    assert quote['status'] == 'ok' and quote['comparison_fair_values']['base'] == 5000.
+
+
 def test_managed_care_finish_uses_same_contract(tmp_path):
     from test_managed_care_integration import make_bundle
     bundle = make_bundle()

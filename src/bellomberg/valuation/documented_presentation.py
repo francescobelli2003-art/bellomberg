@@ -69,7 +69,7 @@ def _line(ws, row, text, end=8, section=False, height=28):
     ws.row_dimensions[row].height = height
 
 
-def _sheet(wb, name, title, end=8):
+def _sheet(wb, name, title, end=8, *, repeat_header=True):
     ws = wb.create_sheet(name)
     ws.sheet_view.showGridLines = False
     ws.sheet_view.zoomScale = 90
@@ -88,7 +88,8 @@ def _sheet(wb, name, title, end=8):
     for n in range(2, end + 1):
         ws.cell(3, n).border = Border(bottom=Side(style='thin', color=BLUE))
     ws.freeze_panes = 'D8'
-    ws.print_title_rows = '7:7'
+    if repeat_header:
+        ws.print_title_rows = '7:7'
     return ws
 
 

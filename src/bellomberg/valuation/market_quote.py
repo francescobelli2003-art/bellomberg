@@ -5,11 +5,14 @@ intraday freshness promise. A different policy requires a new contract version.
 """
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
-from math import isfinite
+import json
+from math import isfinite, isclose
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 CONTRACT = 'market_quote/1'
+FX_CONTRACT = 'market_quote/2'
+FX_POLICY = 'exact_quote_observation_day; no_missing_day_carry'
 SCENARIOS = ('bear', 'base', 'bull')
 STATUSES = frozenset({'ok', 'stale', 'data_missing', 'currency_mismatch', 'fx_not_rolled',
                       'identity_mismatch', 'source_unavailable'})
@@ -152,11 +155,91 @@ def build_market_quote(bundle, quotation, fair_values):
     return finish('ok', message)
 
 
+def build_repriced_quote(payload, bundle, quotation, fx_evidence=None):
+    """Separate /2 comparison: original financial FV at observed-day ECB FX.
+
+    No forecast, valuation date, original FV, workbook or snapshot is changed.
+    The worker persists both raw and derived FX; readers can recompile them.
+    Unsupported currency pairs and missing exact-day rates stay incomplete.
+    """
+    payload, quotation = _mapping(payload), _mapping(quotation)
+    fvs = {s: payload.get('fair_value_' + s) for s in SCENARIOS}
+    block = build_market_quote(bundle, quotation, fvs)
+    if block['status'] != 'fx_not_rolled':
+        return block
+    block.update(contract=FX_CONTRACT, fx=None, comparison_fair_values={},
+                 model_valuation_date=_text(payload.get('valuation_date')))
+    try:
+        from .fx_evidence import normalize_fx, NORMALIZER, LIMITATION
+        if _mapping(payload.get('valuation_usability')).get('usable') is not True:
+            raise ValueError('modello originale non utilizzabile')
+        if _day(block['model_valuation_date']) is None:
+            raise ValueError('data del modello assente')
+        report = _mapping(fx_evidence)
+        if report.get('status') != 'ready':
+            raise ValueError('cambio della data osservata non disponibile: ' + str(report.get('issues') or []))
+        docs = report.get('documents')
+        if not isinstance(docs, list) or len(docs) != 2 or any(not isinstance(d, dict) for d in docs):
+            raise ValueError('fonte ECB originale e normalizzata richieste')
+        normalized = [d for d in docs if d.get('origin') == NORMALIZER]
+        raw = [d for d in docs if d.get('origin') != NORMALIZER]
+        if len(normalized) != 1 or len(raw) != 1:
+            raise ValueError('fonti FX mancanti o ambigue')
+        financial, currency = quotation['financial_currency'], quotation['quote_currency']
+        expected = normalize_fx(raw[0], financial_currency=financial, quote_currency=currency,
+                                on=block['observed_local_date'], as_of=block['information_cutoff'])
+        if expected != normalized[0]:
+            raise ValueError('cambio non riproducibile dalla fonte ECB originale')
+        rate = json.loads(expected['text'])['facts'][0]['value']
+        historical, units, shares = (quotation[k] for k in
+            ('financial_to_quote_rate', 'quote_units_per_currency', 'shares_per_quote'))
+        if any(not _finite(v) or v <= 0 for v in (historical, units, shares)):
+            raise ValueError('conversione o classe azionaria originale non valida')
+        if not ((quotation['quote_unit'] == currency and units == 1)
+                or (currency == 'GBP' and quotation['quote_unit'] in ('GBX', 'GBp') and units == 100)):
+            raise ValueError('unita quotazione e valuta non riconciliate')
+        if payload.get('financial_currency') != financial or payload.get('currency') != quotation['quote_unit']:
+            raise ValueError('valute del modello e della quotazione divergenti')
+        scenarios = _mapping(_mapping(payload.get('calculation_details')).get('scenarios'))
+        converted = {}
+        for scenario in SCENARIOS:
+            value = _mapping(scenarios.get(scenario)).get('fair_value_per_share')
+            if not _finite(value) or value <= 0 or not _finite(fvs[scenario]):
+                raise ValueError('valore originale in valuta finanziaria mancante: ' + scenario)
+            original = value * (historical * units * shares)
+            if not _finite(original) or not (isclose(original, fvs[scenario], rel_tol=1e-9, abs_tol=1e-8)
+                                            or round(original, 2) == fvs[scenario]):
+                raise ValueError('valore finanziario non riconciliato al modello: ' + scenario)
+            current = value * (rate * units * shares)
+            if not _finite(current) or current <= 0 or _percent(current, block['price']) is None:
+                raise ValueError('conversione corrente non rappresentabile: ' + scenario)
+            converted[scenario] = current
+        block.update(status='ok', fv_basis='valuation_date_current_fx_no_rollforward',
+            comparison_fair_values=converted, price_move_since_valuation_pct=_percent(block['price'], block['price_model']),
+            fx={'policy': FX_POLICY, 'on': block['observed_local_date'], 'rate': rate,
+                'financial_currency': financial, 'quote_currency': currency,
+                'source_id': expected['id'], 'source_url': expected['url'],
+                'source_sha256': raw[0]['sha256'], 'available_at': expected['available_at'],
+                'retrieved_at': raw[0]['retrieval']['retrieved_at'], 'limitation': LIMITATION},
+            message='FV alla data del modello, ritradotto al cambio ECB della data del prezzo; '
+                    'nessuna capitalizzazione o revisione delle ipotesi. ' + LIMITATION)
+        for scenario in SCENARIOS:
+            block['upside_' + scenario + '_pct'] = _percent(converted[scenario], block['price'])
+    except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+        block['message'] = 'Confronto multivaluta incompleto: ' + str(exc)
+    return block
+
+
 def market_quote_view(block, *, as_of=None, usable=True):
     """Return a copy aged at read time; never recover values hidden by the gate."""
     result = deepcopy(_mapping(block))
     status = result.get('status')
-    if (result.get('contract') != CONTRACT or not isinstance(status, str) or status not in STATUSES
+    fx = _mapping(result.get('fx'))
+    valid_contract = result.get('contract') == CONTRACT or (result.get('contract') == FX_CONTRACT
+        and fx.get('policy') == FX_POLICY and fx.get('on') == result.get('observed_local_date')
+        and _finite(fx.get('rate')) and fx['rate'] > 0
+        and result.get('fv_basis') == 'valuation_date_current_fx_no_rollforward')
+    if (not valid_contract or not isinstance(status, str) or status not in STATUSES
             or result.get('freshness_policy') != FRESHNESS_POLICY):
         at_read = 'data_missing'
     elif status == 'ok':
@@ -169,6 +252,31 @@ def market_quote_view(block, *, as_of=None, usable=True):
         if not usable or at_read != 'ok' or not _finite(result.get(key)):
             result[key] = None
     return result
+
+
+def attest_repriced_job(job, payload):
+    """Recompile the /2 comparison from persisted acquisitions and exact model."""
+    try:
+        result, request, checkpoint = job['result'], job['request'], job['checkpoint']
+        if (checkpoint['stage'] != 'quote_fx_acquired' or job['ticker'] != payload['ticker']
+                or request['generation_id'] != payload['generation_id']
+                or result['generation_id'] != payload['generation_id']
+                or result['snapshot_id'] != payload['snapshot_id']):
+            return False
+        rows = [r for r in payload['acquisition_snapshot']['case']['records']
+                if r.get('driver') == 'quotation' and r.get('scenario') == 'model']
+        if len(rows) != 1:
+            return False
+        profile = checkpoint['payload']['profile']
+        bundle = {'case': {'ticker': job['ticker'], 'as_of': request['as_of'],
+            'info': profile['data']['info'], 'sources': {'profile': profile}}}
+        expected = build_repriced_quote(payload, bundle, rows[0]['value'], checkpoint['payload']['fx_evidence'])
+        supplied = result['market_quote']
+        return (expected['contract'] == FX_CONTRACT and expected['status'] == 'ok'
+                and isinstance(supplied, dict) and set(supplied) == set(expected)
+                and all(supplied[k] == v for k, v in expected.items() if k != 'message'))
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 def attest_market_quote(payload, bundle, quotation):

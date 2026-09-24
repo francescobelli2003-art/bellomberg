@@ -103,6 +103,69 @@ def test_nearest_following_boundary_does_not_include_later_separate_accounts(tmp
     assert "Separate" not in d["estrazione"]["testo"][section["inizio"]:section["fine"]]
 
 
+def _duration_report(tmp_path, months='six', ending='June 30, 2025', kind='semestrale'):
+    path = tmp_path / 'duration-report.html'
+    path.write_text('<html lang="en"><body><h1>Acme Corporation</h1>'
+                    '<h2>Interim financial statements</h2><p>Consolidated financial statements</p>'
+                    f'<p>For the {months}-month period ended {ending}</p></body></html>', encoding='utf-8')
+    profile = profilo(tipo=kind)
+    profile['verifica'].update(lingua='financial statements', tipo='Interim financial statements',
+        periodo=r'For the (?P<mesi>[a-z]+|\d+)-month period ended (?P<fine>[A-Za-z]+ \d{1,2}, \d{4})')
+    return path, profile
+
+
+@pytest.mark.parametrize('months,ending,kind,start,end', [
+    ('six', 'June 30, 2025', 'semestrale', '2025-01-01', '2025-06-30'),
+    ('3', 'February 29, 2024', 'trimestrale', '2023-12-01', '2024-02-29'),
+    ('nine', 'September 30, 2025', 'nove_mesi', '2025-01-01', '2025-09-30'),
+    ('twelve', 'November 30, 2025', 'annuale', '2024-12-01', '2025-11-30')])
+def test_explicit_calendar_month_duration_derives_start_with_byte_proof(tmp_path, months, ending, kind, start, end):
+    path, profile = _duration_report(tmp_path, months, ending, kind)
+    result = verifica(path, profile, {'form': '6-K', 'report_date': end})
+    assert result['stato'] == 'ok', result
+    document = result['documento']
+    assert document['metadati']['periodo_inizio'] == start
+    assert document['metadati']['periodo_fine'] == end
+    proof = document['prove_verifica']['periodo']
+    assert document['estrazione']['testo'][proof['inizio']:proof['fine']] == proof['testo']
+    assert proof['sha256'] == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert proof['calcolo']['regola'] == 'mesi_calendario_con_fine_mese'
+    assert proof['calcolo']['periodo_inizio'] == start
+    assert proof['calcolo']['periodo_fine'] == end
+    from bellomberg.storage.filing_store import _validate_profile
+    _validate_profile('ACME', profile, 168)
+
+
+@pytest.mark.parametrize('problem', ['not_month_end', 'wrong_duration', 'unknown_duration',
+                                   'catalog_conflict', 'ambiguous_period', 'mixed_groups'])
+def test_calendar_duration_does_not_guess_or_override_conflicting_evidence(tmp_path, problem):
+    months, ending = 'six', 'June 30, 2025'
+    if problem == 'not_month_end': ending = 'June 29, 2025'
+    elif problem == 'wrong_duration': months = 'three'
+    elif problem == 'unknown_duration': months = 'several'
+    path, profile = _duration_report(tmp_path, months, ending)
+    catalog = {'form': '6-K', 'report_date': '2025-06-29' if problem == 'not_month_end' else '2025-06-30'}
+    if problem == 'catalog_conflict': catalog['report_date'] = '2024-06-30'
+    elif problem == 'ambiguous_period':
+        path.write_text(path.read_text() + '<p>For the six-month period ended December 31, 2025</p>')
+        catalog.pop('report_date')
+    elif problem == 'mixed_groups':
+        profile['verifica']['periodo'] += r'(?P<inizio>)'
+    result = verifica(path, profile, catalog)
+    assert result['stato'] == 'non_verificato' and result['motivi']
+    assert 'documento' not in result
+
+
+def test_explicit_date_profiles_keep_supporting_additional_named_regex_groups(tmp_path):
+    path, profile = _duration_report(tmp_path)
+    path.write_text(path.read_text() + '<p>Reporting period 2025-01-01 to 2025-06-30</p>')
+    profile['verifica']['periodo'] = (r'Reporting (?P<label>period) (?P<inizio>\d{4}-\d{2}-\d{2})'
+                                      r' to (?P<fine>\d{4}-\d{2}-\d{2})')
+    result = verifica(path, profile, {'form': '6-K', 'report_date': '2025-06-30'})
+    assert result['stato'] == 'ok', result
+    assert 'calcolo' not in result['documento']['prove_verifica']['periodo']
+
+
 def test_leis_and_italian_periods_work_without_sec_labels(tmp_path):
     path = documento(tmp_path, issuer="LEITEST123", lang="it")
     raw = path.read_text().replace("http://www.sec.gov/CIK", "http://standards.iso.org/iso/17442")

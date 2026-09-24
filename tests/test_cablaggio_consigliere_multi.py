@@ -63,13 +63,15 @@ class _DeskFinto:
 
     def run(self, round_n):
         if self.name == "fundamentals" and round_n == 1:
-            # cio' che get_valuation lascia: il payload in valuation_results e l'Excel su disco
-            self.bb.valuation_results["ALFA"] = {
-                "ok": True, "fair_value_weighted": 12.5, "currency": "EUR", "price": 10.0,
-                "valuation_usability": {"usable": True, "missing_fields": []},
-                "snapshot_id": "snapfinto"}
-            with open(self.xlsx_path, "wb") as f:
-                f.write(b"xlsx finto generato dalla run")
+            # Real adapter/workbook/storage, synthetic inputs; only the LLM desk is replaced.
+            from pathlib import Path
+            from test_sector_operating_drivers import bundle_for
+            from bellomberg.valuation.dcf_engine import generate_valuation
+            payload = generate_valuation("ALFA", prepared_bundle=bundle_for(symbol="ALFA"),
+                                         output_dir=str(Path(self.xlsx_path).parent))
+            thesis = self.bb.memory_db.save_valuation_thesis("ALFA", valuation_payload=payload)
+            payload["_thesis_saved"] = {"thesis_id": thesis}
+            self.bb.record_valuation("ALFA", payload, self.name)
         self.bb.write(self.name, round_n, "REPORT %s R%d (finto) " % (self.name, round_n) + "x" * 200)
 
 
@@ -103,6 +105,8 @@ def run_offline(monkeypatch, tmp_path):
     monkeypatch.setattr(cm, "RESEARCH_NOTES_DIR", str(tmp_path / "research_notes"))
     monkeypatch.setattr(cm, "MODELS_DIR", tmp_path / "models")
     monkeypatch.setattr(cm, "REPORT_DIR", tmp_path / "report")
+    monkeypatch.setattr("bellomberg.core.paths.DATA_DIR", tmp_path / "runtime-data")
+    monkeypatch.setattr("bellomberg.core.paths.REPORT_DIR", tmp_path / "report")
     monkeypatch.setenv("CONSIGLIERE_PARALLEL", "1")
     # --- tool locali e sonde esterne
     monkeypatch.setattr(cm, "tool_get_macro_dashboard", lambda: {"indicators": {}})
@@ -201,9 +205,31 @@ def test_il_corpo_valutazioni_e_l_excel_della_run_arrivano_al_mittente(run_offli
     msg = run_offline.inviati[0]
     html = _html(msg)
     assert "Valutazioni richieste dal comitato" in html
-    assert "ALFA" in html and "12.5" in html, html                 # l'esito di get_valuation
-    assert "VAL_ALFA.xlsx" in html and "Nessun modello Excel allegato" not in html, html
-    assert "VAL_ALFA.xlsx" in _allegati(msg) and "weekly_finto.pdf" in _allegati(msg), _allegati(msg)
+    from pathlib import Path
+    import json
+    payload = run_offline.catturato["bb"].valuation_results["ALFA"]
+    name = Path(payload["path"]).name
+    assert "ALFA" in html and str(payload["fair_value_base"]) in html, html
+    assert name in html and "Nessun modello Excel allegato" not in html, html
+    assert name in _allegati(msg) and "weekly_finto.pdf" in _allegati(msg), _allegati(msg)
+    receipt = json.loads(next(Path(cm.RESEARCH_NOTES_DIR).glob("*_valuations.json")).read_text(encoding="utf-8"))
+    assert receipt["email_status"] == "sent"
+    assert receipt["valuations"][0]["email_included"] is True
+    assert receipt["valuations"][0]["generation_id"] == payload["generation_id"]
+    assert len(receipt["attempts"]) == 1
+
+
+def test_smtp_ko_non_registra_excel_incluso_nella_mail(run_offline, monkeypatch):
+    from pathlib import Path
+    import json
+    def disconnected(*args, **kwargs):
+        raise OSError("synthetic SMTP outage")
+    monkeypatch.setattr(es.smtplib, "SMTP_SSL", disconnected)
+    cm.run_multi_agent()
+    receipt = json.loads(next(Path(cm.RESEARCH_NOTES_DIR).glob("*_valuations.json")).read_text(encoding="utf-8"))
+    assert receipt["email_status"] == "not_sent"
+    assert receipt["mime_attachments"], "MIME preparato, ma non spedito"
+    assert receipt["valuations"][0]["email_included"] is False
 
 
 # -------------------------------------------------------- 2. sonda modelli
@@ -227,3 +253,69 @@ def test_polymarket_con_tutti_gli_endpoint_falliti_finisce_in_ko(run_offline):
     assert "polymarket -> TLS handshake failed (finto)" in th["ko"], th["ko"]
     assert not [r for r in th["ok"] if r.startswith("polymarket")], th["ok"]
     assert "polymarket -> TLS handshake failed (finto)" in run_offline.catturato["sizing_context"]
+
+
+def test_run_without_policy_records_preparation_disabled(run_offline):
+    cm.run_multi_agent()
+    bb = run_offline.catturato["bb"]
+    assert bb.valuation_preparer is None
+    assert bb.data["_valuation_preparation"] == {"status": "disabled", "reason": "configuration_absent"}
+    assert "configuration_absent" in run_offline.catturato["sizing_context"]
+
+
+def test_run_policy_binds_common_preparer_and_emails_new_workbook(run_offline, monkeypatch, tmp_path):
+    import json
+    from pathlib import Path
+    from bellomberg.valuation import preparation_ai
+    from test_input_preparation import _bundle, _documents, _operating_plan
+    from test_preparation_runtime import _policy
+    folder = tmp_path / "runtime-data"
+    folder.mkdir()
+    (folder / "valuation_automation.json").write_text(json.dumps(_policy()), encoding="utf-8")
+    plan, stages, journals = _operating_plan(), [], []
+    def factory(journal, *, authorized_usd):
+        journals.append((journal, authorized_usd))
+        def propose(dossier, contract):
+            spec = contract["preparation_stage"]
+            stages.append(spec)
+            source = plan["model"] if spec["scope"] == "model" else plan["scenarios"][spec["scope"]]
+            return {"drivers": {name: source[name] for name in spec["drivers"]},
+                    "rationale": "Synthetic economic source analysis"}
+        return propose
+    monkeypatch.setattr(preparation_ai, "configured_proposer", factory)
+    monkeypatch.setattr("bellomberg.valuation.preparation_sources.collect_preparation_evidence",
+        lambda *a, **k: {"status": "ready", "documents": _documents(), "issues": []})
+    class PreparedDesk(_DeskFinto):
+        name = "fundamentals"
+        def run(self, round_n):
+            if round_n == 1:
+                payload = self.bb.valuation_preparer(_bundle())
+                assert payload["valuation_usability"]["usable"], payload.get("error")
+                thesis = self.bb.memory_db.save_valuation_thesis("SYNTH-EXT", valuation_payload=payload)
+                payload["_thesis_saved"] = {"thesis_id": thesis}
+                self.bb.record_valuation("SYNTH-EXT", payload, self.name)
+            self.bb.write(self.name, round_n, "Synthetic prepared desk report " + "x" * 200)
+    monkeypatch.setattr(cm, "SPECIALIST_ORDER", [PreparedDesk, _DeskQuant])
+    cm.run_multi_agent()
+    bb = run_offline.catturato["bb"]
+    assert bb.data["_valuation_preparation"]["status"] == "enabled"
+    assert str(journals[0][0]).startswith(str(folder)) and journals[0][1] == "2.50"
+    assert stages and "automatic" in run_offline.catturato["sizing_context"]
+    payload = bb.valuation_results["SYNTH-EXT"]
+    assert payload["preparation"]["proposal"]["approval_status"] == "automatic_non_approved"
+    workbook = Path(payload["path"])
+    message = run_offline.inviati[0]
+    attached = [part for part in message.walk() if part.get_filename() == workbook.name]
+    assert len(attached) == 1 and attached[0].get_payload(decode=True) == workbook.read_bytes()
+    receipt = json.loads(next(Path(cm.RESEARCH_NOTES_DIR).glob("*_valuations.json")).read_text(encoding="utf-8"))
+    assert receipt["valuations"][0]["email_included"] is True
+
+
+def test_run_invalid_policy_is_visible_without_enabling_preparation(run_offline, tmp_path):
+    folder = tmp_path / "runtime-data"
+    folder.mkdir()
+    (folder / "valuation_automation.json").write_text('{"enabled":true}', encoding="utf-8")
+    cm.run_multi_agent()
+    bb = run_offline.catturato["bb"]
+    assert bb.valuation_preparer is None and bb.data["_valuation_preparation"]["status"] == "error"
+    assert "valuation authorization" in run_offline.catturato["sizing_context"]

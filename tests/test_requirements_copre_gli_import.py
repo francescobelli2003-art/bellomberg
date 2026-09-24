@@ -7,9 +7,10 @@ dipendenza di FastAPI.
 Perimetro: i launcher Python in radice e il package ``src/bellomberg``. Test,
 archivio privato, prototipi, QA e tool operativi non sono dipendenze del prodotto.
 Import opzionali dichiarati nel codice (try/except con feature spenta) stanno in
-OPZIONALI. Vede solo `import X` / `from X import` a inizio riga (anche indentati);
-non vede importlib con nome in variabile.
+OPZIONALI. Legge i nodi import dell'AST, anche annidati; ignora testo e import
+relativi. Non vede importlib con nome in variabile.
 """
+import ast
 import os
 import re
 import sys
@@ -36,13 +37,22 @@ def _moduli_locali(files):
     return {os.path.splitext(os.path.basename(f))[0] for f in files} | {"bellomberg"}
 
 
+def _nomi_importati(testo):
+    nomi = set()
+    for node in ast.walk(ast.parse(testo)):
+        if isinstance(node, ast.Import):
+            nomi.update(alias.name.split('.')[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            nomi.add(node.module.split('.')[0])
+    return nomi
+
+
 def _importati():
     files = _file_py()
     nomi = set()
     for f in files:
         testo = open(os.path.join(REPO, f), encoding="utf-8", errors="replace").read()
-        for m in re.finditer(r"^\s*(?:from\s+([A-Za-z_]\w*)|import\s+([A-Za-z_]\w*))", testo, re.M):
-            nomi.add(m.group(1) or m.group(2))
+        nomi.update(_nomi_importati(testo))
     return nomi - set(sys.stdlib_module_names) - _moduli_locali(files) - OPZIONALI
 
 
@@ -59,6 +69,22 @@ def _requirements():
 
 def _normalizza(nome):
     return ALIAS.get(nome, nome).lower().replace("_", "-")
+
+
+def test_import_inventory_reads_python_statements_not_prompt_text():
+    source = '''\
+"""from invented prose, not a Python import"""
+PROMPT = """\nfrom the fixed proposed assumptions\nimport fictional\n"""
+import os, json as serialization
+from pathlib import Path
+from .relative import helper
+def function():
+    try:
+        from provider.client import Client
+    except ImportError:
+        pass
+'''
+    assert _nomi_importati(source) == {'os', 'json', 'pathlib', 'provider'}
 
 
 def test_ogni_import_di_terze_parti_e_in_requirements():

@@ -318,6 +318,13 @@ CRITICAL TOOLS:
 - compare_assets: vs peer set
 - search_news/tavily_search: catalyst pending, management changes, accounting concerns
 
+VALUTAZIONE DOCUMENTATA:
+- Studia bilanci storici, guidance corrente e passata (get_guidance con include_history=true), consensus e fonti settoriali prima delle ipotesi. Distingui guidance, consenso e giudizio tuo; nessuna fonte o cifra inventata.
+- get_valuation col solo ticker legge l'eventuale set approvato e dichiara metodo, copertura e acquisition_tasks. FV n.d. con input mancanti non e' necessariamente un guasto del motore.
+- L'assenza di un set approvato NON vieta una proposta del desk: acquisisci le prove mancanti e, se sufficienti, richiama get_valuation con method_records documentati e analysis_context.scenario_rationale bear/base/bull. Etichetta il set come PROPOSTA NON APPROVATA; non scrivere approvazioni nell'archivio.
+- Segui lo schema del metodo e documenta crescita, margini, reinvestimento e terminale per i periodi richiesti. Non usare parametri legacy top-level, CAGR automatici o consensus come sostituti silenziosi del DCF.
+- Se restano buchi, specifica quali dati impediscono il calcolo e mantieni FV n.d.; cita FV/upside solo con valuation_usability.usable=true. Un target degli analisti resta consensus, non il tuo fair value.
+
 STILE: long-term view, intrinsic value, mai chase momentum.
 """.strip()
 

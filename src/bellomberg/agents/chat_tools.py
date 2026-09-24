@@ -239,9 +239,9 @@ TOOL_DEFINITIONS: List[Dict[str, Any]] = [
     },
     {
         "name": "get_cot_positioning",
-        "description": "CFTC Commitments of Traders (TFF, settimanale): posizioni nette Dealer/Asset Manager/Leveraged Funds su un future + variazione settimanale + percentile 1 anno (estremi >90/<10 = segnale contrarian). Mercati: ES, NQ, EUR, JPY, GOLD, OIL, 10Y, VIX, BTC.",
+        "description": "CFTC COT futures-only settimanale: TFF (Dealer/Asset Manager/Leveraged Funds) per futures finanziari; Disaggregated (Producer/Swap Dealer/Managed Money/Other) per GOLD/GC COMEX e WTI/CL NYMEX. Restituisce variazione settimanale e percentile 1 anno se disponibili. OIL/CRUDE OIL generici sono ambigui: specificare WTI o CL.",
         "input_schema": {"type": "object", "properties": {
-            "market": {"type": "string", "description": "es. ES, NQ, EUR, GOLD, OIL, 10Y, VIX, BTC", "default": "ES"}
+            "market": {"type": "string", "description": "es. ES, NQ, EUR, GOLD/GC (COMEX), WTI/CL (NYMEX), 10Y, VIX, BTC. OIL generico ambiguo", "default": "ES"}
         }},
     },
     {
@@ -1330,7 +1330,8 @@ def _guidance_drift_nudge(r, variant_view):
 
 
 def dispatch(tool_name: str, tool_input: Dict[str, Any], caller: str = None, *,
-             prepared_bundle=None, sector_providers=None, as_of=None) -> Dict[str, Any]:
+             prepared_bundle=None, sector_providers=None, as_of=None,
+             valuation_preparer=None) -> Dict[str, Any]:
     """Esegue il tool richiesto. Mai solleva eccezioni - cattura tutto in dict error.
     caller (V6 Lotto 3, review B4): chi sta chiamando ("chat:fundamentals",
     "specialista-run:fundamentals", "red-team") — oggi usato per l'attribuzione
@@ -1485,7 +1486,7 @@ def dispatch(tool_name: str, tool_input: Dict[str, Any], caller: str = None, *,
         if tool_name == "get_cot_positioning":
             from bellomberg.portfolio.positioning_tools import get_cot_positioning
             r = get_cot_positioning(tool_input.get("market", "ES"))
-            return _stamp(r, "CFTC COT TFF report")
+            return _stamp(r, r.get("_source", "CFTC Commitments of Traders"))
 
         if tool_name == "get_vix_term_structure":
             from bellomberg.portfolio.positioning_tools import get_vix_term_structure
@@ -1579,12 +1580,38 @@ def dispatch(tool_name: str, tool_input: Dict[str, Any], caller: str = None, *,
                 bundle = revise_sector_analysis(bundle, assumptions=assumptions or None,
                                                 method_records=tool_input.get("method_records") if not acquired_now else None,
                                                 analysis_context=tool_input.get("analysis_context"))
+            # Capture CAS before any preparation/calculation. Publishing after
+            # registration must not overwrite a concurrent or user-held version.
+            valuation_db, model_versions, publication_head = None, None, None
+            publication_state = {"status": "not_applicable", "reason": "Metodo senza record documentati"}
+            if is_record_method(bundle["decision"]):
+                try:
+                    from bellomberg.storage.memory_db import MemoryDB
+                    from bellomberg.storage.valuation_versions import ValuationVersions
+                    from bellomberg.core.paths import MODELS_DIR
+                    valuation_db = MemoryDB()
+                    versions = ValuationVersions(valuation_db, roots=[REPORT_DIR, MODELS_DIR])
+                    publication_head = versions.current(tool_input["ticker"])
+                    model_versions = versions  # Only after the explicit schema check succeeded.
+                    publication_state = {"status": "pending", "reason": "In attesa di calcolo e registrazione"}
+                except Exception as exc:
+                    publication_state = {"status": "unavailable", "reason": type(exc).__name__ + ": " + str(exc)}
             cache_note = "Nuove assunzioni: nuova generazione richiesta"
             if not assumptions and not tool_input.get("analysis_context") and tool_input.get("method_records") is None:
                 try:
                     from bellomberg.storage.memory_db import MemoryDB
-                    history = MemoryDB().get_valuation_history(tool_input["ticker"], n=1)
+                    if valuation_db is None:
+                        valuation_db = MemoryDB()
+                    history = valuation_db.get_valuation_history(tool_input["ticker"], n=1)
                     thesis = history[0] if history else {}
+                    current_payload = (publication_head or {}).get("current")
+                    if current_payload:
+                        with valuation_db._conn() as conn:
+                            link = conn.execute("SELECT thesis_id FROM valuation_snapshot_links WHERE snapshot_id=? AND generation_id=? AND thesis_id IS NOT NULL",
+                                (current_payload["snapshot_id"], current_payload["generation_id"])).fetchone()
+                        thesis = {"valuation_payload": current_payload,
+                                  "generation_id": current_payload["generation_id"],
+                                  "id": link[0] if link else None}
                     expected = {**bundle["decision"], "snapshot_id": bundle["snapshot_id"],
                                 "generation_id": thesis.get("generation_id")}
                     cached = thesis.get("valuation_payload") or {}
@@ -1605,7 +1632,13 @@ def dispatch(tool_name: str, tool_input: Dict[str, Any], caller: str = None, *,
                             result = normalize_valuation_payload(cached, expected_decision=expected,
                                                                  as_of=bundle["case"]["as_of"])
                             result.update(reused=True, path=canon,
-                                          cache_note="Snapshot, metodo, fonti e generazione corrente verificati")
+                                          cache_note="Snapshot, metodo, fonti e integrita della generazione verificati",
+                                          _thesis_saved={"thesis_id": thesis.get("id"),
+                                                         "snapshot_id": result.get("snapshot_id")})
+                            result["model_publication"] = ({
+                                "status": "current" if (publication_head or {}).get("current_generation") == result["generation_id"] else "not_current",
+                                "reason": "Versione corrente verificata nel registro" if (publication_head or {}).get("current_generation") == result["generation_id"] else "Generazione storica riusata, non corrente nel registro"
+                            } if model_versions is not None else publication_state)
                             return _stamp(result, f"valuation riusata({tool_input['ticker']})")
                         cache_note = ("Sidecar non riutilizzabile: " + "; ".join(side_check["reasons"])
                                       if not side_check["usable"] else
@@ -1614,7 +1647,21 @@ def dispatch(tool_name: str, tool_input: Dict[str, Any], caller: str = None, *,
                         cache_note = "Cache non riutilizzabile: " + "; ".join(check["reasons"])
                 except Exception as exc:
                     cache_note = "Verifica cache fallita: " + type(exc).__name__ + ": " + str(exc)
-            r = generate_valuation(tool_input["ticker"], prepared_bundle=bundle)
+            # The application supplies a budget-authorized service, never an LLM
+            # tool argument. Explicit desk records and approved inputs retain
+            # their existing path; a ticker mention alone grants no paid work.
+            if (valuation_preparer is not None and not assumptions
+                    and tool_input.get("method_records") is None and not bundle["case"]["records"]):
+                if is_record_method(bundle["decision"]) and model_versions is None:
+                    r = generate_valuation(tool_input["ticker"], prepared_bundle=bundle)
+                    r["preparation"] = {"status": "blocked", "reason": publication_state["reason"]}
+                else:
+                    r = valuation_preparer(bundle)
+                    bundle = validate_bundle(r["acquisition_snapshot"], tool_input["ticker"])
+                    if bundle["case"]["as_of"] != prepared_bundle["case"]["as_of"]:
+                        raise ValueError("Il preparatore ha cambiato il cutoff acquisito")
+            else:
+                r = generate_valuation(tool_input["ticker"], prepared_bundle=bundle)
             r = normalize_valuation_payload(r, expected_decision=bundle["decision"],
                                            as_of=bundle["case"]["as_of"])
             r["cache_note"] = cache_note
@@ -1685,7 +1732,9 @@ def dispatch(tool_name: str, tool_input: Dict[str, Any], caller: str = None, *,
                     variant_view = ("\n".join(f"{scenario}: {rationales[scenario]}" for scenario in ("bear", "base", "bull")
                         if isinstance(rationales.get(scenario), str) and rationales[scenario].strip())
                         if isinstance(rationales, dict) else None)
-                thesis_id = MemoryDB().save_valuation_thesis(
+                if valuation_db is None:
+                    valuation_db = MemoryDB()
+                thesis_id = valuation_db.save_valuation_thesis(
                     ticker=tool_input["ticker"],
                     variant_view=variant_view or ("(rationale documentate assenti: FV n.d.)" if documented
                                                  else "(senza variant view - chiamata nuda)"),
@@ -1700,6 +1749,16 @@ def dispatch(tool_name: str, tool_input: Dict[str, Any], caller: str = None, *,
                     if thesis_id is not None else {"error": "Snapshot/tesi non salvati: verificare migrazione metadata e log storage"})
             except Exception as exc:
                 r["_thesis_saved"] = {"error": type(exc).__name__ + ": " + str(exc)}
+            if model_versions is not None:
+                if (r.get("_thesis_saved") or {}).get("thesis_id") is None:
+                    publication_state = {"status": "not_registered", "reason": "Registrazione snapshot non riuscita"}
+                else:
+                    try:
+                        publication_state = model_versions.publish(r["snapshot_id"], r["generation_id"],
+                            expected_current_generation=(publication_head or {}).get("current_generation"))
+                    except Exception as exc:
+                        publication_state = {"status": "failed", "reason": type(exc).__name__ + ": " + str(exc)}
+            r["model_publication"] = publication_state
             if isinstance(r, dict) and r.get("valuation_flagged"):
                 # 204b-FIX: la sanity ha marcato la VAL (divergenza estrema fair value/prezzo).
                 # L'agente DEVE riportarlo e NON proporre il nome in ACTION TABLE su questo modello.

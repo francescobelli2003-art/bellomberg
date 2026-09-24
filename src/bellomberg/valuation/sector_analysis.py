@@ -466,7 +466,10 @@ def valuation_results_block(results):
     rows = ["=== VALUTAZIONI SETTORIALI [src: get_valuation] ===",
             "Usa solo FV con valuation_usability.usable=true. Target esterni distinti dal FV.",
             "upside_model_pct usa il prezzo alla valuation_date; upside_today_pct confronta quel FV storico, non rivalutato, con l'osservazione datata in market_quote. n.d. se assente o stale; sanity resta sul prezzo del modello.",
-            "RESEARCH -> BUY/ADD deve citare snapshot e limiti; calcolabile non significa tesi valida."]
+            "RESEARCH -> BUY/ADD deve citare snapshot e limiti; calcolabile non significa tesi valida.",
+            "model_publication distingue la revisione corrente dai candidati held/superseded/not_current: "
+            "dichiara lo stato e il motivo; non presentare un candidato come modello corrente o approvato dal PM. "
+            "published/current attestano il registro al momento della verifica, non un'approvazione umana."]
     for ticker, payload in sorted(results.items()):
         result = normalize_valuation_payload(payload)
         decision, usability = result.get("valuation_decision") or {}, result["valuation_usability"]
@@ -475,6 +478,7 @@ def valuation_results_block(results):
         quote = market_quote_view(result.get("market_quote"), usable=usability["usable"])
         rows.append(json.dumps({"ticker": ticker, "method_id": decision.get("method_id"),
             "snapshot_id": result.get("snapshot_id"), "generation_id": result.get("generation_id"),
+            "model_publication": result.get("model_publication") or {"status": "not_verified"},
             "valuation_usability": usability, "valuation_date": result.get("valuation_date"),
             "information_cutoff": decision.get("as_of"),
             "valuation_basis": result.get("valuation_basis"),

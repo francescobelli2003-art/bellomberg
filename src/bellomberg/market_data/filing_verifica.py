@@ -101,6 +101,29 @@ def _data(value):
     raise ValueError(f"data completa non riconosciuta: {value!r}")
 
 
+def _periodo_testuale(match, tipo):
+    """Read explicit dates or a declared number of complete calendar months."""
+    groups = match.groupdict()
+    if {"inizio", "fine"} <= set(groups) and "mesi" not in groups:
+        return _data(groups["inizio"]), _data(groups["fine"]), None
+    if set(groups) != {"mesi", "fine"}:
+        raise ValueError("periodo: servono gruppi inizio/fine oppure mesi/fine")
+    counts = {"3": 3, "three": 3, "6": 6, "six": 6,
+              "9": 9, "nine": 9, "12": 12, "twelve": 12}
+    mesi = counts.get(_norm(groups["mesi"]).lower())
+    expected = {"annuale": 12, "semestrale": 6, "trimestrale": 3, "nove_mesi": 9}[tipo]
+    if mesi != expected:
+        raise ValueError("durata testuale in mesi assente o incompatibile con il tipo")
+    fine = _data(groups["fine"])
+    from calendar import monthrange
+    if fine.day != monthrange(fine.year, fine.month)[1]:
+        raise ValueError("durata in mesi: data finale non a fine mese; servono date esplicite")
+    first = fine.year * 12 + fine.month - mesi
+    inizio = date(first // 12, first % 12 + 1, 1)
+    return inizio, fine, {"regola": "mesi_calendario_con_fine_mese", "mesi": mesi,
+                          "periodo_inizio": inizio.isoformat(), "periodo_fine": fine.isoformat()}
+
+
 def _id(value):
     namespace, ident = str(value).split(":", 1)
     if namespace.upper() == "CIK":
@@ -279,15 +302,20 @@ def verifica_documento(path, *, url, profilo, catalogo=None):
             if not pattern:
                 raise ValueError("periodo esatto non verificato: mancano contesto XBRL compatibile o date testuali")
             matches = list(re.finditer(pattern, testo, re.I | re.M))
-            parsed = [(_data(m["inizio"]), _data(m["fine"]), m) for m in matches]
+            parsed = []
+            for match in matches:
+                start, end, calculation = _periodo_testuale(match, meta["tipo"])
+                parsed.append((start, end, match, calculation))
             if fine_attesa:
                 if parsed and max(p[1] for p in parsed) != fine_attesa:
                     raise ValueError("data catalogo diversa dal periodo testuale piu' recente: possibile comparativo")
                 parsed = [p for p in parsed if p[1] == fine_attesa]
-            if len({(a, b) for a, b, _ in parsed}) != 1:
+            if len({(a, b) for a, b, _, _ in parsed}) != 1:
                 raise ValueError("periodo testuale assente o ambiguo")
-            inizio, fine, m = parsed[0]
+            inizio, fine, m, calculation = parsed[0]
             prove["periodo"] = _prova(testo, m.start(), m.end(), "testo", url, digest)
+            if calculation is not None:
+                prove["periodo"]["calcolo"] = calculation
         if not low <= (fine-inizio).days+1 <= high:
             raise ValueError("durata del periodo incompatibile con il tipo")
         if fine > date.today():

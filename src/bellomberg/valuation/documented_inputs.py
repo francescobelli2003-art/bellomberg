@@ -12,6 +12,7 @@ import re
 
 from .dcf_quality import SCENARIOS, _date, _finite, _text, _evidence_issues, _portable
 from .method_registry import get_method_requirements
+from .record_semantics import is_opening_equity_bridge
 
 
 def bind_inputs(bundle, schema, *, entities=None, horizon='forecast', forward_period=None):
@@ -124,7 +125,8 @@ or scenario is explicit. The caller validates each contract's exact keys.
                'metric':driver,'basis':row.get('accounting_basis'),'rationale':row.get('rationale'),
                'entity':row.get('entity'),'period':row.get('period'),'unit':row.get('unit')}
         errors.extend(_evidence_issues(proof,cutoff))
-        if timing in ('future','terminal') and (shape in ('number','path') or scenario!='model' and driver!='accounting_policies') and row.get('kind')=='historical':
+        if (timing in ('future','terminal') and (shape in ('number','path') or scenario!='model' and driver!='accounting_policies')
+                and row.get('kind')=='historical' and not is_opening_equity_bridge(driver,schema[driver])):
             errors.append('Osservazione storica non sostituisce una previsione')
         value=row.get('value')
         if shape=='number' and not _finite(value): errors.append('Numero finito esplicito richiesto')

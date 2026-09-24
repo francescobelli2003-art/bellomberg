@@ -2765,7 +2765,7 @@ class MemoryDB:
                               fair_value=None, ebitda_margin_target=None, terminal_growth=None,
                               engine=None, subsector=None, memo_id=None,
                               sanity_severity=None, sanity_headline=None, profile_key=None,
-                              valuation_payload=None):
+                              valuation_payload=None, reuse_generation=False):
         """#198 p.3: salva la tesi di valutazione dell'agente (variant view + growth) per
         verificarla week-on-week vs quello che la societa' consegna.
         audit/12 V0.3: porta anche il giudizio sanity del motore (OK/WARN + motivo), cosi'
@@ -2778,6 +2778,12 @@ class MemoryDB:
         from datetime import datetime as _dt
         try:
             with self._conn() as conn:
+                if reuse_generation:
+                    if valuation_payload is None:
+                        raise ValueError("reuse_generation requires an exact valuation payload")
+                    # A resumed worker must not duplicate the thesis after a
+                    # crash between registration and its next checkpoint.
+                    conn.execute("BEGIN IMMEDIATE")
                 if valuation_payload is not None:
                     from bellomberg.valuation.dcf_quality import normalize_valuation_payload
                     normalized = normalize_valuation_payload(valuation_payload)
@@ -2786,6 +2792,12 @@ class MemoryDB:
                         "fair_value_nav", "fair_value") if normalized.get(key) is not None), None
                     ) if normalized["valuation_usability"]["usable"] else None
                     self._save_valuation_snapshot(conn, ticker, valuation_payload)
+                    if reuse_generation:
+                        saved = conn.execute("SELECT thesis_id FROM valuation_snapshot_links "
+                            "WHERE snapshot_id=? AND generation_id=? AND thesis_id IS NOT NULL ORDER BY id LIMIT 1",
+                            (valuation_payload["snapshot_id"], valuation_payload["generation_id"])).fetchone()
+                        if saved:
+                            return saved[0]
                 cols = {row[1] for row in conn.execute("PRAGMA table_info(valuation_theses)")}
                 if profile_key and "profile_key" not in cols:
                     print("[memory_db] colonna profile_key assente in valuation_theses: "

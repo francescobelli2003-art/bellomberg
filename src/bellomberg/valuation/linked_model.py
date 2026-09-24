@@ -144,8 +144,8 @@ class LinkedModel:
             row += 3
         _finish(checks, row, 6)
         summary = _sheet(wb, 'Summary', self.payload['ticker'] + ' — ' + tr('Valutazione', 'Valuation'), 6)
-        _line(summary, 4, tr('Formule collegate. Le modifiche sono simulazioni; i record approvati restano nel modello originale.',
-                             'Linked formulas. Edits are simulations; approved records remain in the original model.'), 6, height=42)
+        _line(summary, 4, tr('Formule collegate. Le modifiche sono simulazioni; gli input registrati restano nel modello originale.',
+                             'Linked formulas. Edits are simulations; recorded inputs remain in the original model.'), 6, height=42)
         _header(summary, 7, [tr('Voce', 'Item'), tr('Unita', 'Units'), tr('Ribassista','Bear'), 'Base', tr('Rialzista','Bull')])
         baseline = _sheet(wb, 'Model Checks', tr('Riconciliazione al motore', 'Engine reconciliation'), 6)
         _header(baseline, 7, [tr('Scenario', 'Scenario'), tr('Motore', 'Engine'), 'Excel', tr('Differenza', 'Difference'), tr('Stato', 'State')])

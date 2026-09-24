@@ -32,13 +32,13 @@ def test_research_reuses_acquisition_across_rounds_and_declares_gaps(tmp_path, m
 
 
 def test_specialist_dispatch_receives_exact_research_bundle(monkeypatch):
-    from bellomberg.agents.specialists.base import Specialist
+    from bellomberg.agents.specialists.base import Specialist, Blackboard
     from bellomberg.agents import chat_tools
     bundle = sector.prepare_sector_analysis("OUTSIDE", as_of=DAY, providers=providers_for("insurance_pc"))
     specialist = Specialist.__new__(Specialist)
     specialist.name = "fundamentals"
     specialist._sector_bundles = {"OUTSIDE": bundle}
-    specialist.blackboard = SimpleNamespace(memory_db=None)
+    specialist.blackboard = Blackboard()
     seen = []
     monkeypatch.setattr(chat_tools, "dispatch", lambda name, data, **kw: seen.append(kw) or {"ok": False})
     specialist._execute_meta_tool("get_valuation", {"ticker": "OUTSIDE"})
@@ -46,11 +46,11 @@ def test_specialist_dispatch_receives_exact_research_bundle(monkeypatch):
 
 
 def test_valuation_failure_does_not_invoke_alternate_dispatcher(monkeypatch):
-    from bellomberg.agents.specialists.base import Specialist
+    from bellomberg.agents.specialists.base import Specialist, Blackboard
     from bellomberg.agents import chat_tools
     specialist = Specialist.__new__(Specialist)
     specialist.name = "fundamentals"
-    specialist.blackboard = SimpleNamespace(memory_db=None)
+    specialist.blackboard = Blackboard()
     def failure(*a, **kw):
         raise ValueError("snapshot mismatch")
     monkeypatch.setattr(chat_tools, "dispatch", failure)
@@ -60,7 +60,7 @@ def test_valuation_failure_does_not_invoke_alternate_dispatcher(monkeypatch):
 
 def test_stamped_tool_result_reaches_committee_and_research_link(monkeypatch):
     import threading
-    from bellomberg.agents.specialists.base import Specialist
+    from bellomberg.agents.specialists.base import Specialist, Blackboard
     from bellomberg.agents import chat_tools
     bundle = sector.prepare_sector_analysis("OUTSIDE", as_of=DAY, providers=providers_for("insurance_pc"))
     revised = sector.revise_sector_analysis(bundle, assumptions={"variant_view": "New evidence"})
@@ -72,7 +72,7 @@ def test_stamped_tool_result_reaches_committee_and_research_link(monkeypatch):
     specialist.name = "fundamentals"
     specialist._sector_bundles = {"OUTSIDE": bundle}
     specialist._research_decision_links = {"OUTSIDE": 11}
-    specialist.blackboard = SimpleNamespace(memory_db=db, valuation_results={}, _lock=threading.RLock())
+    specialist.blackboard = Blackboard(memory_db=db)
     stamped = chat_tools._stamp(payload, "synthetic valuation")
     monkeypatch.setattr(chat_tools, "dispatch", lambda *a, **kw: stamped)
     assert specialist._execute_meta_tool("get_valuation", {"ticker": "OUTSIDE"}) is stamped

@@ -63,6 +63,7 @@ PERIMETRO: COSA IL CONTATORE **NON** COPRE (dichiarato, non taciuto)
 """
 import threading
 import math
+from decimal import Decimal, ROUND_CEILING
 from typing import Dict, Optional, Tuple
 
 # === LISTINO UFFICIALE (USD per milione di token) - doc Anthropic verificata 26/07/2026 ===
@@ -99,6 +100,34 @@ _USAGE_ALIASES = {
     "cache_read_input_tokens": "cache_read",
     "cache_creation_input_tokens": "cache_write",
 }
+
+
+def preparation_price_ceiling(metadata, *, model, max_tokens):
+    """Live quote, not the historical static list. Reserve the entire context.
+
+    max_price rates are USD/M tokens; Models API rates are USD/token.
+    Request fees are explicitly capped at zero; no media/search/tools are sent.
+    https://openrouter.ai/docs/guides/routing/provider-selection#max-price
+    """
+    if metadata.get("id") != model:
+        raise ValueError("pricing model mismatch")
+    context = metadata.get("context_length")
+    if type(context) is not int or type(max_tokens) is not int or not 0 < max_tokens < context:
+        raise ValueError("model context or completion cap unavailable")
+    rates = {}
+    for key in ("prompt", "completion"):
+        raw = metadata.get("pricing", {}).get(key)
+        if isinstance(raw, bool) or raw is None:
+            raise ValueError("pricing unavailable: " + key)
+        rate = Decimal(str(raw))
+        if not rate.is_finite() or rate < 0:
+            raise ValueError("invalid pricing: " + key)
+        rates[key] = rate
+    ceiling = context * rates["prompt"] + max_tokens * rates["completion"]
+    return {"reserve_nano_usd": int((ceiling * 10**9).to_integral_value(rounding=ROUND_CEILING)),
+            "context_length": context,
+            "max_price": {**{key: float(rate * 10**6) for key, rate in rates.items()}, "request": 0.},
+            "basis": "full_model_context_plus_max_completion; no tools/media/cache writes"}
 
 
 def resolve_model(model: str) -> str:

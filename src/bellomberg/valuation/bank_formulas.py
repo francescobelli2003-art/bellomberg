@@ -161,6 +161,10 @@ def apply_bank_formulas(wb, payload):
         m.bind(s, 'capital.terminal_equity', (), tv)
         terminal = m.value(s, 'terminal_ledger')
         tcap = terminal['capital']
+        retained_mode=terminal.get('statutory_projection')=='retained_flows_at_g'
+        if retained_mode:
+            ws['B4']=tr('Flussi trattenuti in crescita al g dichiarato; copertura del capitale verificata in perpetuita. Cassa e common equity riconciliati.',
+                        'Retained flows grow at declared g; capital coverage is checked in perpetuity. Cash and common equity reconcile.')
         tref = lambda *parts: m.ref(s, 'terminal_ledger', 'capital', *parts)
         equal(s, 'Continuing parent cash opening', tref('parent_opening_cash'), parent_cash)
         equal(s, 'Continuing parent debt opening', tref('parent_opening_debt'), debt)
@@ -189,7 +193,14 @@ def apply_bank_formulas(wb, payload):
             terminal_up.append(dis); terminal_contribution.append(contribution)
             closing = calc(ws, base + 1, m.n + 4, identity + ' continuing statutory capital',
                            f"{sub_capital[j]}+{statutory_income}+{sub('other_statutory_movements')}+{contribution}-{dis}")
-            equal(s, identity + ' continuing capital growth', closing, f'{sub_capital[j]}*(1+{g})')
+            if retained_mode:
+                retained=f'({closing}-{sub_capital[j]})'
+                left=f'IF({g}>0,{retained}*(1+{g}),{retained})'
+                right=f'IF({g}>0,{g}*{sub("required_statutory_capital")},IF({g}<0,{g}*{sub_capital[j]},0))'
+                guard(s,identity+' perpetual capital coverage',
+                      f'OR({left}>={right},ABS({left}-{right})<=MAX(0.00000001,0.000000001*MAX(ABS({left}),ABS({right}))))')
+            else:
+                equal(s, identity + ' continuing capital growth', closing, f'{sub_capital[j]}*(1+{g})')
             guard(s, identity + ' continuing capital required', f"{closing}>={sub('required_statutory_capital')}")
             guard(s, identity + ' continuing upstream permitted', f"{dis}<={sub('permitted_distribution')}")
             for key in NONNEGATIVE_SUB_PATHS:
@@ -250,4 +261,6 @@ def apply_bank_formulas(wb, payload):
                             tr('Valore per azione', 'Value per share'), f'{equity_cash}/{shares}')
         _finish(ws, 60 + len(legal_ids) * 16, max(m.end, m.n + 4))
     m.finish()
+    from .bank_presentation import apply_bank_summary
+    apply_bank_summary(m)
     return True

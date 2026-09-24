@@ -19,5 +19,6 @@ starlette>=0.46.0  # API middleware/JSON response: import diretto, range compati
 uvicorn[standard]>=0.32.0
 psutil>=5.9.0  # quick-win audit/21: import lazy in bellomberg_api (scan zombie 8765), era fuori lista
 pypdf>=4.0.0  # 02/09 (B7): lettore_trimestrali._estrai_pdf lo importa dentro un try che diceva «illeggibile» a ogni PDF senza il pacchetto - CI rossa dal 31/08
+beautifulsoup4>=4.14.3  # valuation source HTML parser; explicit dependency tested locally
 pydantic>=2.0  # 02/09 (B7): importato direttamente (modelli degli endpoint); arrivava solo come dipendenza transitiva di fastapi
 httpx>=0.27  # 05/09: llm_client.py (OpenRouter) lo importa direttamente; prima arrivava solo come dipendenza transitiva di anthropic (stessa classe di pypdf/pydantic del 02/09)

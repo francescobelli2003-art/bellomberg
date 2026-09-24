@@ -2174,7 +2174,7 @@ _SIDECAR_KEYS = ("ticker", "engine", "profile_key", "subsector", "method", "pric
                  # costo del rischio TTC banca arrivano a F17 (prima solo foglio)
                  "margin_sanity", "cost_of_risk_ttc", "analytical_quality", "valuation_decision",
                  "ok", "company", "snapshot_id", "generation_id", "acquisition_tasks",
-                 "acquisition_snapshot", "input_consumption", "valuation_usability",
+                 "acquisition_snapshot", "input_consumption", "valuation_usability", "preparation",
                  "workbook_sha256", "exclude_from_action_table", "valuation_flagged",
                  "managed_care", "child_valuations", "calculation_details", "valuation_date", "valuation_basis", "currency", "financial_currency")
 

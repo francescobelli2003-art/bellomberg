@@ -75,6 +75,33 @@ def test_sec_archive_failure_keeps_recent_but_declares_gap(monkeypatch):
     assert "offline" in " ".join(r["motivi"])
 
 
+@pytest.mark.parametrize('issue', [None, 'issuer', 'truncated', 'conflict'])
+def test_publication_catalog_keeps_earnings_separate_and_declares_gaps(monkeypatch, issue):
+    monkeypatch.setattr(sec_edgar, 'lookup_cik', lambda *a, **k: '0000001234')
+    monkeypatch.setattr(sec_edgar, '_headers', lambda: {'User-Agent': 'synthetic-test'})
+    rows = [righe(form, f'0000001234-26-{i:06d}', '2025-12-31')
+            for i, form in enumerate(('10-K', '8-K', '8-K', '8-K/A'), 1)]
+    rows[2]['items'] = ['7.01']
+    recent = {key: [row[key][0] for row in rows] for key in rows[0]}
+    archive = righe('8-K', '0000001234-26-000002', '2025-12-31')
+    if issue == 'conflict': archive['primaryDocument'] = ['changed.htm']
+    files = [{'name': 'CIK0000001234-submissions-001.json'}]
+    if issue == 'truncated': files.append({'name': 'CIK0000001234-submissions-002.json'})
+    def get(url, **kw):
+        if 'submissions-' in url: return Risposta(archive)
+        return Risposta({'cik': '999' if issue == 'issuer' else '1234',
+                         'filings': {'recent': recent, 'files': files}})
+    monkeypatch.setattr(sec_edgar.requests, 'get', get)
+    result = sec_edgar.get_publication_catalog('EXAMPLE', days=5000, max_pages=2)
+    if issue:
+        assert result['stato'] != 'ok' and result['motivi']
+    else:
+        assert result['stato'] == 'ok' and result['emittente_id'] == 'CIK:0000001234'
+        assert sorted(row['form'] for row in result['documenti']) == ['10-K', '8-K', '8-K/A']
+        normal = sec_edgar.get_filing_catalog('EXAMPLE', days=5000, max_pages=2)
+        assert normal['stato'] == 'ok' and [row['form'] for row in normal['documenti']] == ['10-K']
+
+
 def test_esef_keeps_html_zip_and_all_pages(monkeypatch):
     import requests
     pages = [{"data": [{"id": "new", "attributes": {"period_end": "2025-12-31",

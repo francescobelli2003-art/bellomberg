@@ -236,7 +236,10 @@ def _record_side_usage(blackboard, agent, usage):
         return None
 
 
-def _collect_dcf_files(start_time):
+def _collect_dcf_files(start_time, valuation_results=None):
+    if valuation_results is not None:
+        from bellomberg.reporting.valuation_delivery import build_manifest
+        return build_manifest(valuation_results, roots=[MODELS_DIR, REPORT_DIR])["attachments"]
     # audit/11 §5: niente early-return se manca models/ — scartava in silenzio anche i
     # report/VAL_*.xlsx dal glob sotto (glob su dir inesistente ritorna gia' [])
     dcf_files = []
@@ -329,7 +332,7 @@ def _portfolio_priming_log(portfolio):
     return f"  Portfolio: {n} positions, EUR {totale:,.0f}"
 
 
-def _send_weekly_email(attachments, body_extra=""):
+def _send_weekly_email(attachments, body_extra="", *, delivery=None):
     """Il booleano del mittente e' l'esito: False non e' un invio riuscito.
     body_extra: HTML con l'esito delle valutazioni e i modelli allegati (audit 11/09)."""
     if not email_configurata():
@@ -342,6 +345,8 @@ def _send_weekly_email(attachments, body_extra=""):
             pdf_paths=attachments,
             oggetto="[BELLOMBERG] Weekly Research - " + datetime.now().strftime("%d/%m/%Y"),
             body_extra=body_extra,
+            **({"expected_hashes": delivery["expected_hashes"], "delivery_receipt": delivery}
+               if delivery is not None else {}),
         )
         if sent is True:
             _log("Email sent (" + str(len(attachments)) + " files)")
@@ -445,7 +450,11 @@ def run_multi_agent():
             _log("[!] Memo init failed: " + str(e))
 
     # BLACKBOARD con DB + memo_id
-    bb = Blackboard(memory_db=db, memo_id=memo_id)
+    from bellomberg.valuation.preparation_runtime import bind_installation_preparer, preparation_status_text
+    preparation_binding = bind_installation_preparer("committee")
+    bb = Blackboard(memory_db=db, memo_id=memo_id, valuation_preparer=preparation_binding["preparer"])
+    bb.data["_valuation_preparation"] = preparation_binding["state"]
+    _log(preparation_status_text(preparation_binding["state"], language=bb.language))
     # totale report atteso (ripipeline: R0+R1 tutti, R2 selettivo) -> heartbeat/UI
     bb.expected_reports = len(SPECIALIST_ORDER) * 2 + len(_classes_for_round(2))
     # chi replica in R2: per gli ALTRI il report R1 e' il finale e va persistito
@@ -762,6 +771,8 @@ def run_multi_agent():
     _log("=" * 60)
     bb.mark_specialist_start("capo", 3)
     _capo_t0 = time.perf_counter()
+    sizing_context = (sizing_context or "") + "\n\n" + preparation_status_text(
+        bb.data["_valuation_preparation"], language=bb.language)
     memo, capo_usage = run_capo(bb, portfolio_data=portfolio, memory_db=db, sizing_context=sizing_context, scoring_context=scoring_context)
     _capo_dur = time.perf_counter() - _capo_t0
     # Il Capo entra nel conto costi come gli specialisti. cache_ttl=None: non usa
@@ -865,7 +876,9 @@ def run_multi_agent():
     debug_path = md_path.replace(".md", "_blackboard.json")
     try:
         with open(debug_path, "w", encoding="utf-8") as f:
-            json.dump({"data": bb.data, "tool_log": bb.tool_log, "language": bb.language},
+            json.dump({"data": bb.data, "tool_log": bb.tool_log, "language": bb.language,
+                       "valuation_results": bb.valuation_results,
+                       "valuation_attempts": bb.valuation_attempts},
                       f, indent=2, default=str)
     except Exception:
         pass
@@ -928,7 +941,15 @@ def run_multi_agent():
         _log("[!] PDF appendix error: " + str(e))
 
     # DCF EXCEL FILES
-    dcf_files = _collect_dcf_files(start_time)
+    from bellomberg.reporting.valuation_delivery import build_manifest, save_manifest, record_email_outcome
+    delivery = build_manifest(bb.valuation_results, roots=[MODELS_DIR, REPORT_DIR],
+                              attempts=getattr(bb, "valuation_attempts", []))
+    delivery["memo_id"] = memo_id
+    from hashlib import sha256
+    delivery["memo_sha256"] = sha256(memo.encode("utf-8")).hexdigest()
+    delivery_path = md_path.replace(".md", "_valuations.json")
+    save_manifest(delivery_path, delivery)
+    dcf_files = delivery["attachments"]
     if dcf_files:
         _log("DCF Excel files: " + str(len(dcf_files)))
 
@@ -1010,12 +1031,14 @@ def run_multi_agent():
     # Excel models" anche con zero .xlsx e il FV n.d. restava solo dentro il PDF.
     try:
         from bellomberg.reporting.email_sender import corpo_valutazioni
-        _corpo_email = corpo_valutazioni(getattr(bb, "valuation_results", None) or {}, dcf_files)
+        _corpo_email = corpo_valutazioni(getattr(bb, "valuation_results", None) or {}, dcf_files, delivery=delivery)
     except Exception as _ce:
         _corpo_email = ("<p>[esito valutazioni non costruito: %s: %s]</p>"
                         % (type(_ce).__name__, str(_ce)[:120]))
         _log("[!] corpo email valutazioni non costruito: " + type(_ce).__name__ + ": " + str(_ce)[:120])
-    _send_weekly_email(all_attachments, body_extra=_corpo_email)
+    sent = _send_weekly_email(all_attachments, body_extra=_corpo_email, delivery=delivery)
+    record_email_outcome(delivery, sent)
+    save_manifest(delivery_path, delivery)
 
     bb.mark_run_complete()
     # Progressi: conserva la misura già acquisita nella run. Nessun ricalcolo,

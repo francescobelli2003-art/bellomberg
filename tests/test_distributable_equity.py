@@ -65,6 +65,31 @@ def test_cash_ledger_and_equity_value_match_independent_hand_calculation():
     assert result["fair_value_per_share"] == pytest.approx(9.867768595041322)
 
 
+def test_forecast_only_ledger_uses_identical_rows_without_inventing_terminal_values():
+    from bellomberg.valuation.distributable_equity import project_distributable_equity
+    cap, income, years = inputs()
+    complete = project_distributable_equity(cap, income, years)
+    for key in ('terminal_equity', 'terminal_debt', 'terminal_basis'):
+        cap.pop(key)
+    original = deepcopy(cap)
+    unavailable(project_distributable_equity(cap, income, years), 'terminal')
+    forecast = project_distributable_equity(cap, income, years, forecast_only=True)
+    assert forecast['status'] == 'FORECAST_CALCOLABILE'
+    assert forecast['rows'] == complete['rows']
+    assert forecast['equity_value'] is None and forecast['fair_value_per_share'] is None
+    assert 'terminal_equity' not in forecast and cap == original
+
+
+def test_forecast_only_does_not_discard_terminal_claims_or_weaken_cash_constraints():
+    from bellomberg.valuation.distributable_equity import project_distributable_equity
+    cap, income, years = inputs()
+    unavailable(project_distributable_equity(cap, income, years, forecast_only=True), 'input non consumati')
+    for key in ('terminal_equity', 'terminal_debt', 'terminal_basis'):
+        cap.pop(key)
+    cap['subsidiaries'][0]['proposed_distribution'][0] = 30.
+    unavailable(project_distributable_equity(cap, income, years, forecast_only=True), 'closing')
+
+
 def test_consolidated_income_is_reconciled_but_never_added_to_parent_cash():
     args = inputs()
     args[0]["subsidiaries"][0]["gaap_net_income"] = [1000.0, 1200.0]

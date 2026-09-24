@@ -55,7 +55,7 @@ def generate_bank(bundle,*,output_dir,metadata):
                 problem('terminal_roe',scenario+': book/Ke/ROE/g non sostenibili; nessun clamp');continue
             tv=_fv_ptbv({'documented_inputs':True,'bvps':book/cap['shares_m'],'ke':ke,'growth_lt':g,'roe_terminal':roe})*cap['shares_m']
             if not equal(tv,cap['terminal_equity']):problem('capital.terminal_equity',scenario+': TV non riconciliato a book finale, ROE e crescita')
-            if not bound['issues']:validate_terminal(sc['terminal_ledger'],cap,ledger,book,sc,problem,terminal_income=book*sc['terminal_roe'])
+            if not bound['issues']:validate_terminal(sc['terminal_ledger'],cap,ledger,book,sc,problem,terminal_income=book*sc['terminal_roe'],allow_retained_flows=True)
             spec={'documented_inputs':True,'book_value':model['opening_common_equity'],'shares':cap['shares_m'],
                   'ke':ke,'net_income':income,'distributions':distributions,'discount_periods':bound['times'],'terminal_equity':tv}
             try:fv=_fv_residual_income(spec)

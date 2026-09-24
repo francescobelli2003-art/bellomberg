@@ -56,7 +56,7 @@ GITLEAKS_EXIT_HIT = 7   # il codice che gitleaks usa per «leak trovati» SOLO s
 GITLEAKS_SCOPERTI = ("app/package-lock.json",)   # l'allowlist globale del config di default 8.30.1
                         # salta i lockfile: il MOTORE non li legge (li leggono i
                         # controlli in memoria). Ogni altro salto e' un KO, non una nota.
-MAX_TREE = 15 * 1024 * 1024 + 384 * 1024
+MAX_TREE = 17 * 1024 * 1024  # PM 24/09: 17 MiB ordinary release files.
 MAX_FILE = 2 * 1024 * 1024
 BUDGET_SCREENSHOTS = "BUDGET_SCREENSHOTS_APPROVATO.json"
 # Exact private PM ratification metadata for the one historical public manifest.
@@ -143,11 +143,12 @@ def leggi_eccezioni(path):
 
 
 def _risolvi_deroghe_upstream(tree, eccezioni, grandi):
-    """Resolve exact path@sha256 pins against the bytes actually being scanned.
+    """Resolve exact file-byte pins against the bytes actually being scanned.
 
-    Pinned exceptions cover only exact numeric/ticker coincidences in the four
-    declared controls and the individual-file size limit. Secrets, forbidden
-    content, Gitleaks and MAX_TREE still run without a pinned exemption.
+    The legacy @sha256= syntax covers only exact numeric/ticker coincidences in
+    the four declared controls and the individual-file size limit. The separate
+    @sha256: syntax for testo_pm requires an exact private-message hash too.
+    Secrets, forbidden content, Gitleaks and MAX_TREE remain unexempted.
     A changed pinned file is a gate error, including if shortened below MAX_FILE.
     Pins may cover upstream assets or attested synthetic fixtures after explicit
     approval. A fixture still requires full source review: the pin verifies its
@@ -155,10 +156,10 @@ def _risolvi_deroghe_upstream(tree, eccezioni, grandi):
     """
     verificati = {}
 
-    def percorso(guardato):
-        if "@sha256=" not in guardato:
+    def percorso(guardato, separatore="@sha256="):
+        if separatore not in guardato:
             return guardato
-        rel, digest = guardato.rsplit("@sha256=", 1)
+        rel, digest = guardato.rsplit(separatore, 1)
         if (not re.fullmatch(r"[0-9a-f]{64}", digest) or "\\" in rel or ":" in rel
                 or any(part in ("", ".", "..") for part in rel.split("/"))
                 or any(char in rel for char in "*?")):
@@ -175,6 +176,24 @@ def _risolvi_deroghe_upstream(tree, eccezioni, grandi):
 
     risolte = set()
     for rel, controllo, token in eccezioni:
+        if controllo == "testo_pm":
+            puntuale = "@sha256:" in rel or "@sha256:" in token or "@sha256=" in rel
+            if puntuale:
+                origine, separatore, digest = token.rpartition("@sha256:")
+                if (rel.count("@sha256:") != 1 or token.count("@sha256:") != 1
+                        or "@sha256=" in rel or "@sha256=" in token
+                        or not separatore or not origine or "@sha256" in origine
+                        or not re.fullmatch(r"[0-9a-f]{64}", digest)):
+                    raise ValueError("testo_pm: richiesti pin SHA-256 esatti del file e del messaggio")
+                try:
+                    risolte.add((percorso(rel, "@sha256:"), controllo, token))
+                except ValueError as exc:
+                    raise ValueError("testo_pm: %s" % exc) from exc
+            else:
+                risolte.add((rel, controllo, token))  # Legacy: file + origine.
+            continue
+        if "@sha256:" in rel or "@sha256:" in token:
+            raise ValueError("pin @sha256: riservato al controllo testo_pm")
         if "@sha256=" in rel:
             numeric = controllo in {"lista_privata", "valori_estesi"} and re.fullmatch(r"[0-9]+(?:[.,][0-9]+)*", token)
             percentuale = controllo == "valori_estesi" and re.fullmatch(r"[0-9]+(?:[.,][0-9]+)*%", token)
@@ -1791,30 +1810,36 @@ def _catene_testo(corse, max_buco):
 
 
 def controllo_testo_pm(tree, testi, eccezioni=(), min_blocco=TESTO_MIN_BLOCCO,
-                       max_buco=TESTO_MAX_BUCO, min_parole=TESTO_MIN_PAROLE):
+                       max_buco=TESTO_MAX_BUCO, min_parole=TESTO_MIN_PAROLE,
+                       verified_files=None):
     """Controllo 13 (G3B, 13/09), in OSSERVAZIONE: il testo libero dell'utente (testi_utente_db)
     copiato nel tree. Regola a catena (v. sopra): hit = file:riga della prima parola in comune,
     token = ORIGINE...(N parole) = parole in comune. MAI il testo, nemmeno una parola. Un hit per file, riga e
     origine. Zero testi, o nessun testo da `min_parole` parole in su = KO dichiarato. Eccezioni per
-    (file, testo_pm, origine), stantie dichiarate. I messaggi della chat che sono prompt dell'app
-    e i loro titoli (SOGLIA_TEMPLATE) si separano e si dichiarano nella nota."""
+    (file, testo_pm, origine), stantie dichiarate. Le eccezioni puntuali richiedono
+    anche i pin verificati dei byte del file e del testo originale. I messaggi della
+    chat che sono prompt dell'app e i loro titoli (SOGLIA_TEMPLATE) si separano."""
     if not testi:
         return Esito("testo_pm", errore="nessun testo libero dell'utente dal DB: non e' un verde (DB vuoto = path sbagliato?)")
+    eccezioni = set(eccezioni or ())
+    puntuali = {e for e in eccezioni if e[1] == "testo_pm" and "@sha256:" in e[2]}
     visti, voci, corti = set(), [], 0
     for origine, testo in testi:
+        testo_hash = hashlib.sha256(str(testo).encode("utf-8")).hexdigest() if puntuali else None
         ws = parole_testo(testo)
         if len(ws) < min_parole:
             corti += 1
             continue
-        chiave = (origine, tuple(ws))
+        # Senza pin puntuali, la vecchia deduplica e la nota restano identiche.
+        chiave = (origine, tuple(ws), testo_hash if puntuali else None)
         if chiave not in visti:
             visti.add(chiave)
-            voci.append((origine, ws))
+            voci.append((origine, ws, testo_hash))
     if not voci:
         return Esito("testo_pm", errore="%d testi, nessuno da %d parole in su: niente da cercare, non e' un verde"
                      % (len(testi), min_parole))
     indice, primi = {}, set()
-    for tid, (_, ws) in enumerate(voci):
+    for tid, (_, ws, _) in enumerate(voci):
         for p in range(len(ws) - min_blocco + 1):
             indice.setdefault(tuple(ws[p:p + min_blocco]), []).append((tid, p))
             primi.add(ws[p])
@@ -1844,16 +1869,28 @@ def controllo_testo_pm(tree, testi, eccezioni=(), min_blocco=TESTO_MIN_BLOCCO,
             copertura, coperte = _copertura_template(voci[tid][1], prompt, min_blocco)
             if copertura >= SOGLIA_TEMPLATE:
                 template[tid] = coperte
-    per_riga, separati = {}, set()
+    verificate = set()
+    for rel, _, token in puntuali:
+        if (verified_files and rel in tree and verified_files.get(rel)
+                == hashlib.sha256(tree[rel]).hexdigest()):
+            verificate.add((rel, "testo_pm", token))
+    per_riga, separati, usate_puntuali = {}, set(), set()
     for (rel, riga, tid), catene in grezzi.items():
         for n, posizioni in catene:
             # separato solo se le parole in comune FUORI dal template non fanno da sole un riscontro
             if tid in template and len(posizioni - template[tid]) < min_parole:
                 separati.add((rel, riga))
                 continue
+            if verificate:
+                puntuale = (rel, "testo_pm", voci[tid][0] + "@sha256:" + voci[tid][2])
+                if puntuale in verificate:
+                    usate_puntuali.add(puntuale)
+                    continue
             k = (rel, riga, voci[tid][0])
             per_riga[k] = max(per_riga.get(k, 0), n)
-    rimasti, applicate, senza = _applica_eccezioni(sorted(per_riga), "testo_pm", set(eccezioni or ()))
+    rimasti, applicate, senza = _applica_eccezioni(sorted(per_riga), "testo_pm", eccezioni - puntuali)
+    applicate += len(usate_puntuali)
+    senza |= puntuali - usate_puntuali
     hit = [Hit(r, n, "%s\u2026(%d parole)" % (o, per_riga[(r, n, o)])) for (r, n, o) in rimasti]
     note = ("%d testi da %d origini, %d cercabili (%d sotto %d parole NON cercabili); catena: blocchi da %d, "
             "buco <= %d, riscontro da %d parole, solo lettere NFKD" % (
@@ -2493,7 +2530,8 @@ def esegui_controlli(tree_dir, solo=None, blocca_osservazione=False, pubblico=No
         elif nome == "testo_pm":
             # 13/09 (G3B), OSSERVAZIONE: il testo libero dell'utente (COLONNE_TESTO_UTENTE) copiato nel tree
             prova(nome, lambda: controllo_testo_pm(
-                tree, fonte("testi_utente", lambda: testi_utente_db(memoria.SQLITE_PATH)), ecc))
+                tree, fonte("testi_utente", lambda: testi_utente_db(memoria.SQLITE_PATH)), ecc,
+                verified_files=upstream))
         else:
             # 04/09: senza questo ramo un nome aggiunto a CONTROLLI e mai cablato qui veniva
             # SALTATO in silenzio, e `non_eseguiti` non lo vedeva (sta in da_fare): il cancello

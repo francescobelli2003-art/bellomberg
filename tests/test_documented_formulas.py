@@ -36,3 +36,29 @@ def test_missing_engine_result_cannot_be_rebuilt_silently_from_inputs(tmp_path):
     assert 'BOZZA' in wb['Summary']['B5'].value
     assert not any(c.data_type == 'f' for s in wb for row in s for c in row)
     wb.close()
+
+
+@pytest.mark.parametrize('status', ['fx_not_rolled', 'stale', 'currency_mismatch'])
+def test_excel_does_not_restore_a_blocked_price_comparison(tmp_path, status):
+    from test_market_quote import generate
+    payload = generate(tmp_path)
+    payload['market_quote'].update(status=status, message='Synthetic comparison unavailable')
+    for scenario in ('bear','base','bull'):
+        payload['market_quote']['upside_'+scenario+'_pct'] = None
+    wb = load_workbook(build_documented_workbook(payload, tmp_path))
+    assert all(wb['Summary'].cell(9,c).value == 'n.d.' for c in (4,5,6))
+    assert wb['Sensitivity']['D20'].value == 'n.d.'
+    assert 'Synthetic comparison unavailable' in wb['Summary']['B26'].value
+    assert wb['Summary']['E8'].data_type == 'f'
+    assert wb['Sensitivity']['E10'].data_type == 'f'
+    wb.close()
+
+
+def test_valid_snapshot_quote_keeps_interactive_comparison(tmp_path):
+    from test_market_quote import generate
+    payload = generate(tmp_path)
+    assert payload['market_quote']['status'] == 'ok'
+    wb = load_workbook(payload['path'])
+    assert wb['Summary']['E9'].data_type == 'f'
+    assert wb['Sensitivity']['D20'].data_type == 'f'
+    wb.close()

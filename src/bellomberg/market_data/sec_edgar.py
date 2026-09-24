@@ -269,6 +269,19 @@ def get_filing_catalog(ticker: str, days: int = 1100, max_pages: int = 20) -> di
     documento. Limiti, errori e assenze viaggiano insieme ai risultati parziali.
     Nessuna cache su disco. Il percorso storico degli altri consumer resta invariato.
     """
+    return _publication_catalog(ticker, days, max_pages, earnings=False)
+
+
+def get_publication_catalog(ticker: str, days: int = 400, max_pages: int = 2) -> dict:
+    """Free discovery only: statement notices plus 8-K Item 2.02 releases.
+
+    Does not classify 8-K as a financial statement or extract numeric guidance.
+    Other guidance channels remain outside this bounded SEC catalog.
+    """
+    return _publication_catalog(ticker, days, max_pages, earnings=True)
+
+
+def _publication_catalog(ticker, days, max_pages, *, earnings):
     out = {"stato": "ok", "documenti": [], "motivi": [], "fonte": "SEC EDGAR"}
     try:
         if days <= 0 or max_pages < 1:
@@ -286,15 +299,21 @@ def get_filing_catalog(ticker: str, days: int = 1100, max_pages: int = 20) -> di
         data = response.json()
         if str(int(data["cik"])).zfill(10) != cik:
             raise ValueError("CIK della risposta diverso dall'emittente richiesto")
+        if earnings:
+            out["emittente_id"] = "CIK:" + cik
         filings = data["filings"]
         cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
         forms = {"10-K", "10-K/A", "10-Q", "10-Q/A", "20-F", "20-F/A",
                  "40-F", "40-F/A", "6-K", "6-K/A"}
-        visti = set()
+        visti = {}
 
         def aggiungi(righe):
             for i, form in enumerate(righe["form"]):
-                if form not in forms:
+                is_earnings = earnings and form in ("8-K", "8-K/A")
+                if form not in forms and not is_earnings:
+                    continue
+                metadata = _filing_metadata(righe, i, cik, data.get("name"))
+                if is_earnings and "2.02" not in metadata["items"]:
                     continue
                 fdate = righe["filingDate"][i]
                 if fdate < cutoff:
@@ -303,12 +322,15 @@ def get_filing_catalog(ticker: str, days: int = 1100, max_pages: int = 20) -> di
                 if not acc or not doc:
                     out["motivi"].append(f"{form} {fdate}: accession/documento primario mancante")
                     continue
-                if acc in visti:
-                    continue
-                visti.add(acc)
-                out["documenti"].append({"ticker": ticker, "form": form, "filed_date": fdate,
+                entry = {"ticker": ticker, "form": form, "filed_date": fdate,
                     "accession": acc, "url": f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc.replace('-', '')}/{doc}",
-                    **_filing_metadata(righe, i, cik, data.get("name"))})
+                    **metadata}
+                if acc in visti:
+                    if visti[acc] != entry:
+                        out["motivi"].append(f"{acc}: metadati discordanti tra pagine SEC")
+                    continue
+                visti[acc] = entry
+                out["documenti"].append(entry)
 
         aggiungi(filings["recent"])
         archivi = [f for f in filings.get("files", []) if not f.get("filingTo") or f["filingTo"] >= cutoff]

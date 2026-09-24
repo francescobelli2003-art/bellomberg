@@ -31,6 +31,21 @@ unverified fair value from a saved snapshot. Blocked values and upside remain
 unavailable; intermediate source fields may still be shown for investigation.
 See the [documented valuation methods](../sector-valuations.md).
 
+With the version registry installed, the page opens the exact published current
+generation through an authenticated download. A failed refresh keeps the previous
+current model visible and shows the failed attempt separately. Queue entries with
+no workbook remain visible with unavailable fair value. Source cutoff, assumption
+date, quote date and publication date are separate observations. An automatic
+validated model is distinct from a PM-approved model; a downloaded or emailed
+workbook is a dated copy and does not update remotely.
+
+Use **Refresh model** to queue an explicit update within the configured budget.
+**Lock version** preserves the displayed current model; unlocking leaves existing
+candidates separate. Enter a name and choose **Create variant** to keep a personal
+copy with its original generation recorded. The variant list distinguishes edited
+copies and lets you reopen them. These actions require your session; refresh also
+requires an authorized running worker. A denied action displays its reason.
+
 Changing interface language rereads the model list for current descriptions.
 It does not regenerate calculations, translate a saved thesis, or rewrite an
 existing workbook or report.

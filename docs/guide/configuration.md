@@ -38,6 +38,7 @@ explicit repair preserves a verified copy of the unreadable file.
 | Capability | Configuration | What to expect without it |
 | --- | --- | --- |
 | AI chat, committee, briefing and classification | `OPENROUTER_API_KEY` and the relevant model variables | That model workflow cannot complete |
+| Automatic valuation models | [Valuation schema and private budget/trigger configuration](sector-valuations.md#shared-automatic-preparation), plus provider access | Preparation remains disabled; missing inputs or setup are declared |
 | Macro series | `FRED_API_KEY` | Macro inputs can be unavailable |
 | Options chains, IV and Greeks | `POLYGON_API_KEY` plus suitable account access | Missing or rejected option data; the manual strategy calculator remains separate |
 | News, earnings and company intelligence | `FINNHUB_API_KEY` | Coverage depends on endpoint and account |

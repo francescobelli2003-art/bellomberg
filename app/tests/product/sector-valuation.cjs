@@ -124,7 +124,9 @@ test('managed care renders the real Python pipeline output with cutoff and capit
     assert.match(complete, /managed_care_distributable_equity/);
     assert.match(complete, /Cutoff flussi e prezzo: 2026-06-30/);
     assert.match(complete, /non FV storico o upside al prezzo corrente/);
-    assert.match(complete, /APRI EXCEL/);
+    assert.equal(models.complete.automation.status, 'unavailable');
+    assert.equal(models.complete.historical_download, false);
+    assert.doesNotMatch(complete, /APRI EXCEL|SCARICA COPIA STORICA/);
     assert.match(complete, />OK</);
     const incomplete = render(models.incomplete);
     assert.match(incomplete, /permitted_distribution/);
@@ -138,7 +140,9 @@ test('documented sector valuation renders real complete and missing pipeline res
     const models = JSON.parse(fs.readFileSync(process.env.DOCUMENTED_VALUATION_FIXTURE, 'utf8'));
     const complete = render(models.complete);
     assert.ok(complete.includes(models.method));
-    assert.match(complete, /APRI EXCEL/);
+    assert.equal(models.complete.automation.status, 'unavailable');
+    assert.equal(models.complete.historical_download, false);
+    assert.doesNotMatch(complete, /APRI EXCEL|SCARICA COPIA STORICA/);
     assert.match(complete, />OK|>WARN/);
     assert.ok(complete.includes(models.complete.detail.valuation_date));
     const incomplete = render(models.incomplete);

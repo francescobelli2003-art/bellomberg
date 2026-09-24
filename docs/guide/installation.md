@@ -90,6 +90,18 @@ Use the hostname it prints; `localhost` and `127.0.0.1` can resolve differently.
 The desktop is the documented product workflow; visiting the development URL is
 not a certification of an installed desktop's backend configuration.
 
+## Automatic valuation setup
+
+A fresh installation has no private research records or prepared workbooks.
+Automatic preparation stays disabled until you configure its triggers and spending
+authorization. An uninitialized valuation schema is reported explicitly; a working
+login alone does not mean that model preparation is enabled.
+
+Follow [the automatic valuation setup](sector-valuations.md#shared-automatic-preparation)
+for the migration dry-run, verified backup and private configuration. Close the
+desktop and stop the backend before applying the migration; Electron can otherwise
+start the backend again. Restart after setup and check the automation status.
+
 ## Installed desktop and builds
 
 From `app/`, `npm run build:bundles` builds the web/Electron code and

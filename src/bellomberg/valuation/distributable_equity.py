@@ -29,6 +29,7 @@ CAPITAL_FIELDS = frozenset((
     "parent_gaap_net_income", "consolidation_adjustments", "parent_cash_flows", "subsidiaries",
     "ke", "shares_m", "discount_periods", "terminal_equity",
 ))
+TERMINAL_FIELDS = frozenset(('terminal_basis', 'terminal_debt', 'terminal_equity'))
 SUB_FIELDS = frozenset(SUB_PATHS) | {
     "id", "opening_statutory_capital", "opening_gaap_equity", "opening_gaap_to_statutory_equity",
 }
@@ -53,7 +54,7 @@ def _total(*values):
 
 
 def project_distributable_equity(capital: dict | None, consolidated_net_income: list,
-                                years: list) -> dict:
+                                years: list, *, forecast_only=False) -> dict:
     """Project an explicit full-sweep equity policy; never read or mutate external state.
 
     Cash flow keys have the directions in CASH_SIGNS (costs are subtracted). Signed
@@ -64,6 +65,8 @@ def project_distributable_equity(capital: dict | None, consolidated_net_income: 
     Terminal equity is a supplied continuing equity value after the final distribution,
     with the same closing parent debt; no net-debt or initial-surplus bridge is added.
     Negative shareholder flows are explicit financing requirements, not zero floors.
+    forecast_only validates the same annual ledger without terminal inputs and
+    returns FORECAST_CALCOLABILE with no equity value. It cannot certify a valuation.
     """
     issues = []
 
@@ -80,7 +83,7 @@ def project_distributable_equity(capital: dict | None, consolidated_net_income: 
         if unknown:
             issues.append(label + ": input non consumati: " + ", ".join(sorted(str(key) for key in unknown)))
 
-    reject_unknown(capital, CAPITAL_FIELDS, "capital")
+    reject_unknown(capital, CAPITAL_FIELDS - TERMINAL_FIELDS if forecast_only else CAPITAL_FIELDS, "capital")
     if (not isinstance(years, list) or not years
             or any(type(year) is not int or not 1 <= year <= 9999 for year in years)
             or any(a >= b for a, b in zip(years, years[1:]))):
@@ -109,14 +112,16 @@ def project_distributable_equity(capital: dict | None, consolidated_net_income: 
     policy = capital.get("distribution_policy")
     if policy != "full_sweep_after_buffers":
         issues.append("distribution_policy: serve full_sweep_after_buffers esplicito")
-    for key in ("reconciliation_basis", "terminal_basis", "upstream_approval_basis"):
+    for key in (("reconciliation_basis", "upstream_approval_basis") if forecast_only
+                else ("reconciliation_basis", "terminal_basis", "upstream_approval_basis")):
         value = capital.get(key)
         if not isinstance(value, str) or not value.strip():
             issues.append(key + ": base documentale esplicita assente")
 
     ni = path({"consolidated_net_income": consolidated_net_income}, "consolidated_net_income")
     normal = {}
-    for key in ("parent_opening_cash", "parent_opening_debt", "terminal_debt", "terminal_equity"):
+    for key in (("parent_opening_cash", "parent_opening_debt") if forecast_only
+                else ("parent_opening_cash", "parent_opening_debt", "terminal_debt", "terminal_equity")):
         normal[key] = number(capital.get(key), key, nonnegative=True)
     for key in ("ke", "shares_m"):
         normal[key] = number(capital.get(key), key, positive=True)
@@ -236,6 +241,12 @@ def project_distributable_equity(capital: dict | None, consolidated_net_income: 
                 "discounted_shareholder_flow": pv,
             })
             parent_cash, debt = minimum, debt_close
+        if forecast_only:
+            if issues:
+                return unavailable()
+            return {"status": "FORECAST_CALCOLABILE", "issues": [], "rows": rows,
+                    "equity_value": None, "fair_value_per_share": None,
+                    "note": NOTE + " Terminale non fornito: nessuna valutazione calcolata."}
         if not isclose(normal["terminal_debt"], debt, rel_tol=0.0, abs_tol=1e-9):
             issues.append("terminal_debt: non coincide con il debito finale del parent")
         if issues:

@@ -101,6 +101,31 @@ def test_legacy_number_is_readable_but_never_usable():
     assert original["fair_value_base"] == 50
 
 
+@pytest.mark.parametrize('blocked', [False, True])
+def test_archived_preparation_basis_is_evidence_and_survives_output_masking(blocked):
+    payload = payload_for()
+    basis = {'version': 1, 'dossier': {'acquired_sources': {'filings': {'data': {
+        'items': {'equity': {'value': 100, 'unit': 'USD'}},
+        'tags_used': {'equity': 'StockholdersEquity'}, 'units': {'equity': 'USD'}}}}},
+        'seed': {'plan': {'model': {}, 'scenarios': {}}}}
+    payload['preparation'] = {'status': 'prepared', 'review_basis': deepcopy(basis)}
+    if blocked:
+        payload['sanity']['severity'] = 'BLOCK'
+    result = dcf_quality.normalize_valuation_payload(payload, as_of=DAY)
+    assert result['valuation_usability']['usable'] is not blocked
+    assert result['preparation']['review_basis'] == basis
+    assert result['fair_value_weighted'] == (None if blocked else 120.)
+
+
+@pytest.mark.parametrize('branch', ['calculation_details', 'sidecar'])
+def test_preparation_evidence_exception_does_not_hide_other_numeric_results(branch):
+    payload = payload_for()
+    payload[branch] = {'preparation': {'review_basis': {'equity': 'malformed output'}}}
+    result = dcf_quality.normalize_valuation_payload(payload, as_of=DAY)
+    assert result['valuation_usability']['usable'] is False
+    assert result[branch]['preparation']['review_basis']['equity'] is None
+
+
 @pytest.mark.parametrize("field,value", [
     ("contract_version", "0"), ("registry_version", "unknown"), ("profile_version", "0"),
     ("method_version", "0"), ("method_id", "invented"), ("profile_id", "bank"),

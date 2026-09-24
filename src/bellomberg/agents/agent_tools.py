@@ -2275,14 +2275,12 @@ def tool_quant_compute(operation, tickers=None, period="6mo", benchmark="SPY", c
                 continue
             # audit/11 §5: stessa ddof per cov e var (prima np.cov ddof=1 / np.var
             # ddof=0 gonfiava il beta di n/(n-1), +5% con n=20)
-            _m = np.cov(joined["a"], joined["b"])
-            cov = _m[0, 1]
-            var_b = _m[1, 1]
-            beta = cov / var_b if var_b > 0 else None
-            corr = joined["a"].corr(joined["b"])
+            from bellomberg.market_data.return_statistics import paired_beta_statistics
+            statistic = paired_beta_statistics(joined[["a", "b"]])
+            beta, corr = statistic['beta'], statistic['correlation']
             result[t] = {
                 "beta_vs_" + benchmark: round(beta, 3) if beta is not None else None,
-                "correlation": round(corr, 3) if corr == corr else None,
+                "correlation": round(corr, 3) if corr is not None else None,
                 "n_obs": len(joined),
             }
 

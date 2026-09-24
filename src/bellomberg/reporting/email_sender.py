@@ -252,7 +252,7 @@ _CHIAVI_FV = ("fair_value_final", "fair_value_weighted", "fair_value_blend",
 
 
 @localized
-def corpo_valutazioni(valuation_results, allegati):
+def corpo_valutazioni(valuation_results, allegati, delivery=None):
     """Blocco HTML per il corpo dell'email: l'esito di OGNI valutazione chiesta dal comitato
     e i modelli Excel davvero allegati.
 
@@ -290,6 +290,20 @@ def corpo_valutazioni(valuation_results, allegati):
                 testo += _t("; campi mancanti (%d): %s") % (
                     len(mancanti), ", ".join(str(m) for m in mancanti[:12]))
         snap = res.get("snapshot_id")
+        from bellomberg.core.language import text as translated
+        publication = res.get("model_publication") or {}
+        testo += translated("; pubblicazione modello: ", "; model publication: ") + str(publication.get("status", "not_verified"))
+        if publication.get("reason"):
+            testo += " (" + str(publication["reason"]) + ")"
+        testo += translated("; allegato = copia datata, senza aggiornamento remoto",
+                            "; attachment = dated copy, without remote updates")
+        if res.get("reused"):
+            testo += translated("; revisione esistente riutilizzata, nessuna nuova analisi",
+                                "; existing revision reused, no new analysis")
+        if delivery is not None:
+            outcome = next((row for row in delivery.get("valuations", []) if row["ticker"] == tk), None)
+            if outcome:
+                testo += "; Excel: " + outcome["status"] + " (" + outcome["reason"] + ")"
         from bellomberg.reporting.valuation_quote import quote_comparison_text
         testo += "; " + quote_comparison_text(res)
         righe.append("<li><b>%s</b>: %s%s</li>" % (
@@ -300,7 +314,8 @@ def corpo_valutazioni(valuation_results, allegati):
 
 
 @localized
-def invia_email_multi_allegati(pdf_paths, oggetto=None, body_extra=""):
+def invia_email_multi_allegati(pdf_paths, oggetto=None, body_extra="", *,
+                             expected_hashes=None, delivery_receipt=None):
     """Invia email con N allegati (PDF memo + PDF appendice + N Excel DCF).
 
     pdf_paths: list of file paths (PDF + XLSX mixed). I file vengono inferiti via estensione.
@@ -313,7 +328,13 @@ def invia_email_multi_allegati(pdf_paths, oggetto=None, body_extra=""):
 
     if not email_configurata():
         return False
-    pdf_paths = [p for p in pdf_paths if p and _os.path.exists(p)]
+    pdf_paths = list(pdf_paths)
+    missing = [p for p in pdf_paths if not p or not _os.path.isfile(p)]
+    if missing:
+        print("  [!] Email NON inviata: allegati richiesti assenti: " + str(missing))
+        if delivery_receipt is not None:
+            delivery_receipt.update(email_status="package_failed", email_error="Allegati richiesti assenti")
+        return False
     if not pdf_paths:
         print("  [!] Nessun allegato valido")
         return False
@@ -371,7 +392,12 @@ def invia_email_multi_allegati(pdf_paths, oggetto=None, body_extra=""):
             else:
                 part = MIMEBase("application", "octet-stream")
             with open(path, "rb") as f:
-                part.set_payload(f.read())
+                contents = f.read()
+            if expected_hashes and str(path) in expected_hashes:
+                from hashlib import sha256
+                if sha256(contents).hexdigest() != expected_hashes[str(path)]:
+                    raise ValueError("Workbook modificato dopo la verifica della generazione")
+            part.set_payload(contents)
             encoders.encode_base64(part)
             filename = _os.path.basename(path)
             part.add_header("Content-Disposition", "attachment; filename=" + filename)
@@ -380,8 +406,12 @@ def invia_email_multi_allegati(pdf_paths, oggetto=None, body_extra=""):
         except Exception as e:
             print("  [!] Attach fail " + path + ": " + str(e))
             print("  [!] Email NON inviata: il pacchetto allegati sarebbe incompleto")
+            if delivery_receipt is not None:
+                delivery_receipt.update(email_status="package_failed", email_error=type(e).__name__ + ": " + str(e))
             return False
 
+    if delivery_receipt is not None:
+        delivery_receipt.update(email_status="package_built", mime_attachments=[str(p) for p in pdf_paths])
     try:
         context = ssl.create_default_context()
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, context=context, timeout=30) as server:

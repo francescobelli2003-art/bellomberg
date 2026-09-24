@@ -81,6 +81,20 @@ def bank_records():
     return rows
 
 
+@pytest.mark.parametrize('child_ids', [['SYNTH-PARENT'], ['SYNTH-GROUP'], ['LEGAL-A', 'LEGAL-A']])
+def test_capital_binding_rejects_duplicate_or_self_subsidiaries(child_ids):
+    from bellomberg.valuation.bank_adapter import SCHEMA
+    from bellomberg.valuation.capital_inputs import bind_capital_inputs
+    rows = bank_records()
+    legal = next(row['value'] for row in rows if row['driver'] == 'legal_structure')
+    legal['subsidiaries'] = [{'id': identity, 'regime': 'Synthetic common-equity regime'}
+                             for identity in child_ids]
+    bound = bind_capital_inputs(bank_bundle(rows), SCHEMA)
+    assert any(issue['field'] == 'regulatory_capital'
+               and issue['reason'].startswith('legal_structure: Subsidiaries distinte')
+               for issue in bound['issues'])
+
+
 def bank_bundle(rows=None,profile='bank',symbol='SYNTH-BANK'):
     return sector_analysis.prepare_sector_analysis(symbol,as_of=DAY,providers={
         'profile':lambda *a,**k:{'status':'ok','source_id':'synthetic','as_of':DAY,'data':{

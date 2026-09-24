@@ -243,6 +243,10 @@ export interface ValuationMarketQuote {
   observed_local_date?: string | null;
   price_model?: number | null;
   price_model_as_of?: string | null;
+  model_valuation_date?: string | null;
+  fx?: { rate: number; on: string; financial_currency: string; quote_currency: string;
+    source_url: string; available_at: string; limitation: string } | null;
+  comparison_fair_values?: { bear: number; base: number; bull: number };
   upside_bear_pct?: number | null;
   upside_base_pct?: number | null;
   upside_bull_pct?: number | null;
@@ -266,6 +270,17 @@ export interface ValuationModel {
   identity_status?: 'canonical' | 'legacy_unverified';
   snapshot_id?: string | null;
   generation_id?: string | null;
+  current_generation?: boolean;
+  current_download?: string;
+  historical_download?: boolean;
+  automation?: {
+    status: string; locked: boolean | null;
+    current: { generation_id: string; revision: number; as_of: string; published_at: string } | null;
+    approval?: { publication_origin: string; active: boolean };
+    latest_publication_attempt?: { status: string; reason: string; created_at: string } | null;
+    latest_prepare_job?: { status: string; reason: string; updated_at: string } | null;
+    latest_price_job?: { status: string; reason: string; updated_at: string } | null;
+  };
   valuation_decision?: ValuationDecision | null;
   valuation_usability?: ValuationUsability;
   analytical_quality?: {status?: string; issues?: string[]} | null;

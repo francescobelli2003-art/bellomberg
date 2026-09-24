@@ -432,6 +432,9 @@ async function renderer(config) {
       await waitFor(() => document.getElementById('f7-op-ticker'), 'opening form');
       await waitFor(() => document.documentElement.lang === (document.querySelector('#f7-mode-opening')?.textContent === 'Opening position' ? 'en' : 'it'), 'opening language');
       await waitFor(() => document.querySelector('[data-opening-entry] [aria-busy="false"]'), 'opening register');
+      // Form readiness does not await Layout's independent initial FX request.
+      // Measure the baseline after that response is rendered, before user actions.
+      await waitFor(() => [...document.querySelectorAll('span')].some(node => node.textContent === 'USD/EUR'), 'shell FX loaded');
       shellFxReads = (await control()).requests.filter(r => r.route === '/fx').length;
     };
     const fillBalance = async (language = 'it') => {

@@ -2393,6 +2393,68 @@ def test_testo_pm_eccezione_per_file_e_origine_e_stantia_dichiarata():
     assert "1 eccezione applicata" in e.note and "2 eccezioni senza riscontro" in e.note, e.note
 
 
+def test_testo_pm_pin_esatto_agisce_sul_messaggio_prima_di_aggregare():
+    origine = "decisions.pm_feedback"
+    contenuto = ("# " + MULINO + "\n").encode("utf-8")
+    tree = _tree(**PULITO, **{"a.py": contenuto.decode("utf-8")})
+    pin_file = hashlib.sha256(contenuto).hexdigest()
+    pin_testo = hashlib.sha256(MULINO.encode("utf-8")).hexdigest()
+    riga = ("a.py@sha256:" + pin_file, "testo_pm", origine + "@sha256:" + pin_testo)
+    risolte, _, verificati = vp._risolvi_deroghe_upstream(tree, {riga}, [])
+    assert risolte == {("a.py", "testo_pm", riga[2])}
+    assert verificati == {"a.py": pin_file}
+    assert _hit_testo(vp.controllo_testo_pm(tree, [(origine, MULINO)])) == [("a.py", 1)]
+    solo = vp.controllo_testo_pm(tree, [(origine, MULINO)], risolte, verified_files=verificati)
+    assert solo.hit == [] and "1 eccezione applicata" in solo.note
+
+    # La punteggiatura sparisce nella ricerca, ma cambia i byte del messaggio privato.
+    variante = MULINO + "!"
+    entrambi = vp.controllo_testo_pm(tree, [(origine, MULINO), (origine, variante)],
+                                      risolte, verified_files=verificati)
+    assert _hit_testo(entrambi) == [("a.py", 1)]
+    assert "1 eccezione applicata" in entrambi.note
+    senza_verifica = vp.controllo_testo_pm(tree, [(origine, MULINO)], risolte)
+    assert _hit_testo(senza_verifica) == [("a.py", 1)]
+
+
+def test_testo_pm_pin_esatto_cambio_file_o_messaggio_e_stantia():
+    origine = "positions.tesi"
+    contenuto = ("# " + MULINO + "\n").encode("utf-8")
+    tree = _tree(**PULITO, **{"a.py": contenuto.decode("utf-8")})
+    riga = ("a.py@sha256:" + hashlib.sha256(contenuto).hexdigest(), "testo_pm",
+            origine + "@sha256:" + hashlib.sha256(MULINO.encode("utf-8")).hexdigest())
+    with pytest.raises(ValueError, match="SHA-256"):
+        vp._risolvi_deroghe_upstream(_tree(**PULITO, **{"a.py": "# " + MULINO + "!\n"}), {riga}, [])
+    risolte, _, verificati = vp._risolvi_deroghe_upstream(tree, {riga}, [])
+    cambiato = vp.controllo_testo_pm(tree, [(origine, MULINO + "!")], risolte,
+                                     verified_files=verificati)
+    assert _hit_testo(cambiato) == [("a.py", 1)]
+    assert "1 eccezione senza riscontro" in cambiato.note
+
+
+@pytest.mark.parametrize("path,token", [
+    ("a.py", "positions.tesi@sha256:{text}"),
+    ("a.py@sha256:{file}", "positions.tesi"),
+    ("a.py@sha256={file}", "positions.tesi@sha256:{text}"),
+    ("a.py@sha256:BAD", "positions.tesi@sha256:{text}"),
+    ("a.py@sha256:{file}", "positions.tesi@sha256:BAD"),
+])
+def test_testo_pm_pin_incompleto_o_invalido_viene_rifiutato(path, token):
+    content = ("# " + MULINO + "\n").encode("utf-8")
+    tree = {"a.py": content}
+    row = (path.format(file=hashlib.sha256(content).hexdigest()), "testo_pm",
+           token.format(text=hashlib.sha256(MULINO.encode("utf-8")).hexdigest()))
+    with pytest.raises(ValueError, match="testo_pm"):
+        vp._risolvi_deroghe_upstream(tree, {row}, [])
+
+
+def test_pin_testo_pm_non_si_estende_ai_controlli_upstream():
+    content = b"718.231\n"
+    row = ("a.py@sha256:" + hashlib.sha256(content).hexdigest(), "lista_privata", "718.231")
+    with pytest.raises(ValueError):
+        vp._risolvi_deroghe_upstream({"a.py": content}, {row}, [])
+
+
 def test_testo_pm_zero_testi_o_solo_testi_corti_e_ko():
     tree = _tree(**PULITO)
     assert vp.controllo_testo_pm(tree, []).errore
@@ -2521,6 +2583,26 @@ def test_esegui_controlli_esegue_davvero_il_tredicesimo_controllo(synthetic_poli
     out = capsys.readouterr().out
     assert "m.py:2" in out and "pm_feedback.feedback_text" + ELL + "(13 parole)" in out and "OSSERVAZIONE" in out
     assert "mulino" not in out.lower() and rc == 2
+
+
+def test_testo_pm_pin_esatto_attraversa_il_gate_senza_policy_reale(synthetic_policy, tmp_path, monkeypatch):
+    db = _db_schema_nuovo(tmp_path, monkeypatch)
+    _esegui_sql(db, ("INSERT INTO pm_feedback(feedback_text) VALUES (?)", (MULINO,)))
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    content = ("# " + MULINO + "\n").encode("utf-8")
+    (tree / "m.py").write_bytes(content)
+    monkeypatch.setattr(vp, "_importa_memory_db", lambda: types.SimpleNamespace(SQLITE_PATH=db))
+    original, _ = vp.esegui_controlli(str(tree), solo=["testo_pm"])
+    assert _hit_testo(original[0]) == [("m.py", 1)]
+    row = ("m.py@sha256:" + hashlib.sha256(content).hexdigest(), "testo_pm",
+           "pm_feedback.feedback_text@sha256:" + hashlib.sha256(MULINO.encode("utf-8")).hexdigest())
+    monkeypatch.setattr(vp, "leggi_eccezioni", lambda _: {row})
+    exempted, _ = vp.esegui_controlli(str(tree), solo=["testo_pm"])
+    assert exempted[0].hit == [] and "1 eccezione applicata" in exempted[0].note
+    (tree / "m.py").write_bytes(content + b" ")
+    changed, _ = vp.esegui_controlli(str(tree), solo=["testo_pm"])
+    assert changed[0].errore and "SHA-256" in changed[0].errore
 
 
 def test_testo_pm_sul_deposito_blocca(synthetic_policy, tmp_path, monkeypatch, capsys):

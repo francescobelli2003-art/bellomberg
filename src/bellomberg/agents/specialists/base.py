@@ -227,13 +227,16 @@ class Blackboard:
     # `state.n_tool_calls ?? P.calls.length`).
     HEARTBEAT_TOOL_LOG_MAX = 50
 
-    def __init__(self, memory_db=None, memo_id=None):
+    def __init__(self, memory_db=None, memo_id=None, *, valuation_preparer=None):
         self.language = capture_language()
         self.data = {}
         self.current_round = 0
         self.tool_log = []
         self.memory_db = memory_db
         self.valuation_results = {}
+        self.valuation_attempts = []
+        # Injected only by the application's explicit valuation budget policy.
+        self.valuation_preparer = valuation_preparer
         self.memo_id = memo_id
         self.start_time = datetime.now().isoformat(timespec="seconds")
         self.specialist_status = {}  # {name: "idle" | "running" | "done" | "error"}
@@ -254,6 +257,15 @@ class Blackboard:
         # che il MODELLO scriveva da se' nel titolo. {desk: {round: iso con offset}}.
         self.orari_report = {}
         self._write_heartbeat()
+
+    def record_valuation(self, ticker, payload, specialist):
+        from bellomberg.reporting.valuation_delivery import describe_result
+        with self._lock:
+            self.valuation_results[ticker] = payload
+            self.valuation_attempts.append({**describe_result(ticker, payload),
+                "specialist": specialist, "round": self.current_round,
+                "attempt": len(self.valuation_attempts) + 1})
+            self._write_heartbeat()
 
     def record_usage(self, agent, round_n, model, usage, duration_s=None,
                      api_calls=0, cache_ttl=None, status="ok", retry_vuoto=0):
@@ -522,6 +534,7 @@ class Blackboard:
                 # 27/08 (N8 di F44): le ULTIME N chiamate + il totale VERO + il
                 # tappo dichiarato; prima F4 leggeva "50 su 50" per tutta la run.
                 "tool_log": self.tool_log[-self.HEARTBEAT_TOOL_LOG_MAX:],
+                "valuation_attempts": self.valuation_attempts,
                 "n_tool_calls": len(self.tool_log),  # totale VERO, non il tappo
                 "tool_log_tappato": len(self.tool_log) > self.HEARTBEAT_TOOL_LOG_MAX,
                 "reports_by_specialist": {
@@ -581,6 +594,7 @@ class Blackboard:
                 "completed_at": datetime.now().isoformat(timespec="seconds"),
                 "specialist_status": self.specialist_status,
                 "tool_log": self.tool_log,
+                "valuation_attempts": self.valuation_attempts,
                 "n_tool_calls": len(self.tool_log),
                 "tool_log_tappato": False,  # a run finita il log e' intero
                 "memo_id": self.memo_id,
@@ -1154,13 +1168,12 @@ class Specialist:
                 if name == "get_valuation":
                     ticker = str(input_.get("ticker") or "").upper()
                     result = chat_tools.dispatch(name, input_, caller="specialista-run:" + self.name,
-                        prepared_bundle=getattr(self, "_sector_bundles", {}).get(ticker))
+                        prepared_bundle=getattr(self, "_sector_bundles", {}).get(ticker),
+                        valuation_preparer=getattr(self.blackboard, "valuation_preparer", None))
                     payload = result.get("data") if isinstance(result.get("data"), dict) else result
                     if payload.get("acquisition_snapshot"):
                         self._sector_bundles[ticker] = payload["acquisition_snapshot"]
-                    if hasattr(self.blackboard, "valuation_results"):
-                        with self.blackboard._lock:
-                            self.blackboard.valuation_results[ticker] = payload
+                    self.blackboard.record_valuation(ticker, payload, self.name)
                     db = getattr(self.blackboard, "memory_db", None)
                     decision_id = getattr(self, "_research_decision_links", {}).get(ticker)
                     if db is not None and decision_id and payload.get("snapshot_id"):
@@ -1173,8 +1186,10 @@ class Specialist:
                 return chat_tools.dispatch(name, input_, caller="specialista-run:" + self.name)
             except Exception as e:
                 if name == "get_valuation":
-                    return {"ok": False, "error": "Acquisizione/valutazione settoriale KO: " + str(e),
-                            "exclude_from_action_table": True}
+                    failure = {"ok": False, "error": "Acquisizione/valutazione settoriale KO: " + str(e),
+                               "exclude_from_action_table": True}
+                    self.blackboard.record_valuation(str(input_.get("ticker") or "").upper(), failure, self.name)
+                    return failure
                 # P1 26/07: il ripiego copre 21 nomi su 51 -> per gli altri 30
                 # `execute_tool` risponde "Tool sconosciuto", ma lo SCAMBIO di
                 # dispatcher era muto. Ora e' dichiarato anche AL MODELLO, che
@@ -1309,6 +1324,10 @@ class Specialist:
         filing_context = self.blackboard.data.get("_filing_context")
         if filing_context:
             preamble += "\n\n" + filing_context
+        preparation_state = self.blackboard.data.get("_valuation_preparation")
+        if preparation_state is not None:
+            from bellomberg.valuation.preparation_runtime import preparation_status_text
+            preamble += "\n\n" + preparation_status_text(preparation_state, language=self.blackboard.language)
         # SCORE DETERMINISTICO (#186): ancora numerica calcolata in codice, l'LLM narra.
         # Cache per-run nel blackboard: lo scorer (anche pesante, es. DCF) gira UNA volta.
         if round_n in (0, 1):

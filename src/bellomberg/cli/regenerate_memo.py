@@ -42,7 +42,7 @@ def _recovery_language(memo_language, report_languages, explicit=None):
 def main(language=None):
     db = MemoryDB()
     with db._conn() as conn:
-        memo = conn.execute("SELECT id,output_language FROM memos ORDER BY id DESC LIMIT 1").fetchone()
+        memo = conn.execute("SELECT id,output_language,full_markdown FROM memos ORDER BY id DESC LIMIT 1").fetchone()
         if not memo:
             print("Nessun memo nel DB. / No memo in the database."); return
         memo_id = memo["id"]
@@ -68,7 +68,12 @@ def main(language=None):
         raise SystemExit(2)
     with language_context(selected):
         bb = Blackboard(memory_db=db, memo_id=memo_id)
-    return _regenerate(db, memo_id, rows, bb, language=selected)
+    from hashlib import sha256
+    original_text = memo["full_markdown"]
+    original_hash = (sha256(original_text.encode("utf-8")).hexdigest()
+                     if isinstance(original_text, str) and original_text.strip()
+                     and original_text != "[IN PROGRESS]" else None)
+    return _regenerate(db, memo_id, rows, bb, memo_sha256=original_hash, language=selected)
 
 
 def _persist_recovery_outputs(conn, memo_id, memo, pdf_path, appendix_path, selected, usage):
@@ -83,7 +88,7 @@ def _persist_recovery_outputs(conn, memo_id, memo, pdf_path, appendix_path, sele
 
 
 @scoped_language
-def _regenerate(db, memo_id, rows, bb):
+def _regenerate(db, memo_id, rows, bb, *, memo_sha256=None):
     selected = capture_language()
     found = {}
     for r in rows:
@@ -249,43 +254,47 @@ def _regenerate(db, memo_id, rows, bb):
             except Exception as _xe:
                 _log("[!] esclusioni HARD non applicate: " + str(_xe))
 
-    # EMAIL DI RECUPERO COMPLETA (#31): replica la run normale (consigliere_multi) -
-    # memo PDF + appendice quant + modelli Excel VAL_/DCF_ delle ultime 48h.
-    # Prima il recupero non inviava nulla: il PM riceveva il memo monco senza allegati.
+    # Recovery uses the exact saved receipt for this memo. Recent files on disk
+    # do not identify a run and may belong to another memo or be personal copies.
     try:
-        import glob, time
         from bellomberg.reporting.email_sender import email_configurata, invia_email_multi_allegati
+        from bellomberg.reporting.valuation_delivery import (
+            recover_manifest, record_email_outcome, save_manifest)
+        delivery = recover_manifest(memo_id, receipts_dir=RESEARCH_NOTES_DIR,
+                                    roots=[MODELS_DIR, REPORT_DIR], memo_sha256=memo_sha256)
+        delivery_path = md_path.replace(".md", "_valuations.json")
+        save_manifest(delivery_path, delivery)
         attachments = []
         if pdf_path:
             attachments.append(str(pdf_path))
         if appendix_path:
             attachments.append(str(appendix_path))
-        cutoff = time.time() - 48 * 3600
-        for pat in (os.path.join(str(MODELS_DIR), "DCF_*.xlsx"),
-                    os.path.join(str(MODELS_DIR), "VAL_*.xlsx"),
-                    os.path.join(str(REPORT_DIR), "VAL_*.xlsx")):
-            for p in sorted(glob.glob(pat)):
-                try:
-                    if os.path.getmtime(p) >= cutoff:
-                        attachments.append(p)
-                except Exception:
-                    continue
-        seen = set()
-        attachments = [a for a in attachments if a and not (a in seen or seen.add(a))]
+        attachments.extend(delivery["attachments"])
+        body_extra = text(
+            "<p>Memo rigenerato dai report salvati (recupero). Excel allegati solo se "
+            "attestati dal receipt del medesimo memo e ricontrollati per hash; "
+            "gli altri modelli non sono allegati.</p>",
+            "<p>Memo regenerated from saved reports (recovery). Excel files are attached "
+            "only when attested by this memo's receipt and rechecked by hash; "
+            "other models are excluded.</p>")
+        if not delivery["attachments"]:
+            body_extra += text("<p>Nessun Excel attestabile per questo memo.</p>",
+                               "<p>No verifiable Excel for this memo.</p>")
+        sent = False
         if email_configurata():
-            ok = invia_email_multi_allegati(
+            sent = invia_email_multi_allegati(
                 pdf_paths=attachments,
                 oggetto=text("[BELLOMBERG] Ricerca settimanale (RECUPERO) - ",
                              "[BELLOMBERG] Weekly Research (RECOVERY) - ") + datetime.now().strftime("%d/%m/%Y"),
-                body_extra=text("<p>Memo rigenerato dai report salvati (recupero): in allegato memo, "
-                                "appendice quant e modelli VAL/DCF generati nelle ultime 48 ore.</p>",
-                                "<p>Memo regenerated from saved reports (recovery): attached memo, "
-                                "quant appendix and VAL/DCF models generated in the last 48 hours.</p>"))
-            _log("Email recupero " + ("inviata" if ok else "NON inviata") +
+                body_extra=body_extra,
+                expected_hashes=delivery["expected_hashes"], delivery_receipt=delivery)
+            _log("Email recupero " + ("inviata" if sent else "NON inviata") +
                  " (" + str(len(attachments)) + " allegati)")
         else:
             _log("[!] Email non configurata: allegati pronti ma NON inviati -> " +
                  "; ".join(attachments))
+        record_email_outcome(delivery, sent)
+        save_manifest(delivery_path, delivery)
     except Exception as e:
         _log("[!] Email recupero error: " + str(e))
 

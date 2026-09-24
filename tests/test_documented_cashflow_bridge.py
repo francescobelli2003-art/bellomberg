@@ -81,3 +81,20 @@ def test_documented_calendar_is_consumed_without_fixed_horizon(tmp_path, period_
     assert len(result["analytical_quality"]["snapshot"]["forecast_years"]) == period_count
     assert len(scenario["valuation_bridge"]["discount_periods"]) == period_count
     assert all(len(values) == period_count for values in scenario["rows"].values())
+
+
+def test_engine_uses_the_same_operating_revenue_as_linked_excel(tmp_path):
+    bundle = _bundle(10)
+    for record in bundle['case']['records']:
+        if record['driver'] == 'revenue_build':
+            record['value']['unit_price'][0] *= 1.0000000005
+    bundle = bundle_for(bundle['case']['records'])
+    before = deepcopy(bundle)
+    result = dcf_engine.generate_valuation('SYNTH-EXT', prepared_bundle=bundle, output_dir=str(tmp_path))
+    assert result['valuation_usability']['usable']
+    for scenario in ('bear','base','bull'):
+        build = next(r['value'] for r in bundle['case']['records']
+                     if r['driver']=='revenue_build' and r['scenario']==scenario)
+        expected = build['volume'][0]*build['unit_price'][0]*build['utilization'][0]+build['other_revenue'][0]
+        assert result['calculation_details']['scenarios'][scenario]['rows']['revenue'][0] == expected
+    assert bundle == before

@@ -36,6 +36,25 @@ function retained(model, extra = {}, api = {}) {
   return render;
 }
 
+test('FX comparison distinguishes original valuation date, reference rate date and stale upside', () => {
+  const model = fixture();
+  model.upside_today_pct = -46.7;
+  model.market_quote = {contract: 'market_quote/2', status_at_read: 'ok', price: 30, currency: 'EUR',
+    observed_at: '2030-03-02T12:00:00Z', model_valuation_date: '2030-01-01',
+    fx: {rate: .8, on: '2030-03-02', financial_currency: 'USD', quote_currency: 'EUR'}};
+  const before = structuredClone(model), render = retained(model);
+  for (const language of ['it', 'en']) {
+    const html = render(language);
+    assert.match(html, /2030-01-01/); assert.match(html, /ECB.*2030-03-02/);
+    assert.match(html, /EUR\/USD/);
+    assert.match(html, language === 'it' ? /0,80000000/ : /0\.80000000/);
+    assert.match(html, language === 'it' ? /-46,7%/ : /-46\.7%/);
+  }
+  assert.deepEqual(model, before);
+  const stale = {...model, market_quote: {...model.market_quote, status_at_read: 'stale'}};
+  assert.doesNotMatch(retained(stale)('en'), /-46\.7%/);
+});
+
 test('F17 changes labels and number presentation, keeping values, method IDs and stored prose intact', () => {
   const model = fixture(), before = structuredClone(model), render = retained(model);
   const it = render('it'), en = render('en');
@@ -53,6 +72,47 @@ test('missing valuation guards stay closed in both languages and their UI reason
   for (const html of [it, en]) { assert.doesNotMatch(html, /1234|1\.234|1,234|>OK</); }
   assert.match(it, /Verifica della valutazione mancante/);
   assert.match(en, /Valuation verification missing/);
+});
+
+test('a failed refresh keeps the published revision and its authenticated open button visible', () => {
+  const model = fixture();
+  model.current_generation = true;
+  model.current_download = '/valuation/models/SYNTH.X/generations/synthetic-generation/workbook';
+  model.automation = { status: 'current', locked: true,
+    current: { generation_id: model.generation_id, revision: 4, as_of: '2030-03-01', published_at: '2030-03-02T12:00:00Z' },
+    approval: { active: false, publication_origin: 'automatic_non_approved' },
+    latest_publication_attempt: { status: 'incomplete', reason: 'Synthetic missing capital', created_at: '2030-03-03' },
+  };
+  const render = retained(model);
+  for (const language of ['it', 'en']) {
+    const html = render(language);
+    assert.match(html, /Synthetic missing capital/);
+    assert.match(html, language === 'it' ? /Revisione corrente 4/ : /Current revision 4/);
+    assert.match(html, language === 'it' ? /Nessuna approvazione del PM attiva/ : /No active PM approval/);
+    assert.match(html, language === 'it' ? /copia datata/ : /dated copies/);
+    assert.match(html, /<button[^>]*>.*?<(?:svg)[\s\S]*?(APRI EXCEL|OPEN EXCEL)/);
+    assert.doesNotMatch(html, /href="[^\"]*\/fundamentals\/models\//);
+    assert.match(html, language === 'it' ? /AGGIORNA MODELLO/ : /REFRESH MODEL/);
+    assert.match(html, language === 'it' ? /SBLOCCA VERSIONE/ : /UNLOCK VERSION/);
+    assert.match(html, language === 'it' ? /Nome della variante personale/ : /Personal variant name/);
+  }
+});
+
+test('a queued preparation without a workbook shows its reason and no download or invented value', () => {
+  const model = fixture();
+  Object.assign(model, {file: '', dir: 'queue', current_generation: false, canonical: false,
+    generation_id: null, snapshot_id: null, generated_at: null, fair_value: null, flagged: true,
+    valuation_usability: {usable: false, reasons: ['Synthetic source pending'], missing_fields: []},
+    analytical_quality: {status: 'INCOMPLETA', issues: []},
+    automation: {status: 'no_current', locked: null, current: null,
+      latest_prepare_job: {status: 'queued', reason: 'Synthetic source pending', updated_at: '2030-03-02'}}});
+  const render = retained(model);
+  for (const language of ['it', 'en']) {
+    const html = render(language);
+    assert.match(html, /Synthetic source pending/);
+    assert.match(html, /queued/);
+    assert.doesNotMatch(html, /OPEN EXCEL|APRI EXCEL|1,234\.56|1\.234,56|\/download/);
+  }
 });
 
 test('Gordon warning highlights equivalent Italian and English engine warnings', () => {
@@ -161,8 +221,8 @@ test('the detail header names the valuation engine in the UI language and declar
 test('an empty archive points to a regeneration script that exists in the repository', () => {
   const fs = require('node:fs'), path = require('node:path');
   const render = retained(null, { 6: false });
-  const expected = { it: 'Nessun modello. La run del consigliere li genera; oppure tools/ops/rigenera_modelli.py.',
-    en: 'No models. An adviser run generates them; tools/ops/rigenera_modelli.py can also create them.' };
+  const expected = { it: 'Nessun modello. Servono input completi e, per la preparazione automatica, configurazione e budget autorizzati.',
+    en: 'No models. Complete inputs are required; automatic preparation also needs configuration and an authorized budget.' };
   for (const language of ['it', 'en']) {
     const html = render(language);
     assert.ok(html.includes(expected[language]), `${language}: ${expected[language]}`);
