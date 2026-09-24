@@ -131,6 +131,17 @@ def collect_preparation_evidence(ticker, *, as_of, archive_root, filing_results=
                 bool((doc.get('metadata') or {}).get('accession')) and
                 doc['metadata']['accession'].replace('-', '') in tagged_accessions for doc in primary_docs)
         result['financial_sources_ready'] = financial_ready
+        result['balance_details'] = {'status': 'not_requested', 'issues': []}
+        if method_id == 'operating_fcff' and primary['metadata'].get('form') in ('10-K', '10-Q'):
+            from .balance_detail_evidence import collect_balance_details
+            details = collect_balance_details(primary, archive_root)
+            for doc in selected:
+                if doc['id'] in details['packets']:
+                    doc['balance_detail_fields'] = deepcopy(details['packets'][doc['id']])
+            selected.extend(deepcopy(details['documents']))
+            result['balance_details'] = {k: deepcopy(v) for k, v in details.items() if k not in ('documents', 'packets')}
+            result['issues'].extend(deepcopy(details['issues']))
+            # Supplemental decompositions do not certify full operating scope.
         from .operating_wc_evidence import collect_operating_wc
         working_capital = collect_operating_wc(selected, primary_id=primary['id'], on=on, as_of=as_of)
         selected.extend(working_capital['documents'])
@@ -184,7 +195,7 @@ def collect_preparation_evidence(ticker, *, as_of, archive_root, filing_results=
             doc.pop("archive_path", None)
         result["acquired_document_index"] = [{key: deepcopy(doc[key]) for key in
             ("id", "url", "published_at", "sha256", "document_sha256", "metadata") if key in doc} for doc in selected]
-        result["preparation_ready"] = parent_sources_ready and annual is not None and financial_ready and exhibits["status"] != "incomplete" and all(
+        result["preparation_ready"] = parent_sources_ready and annual is not None and financial_ready and exhibits["status"] != "incomplete" and result['balance_details']['status'] != 'incomplete' and all(
             component.get("documents") and component.get("status") == "ready"
             for name, component in components.items() if name != 'company_facts')
         # Known missing opening proofs cannot justify paying for a proposal.

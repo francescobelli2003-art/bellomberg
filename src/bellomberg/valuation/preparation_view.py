@@ -272,6 +272,10 @@ def select_stage_view(dossier, stage, *, excerpt_manifest=None):
             packet = _canonical(document.pop('statement_table_fields')).encode('utf-8')
             row['statement_layout_packet'] = {'view': 'excluded', 'sha256': sha256(packet).hexdigest(),
                 'original_bytes': len(packet), 'reason': 'Acquisition layout retained in original source catalog; normalized observations remain visible.'}
+        if 'balance_detail_fields' in document:
+            packet = _canonical(document.pop('balance_detail_fields')).encode('utf-8')
+            row['balance_layout_packet'] = {'view': 'excluded', 'sha256': sha256(packet).hexdigest(),
+                'original_bytes': len(packet), 'reason': 'Acquisition layout retained in original source catalog; normalized components remain visible.'}
         if row.get("view") == "verified_excerpts":
             continue
         if reducible and not is_json:

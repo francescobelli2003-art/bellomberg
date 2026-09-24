@@ -122,6 +122,9 @@ def _catalog(documents, cutoff):
         if raw.get("statement_table_fields") is not None:
             catalog[ident]["statement_table_fields"] = deepcopy(raw["statement_table_fields"])
             provenance[ident]["statement_table_fields"] = deepcopy(raw["statement_table_fields"])
+        if raw.get("balance_detail_fields") is not None:
+            catalog[ident]["balance_detail_fields"] = deepcopy(raw["balance_detail_fields"])
+            provenance[ident]["balance_detail_fields"] = deepcopy(raw["balance_detail_fields"])
     for ident, document in list(catalog.items()):
         metadata = document.get("metadata")
         fdic = (ident.startswith("fdic-facts-") or isinstance(metadata, dict)
@@ -143,14 +146,19 @@ def _catalog(documents, cutoff):
         fx = ident.startswith(FX_PREFIX) or isinstance(metadata, dict) and metadata.get('normalizer') == FX_NORMALIZER
         from .operating_wc_evidence import NORMALIZER as WC_NORMALIZER, PREFIX as WC_PREFIX
         working_capital = ident.startswith(WC_PREFIX) or isinstance(metadata, dict) and metadata.get('normalizer') == WC_NORMALIZER
-        if not (fdic or inline or statement_shares or statement_tables or nav_statement or foreign_listing or fx or working_capital or ident.startswith("regulatory-facts-") or
+        from .balance_detail_evidence import NORMALIZER as DETAIL_NORMALIZER, PREFIX as DETAIL_PREFIX
+        balance_details = ident.startswith(DETAIL_PREFIX) or isinstance(metadata, dict) and metadata.get('normalizer') == DETAIL_NORMALIZER
+        if not (fdic or inline or statement_shares or statement_tables or nav_statement or foreign_listing or fx or working_capital or balance_details or ident.startswith("regulatory-facts-") or
                 isinstance(metadata, dict) and metadata.get("normalizer") == "regulatory_pdf_v1"):
             continue
         try:
             origin_id = metadata.get("source_document_id") if isinstance(metadata, dict) else None
             if not isinstance(origin_id, str) or origin_id == ident or origin_id not in catalog:
                 raise ValueError("PDF originale assente dal catalogo")
-            if working_capital:
+            if balance_details:
+                from .balance_detail_evidence import normalize_balance_details
+                normalized = normalize_balance_details(catalog[origin_id])
+            elif working_capital:
                 from .operating_wc_evidence import normalize_operating_wc
                 normalized = normalize_operating_wc(catalog[origin_id], catalog[metadata['primary_document_id']],
                     catalog[metadata['statement_document_id']], on=metadata['report_date'], as_of=metadata['as_of'])
