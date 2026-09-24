@@ -264,6 +264,8 @@ def select_stage_view(dossier, stage, *, excerpt_manifest=None):
                              "original_text_bytes": len(body.encode("utf-8"))})
     triplet = counts["xbrl"] >= 1 and counts["price"] == 1 and counts["listing"] == 1
     reducible = stage == "model" and triplet and view.get("method_id") == "operating_fcff"
+    balance_origins = {d['metadata'].get('source_document_id') for d in documents
+        if isinstance(d.get('metadata'), dict) and d['metadata'].get('normalizer') == 'balance_sheet_v1'}
     excerpt_projection = None
     if excerpt_manifest is not None:
         excerpt_projection = _project_excerpts(documents, classifications, descriptions, excerpt_manifest)
@@ -276,13 +278,18 @@ def select_stage_view(dossier, stage, *, excerpt_manifest=None):
             packet = _canonical(document.pop('balance_detail_fields')).encode('utf-8')
             row['balance_layout_packet'] = {'view': 'excluded', 'sha256': sha256(packet).hexdigest(),
                 'original_bytes': len(packet), 'reason': 'Acquisition layout retained in original source catalog; normalized components remain visible.'}
+        if 'balance_sheet_fields' in document:
+            packet = _canonical(document.pop('balance_sheet_fields')).encode('utf-8')
+            row['balance_sheet_layout_packet'] = {'view': 'excluded', 'sha256': sha256(packet).hexdigest(),
+                'original_bytes': len(packet), 'reason': 'Acquisition layout retained in original source catalog; normalized balance coverage remains visible.'}
         if row.get("view") == "verified_excerpts":
             continue
-        if reducible and not is_json:
+        if reducible and not is_json and document.get('id') not in balance_origins:
             del document["text"]
             row.update(view="metadata_only", reason="narrative text excluded from opening prompt; original in source catalog")
         else:
             row.update(view="full_text", reason="structured JSON and original pointers retained" if is_json
+                       else "primary balance narrative retained for sourced economic classification" if document.get('id') in balance_origins
                        else "full narrative retained: method coverage or structured opening triplet insufficient for exclusion")
     sources = view.get("acquired_sources")
     source_report = []

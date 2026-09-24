@@ -123,28 +123,34 @@ def _observation(node, packet, on):
             'reported_decimals': node.get('decimals'), 'context_id': node['contextref'], 'fact_id': node.get('id')}
 
 
+def _validated_packet(source, field, normalizer):
+    """Verify common source, issuer, namespace and layout-envelope bindings."""
+    from .input_evidence import same_entity_name
+    meta, cik, _ = _identity(source)
+    if meta['form'] not in ('10-K', '10-Q'):
+        raise ValueError('balance detail reader requires a supported US filing')
+    packet = deepcopy(source[field]); digest = packet.pop('sha256')
+    if (packet.get('format') != normalizer or sha256(_json(packet).encode()).hexdigest() != digest
+            or packet['source_document_sha256'] != source['id'] or packet['source_text_sha256'] != source['sha256']
+            or not same_entity_name(packet['issuer'], meta['issuer'])):
+        raise ValueError('balance detail packet, source or issuer changed')
+    ns = packet['namespaces']
+    for prefix, uri in [('xbrli', 'http://www.xbrl.org/2003/instance'),
+                        ('ix', 'http://www.xbrl.org/2013/inlineXBRL'),
+                        ('iso4217', 'http://www.xbrl.org/2003/iso4217')]:
+        if ns.get(prefix) != uri:
+            raise ValueError('inline or currency namespace differs')
+    if (not re.fullmatch(r'https?://fasb.org/us-gaap/20\d{2}', ns.get('us-gaap', ''))
+            or not re.fullmatch(r'https?://xbrl.sec.gov/dei/20\d{2}', ns.get('dei', ''))):
+        raise ValueError('accounting or issuer namespace differs')
+    return meta, cik, packet, digest
+
+
 def normalize_balance_details(source):
     """Reconcile every reported row; never manufacture a missing component or zero."""
     from bs4 import BeautifulSoup
-    from .input_evidence import same_entity_name
     try:
-        meta, cik, _ = _identity(source)
-        if meta['form'] not in ('10-K', '10-Q'):
-            raise ValueError('balance detail reader requires a supported US filing')
-        packet = deepcopy(source['balance_detail_fields']); digest = packet.pop('sha256')
-        if (packet.get('format') != NORMALIZER or sha256(_json(packet).encode()).hexdigest() != digest
-                or packet['source_document_sha256'] != source['id'] or packet['source_text_sha256'] != source['sha256']
-                or not same_entity_name(packet['issuer'], meta['issuer'])):
-            raise ValueError('balance detail packet, source or issuer changed')
-        ns = packet['namespaces']
-        for prefix, uri in [('xbrli', 'http://www.xbrl.org/2003/instance'),
-                            ('ix', 'http://www.xbrl.org/2013/inlineXBRL'),
-                            ('iso4217', 'http://www.xbrl.org/2003/iso4217')]:
-            if ns.get(prefix) != uri:
-                raise ValueError('inline or currency namespace differs')
-        if (not re.fullmatch(r'https?://fasb.org/us-gaap/20\d{2}', ns.get('us-gaap', ''))
-                or not re.fullmatch(r'https?://xbrl.sec.gov/dei/20\d{2}', ns.get('dei', ''))):
-            raise ValueError('accounting or issuer namespace differs')
+        meta, cik, packet, digest = _validated_packet(source, 'balance_detail_fields', NORMALIZER)
         contexts = _contexts(packet, cik, meta['report_date'])
         groups, roots = [], set()
         with localcontext() as ctx:

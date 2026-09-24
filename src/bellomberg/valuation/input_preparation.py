@@ -125,6 +125,9 @@ def _catalog(documents, cutoff):
         if raw.get("balance_detail_fields") is not None:
             catalog[ident]["balance_detail_fields"] = deepcopy(raw["balance_detail_fields"])
             provenance[ident]["balance_detail_fields"] = deepcopy(raw["balance_detail_fields"])
+        if raw.get("balance_sheet_fields") is not None:
+            catalog[ident]["balance_sheet_fields"] = deepcopy(raw["balance_sheet_fields"])
+            provenance[ident]["balance_sheet_fields"] = deepcopy(raw["balance_sheet_fields"])
     for ident, document in list(catalog.items()):
         metadata = document.get("metadata")
         fdic = (ident.startswith("fdic-facts-") or isinstance(metadata, dict)
@@ -148,14 +151,19 @@ def _catalog(documents, cutoff):
         working_capital = ident.startswith(WC_PREFIX) or isinstance(metadata, dict) and metadata.get('normalizer') == WC_NORMALIZER
         from .balance_detail_evidence import NORMALIZER as DETAIL_NORMALIZER, PREFIX as DETAIL_PREFIX
         balance_details = ident.startswith(DETAIL_PREFIX) or isinstance(metadata, dict) and metadata.get('normalizer') == DETAIL_NORMALIZER
-        if not (fdic or inline or statement_shares or statement_tables or nav_statement or foreign_listing or fx or working_capital or balance_details or ident.startswith("regulatory-facts-") or
+        from .balance_sheet_evidence import NORMALIZER as BALANCE_NORMALIZER, PREFIX as BALANCE_PREFIX
+        balance_sheet = ident.startswith(BALANCE_PREFIX) or isinstance(metadata, dict) and metadata.get('normalizer') == BALANCE_NORMALIZER
+        if not (fdic or inline or statement_shares or statement_tables or nav_statement or foreign_listing or fx or working_capital or balance_details or balance_sheet or ident.startswith("regulatory-facts-") or
                 isinstance(metadata, dict) and metadata.get("normalizer") == "regulatory_pdf_v1"):
             continue
         try:
             origin_id = metadata.get("source_document_id") if isinstance(metadata, dict) else None
             if not isinstance(origin_id, str) or origin_id == ident or origin_id not in catalog:
                 raise ValueError("PDF originale assente dal catalogo")
-            if balance_details:
+            if balance_sheet:
+                from .balance_sheet_evidence import normalize_balance_sheet
+                normalized = normalize_balance_sheet(catalog[origin_id])
+            elif balance_details:
                 from .balance_detail_evidence import normalize_balance_details
                 normalized = normalize_balance_details(catalog[origin_id])
             elif working_capital:
@@ -326,6 +334,11 @@ def _source_scale(quoted, target):
 def _fact_proof(driver, item, evidence, unit, period=None, *, expected_entity=None, bank_context=None,
                 pointer_repairs=None):
     """A cited ID alone cannot prove a historical or management number."""
+    from .balance_working_capital import OPERATION, balance_nwc_proof
+    if isinstance(item.get('calculation'), dict) and item['calculation'].get('operation') == OPERATION:
+        if driver != 'opening_nwc':
+            return 'balance_sheet_nwc is supported only for opening working capital'
+        return balance_nwc_proof(item, evidence, unit, period, expected_entity, scale=_source_scale)
     from .statement_shares_evidence import is_statement_shares, statement_share_proof
     if any(is_statement_shares(doc) for doc in evidence):
         return statement_share_proof(driver, item, evidence, unit, period, expected_entity, _source_scale)
@@ -536,6 +549,13 @@ def _compile(plan, schema, entities, perimeter, calendar, span, catalog, cutoff,
                 issues.append(_issue(driver, "unverified_expiry", label + ": solo policy same_day o scadenza letterale nella fonte citata"))
                 continue
             if kind in ("historical", "company_guidance"):
+                if driver == 'opening_nwc' and method == 'operating_fcff':
+                    from .balance_working_capital import balance_nwc_selection_problem
+                    selection_error = balance_nwc_selection_problem(item, catalog,
+                        perimeter['entity'], calendar['valuation_date'])
+                    if selection_error:
+                        issues.append(_issue(driver, 'incomplete_balance_coverage', label + ': ' + selection_error))
+                        continue
                 if driver in ('shares', 'capital.shares_m'):
                     from .statement_shares_evidence import share_selection_problem
                     selection_error = share_selection_problem(item, catalog, entities.get(driver, perimeter['entity']),
@@ -594,6 +614,9 @@ def _compile(plan, schema, entities, perimeter, calendar, span, catalog, cutoff,
             period = calendar["valuation_date"] if timing == "opening" else calendar["periods"][-1]["end"] if timing == "terminal" else span
             from .bank_evidence import is_consolidation, CONSOLIDATION_DISCLOSURE
             rationale = (CONSOLIDATION_DISCLOSURE if is_consolidation(item) else '') + item["rationale"]
+            if driver == 'opening_nwc' and isinstance(item.get('calculation'), dict) and item['calculation'].get('operation') == 'balance_sheet_nwc':
+                from .balance_working_capital import balance_nwc_disclosure
+                rationale = balance_nwc_disclosure(item) + rationale
             if driver_repairs:
                 rationale = 'SOURCE POINTER NORMALIZED: ' + json.dumps(driver_repairs, sort_keys=True) + '\n' + rationale
                 if pointer_repairs is not None:
@@ -731,6 +754,10 @@ def prepare_method_inputs(bundle, *, documents, propose, source_report=None):
             "components": [{"taxonomy": taxonomy, "concept": concept, "coefficient": sign}
                            for (taxonomy, concept), sign in sorted(operating_working_capital_components(catalog.values()).items())],
             "limitation": "Recognition is not proof of completeness; disclose missing operating components, never silently omit them."}
+        from .balance_working_capital import balance_nwc_policy
+        coverage = balance_nwc_policy(catalog.values())
+        if coverage is not None:
+            contract['opening_nwc_structured_policy']['reported_balance_coverage'] = coverage
     elif method == 'bank_residual_income':
         from .input_evidence import parent_regulatory_components
         contract["parent_regulatory_policy"] = {
@@ -817,6 +844,12 @@ def prepare_method_inputs(bundle, *, documents, propose, source_report=None):
     records, compilation, expiry_policies = _compile(plan, schema, entities, perimeter, calendar, span, catalog, cutoff, method=method)
     candidate["method_records"] = records
     provenance["expiry_policies"] = expiry_policies
+    nwc = plan.get('model', {}).get('opening_nwc', {})
+    if (isinstance(nwc, dict) and isinstance(nwc.get('calculation'), dict)
+            and nwc['calculation'].get('operation') == 'balance_sheet_nwc'
+            and any(row['driver'] == 'opening_nwc' for row in records)):
+        from .balance_working_capital import balance_nwc_provenance
+        provenance['balance_nwc_classification'] = balance_nwc_provenance(nwc)
     if compilation:
         return {"bundle": original, "status": "incomplete", "issues": compilation,
                 "proposal": candidate, "provenance": provenance}
