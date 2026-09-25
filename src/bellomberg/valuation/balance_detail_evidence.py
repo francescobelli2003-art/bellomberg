@@ -123,16 +123,29 @@ def _observation(node, packet, on):
             'reported_decimals': node.get('decimals'), 'context_id': node['contextref'], 'fact_id': node.get('id')}
 
 
+def _same_sec_inline_issuer(inline_name, catalog_name):
+    """Allow Inc suffix typography only inside the verified SEC balance reader.
+
+    The legal-name stem stays exact apart from ASCII case. CIK, source hashes
+    and fact contexts remain independently checked; this is not a general alias.
+    """
+    from .input_evidence import same_entity_name
+    if same_entity_name(inline_name, catalog_name):
+        return True
+    names = [re.fullmatch(r'(.+[^\s,]),? [Ii][Nn][Cc]\.?', name)
+             if isinstance(name, str) else None for name in (inline_name, catalog_name)]
+    return all(names) and same_entity_name(names[0][1], names[1][1])
+
+
 def _validated_packet(source, field, normalizer):
     """Verify common source, issuer, namespace and layout-envelope bindings."""
-    from .input_evidence import same_entity_name
     meta, cik, _ = _identity(source)
     if meta['form'] not in ('10-K', '10-Q'):
         raise ValueError('balance detail reader requires a supported US filing')
     packet = deepcopy(source[field]); digest = packet.pop('sha256')
     if (packet.get('format') != normalizer or sha256(_json(packet).encode()).hexdigest() != digest
             or packet['source_document_sha256'] != source['id'] or packet['source_text_sha256'] != source['sha256']
-            or not same_entity_name(packet['issuer'], meta['issuer'])):
+            or not _same_sec_inline_issuer(packet['issuer'], meta['issuer'])):
         raise ValueError('balance detail packet, source or issuer changed')
     ns = packet['namespaces']
     for prefix, uri in [('xbrli', 'http://www.xbrl.org/2003/instance'),

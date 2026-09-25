@@ -8,6 +8,8 @@ from copy import deepcopy
 from hashlib import sha256
 import json
 
+from .preparation_runtime import require_ticker
+
 
 class ValuationAutomation:
     def __init__(self, runtime, jobs, versions, *, acquire=None, collect=None, prepare=None, quote_provider=None):
@@ -24,6 +26,7 @@ class ValuationAutomation:
         if trigger == "price":
             raise PermissionError("price authorization cannot enqueue preparation")
         policy = self.runtime._require(trigger)
+        require_ticker(policy, ticker)
         current = self.versions.current(ticker)
         if initial and (current or {}).get("current_generation"):
             if current["artifact"]["available"]:
@@ -95,6 +98,7 @@ class ValuationAutomation:
 
     def enqueue_price(self, ticker, evidence_key):
         policy = self.runtime._require("price")
+        require_ticker(policy, ticker)
         current = self.versions.current(ticker)
         if not (current or {}).get("current_generation"):
             return {"status": "no_current", "reason": "price_comparison_requires_current_model"}
@@ -112,6 +116,7 @@ class ValuationAutomation:
         if (job["kind"] == "reprice") != (request["trigger"] == "price"):
             raise PermissionError("job kind differs from authorized trigger")
         self.runtime._unchanged(request["trigger"], request["authorization"])
+        require_ticker(request["authorization"], job["ticker"])
 
     def _current_cutoff(self, job):
         if job["request"]["as_of"] != self.versions.clock().date().isoformat():

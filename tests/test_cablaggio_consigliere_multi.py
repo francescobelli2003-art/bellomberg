@@ -96,6 +96,7 @@ def run_offline(monkeypatch, tmp_path):
     """Rende `run_multi_agent()` eseguibile offline. Ritorna cio' che i finti hanno catturato."""
     # --- DB e cartelle runtime in tmp
     monkeypatch.setattr(memory_db, "SQLITE_PATH", str(tmp_path / "cablaggio.db"))
+    monkeypatch.setattr("bellomberg.agents.filing_context.SQLITE_PATH", str(tmp_path / "cablaggio.db"))
     monkeypatch.setattr(memory_db.MemoryDB, "get_portfolio_summary",
                         lambda self: {"n_positions": 0, "positions": []})
     monkeypatch.setattr(memory_db.MemoryDB, "extract_and_save_decisions",
@@ -263,7 +264,8 @@ def test_run_without_policy_records_preparation_disabled(run_offline):
     assert "configuration_absent" in run_offline.catturato["sizing_context"]
 
 
-def test_run_policy_binds_common_preparer_and_emails_new_workbook(run_offline, monkeypatch, tmp_path):
+@pytest.mark.parametrize("desk_requests", [True, False])
+def test_run_policy_binds_common_preparer_and_emails_new_workbook(run_offline, monkeypatch, tmp_path, desk_requests):
     import json
     from pathlib import Path
     from bellomberg.valuation import preparation_ai
@@ -285,15 +287,42 @@ def test_run_policy_binds_common_preparer_and_emails_new_workbook(run_offline, m
     monkeypatch.setattr(preparation_ai, "configured_proposer", factory)
     monkeypatch.setattr("bellomberg.valuation.preparation_sources.collect_preparation_evidence",
         lambda *a, **k: {"status": "ready", "documents": _documents(), "issues": []})
+    monkeypatch.setattr(memory_db.MemoryDB, "get_portfolio_summary", lambda self:
+        {"n_positions": 2, "positions": [{"ticker": "SYNTH-EXT"}, {"ticker": "SYNTH-EXT"}]})
+    monkeypatch.setattr(cm, "_try_correlation_matrix", lambda positions: None)
+    monkeypatch.setattr("bellomberg.agents.chat_tools.REPORT_DIR", tmp_path / "report")
+    _acquired = _bundle()
+    from bellomberg.valuation import sector_analysis
+    original_acquire = sector_analysis.prepare_sector_analysis
+    def acquire(ticker, **kwargs):
+        if (kwargs.get("user_context") or {}).get("method_records"):
+            return original_acquire(ticker, **kwargs)
+        assert ticker == "SYNTH-EXT"
+        return _acquired
+    monkeypatch.setattr(sector_analysis, "prepare_sector_analysis", acquire)
+    from bellomberg.storage.valuation_versions import ensure_schema
+    with memory_db.MemoryDB()._conn() as conn:
+        ensure_schema(conn)
+    seen_by_red_team, seen_by_r2 = [], []
+    monkeypatch.setattr(red_team, "run_red_team", lambda bb, **k:
+        seen_by_red_team.append(dict(bb.valuation_results)))
     class PreparedDesk(_DeskFinto):
         name = "fundamentals"
         def run(self, round_n):
-            if round_n == 1:
+            if round_n == 1 and desk_requests:
                 payload = self.bb.valuation_preparer(_bundle())
                 assert payload["valuation_usability"]["usable"], payload.get("error")
                 thesis = self.bb.memory_db.save_valuation_thesis("SYNTH-EXT", valuation_payload=payload)
                 payload["_thesis_saved"] = {"thesis_id": thesis}
                 self.bb.record_valuation("SYNTH-EXT", payload, self.name)
+            if round_n == 2:
+                from bellomberg.agents.specialists.base import Specialist
+                desk = Specialist(self.bb, client=object())
+                seen_by_r2.append(desk._build_round_context(2))
+                if not desk_requests:
+                    # A bare follow-up must reuse the same run, not pay/acquire again.
+                    follow_up = desk._execute_meta_tool("get_valuation", {"ticker": "SYNTH-EXT"})
+                    assert follow_up["data"]["generation_id"] == self.bb.valuation_results["SYNTH-EXT"]["generation_id"]
             self.bb.write(self.name, round_n, "Synthetic prepared desk report " + "x" * 200)
     monkeypatch.setattr(cm, "SPECIALIST_ORDER", [PreparedDesk, _DeskQuant])
     cm.run_multi_agent()
@@ -303,12 +332,16 @@ def test_run_policy_binds_common_preparer_and_emails_new_workbook(run_offline, m
     assert stages and "automatic" in run_offline.catturato["sizing_context"]
     payload = bb.valuation_results["SYNTH-EXT"]
     assert payload["preparation"]["proposal"]["approval_status"] == "automatic_non_approved"
+    assert seen_by_red_team[0]["SYNTH-EXT"]["generation_id"] == payload["generation_id"]
+    assert payload["generation_id"] in seen_by_r2[0]
+    assert len(stages) == 13, "Duplicate holdings or a bare R2 call must not repeat preparation"
     workbook = Path(payload["path"])
     message = run_offline.inviati[0]
     attached = [part for part in message.walk() if part.get_filename() == workbook.name]
     assert len(attached) == 1 and attached[0].get_payload(decode=True) == workbook.read_bytes()
     receipt = json.loads(next(Path(cm.RESEARCH_NOTES_DIR).glob("*_valuations.json")).read_text(encoding="utf-8"))
     assert receipt["valuations"][0]["email_included"] is True
+    assert sum(a["specialist"] == "committee-orchestrator" for a in receipt["attempts"]) == (not desk_requests)
 
 
 def test_run_invalid_policy_is_visible_without_enabling_preparation(run_offline, tmp_path):

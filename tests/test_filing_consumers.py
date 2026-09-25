@@ -84,6 +84,7 @@ def test_filing_priming_reaches_each_specialist_round_without_fake_report():
     class FakeBoard:
         memory_db = None
         data = {"_filing_context": "ARCHIVIO FILING TEST, storico e stale"}
+        valuation_results = {}
 
         def summary_for_specialist(self, _):
             return {}

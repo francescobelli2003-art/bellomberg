@@ -357,6 +357,68 @@ def _send_weekly_email(attachments, body_extra="", *, delivery=None):
     return False
 
 
+def _ensure_portfolio_valuations(blackboard, portfolio):
+    """Cover unrequested DB holdings after R1, without retrying any desk attempt."""
+    from bellomberg.agents import chat_tools
+    from bellomberg.agents.specialists.base import TOOL_LOG_OUTPUT_MAX
+
+    positions = (portfolio or {}).get("positions") or []
+    tickers = list(dict.fromkeys(p["ticker"].strip().upper() for p in positions
+        if isinstance(p, dict) and isinstance(p.get("ticker"), str) and p["ticker"].strip()))
+    seen = {str(t).strip().upper() for t in blackboard.valuation_results}
+    seen.update(str(a.get("ticker") or "").strip().upper() for a in blackboard.valuation_attempts)
+    coverage = {"portfolio_tickers": tickers, "already_requested": [t for t in tickers if t in seen],
+                "requested": [], "preparation_unavailable": {}}
+    blackboard.data["_valuation_coverage"] = coverage
+    if not tickers:
+        coverage.update(status="unavailable", reason="portfolio_empty_or_unavailable")
+        _log("[KO] get_valuation: portafoglio vuoto/non disponibile; nessun titolo dedotto")
+        return
+    state = blackboard.data.get("_valuation_preparation") or {}
+    for ticker in tickers:
+        if ticker in seen:
+            continue
+        preparer = blackboard.valuation_preparer if state.get("status") == "enabled" else None
+        reason = state.get("reason") or "preparer_unavailable"
+        if state.get("tickers") and ticker not in state["tickers"]:
+            preparer, reason = None, "ticker_not_authorized"
+        if preparer is None:
+            coverage["preparation_unavailable"][ticker] = reason
+        _log("[committee-orchestrator] -> get_valuation(" + ticker + ")")
+        blackboard.mark_specialist_start("committee-orchestrator", blackboard.current_round)
+        try:
+            result = chat_tools.dispatch("get_valuation", {"ticker": ticker},
+                caller="committee-orchestrator", valuation_preparer=preparer)
+            payload = result.get("data", result) if isinstance(result, dict) else result
+            if not isinstance(payload, dict):
+                raise ValueError("get_valuation returned invalid result object")
+            usability = payload.get("valuation_usability")
+            if usability is not None and (not isinstance(usability, dict)
+                    or type(usability.get("usable")) is not bool):
+                raise ValueError("get_valuation returned invalid valuation_usability")
+        except Exception as exc:
+            payload = {"ok": False, "error": type(exc).__name__ + ": " + str(exc),
+                       "exclude_from_action_table": True}
+        payload = {**payload, "request_origin": "committee-orchestrator"}
+        usable = (payload.get("valuation_usability") or {}).get("usable") is True
+        if preparer is None and not usable:
+            payload["preparation"] = {"status": "disabled", "reason": reason}
+            payload["error"] = (str(payload.get("error") or "Valutazione incompleta")
+                                + "; preparazione automatica non disponibile: " + reason)
+        coverage["requested"].append(ticker)
+        output = json.dumps(payload, default=str, ensure_ascii=False)
+        blackboard.tool_log.append({"specialist": "committee-orchestrator", "round": blackboard.current_round,
+            "tool": "get_valuation", "input": str({"ticker": ticker}),
+            "time": datetime.now().strftime("%H:%M:%S"), "output": output[:TOOL_LOG_OUTPUT_MAX],
+            "output_tappato": len(output) > TOOL_LOG_OUTPUT_MAX, "output_chars": len(output)})
+        blackboard.record_valuation(ticker, payload, "committee-orchestrator")
+        blackboard.mark_specialist_done("committee-orchestrator")
+        _log("[committee-orchestrator] " + ticker + ": "
+             + ("calcolata" if usable
+                else "KO - " + str(payload.get("error") or "valutazione incompleta")))
+    coverage["status"] = "checked"
+
+
 @scoped_language
 def run_multi_agent():
     start_time = datetime.now()
@@ -654,6 +716,10 @@ def run_multi_agent():
     # ROUND 0 (recon) + ROUND 1 (draft)
     for r in [0, 1]:
         run_round(bb, r)
+
+    # AUTO299: a desk omitting the tool must not silently omit the DB holdings.
+    # Existing attempts (including failures) are never automatically retried.
+    _ensure_portfolio_valuations(bb, portfolio)
 
     # RED TEAM (#181): TRA R1 e R2 (voce P1 "tardivo": prima girava DOPO l'R2 e
     # gli specialisti non potevano mai replicare). Attacca i draft R1; la critica

@@ -1167,9 +1167,18 @@ class Specialist:
                 # V6 Lotto 3 (review B4): il registro guidance sa CHI ha scritto
                 if name == "get_valuation":
                     ticker = str(input_.get("ticker") or "").upper()
-                    result = chat_tools.dispatch(name, input_, caller="specialista-run:" + self.name,
-                        prepared_bundle=getattr(self, "_sector_bundles", {}).get(ticker),
-                        valuation_preparer=getattr(self.blackboard, "valuation_preparer", None))
+                    existing = self.blackboard.valuation_results.get(ticker) or {}
+                    plain_request = (input_.get("method_records") is None and not input_.get("analysis_context")
+                        and not any(v not in (None, "", [], {}) for k, v in input_.items()
+                                    if k not in ("ticker", "analysis_context", "method_records")))
+                    if (plain_request
+                            and existing.get("request_origin") == "committee-orchestrator"):
+                        result = chat_tools._stamp({**existing, "reused_in_run": True},
+                                                  "get_valuation: same committee run")
+                    else:
+                        result = chat_tools.dispatch(name, input_, caller="specialista-run:" + self.name,
+                            prepared_bundle=getattr(self, "_sector_bundles", {}).get(ticker),
+                            valuation_preparer=getattr(self.blackboard, "valuation_preparer", None))
                     payload = result.get("data") if isinstance(result.get("data"), dict) else result
                     if payload.get("acquisition_snapshot"):
                         self._sector_bundles[ticker] = payload["acquisition_snapshot"]
@@ -1328,6 +1337,9 @@ class Specialist:
         if preparation_state is not None:
             from bellomberg.valuation.preparation_runtime import preparation_status_text
             preamble += "\n\n" + preparation_status_text(preparation_state, language=self.blackboard.language)
+        if round_n == 2 and self.blackboard.valuation_results:
+            from bellomberg.valuation.sector_analysis import valuation_results_block
+            preamble += "\n\n" + valuation_results_block(self.blackboard.valuation_results)
         # SCORE DETERMINISTICO (#186): ancora numerica calcolata in codice, l'LLM narra.
         # Cache per-run nel blackboard: lo scorer (anche pesante, es. DCF) gira UNA volta.
         if round_n in (0, 1):

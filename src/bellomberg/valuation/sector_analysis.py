@@ -476,8 +476,13 @@ def valuation_results_block(results):
         snapshot = result.get("acquisition_snapshot")
         acquired = isinstance(snapshot, dict) and isinstance(snapshot.get("case"), dict)
         quote = market_quote_view(result.get("market_quote"), usable=usability["usable"])
+        preparation = result.get("preparation")
+        if preparation is not None and not isinstance(preparation, dict):
+            preparation = {"status": "error", "reason": "invalid_preparation_metadata"}
         rows.append(json.dumps({"ticker": ticker, "method_id": decision.get("method_id"),
             "snapshot_id": result.get("snapshot_id"), "generation_id": result.get("generation_id"),
+            "error": result.get("error"),
+            "preparation": {key: (preparation or {}).get(key) for key in ("status", "reason")},
             "model_publication": result.get("model_publication") or {"status": "not_verified"},
             "valuation_usability": usability, "valuation_date": result.get("valuation_date"),
             "information_cutoff": decision.get("as_of"),

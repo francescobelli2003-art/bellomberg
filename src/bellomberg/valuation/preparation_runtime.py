@@ -9,8 +9,10 @@ there is no calendar reset or automatic refill.
 from copy import deepcopy
 from contextlib import closing
 from decimal import Decimal, InvalidOperation
+from hashlib import sha256
 import json
 from pathlib import Path
+import re
 from uuid import UUID
 import sqlite3
 
@@ -38,6 +40,10 @@ def read_policy(path):
     expected = {"version", "enabled"}
     if policy["enabled"]:
         expected |= {"authorization_id", "authorized_usd", "triggers"}
+        if "tickers" in policy:
+            expected.add("tickers")
+        if "reconciled_rejections" in policy:
+            expected.add("reconciled_rejections")
     if set(policy) != expected:
         raise ValueError("valuation authorization fields differ from policy schema")
     if not policy["enabled"]:
@@ -64,7 +70,27 @@ def read_policy(path):
     if (not isinstance(triggers, list) or not triggers or any(type(item) is not str for item in triggers)
             or len(set(triggers)) != len(triggers) or not set(triggers) <= TRIGGERS):
         raise ValueError("explicit supported unique authorization triggers required")
-    return {**policy, "authorized_usd": str(amount), "triggers": sorted(triggers)}
+    scope = {}
+    if "reconciled_rejections" in policy:
+        pins = policy["reconciled_rejections"]
+        if (not isinstance(pins, dict) or not pins or any(
+                not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
+                for pair in pins.items() for value in pair)):
+            raise ValueError("exact request and receipt hashes required for reconciled rejections")
+    if "tickers" in policy:
+        tickers = policy["tickers"]
+        if (not isinstance(tickers, list) or not tickers
+                or any(not isinstance(item, str) or not re.fullmatch(r"[A-Z0-9^][A-Z0-9.^=_-]{0,39}", item)
+                       for item in tickers) or len(set(tickers)) != len(tickers)):
+            raise ValueError("explicit unique canonical authorization tickers required")
+        scope["tickers"] = sorted(tickers)
+    return {**policy, "authorized_usd": str(amount), "triggers": sorted(triggers), **scope}
+
+
+def require_ticker(policy, ticker):
+    """A scoped authorization never permits a different or missing identity."""
+    if "tickers" in policy and (not isinstance(ticker, str) or ticker not in policy["tickers"]):
+        raise PermissionError("valuation preparation ticker not authorized: " + str(ticker))
 
 
 class PreparationRuntime:
@@ -82,7 +108,8 @@ class PreparationRuntime:
             return {"status": "disabled", "reason": "explicitly_disabled"}
         return {"status": "configured", "reason": "explicit_local_authorization",
                 "authorization_id": policy["authorization_id"], "authorized_usd": policy["authorized_usd"],
-                "triggers": policy["triggers"], "budget_period": "authorization_lifetime"}
+                "triggers": policy["triggers"], "budget_period": "authorization_lifetime",
+                **({"tickers": policy["tickers"]} if "tickers" in policy else {})}
 
     def _require(self, trigger):
         policy = read_policy(self.policy_path)
@@ -104,15 +131,35 @@ class PreparationRuntime:
         if not journal.is_file():
             return {"state": "absent", "reason": "budget_journal_absent"}
         import time
-        deferred, retry_limit = False, False
+        deferred, retry_limit, reconciled_count = False, False, 0
         with closing(sqlite3.connect(journal.as_uri() + "?mode=ro", uri=True)) as conn:
             cap = conn.execute("SELECT cap FROM authorization WHERE id=1").fetchone()
             rows = conn.execute("SELECT state,cost,receipt FROM requests").fetchall()
             conn.row_factory = sqlite3.Row
             from .preparation_rejections import retry_allowed, verify_history, validate_proof, MAX_ATTEMPTS
+            pins = policy.get("reconciled_rejections", {})
+            for key, digest in pins.items():
+                row = conn.execute("SELECT * FROM requests WHERE key=?", (key,)).fetchone()
+                if (row is None or row['state'] != 'rejected' or row['cost'] != 0 or row['response'] is not None
+                        or not isinstance(row['receipt'], str) or sha256(row['receipt'].encode()).hexdigest() != digest):
+                    raise ValueError('reconciled rejection differs from the exact configured receipt')
+                receipt = json.loads(row['receipt'])
+                if (receipt.get('stop_reason') != 'request_rejected' or type(receipt.get('cost_usd')) not in (int, float)
+                        or receipt['cost_usd'] != 0
+                        or 'pre_provider_rejection' in receipt or not isinstance(receipt.get('billing_reconciliation'), dict)
+                        or not str(receipt['billing_reconciliation'].get('status', '')).startswith('reconciled_nonbillable')):
+                    raise ValueError('configured receipt is not a historical nonbillable reconciliation')
+                from .preparation_ai import _json
+                request = json.loads(row['request'])
+                request.pop('provider_max_price', None)
+                if sha256(_json(request).encode()).hexdigest() != key:
+                    raise ValueError('reconciled rejection request identity differs')
             for row in conn.execute("SELECT * FROM requests WHERE state='rejected'"):
                 if not retry_allowed(conn, row, check_deadline=False):
-                    raise ValueError('unverified stored rejection receipt')
+                    if row['key'] not in pins:
+                        raise ValueError('unverified stored rejection receipt')
+                    reconciled_count += 1
+                    continue  # Cost attested explicitly; the rejected request stays nonretryable.
                 deferred |= time.time() < validate_proof(json.loads(row['receipt']))['retry_at']
                 retry_limit |= len(verify_history(conn, row['key'])) >= MAX_ATTEMPTS
             if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='request_rejections'").fetchone():
@@ -138,7 +185,8 @@ class PreparationRuntime:
         state = 'unresolved' if unknown else 'retry_limit' if retry_limit else 'deferred' if deferred else 'reconciled'
         return {"state": state, "request_count": len(rows),
                 "unresolved_requests": unknown, "known_cost_usd": str(Decimal(amount) / Decimal(10**9)),
-                "authorized_usd": policy["authorized_usd"], "authorization_id": policy["authorization_id"]}
+                "authorized_usd": policy["authorized_usd"], "authorization_id": policy["authorization_id"],
+                **({"reconciled_nonretryable_rejections": reconciled_count} if reconciled_count else {})}
 
     def proposer_for(self, trigger, *, opening_excerpt_manifest=None, forecast_excerpt_manifest=None,
                      opening_drivers_per_stage=None):
@@ -153,11 +201,13 @@ class PreparationRuntime:
             journal, authorized_usd=policy["authorized_usd"])
         def guarded(dossier, contract):
             self._unchanged(trigger, policy)
+            require_ticker(policy, dossier.get("ticker"))
             return proposer(dossier, contract)
         project_context = getattr(proposer, 'prepare_context', None)
         if callable(project_context):
             def prepare_context(dossier, contract, **options):
                 self._unchanged(trigger, policy)
+                require_ticker(policy, dossier.get("ticker"))
                 return project_context(dossier, contract, **options)
             guarded.prepare_context = prepare_context
         return StagedProposer(guarded, opening_excerpt_manifest=opening_excerpt_manifest,
@@ -174,6 +224,7 @@ class PreparationRuntime:
         filings = deepcopy(filing_results)
         def prepare(bundle):
             self._unchanged(trigger, policy)
+            require_ticker(policy, (bundle.get("case") or {}).get("ticker"))
             from .preparation_service import collect_and_prepare
             return collect_and_prepare(bundle, archive_root=self.archive_root, output_dir=self.output_dir,
                                        filing_results=deepcopy(filings), propose=proposer)
@@ -212,6 +263,8 @@ def preparation_status_text(state, *, language=None):
             "Automatic preparation enabled within the local budget. Assumptions are not PM-approved; "
             "sources, cost and validation may block each request. An Excel exists only when the tool returns its valid file.",
             language=language)
+        if state.get("tickers"):
+            detail += text(" Titoli autorizzati: ", " Authorized tickers: ", language=language) + ", ".join(state["tickers"]) + "."
     else:
         detail = text(
             "Preparatore automatico non disponibile: ", "Automatic preparation unavailable: ", language=language

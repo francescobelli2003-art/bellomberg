@@ -46,6 +46,37 @@ def extract_balance_sheet_packet(source, raw):
     return packet
 
 
+def _caption_facts(cells, packet):
+    """Preserve descriptive equity figures in labels without adding them as USD.
+
+    Only the named share-count/per-share concepts in the caption qualify. Their
+    units must agree; monetary and unknown caption facts remain unsupported.
+    """
+    from bs4 import BeautifulSoup
+    nodes = cells[0].find_all('ix:nonfraction') if cells else []
+    shares = {'us-gaap:'+name for name in ('CommonStockSharesAuthorized',
+        'CommonStockSharesIssued', 'CommonStockSharesOutstanding', 'TreasuryStockCommonShares')}
+    for node in nodes:
+        unit = BeautifulSoup(packet['units'][node['unitref']], 'html.parser').find('xbrli:unit')
+        if unit is None or unit.get('id') != node['unitref']:
+            raise ValueError('caption fact unit identity changed')
+        measures = [m.get_text(strip=True) for m in unit.find_all('xbrli:measure')]
+        if node.get('name') in shares:
+            valid = not unit.find('xbrli:divide') and measures == ['xbrli:shares']
+        elif node.get('name') == 'us-gaap:CommonStockParOrStatedValuePerShare':
+            numerator, denominator = unit.find('xbrli:unitnumerator'), unit.find('xbrli:unitdenominator')
+            valid = (unit.find('xbrli:divide') is not None and numerator is not None and denominator is not None
+                and len(measures) == 2 and re.fullmatch(r'iso4217:[A-Z]{3}', measures[0])
+                and measures[0][-3:] not in ('XXX', 'XTS') and measures[1] == 'xbrli:shares'
+                and [m.get_text(strip=True) for m in numerator.find_all('xbrli:measure')] == measures[:1]
+                and [m.get_text(strip=True) for m in denominator.find_all('xbrli:measure')] == measures[1:])
+        else:
+            valid = False
+        if not valid:
+            raise ValueError('unsupported concept or unit in balance caption')
+    return {id(node) for node in nodes}
+
+
 def _rows(source, packet, digest, contexts, on):
     from bs4 import BeautifulSoup
     if len(packet['tables']) != 1:
@@ -63,7 +94,8 @@ def _rows(source, packet, digest, contexts, on):
     for index in range(tagged[0], tagged[-1]+1):
         row = rows[index]
         cells = row.find_all(['td', 'th'], recursive=False)
-        nodes = row.find_all('ix:nonfraction')
+        captions = _caption_facts(cells, packet)
+        nodes = [node for node in row.find_all('ix:nonfraction') if id(node) not in captions]
         # Section headings are allowed; a printed but untagged numeric cell is not.
         for cell in cells[1:]:
             copy = BeautifulSoup(str(cell), 'html.parser')
@@ -88,7 +120,17 @@ def _rows(source, packet, digest, contexts, on):
             disclosures.append({'reported_tag': node['name'], 'label': label, 'value_exact': None,
                 'end': on, 'proof': proof, 'status': 'not_quantified_requires_separate_review'})
         else:
-            observations.append({**_observation(node, packet, on), 'proof': proof, 'label': label})
+            observation = _observation(node, packet, on)
+            # Inline XBRL may report a positive debit/contra-account amount,
+            # while its printed balance cell explicitly subtracts it. Retain
+            # both representations; never flip an already-negative fact twice.
+            cell_text = compact(node.find_parent(['td', 'th']).get_text(' ', strip=True))
+            fact_text = compact(node.get_text(' ', strip=True))
+            if cell_text == '(' + fact_text + ')' and Decimal(observation['value_exact']) > 0:
+                observation['inline_value_exact'] = observation['value_exact']
+                observation['value_exact'] = '-' + observation['value_exact']
+                observation['presentation_sign'] = 'negative_parentheses'
+            observations.append({**observation, 'proof': proof, 'label': label})
     return observations, disclosures
 
 

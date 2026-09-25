@@ -96,13 +96,29 @@ lifetime; it never refills at a calendar boundary. Changing a cap under the same
 UUID is rejected. There are no model or token-limit overrides in this file.
 An authorization for an isolated pilot is not installation-wide authorization.
 
+An enabled policy may include a nonempty `tickers` list of exact canonical symbols
+to limit an activation to selected instruments. The restriction is enforced
+before queueing, source collection, context preparation and paid requests, and
+again when recovering a job. Missing identities are rejected under a scoped
+policy. Changing the scope revokes requests bound to the previous policy.
+Without this field, the existing installation-wide policy remains unchanged.
+
+When transferring an existing paid journal, an operator may explicitly pin an
+already reconciled nonbillable historical rejection in `reconciled_rejections`
+as a mapping of request SHA-256 to the exact receipt-text SHA-256. The audit
+requires the original request identity, rejected state, zero recorded cost,
+absent response and recorded billing reconciliation. A missing or changed entry
+blocks the audit. This preserves a previous cost reconciliation; it never
+authorizes retrying that request or infers that an unexamined failure was free.
+
 Before enabling the queue, stop the backend and run the migration's dry-run;
 inspect its result before applying it. The apply operation makes and verifies a
-backup, rehearses on a copy and checks that the backend port is free:
+backup, rehearses on a copy and checks that the backend port is free. From the
+checkout root, use the same virtual environment created during installation:
 
 ```powershell
-python tools/migrations/migra_valuation_automation.py --dry-run
-python tools/migrations/migra_valuation_automation.py --apply
+.\.venv\Scripts\python.exe tools/migrations/migra_valuation_automation.py --dry-run
+.\.venv\Scripts\python.exe tools/migrations/migra_valuation_automation.py --apply
 ```
 
 Restart the backend after configuration. Adding an active holding or a watchlist
