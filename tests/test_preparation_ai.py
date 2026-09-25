@@ -11,6 +11,21 @@ def _metadata():
             "pricing": {"prompt": "0.00001", "completion": "0.00002"}}
 
 
+@pytest.mark.parametrize('muse, expected_cap', [(True, 65536), (False, 16000)])
+def test_configured_preparer_cap_preserves_specialists_model_and_budget(tmp_path, monkeypatch, muse, expected_cap):
+    from bellomberg.core import llm_client
+    from bellomberg.agents.specialists.base import MAX_TOKENS_SPECIALIST
+    from bellomberg.valuation.preparation_ai import configured_proposer
+    model = llm_client.MUSE_STANDARD if muse else 'synthetic/other-model'
+    monkeypatch.setattr(llm_client, 'modello', lambda *args: model)
+    proposer = configured_proposer(tmp_path / 'configured.sqlite3', authorized_usd='1.25')
+    assert proposer.max_tokens == expected_cap
+    assert proposer.model == model and proposer.thinking == llm_client.thinking_consigliere(model)
+    assert proposer.automatic_sections and MAX_TOKENS_SPECIALIST == 16000
+    assert proposer.summary() == {'authorized_usd': 1.25, 'requests': 0, 'unknown_requests': 0,
+        'spent_usd': 0, 'known_cost_usd': 0, 'reserved_usd': 0}
+
+
 def _proposer(tmp_path, *, limit=10, call=None):
     from bellomberg.valuation.preparation_ai import BudgetedProposer
     def response(**kwargs):

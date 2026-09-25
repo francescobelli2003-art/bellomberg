@@ -153,6 +153,12 @@ def collect_preparation_evidence(ticker, *, as_of, archive_root, filing_results=
             result['balance_sheet'] = {k: deepcopy(v) for k, v in balance.items()
                                        if k not in ('documents', 'packets', 'detail_packets')}
             result['issues'].extend(deepcopy(balance['issues']))
+        elif method_id == 'operating_fcff' and primary.get('filing_verification') is not None:
+            from .balance_sheet_evidence import normalize_balance_sheet
+            balance = normalize_balance_sheet(next(d for d in selected if d['id'] == primary['id']))
+            selected.extend(deepcopy(balance['documents']))
+            result['balance_sheet'] = {k:deepcopy(v) for k,v in balance.items() if k != 'documents'}
+            result['issues'].extend(deepcopy(balance['issues']))
         from .operating_wc_evidence import collect_operating_wc
         working_capital = collect_operating_wc(selected, primary_id=primary['id'], on=on, as_of=as_of)
         selected.extend(working_capital['documents'])

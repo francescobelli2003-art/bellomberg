@@ -4,6 +4,7 @@ Nessun LLM, DB o scheduler. Le copie scaricate restano nell'archivio scelto
 dal chiamante; confronto riuscito e freschezza delle fonti sono esiti distinti.
 """
 from collections import defaultdict
+from copy import deepcopy
 from datetime import date, datetime
 import json
 from pathlib import Path
@@ -266,6 +267,8 @@ def esegui_profilo(profilo, *, archivio, oggi=None, max_documenti=20):
                     c["sha256_verifica"] = doc.get("sha256")
                     raise ValueError("hash differente fra download e verifica: snapshot cambiato, documento rifiutato")
                 c.update(stato="verificato", metadati=doc["metadati"])
+                if doc.get('filing_verification') is not None:
+                    c['filing_verification'] = deepcopy(doc['filing_verification'])
                 verificati.append((doc, c))
             elif not c["motivi"]:
                 c["motivi"].append("verifica documentale non disponibile")

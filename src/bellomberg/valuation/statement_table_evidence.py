@@ -1,7 +1,7 @@
 """Printed consolidated statements with dated columns and original cell proofs.
 
-This bounded HTML reader preserves missing/ambiguous cells. It does not create
-XBRL tags, estimates, complete working-capital bridges or valuation records.
+Bounded SEC HTML and profile-verified PDF readers preserve missing/ambiguous
+cells. Neither creates XBRL tags, estimates, complete NWC or valuation records.
 """
 from copy import deepcopy
 from datetime import date
@@ -49,6 +49,9 @@ def _identity(source):
 def extract_statement_packet(source, raw):
     """Acquire layout from the same hash-verified bytes as the primary text."""
     from bs4 import BeautifulSoup, NavigableString
+    if source.get('filing_verification') is not None:
+        from .pdf_statement_evidence import extract_pdf_statement_packet
+        return extract_pdf_statement_packet(source,raw)
     _identity(source)
     if sha256(raw).hexdigest() != source['document_sha256']:
         raise ValueError('statement bytes differ from verified source')
@@ -222,6 +225,9 @@ def _concept(label, role, section):
 
 
 def normalize_statement_tables(source):
+    if source.get('filing_verification') is not None:
+        from .pdf_statement_evidence import normalize_pdf_statements
+        return normalize_pdf_statements(source)
     try:
         meta, cik, accession = _identity(source)
         packet = deepcopy(source['statement_table_fields']); supplied = packet.pop('sha256')

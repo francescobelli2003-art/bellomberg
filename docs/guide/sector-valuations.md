@@ -49,6 +49,29 @@ means zero. Original documents stay intact, quoted JSON values must equal the
 original source, and previously paid request forms take precedence. These views
 reduce context size without certifying source sufficiency or economic completeness.
 
+Bank requests also have a declared context projection. Identical narrative
+receipts keep their IDs and dates; omitted duplicate text cannot be cited under
+another ID. Recognized SEC financial-appendix layouts retain regulation, risks,
+legal proceedings, management discussion and all financial statements/notes.
+Other omissions are explicit; unknown layouts stay whole. Structured fact indices
+and values remain intact. Missing prior-plan evidence or an oversized result
+stops before spending. Explicit excerpt selections and paid requests take precedence.
+
+For both FCFF and banks, other completed scenarios can retain values/kinds/hashes in the prompt with
+declared proof omissions; opening, current scope and scenario rationales stay
+complete. The original compiled plan remains unchanged and binding.
+Oversized FCFF contexts can also use the refresh policy for omitting raw profile,
+financials and filing payloads and the acquisition index. Each omission records
+its hash and size; documents, source status, coverage gaps, guidance and consensus
+stay available. New contexts prefer this acquisition reduction to projecting
+completed economic proofs when it fits. Previously paid request forms retain
+precedence; explicit selections are not replaced.
+
+The shared Excel preparer allows up to 65,536 response tokens for the configured
+Muse model. Other configured models keep the ordinary specialist response limit;
+ordinary specialists are unchanged. This maximum also covers reasoning tokens,
+and each request still needs a reservation within the user's authorized budget.
+
 The opening working-capital compiler recognizes current deferred revenue as a
 negative operating component and rejects adding it to the alternative current
 customer-liability tag as if they were separate balances. Recognition of individual

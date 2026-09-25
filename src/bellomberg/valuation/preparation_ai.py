@@ -323,12 +323,15 @@ class BudgetedProposer:
 
     def prepare_context(self, dossier, contract, *, source_dossier, allow_selection=True,
                         allow_cached_selection=False):
-        """Select only oversized new FCFF contexts; paid forms take precedence.
+        """Select oversized new FCFF/bank contexts; paid forms take precedence.
 
         This read-only preflight neither reserves money nor sends a request.
-        Completed plans and source extensions remain intact. Explicit manifests
+        Original plans and source dossiers remain intact. Explicit manifests
         and replay snapshots are never replaced by automatic section selection.
         """
+        if dossier.get('method_id') == 'bank_residual_income':
+            return self._prepare_bank_context(dossier, contract, source_dossier,
+                                              allow_selection, allow_cached_selection)
         if dossier.get('method_id') != 'operating_fcff':
             return dossier
         from .fcff_stage_arithmetic import with_engine_guidance
@@ -374,6 +377,29 @@ class BudgetedProposer:
         facts_request = self._request(facts_projected, contract) if facts_projected is not None else None
         if facts_request is not None and cached(facts_request):
             return facts_projected
+        # Keep the same complete opening/current scope while avoiding repeated
+        # proofs from completed scenarios. Older paid forms above always win.
+        from .preparation_refresh import _acquisition_payload_view, _completed_plan_view
+        compact = []
+        for candidate in (projected, sec_projected, facts_projected):
+            if candidate is not None:
+                reduced = _completed_plan_view(candidate, contract)
+                if reduced != candidate:
+                    reduced_request = self._request(reduced, contract)
+                    if cached(reduced_request):
+                        return reduced
+                    compact.append((reduced, reduced_request))
+        # Reuse the refresh omission policy. Prefer dropping raw acquisition
+        # envelopes to projecting economic proofs when both new forms fit.
+        lean = []
+        for candidate in (projected, sec_projected, facts_projected, *(c for c, _ in compact)):
+            if candidate is not None:
+                reduced = _acquisition_payload_view(candidate)
+                if reduced != candidate and reduced['review_view_omissions']:
+                    reduced_request = self._request(reduced, contract)
+                    if cached(reduced_request):
+                        return reduced
+                    lean.append((reduced, reduced_request))
         if not allow_selection:
             return dossier  # A replay snapshot permits only its already paid projection.
         quote = preparation_price_ceiling(self.metadata(self.model), model=self.model, max_tokens=self.max_tokens)
@@ -385,7 +411,41 @@ class BudgetedProposer:
                 return sec_projected
             if facts_request is not None and self._prompt_bytes(facts_request) <= allowance:
                 return facts_projected
+            for reduced, reduced_request in lean + compact:
+                if self._prompt_bytes(reduced_request) <= allowance:
+                    return reduced
             raise ValueError('dossier still exceeds conservative context after declared section selection; completed plan preserved, further source selection required')
+        return projected
+
+    def _prepare_bank_context(self, dossier, contract, source_dossier, allow_selection, allow_cached_selection):
+        from .bank_preparation_view import select_bank_context
+        from bellomberg.core.llm_pricing import preparation_price_ceiling
+        request = self._request(dossier, contract)
+        def cached(value):
+            with self._db() as db:
+                return self._existing(db, sha256(_json(value).encode()).hexdigest()) is not None
+        if cached(request) or not self.automatic_sections or not (allow_selection or allow_cached_selection):
+            return dossier
+        projected = select_bank_context(source_dossier, dossier, contract)
+        selected = self._request(projected, contract)
+        projection_error = None
+        try:
+            verify_visible_citations({k: dossier.get(k) for k in ('prior_plan', 'reviewed_plan', 'completed_plan')},
+                                     projected, source_dossier)
+        except ValueError as exc:
+            projection_error = exc
+        if projection_error is None and cached(selected):
+            return projected
+        if not allow_selection:
+            return dossier
+        quote = preparation_price_ceiling(self.metadata(self.model), model=self.model, max_tokens=self.max_tokens)
+        allowance = quote['context_length'] - 8192 - self.max_tokens
+        if self._prompt_bytes(request) <= allowance:
+            return dossier
+        if projection_error is not None:
+            raise ValueError('bank source projection omits prior plan evidence; further source selection required') from projection_error
+        if self._prompt_bytes(selected) > allowance:
+            raise ValueError('bank dossier still exceeds conservative context after declared source projection; completed plan preserved')
         return projected
 
     def __call__(self, dossier, contract):
@@ -891,9 +951,11 @@ class StagedProposer:
 
 
 def configured_proposer(journal, *, authorized_usd):
-    from bellomberg.core.llm_client import modello, thinking_consigliere
+    from bellomberg.core.llm_client import modello, thinking_consigliere, MUSE_STANDARD
     from bellomberg.agents.specialists.base import MAX_TOKENS_SPECIALIST
     model = modello("consigliere", "fundamentals", 1)
+    # PM 25/09: this cap applies only to Muse Excel preparation.
+    output_limit = 65536 if model == MUSE_STANDARD else MAX_TOKENS_SPECIALIST
     return BudgetedProposer(journal, authorized_usd=authorized_usd, model=model,
-                            max_tokens=MAX_TOKENS_SPECIALIST, thinking=thinking_consigliere(model),
+                            max_tokens=output_limit, thinking=thinking_consigliere(model),
                             automatic_sections=True)

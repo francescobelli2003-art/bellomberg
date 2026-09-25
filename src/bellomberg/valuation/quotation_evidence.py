@@ -14,6 +14,9 @@ def listing_identity(raw, ticker):
     ratio. This is a disclosed unit identity, never a guessed economic input.
     """
     from bs4 import BeautifulSoup
+    if isinstance(raw, (bytes, bytearray)) and raw.startswith(b'%PDF-'):
+        return {'status': 'incomplete', 'reason':
+            'PDF statements do not prove an inline HTML listing class; independent listing evidence required'}
     soup = BeautifulSoup(raw, "html.parser")
     contexts = {}
     names = {"dei:Security12bTitle": "title", "dei:TradingSymbol": "symbol",

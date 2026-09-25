@@ -1,4 +1,4 @@
-"""Reconcile a classified US balance and its note leaves, without economic judgments."""
+"""Reconcile supported classified balances and note leaves, without economic judgments."""
 from copy import deepcopy
 from decimal import Decimal, localcontext
 from hashlib import sha256
@@ -156,6 +156,9 @@ def _reconcile(facts, notes):
 def normalize_balance_sheet(source):
     """Recompile reported coverage. This is neither an NWC definition nor a model."""
     try:
+        if source.get('filing_verification') is not None:
+            from .pdf_balance_evidence import normalize_pdf_balance
+            return normalize_pdf_balance(source)
         meta, cik, packet, digest = _validated_packet(source, 'balance_sheet_fields', NORMALIZER)
         if not packet['tables']:
             return {'status': 'not_applicable', 'documents': [], 'issues': [],
@@ -191,6 +194,13 @@ def collect_balance_sheet(source, archive_root):
         if not path.is_relative_to(Path(archive_root).resolve()):
             raise ValueError('balance sheet source outside verified archive')
         raw = path.read_bytes()
+        if source.get('filing_verification') is not None:
+            from .pdf_statement_evidence import extract_pdf_statement_packet
+            packet = extract_pdf_statement_packet(source, raw)
+            result = normalize_balance_sheet({**source, 'statement_table_fields':packet})
+            result.update(packets={}, detail_packets={},
+                statement_packets={source['id']:packet} if result['status'] == 'ready' else {})
+            return result
         packet = extract_balance_sheet_packet(source, raw)
         details = extract_balance_detail_packet(source, raw)
         result = normalize_balance_sheet({**source, 'balance_sheet_fields': packet, 'balance_detail_fields': details})

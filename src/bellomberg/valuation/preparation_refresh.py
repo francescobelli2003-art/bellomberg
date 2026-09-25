@@ -349,23 +349,39 @@ def _validate_reviewed_prefix(plan, dossier, contract):
         pass
 
 
+def _plan_scope_view(plan, complete_scope=None):
+    """Preserve opening and scenario rationales, with other driver values pinned."""
+    result = deepcopy(plan)
+    for name, drivers in plan['scenarios'].items():
+        if name != complete_scope:
+            result['scenarios'][name] = {key: {'value': deepcopy(item['value']), 'kind': item['kind'],
+                'source_driver_sha256': _digest(item)} for key, item in drivers.items()}
+    return result
+
+
+def _completed_plan_view(context, contract):
+    """Reuse the review projection without changing the caller's compiled plan."""
+    scope = (contract.get('preparation_stage') or {}).get('scope')
+    plan = context.get('completed_plan')
+    if scope not in ('bear', 'base', 'bull') or not isinstance(plan, dict) or not isinstance(plan.get('scenarios'), dict):
+        return context
+    view = deepcopy(context)
+    view['completed_plan'] = _plan_scope_view(plan, scope)
+    view.setdefault('stage_view', {})['completed_plan_projection'] = {'original_plan_sha256': _digest(plan), 'complete_scope': scope,
+        'limitation': 'Opening, current scope and all scenario rationales remain complete. Other completed scenario drivers retain values/kinds/hashes; their proofs and driver rationales are omitted from this view, not deleted or recertified. Original compiled plan remains binding.'}
+    return view
+
+
 def _plan_views(original, reviewed, scope):
     """Keep requested drivers complete; declare other-scope value projections."""
-    def project(plan, complete_scope=None):
-        result = deepcopy(plan)
-        for name, drivers in plan['scenarios'].items():
-            if name != complete_scope:
-                result['scenarios'][name] = {key: {'value': deepcopy(item['value']), 'kind': item['kind'],
-                    'source_driver_sha256': _digest(item)} for key, item in drivers.items()}
-        return result
-    prior_view = project(original, scope)
+    prior_view = _plan_scope_view(original, scope)
     completed = [name for name, values in reviewed['scenarios'].items() if values]
     for name in completed:
         prior_view['scenarios'][name] = {}
         prior_view['scenario_rationale'].pop(name)
     if scope != 'model':
         prior_view['model'] = {}
-    return {'prior_plan': prior_view, 'reviewed_plan': project(reviewed),
+    return {'prior_plan': prior_view, 'reviewed_plan': _plan_scope_view(reviewed),
             'plan_projection': {'prior_plan_sha256': _digest(original), 'reviewed_plan_sha256': _digest(reviewed),
                 'complete_prior_scope': scope, 'opening_model_complete': True,
                 'opening_model_location': 'prior_plan.model' if scope == 'model' else 'reviewed_plan.model',
@@ -375,10 +391,15 @@ def _plan_views(original, reviewed, scope):
 
 def _review_view(dossier, excerpt_manifest):
     """Retain documents and gaps; declare omitted provider/acquisition payloads."""
-    from .preparation_ai import _json
     from .preparation_view import select_stage_view
-    view = select_stage_view(dossier, 'forecast', excerpt_manifest=excerpt_manifest)
-    omissions = []
+    return _acquisition_payload_view(select_stage_view(dossier, 'forecast', excerpt_manifest=excerpt_manifest))
+
+
+def _acquisition_payload_view(context):
+    """Copy a prompt view, retaining source text, coverage and prior omissions."""
+    from .preparation_ai import _json
+    view = deepcopy(context)
+    omissions = view.get('review_view_omissions', [])
     for name in ('profile', 'financials', 'filings'):
         source = view.get('acquired_sources', {}).get(name)
         if isinstance(source, dict) and 'data' in source:

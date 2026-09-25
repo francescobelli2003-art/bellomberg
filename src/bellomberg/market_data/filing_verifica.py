@@ -5,6 +5,7 @@ di riconoscimento dell'emittente, non un certificato universale: ogni campo
 richiede una prova nei byte esaminati. Nessun LLM, DB o download qui.
 """
 from datetime import date
+from copy import deepcopy
 import hashlib
 from html import unescape
 from html.parser import HTMLParser
@@ -104,6 +105,22 @@ def _data(value):
 def _periodo_testuale(match, tipo):
     """Read explicit dates or a declared number of complete calendar months."""
     groups = match.groupdict()
+    if 'anno' in groups:
+        if not re.fullmatch(r'\d{4}', groups['anno'] or ''):
+            raise ValueError('anno comune non completo')
+        anno = int(groups['anno'])
+        numeric = {'giorno_inizio', 'mese_inizio', 'giorno_fine', 'mese_fine', 'anno'}
+        if set(groups) == numeric:
+            inizio = date(anno, int(groups['mese_inizio']), int(groups['giorno_inizio']))
+            fine = date(anno, int(groups['mese_fine']), int(groups['giorno_fine']))
+        elif set(groups) == {'inizio', 'fine', 'anno'}:
+            inizio, fine = (_data(groups[k] + ' ' + groups['anno']) for k in ('inizio', 'fine'))
+        else:
+            raise ValueError('anno comune: estremi testuali o gruppi giorno/mese espliciti richiesti')
+        if inizio > fine:
+            raise ValueError('anno comune: intervallo invertito; nessun anno precedente implicito')
+        return inizio, fine, {'regola': 'anno_comune_esplicito', 'anno': anno,
+            'periodo_inizio': inizio.isoformat(), 'periodo_fine': fine.isoformat()}
     if {"inizio", "fine"} <= set(groups) and "mesi" not in groups:
         return _data(groups["inizio"]), _data(groups["fine"]), None
     if set(groups) != {"mesi", "fine"}:
@@ -178,6 +195,27 @@ def _cerca_prova(testo, pattern, campo, url, digest):
     if not match or not match[0].strip():
         raise ValueError(f"{campo}: prova testuale assente")
     return _prova(testo, match.start(), match.end(), "testo", url, digest)
+
+
+def _periodo_con_prova(testo, pattern, tipo, fine_attesa, url, digest):
+    """Shared textual-period check for original verification and PDF replay."""
+    if not pattern:
+        raise ValueError("periodo esatto non verificato: mancano contesto XBRL compatibile o date testuali")
+    parsed = []
+    for match in re.finditer(pattern, testo, re.I | re.M):
+        start, end, calculation = _periodo_testuale(match, tipo)
+        parsed.append((start, end, match, calculation))
+    if fine_attesa:
+        if parsed and max(p[1] for p in parsed) != fine_attesa:
+            raise ValueError("data catalogo diversa dal periodo testuale piu' recente: possibile comparativo")
+        parsed = [p for p in parsed if p[1] == fine_attesa]
+    if len({(a, b) for a, b, _, _ in parsed}) != 1:
+        raise ValueError("periodo testuale assente o ambiguo")
+    inizio, fine, match, calculation = parsed[0]
+    proof = _prova(testo, match.start(), match.end(), "testo", url, digest)
+    if calculation is not None:
+        proof['calcolo'] = calculation
+    return inizio, fine, proof
 
 
 def _selettori(testo, regole):
@@ -298,24 +336,8 @@ def verifica_documento(path, *, url, profilo, catalogo=None):
             m = eligible[0]["match"]
             prove["periodo"] = _prova(markup, m.start(), m.end(), "markup", url, digest)
         else:
-            pattern = regole.get("periodo")
-            if not pattern:
-                raise ValueError("periodo esatto non verificato: mancano contesto XBRL compatibile o date testuali")
-            matches = list(re.finditer(pattern, testo, re.I | re.M))
-            parsed = []
-            for match in matches:
-                start, end, calculation = _periodo_testuale(match, meta["tipo"])
-                parsed.append((start, end, match, calculation))
-            if fine_attesa:
-                if parsed and max(p[1] for p in parsed) != fine_attesa:
-                    raise ValueError("data catalogo diversa dal periodo testuale piu' recente: possibile comparativo")
-                parsed = [p for p in parsed if p[1] == fine_attesa]
-            if len({(a, b) for a, b, _, _ in parsed}) != 1:
-                raise ValueError("periodo testuale assente o ambiguo")
-            inizio, fine, m, calculation = parsed[0]
-            prove["periodo"] = _prova(testo, m.start(), m.end(), "testo", url, digest)
-            if calculation is not None:
-                prove["periodo"]["calcolo"] = calculation
+            inizio, fine, prove["periodo"] = _periodo_con_prova(
+                testo, regole.get("periodo"), meta["tipo"], fine_attesa, url, digest)
         if not low <= (fine-inizio).days+1 <= high:
             raise ValueError("durata del periodo incompatibile con il tipo")
         if fine > date.today():
@@ -331,6 +353,13 @@ def verifica_documento(path, *, url, profilo, catalogo=None):
             doc["sezioni"][nome] = {"stato": "non_disponibile", "motivo": motivo}
         doc["metadati_verifica"] = "verificati con regole del profilo e prove nei byte del documento"
         doc["prove_verifica"] = prove
+        if estrazione['formato'] == 'pdf':
+            doc['filing_verification'] = {
+                'schema': 'filing_pdf_v1', 'url': url, 'document_sha256': digest,
+                'text_sha256': hashlib.sha256(testo.encode('utf-8')).hexdigest(),
+                'metadata': deepcopy(meta), 'proofs': deepcopy(prove),
+                'rules': {k: regole[k] for k in ('emittente', 'lingua', 'tipo', 'perimetro', 'periodo')},
+                'identity_basis': 'curated_filing_profile', 'security_identity_verified': False}
         return {"stato": "ok", "motivi": [], "documento": doc}
     except (OSError, ValueError, TypeError, KeyError, IndexError, UnicodeError, re.error) as exc:
         out["motivi"].append(f"{type(exc).__name__}: {exc}")

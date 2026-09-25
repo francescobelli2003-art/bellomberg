@@ -30,6 +30,8 @@ def extract_parent_packet(source, raw):
     digest = sha256(raw).hexdigest()
     if source.get('id') != digest or source.get('document_sha256') != digest:
         raise ValueError('parent inline source bytes differ from archived filing identity')
+    if raw.startswith(b'%PDF-'):
+        raise ValueError('PDF statements are not inline HTML parent-entity evidence')
     soup = BeautifulSoup(raw, 'html.parser')
     namespaces = {key[6:]: value for key, value in (soup.html.attrs if soup.html else {}).items()
                   if key.startswith('xmlns:')}

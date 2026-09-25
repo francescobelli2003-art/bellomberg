@@ -30,9 +30,18 @@ def _ledgers(documents):
             or isinstance(d.get('metadata'), dict) and d['metadata'].get('normalizer') == NORMALIZER]
 
 
+def _pdf_observations(documents):
+    return [d for d in documents if d.get('filing_verification') is not None or
+            isinstance(d.get('metadata'), dict) and d['metadata'].get('source_format') == 'pdf_statement_pages_v1']
+
+
 def balance_nwc_policy(documents):
     ledgers = _ledgers(documents)
     if not ledgers:
+        if _pdf_observations(documents):
+            return {'status': 'incomplete', 'operation': OPERATION,
+                'requirements': 'PDF observations require a complete reported balance with economic classifications; '
+                    'this dossier does not supply a reconciled ledger. No narrow sum or literal APM substitute.'}
         return None
     return {'operation': OPERATION,
         'sources': [{'id': d['id'], 'sha256': d['sha256'], 'entity': d['metadata']['entity'],
@@ -57,6 +66,8 @@ def balance_nwc_policy(documents):
 def balance_nwc_selection_problem(item, catalog, entity, period):
     ledgers = _ledgers(catalog.values())
     if not ledgers:
+        if _pdf_observations(catalog.values()):
+            return 'NWC: PDF observations require a complete reported balance and economic classifications'
         return None
     matching = [d for d in ledgers if (d.get('metadata') or {}).get('report_date') == period
                 and same_entity_name((d.get('metadata') or {}).get('entity'), entity)]
@@ -79,7 +90,12 @@ def _judgment(row, catalog, entity, used):
     if not isinstance(ids, list) or len(ids) != 1 or not isinstance(ids[0], str) or ids[0] not in catalog:
         raise ValueError('one original classification source required')
     doc = catalog[ids[0]]; meta = doc.get('metadata') or {}
-    if (meta.get('normalizer') or not same_entity_name(meta.get('issuer', meta.get('entity')), entity)
+    issuer = meta.get('issuer', meta.get('entity'))
+    if doc.get('filing_verification') is not None:
+        from .filing_pdf_evidence import verify_filing_pdf
+        verify_filing_pdf(doc)
+        issuer = meta['emittente_id']  # Preserve the curated identifier; no legal-name alias inferred.
+    if (meta.get('normalizer') or not same_entity_name(issuer, entity)
             or not isinstance(quote, str) or not quote.strip() or quote not in doc['text']):
         raise ValueError('classification quote must occur in an original narrative of the same issuer')
     used.add(ids[0])
@@ -135,7 +151,8 @@ def balance_nwc_proof(item, evidence, unit, period, entity, *, scale):
                     concept = ('us-gaap:'+fact['reported_tag'].split(':', 1)[1]
                                if re.fullmatch(r'https?://fasb.org/us-gaap/20\d{2}', fact['namespace'])
                                else fact['reported_tag'])
-                    if concept in _NON_NWC:
+                    from .pdf_balance_evidence import pdf_non_nwc
+                    if concept in _NON_NWC or (fact['namespace'] == 'reported-statement' and pdf_non_nwc(fact['label'])):
                         raise ValueError('cash, financing or fixed/tax asset cannot be smuggled into operating NWC')
                     factor = scale(fact['unit'], unit)
                     if factor is None:

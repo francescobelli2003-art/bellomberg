@@ -98,6 +98,13 @@ def _catalog(documents, cutoff):
         if document_hash and re.fullmatch(r"[0-9a-fA-F]{64}", ident) and ident.lower() != document_hash.lower():
             issues.append(_issue(ident, "document_identity_mismatch", "ID documento diverso dall'hash dei byte grezzi"))
             continue
+        if raw.get('filing_verification') is not None or isinstance(raw.get('metadata'), dict) and raw['metadata'].get('filing_verification'):
+            from .filing_pdf_evidence import verify_filing_pdf
+            try:
+                verify_filing_pdf(raw)
+            except ValueError as exc:
+                issues.append(_issue(ident, 'invalid_filing_verification', str(exc)))
+                continue
         catalog[ident] = {"id": ident, "url": raw["url"], **dates,
                           "text": body, "sha256": actual_hash,
                           "document_sha256": document_hash.lower() if document_hash else None,
@@ -113,6 +120,9 @@ def _catalog(documents, cutoff):
                              "page_references": deepcopy(raw.get("page_references")),
                              "extraction_coverage": deepcopy(raw.get("extraction_coverage", raw.get("coverage"))),
                              "origin_check": "offline_reference_only"}
+        if raw.get('filing_verification') is not None:
+            catalog[ident]['filing_verification'] = deepcopy(raw['filing_verification'])
+            provenance[ident]['filing_verification'] = deepcopy(raw['filing_verification'])
         if raw.get("pdf_form_fields") is not None:
             catalog[ident]["pdf_form_fields"] = deepcopy(raw["pdf_form_fields"])
             provenance[ident]["pdf_form_fields"] = deepcopy(raw["pdf_form_fields"])

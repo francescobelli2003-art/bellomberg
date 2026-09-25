@@ -5,6 +5,7 @@ are publication dates from the catalog, never the date of a download. Unsupporte
 markets and undated IR documents remain explicit coverage gaps.
 """
 from datetime import date
+from copy import deepcopy
 from hashlib import sha256
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -80,12 +81,27 @@ def collect_documents(ticker, *, as_of, archive_root, filing_results=(), catalog
                 # the preparation selector uses the equivalent report_date key.
                 if not metadata.get("report_date") and metadata.get("periodo_fine"):
                     metadata["report_date"] = metadata["periodo_fine"]
-            return {"id": digest, "url": url, "published_at": published,
+            document = {"id": digest, "url": url, "published_at": published,
                     "text": text, "sha256": sha256(text.encode("utf-8")).hexdigest(),
                     "document_sha256": digest, "origin": origin, "archive_path": str(path),
                     "metadata": metadata,
                     "extraction_coverage": {key: extracted.get(key) for key in
                         ("stato", "caratteri", "pagine", "formato", "pagine_senza_testo")}}
+            if candidate.get('filing_verification') is not None:
+                from .filing_pdf_evidence import verify_filing_pdf, SCHEMA
+                if extracted.get('formato') != 'pdf':
+                    raise ValueError('PDF filing verification requires original PDF bytes')
+                if (metadata.get('report_start') not in (None, metadata.get('periodo_inizio'))
+                        or metadata.get('filing_verification') not in (None, SCHEMA)):
+                    raise ValueError('PDF filing verification metadata conflict')
+                metadata['report_start'] = metadata.get('periodo_inizio')
+                metadata['filing_verification'] = SCHEMA
+                document['filing_verification'] = deepcopy(candidate['filing_verification'])
+                document['page_references'] = [{'pagina': p['pagina'], 'inizio': p['inizio'],
+                    'fine': p['fine'], 'sha256': sha256(p['testo'].encode('utf-8')).hexdigest()}
+                    for p in extracted['riferimenti']]
+                verify_filing_pdf(document)
+            return document
         except Exception as exc:
             issue(candidate.get("url") if isinstance(candidate, dict) else origin,
                   type(exc).__name__ + ": " + str(exc), excluded=True)

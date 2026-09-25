@@ -224,7 +224,7 @@ def test_context_growth_cannot_silently_discard_completed_economic_plan(tmp_path
     assert proposer.summary()['requests'] == 0
 
 
-def test_explicit_manifest_and_bank_context_are_not_replaced_by_automatic_selection(tmp_path):
+def test_explicit_manifest_is_not_replaced_for_fcff_or_bank(tmp_path):
     dossier = _large_case()
     proposer = _budgeted(tmp_path)
     proposer.metadata = lambda _: pytest.fail('explicit selection must be preserved')
@@ -232,7 +232,7 @@ def test_explicit_manifest_and_bank_context_are_not_replaced_by_automatic_select
     assert proposer.prepare_context(dossier, {'schema': {}}, source_dossier=dossier,
                                     allow_selection=False, allow_cached_selection=True) == dossier
     dossier['method_id'] = 'bank_residual_income'
-    assert proposer.prepare_context(dossier, {'schema': {}}, source_dossier=dossier) == dossier
+    assert proposer.prepare_context(dossier, {'schema': {}}, source_dossier=dossier, allow_selection=False) == dossier
 
 
 def test_context_already_within_allowance_keeps_original_request(tmp_path):
@@ -251,3 +251,72 @@ def test_normalized_primary_report_is_never_replaced_by_its_management_prefix():
     result = select_fcff_note_sections(dossier)
     entry = next(m for m in result['manifest'] if m['source_id'] == management['id'])
     assert entry['excerpts'][0]['char_end_exclusive'] == len(management['text'])
+
+
+def test_fcff_completed_scenario_proofs_do_not_exhaust_later_default_context(tmp_path):
+    from bellomberg.valuation.preparation_seed import _digest
+    dossier = _large_case()
+    driver = {'value': [1, 2], 'kind': 'judgment', 'rationale': 'Prior driver explanation. ' * 4000}
+    dossier['completed_plan'].update(scenarios={'bear': {'income': driver}, 'base': {},
+                                              'bull': {'current': {'value': [3], 'kind': 'judgment', 'rationale': 'Current evidence stays.'}}})
+    original = deepcopy(dossier)
+    contract = {'schema': {}, 'preparation_stage': {'scope': 'bull', 'drivers': []}}
+    calls = []; proposer = _budgeted(tmp_path, calls=calls)
+    view = proposer.prepare_context(dossier, contract, source_dossier=dossier)
+    assert view['completed_plan']['scenarios']['bear']['income'] == {
+        'value': [1, 2], 'kind': 'judgment', 'source_driver_sha256': _digest(driver)}
+    assert view['completed_plan']['scenarios']['bull'] == dossier['completed_plan']['scenarios']['bull']
+    assert view['completed_plan']['scenario_rationale'] == dossier['completed_plan']['scenario_rationale']
+    assert view['stage_view']['completed_plan_projection']['original_plan_sha256'] == _digest(dossier['completed_plan'])
+    assert dossier == original and proposer.summary()['requests'] == 0
+    proposer(view, contract)
+    proposer.metadata = lambda _: pytest.fail('paid projected form must replay without pricing')
+    again = proposer.prepare_context(dossier, contract, source_dossier=dossier, allow_selection=False, allow_cached_selection=True)
+    assert again == view and len(calls) == 1
+
+
+def test_fcff_small_context_retains_complete_scenario_proofs(tmp_path):
+    dossier = _case()
+    dossier['completed_plan'] = {'model': {}, 'scenarios': {'bear': {'income': {
+        'value': [1], 'kind': 'judgment', 'rationale': 'Full prior proof.'}}, 'base': {}, 'bull': {}},
+        'scenario_rationale': {'bear': 'Original scenario explanation.'}}
+    contract = {'schema': {}, 'preparation_stage': {'scope': 'bull', 'drivers': []}}
+    proposer = _budgeted(tmp_path, context_length=1000000)
+    view = proposer.prepare_context(dossier, contract, source_dossier=dossier)
+    assert view['completed_plan'] == dossier['completed_plan']
+    assert 'completed_plan_projection' not in view.get('stage_view', {})
+
+
+def test_fcff_raw_acquisition_can_be_omitted_without_losing_sources_gaps_or_plan(tmp_path):
+    from bellomberg.valuation.preparation_seed import _digest
+    dossier = _case()
+    dossier['acquired_sources'] = {
+        name: {'status': 'limited', 'source_id': name, 'as_of': dossier['as_of'],
+               'data': {'raw': 'Unqualified provider detail. ' * 4000}, 'issues': ['Still incomplete.']}
+        for name in ('profile', 'financials', 'filings')}
+    dossier['acquired_sources']['consensus'] = {'status': 'missing', 'issues': ['No available consensus.']}
+    dossier['document_acquisition'] = {'status': 'limited', 'issues': ['Unresolved source gap.'],
+        'coverage': {'limited': 1}, 'acquired_document_index': {'large_index': 'Index record. ' * 4000}}
+    dossier['completed_plan'] = {'model': {}, 'scenarios': {'bear': {'income': {
+        'value': [1], 'kind': 'judgment', 'rationale': 'Complete prior driver proof.'}}, 'bull': {}},
+        'scenario_rationale': {'bear': 'Prior scenario rationale.'}}
+    original = deepcopy(dossier)
+    contract = {'schema': {}, 'preparation_stage': {'scope': 'bull', 'drivers': []}}
+    calls = []; proposer = _budgeted(tmp_path, calls=calls)
+    view = proposer.prepare_context(dossier, contract, source_dossier=dossier)
+    assert view['completed_plan'] == dossier['completed_plan']
+    assert 'completed_plan_projection' not in view.get('stage_view', {})
+    for name in ('profile', 'financials', 'filings'):
+        assert view['acquired_sources'][name] == {k: v for k, v in dossier['acquired_sources'][name].items() if k != 'data'}
+        omission = next(r for r in view['review_view_omissions'] if r['field'] == 'acquired_sources.' + name + '.data')
+        assert omission['sha256'] == _digest(dossier['acquired_sources'][name]['data'])
+    assert view['acquired_sources']['consensus'] == dossier['acquired_sources']['consensus']
+    assert view['document_acquisition'] == {k: v for k, v in dossier['document_acquisition'].items() if k != 'acquired_document_index'}
+    assert dossier['documents'][1]['text'] in view['documents'][1]['text']
+    assert view['documents'][-1] == dossier['documents'][-1]
+    assert dossier == original and proposer.summary()['requests'] == 0
+    proposer(view, contract)
+    proposer.metadata = lambda _: pytest.fail('paid context must replay without live metadata')
+    assert proposer.prepare_context(dossier, contract, source_dossier=dossier,
+        allow_selection=False, allow_cached_selection=True) == view
+    assert len(calls) == 1
