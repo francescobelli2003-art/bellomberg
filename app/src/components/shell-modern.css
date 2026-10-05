@@ -212,13 +212,14 @@
   flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 2px 2px 8px 0;
   scrollbar-width: thin; scrollbar-color: var(--bbn-line) transparent;
 }
-.bb-nav-group { display: grid; gap: 1px; margin-bottom: 6px; }
+.bb-nav-group { display: grid; gap: 1px; margin-bottom: 8px; }
+/* nomi dei gruppi: più grandi delle voci e nell'azzurro d'accento, per separare le sezioni */
 .bb-modern-nav-group {
-  display: flex; align-items: center; gap: 6px; width: 100%; padding: 8px 8px 6px;
-  border: 0; border-radius: 8px; background: none; color: var(--bbn-muted);
-  font: 700 12px/1.2 var(--sh-font); text-align: left; cursor: pointer;
+  display: flex; align-items: center; gap: 6px; width: 100%; padding: 10px 8px 6px;
+  border: 0; border-radius: 8px; background: none; color: var(--bbn-accent);
+  font: 800 15px/1.2 var(--sh-font); letter-spacing: -.005em; text-align: left; cursor: pointer;
 }
-.bb-modern-nav-group:hover { color: var(--bbn-text); }
+.bb-modern-nav-group:hover { filter: brightness(1.15); }
 .bb-nav-chevron { flex: none; transition: transform .18s ease; }
 .bb-nav-group.is-closed .bb-nav-chevron { transform: rotate(-90deg); }
 .bb-nav-dot { width: 7px; height: 7px; margin-left: auto; border-radius: 50%; background: var(--bbn-accent); }
