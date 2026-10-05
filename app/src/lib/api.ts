@@ -639,6 +639,11 @@ export interface Memo {
   notes?: string | null;
   // solo su GET /memos/{id}: la lista NON lo trasporta (bugfix 202-C)
   full_markdown?: string | null;
+  // Archivio (voce 8, 04/10): i memo Trade Idea entrano con etichetta; campi additivi
+  kind?: 'consigliere' | 'trade_idea' | string | null;
+  label?: string | null;
+  trade_idea_run_id?: string | null;
+  trade_idea_provenance_error?: string | null;
 }
 
 /** Un passo di memo trovato dalla ricerca semantica sui chunk embeddati.

@@ -77,14 +77,29 @@ export function sezioniDi(md: string): MemoSezione[] {
  *        accanto: renderla due volte darebbe la stessa tabella, muta.
  *        La sezione resta comunque contata nella spina.
  */
-export function rendiMemo(md: string, saltaSezioni: string[] = []): MemoReso {
+export interface OpzioniMemo {
+  /** sezioni di livello 2 da chiudere in un riquadro apribile (titolo per prefisso) */
+  chiudi?: string[];
+  /** righe da non rendere (es. la testata del mandato, gia' resa come pillola) */
+  saltaRiga?: (riga: string) => boolean;
+  /** paragrafo «obiezione / risposta» del red team: se riconosciuto diventa un riquadro */
+  obiezione?: (riga: string) => { q: string; a: string | null } | null;
+  /** forma del titolo mostrato (il titolo originale resta in `sezioni`) */
+  formaTitolo?: (titolo: string) => string;
+}
+
+export function rendiMemo(md: string, saltaSezioni: string[] = [], opzioni: OpzioniMemo = {}): MemoReso {
   const righe = md.split('\n');
-  const nodi: React.ReactNode[] = [];
+  const radice: React.ReactNode[] = [];
+  let nodi: React.ReactNode[] = radice;
   const sezioni: MemoSezione[] = [];
   let i = 0;
 
-  const daSaltare = (t: string) =>
-    saltaSezioni.some(s => t.toUpperCase().startsWith(s.toUpperCase()));
+  const perPrefisso = (lista: string[]) => (t: string) =>
+    lista.some(s => t.toUpperCase().startsWith(s.toUpperCase()));
+  const daSaltare = perPrefisso(saltaSezioni);
+  const daChiudere = perPrefisso(opzioni.chiudi || []);
+  const forma = opzioni.formaTitolo || ((t: string) => t);
 
   while (i < righe.length) {
     const riga = righe[i];
@@ -99,13 +114,21 @@ export function rendiMemo(md: string, saltaSezioni: string[] = []): MemoReso {
       const id = `sez-${sezioni.length}`;
       sezioni.push({ id, livello, titolo });
       i++;
+      if (livello === 2) nodi = radice;
       if (livello === 2 && daSaltare(titolo)) {
         while (i < righe.length && !/^##\s/.test(righe[i])) i++;
         continue;
       }
+      if (livello === 2 && daChiudere(titolo)) {
+        // i controlli appesi dal codice si leggono a richiesta: titolo come sommario
+        const dentro: React.ReactNode[] = [];
+        radice.push(<details className="mdauto" id={id} key={id}><summary>{forma(titolo)}</summary>{dentro}</details>);
+        nodi = dentro;
+        continue;
+      }
       nodi.push(livello === 2
-        ? <h2 id={id} key={id}>{titolo}</h2>
-        : <h3 id={id} key={id}>{inline(titolo, id)}</h3>);
+        ? <h2 id={id} key={id}>{forma(titolo)}</h2>
+        : <h3 id={id} key={id}>{inline(forma(titolo), id)}</h3>);
       continue;
     }
 
@@ -123,7 +146,7 @@ export function rendiMemo(md: string, saltaSezioni: string[] = []): MemoReso {
         }
         i++;
       }
-      const kt = `tab-${nodi.length}`;
+      const kt = `tab-${i}`;
       nodi.push(
         <table className="mdtab" key={kt}>
           {intestazione.length > 0 && (
@@ -146,21 +169,27 @@ export function rendiMemo(md: string, saltaSezioni: string[] = []): MemoReso {
         voci.push(righe[i].replace(/^\s*[-*]\s+/, ''));
         i++;
       }
-      const kl = `ul-${nodi.length}`;
+      const kl = `ul-${i}`;
       nodi.push(<ul className="mdul" key={kl}>{voci.map((v, k) =>
         <li key={k}>{inline(v, `${kl}-${k}`)}</li>)}</ul>);
       continue;
     }
 
     // ── prosa ───────────────────────────────────────────────────────────
-    if (riga.trim()) {
-      const kp = `p-${nodi.length}`;
-      nodi.push(<p key={kp}>{inline(riga.trim(), kp)}</p>);
+    if (riga.trim() && !opzioni.saltaRiga?.(riga)) {
+      const kp = `p-${i}`;
+      const rt = opzioni.obiezione?.(riga);
+      if (rt) nodi.push(
+        <div className="mdrt" key={kp}>
+          <p><b>{tr('memoarchive.nRedTeam')}</b><span>{inline(rt.q, kp + 'q')}</span></p>
+          {rt.a !== null && <p><b>{tr('memoarchive.nCapo')}</b><span>{inline(rt.a, kp + 'a')}</span></p>}
+        </div>);
+      else nodi.push(<p key={kp}>{inline(riga.trim(), kp)}</p>);
     }
     i++;
   }
 
-  return { nodi, sezioni };
+  return { nodi: radice, sezioni };
 }
 
 /** Censimento delle citazioni `[src: …]` di un memo, dalla piu' usata.

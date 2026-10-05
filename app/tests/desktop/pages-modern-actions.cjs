@@ -990,7 +990,7 @@ async function renderer(config) {
     const visible = el => { const r = el.getBoundingClientRect(), s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden'; };
     const controls = [...(root?.querySelectorAll('input,textarea,select') || [])].filter(visible).map(el => ({ id: el.id || '', name: el.getAttribute('aria-label') || el.name || el.placeholder || '', value: el.type === 'checkbox' || el.type === 'radio' ? el.checked : el.value }));
     // A highlighted option of an open combobox list is transient focus state, not a choice.
-    const choices = [...(root?.querySelectorAll('[aria-selected="true"]:not([role="option"]),[aria-pressed="true"],[aria-checked="true"],button.on,.mr.on,.mhit.on,.tb.on,.vst .on,[role="tab"].on') || [])]
+    const choices = [...(root?.querySelectorAll('[aria-selected="true"]:not([role="option"]),[aria-pressed="true"],[aria-checked="true"],button.on,.mr.on,.mhit.on,.mm-run.is-on,.mm-hit.is-on,.tb.on,.vst .on,[role="tab"].on') || [])]
       .filter(el => visible(el) && !(root?.dataset.page === 'factors' && el.matches('[role="radio"],input[type="radio"]')))
       .map(el => ({ id: el.id || '', text: (el.innerText || el.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 100) }));
     const addChoice = (key, el) => { if (el && visible(el)) choices.push({ id: key, text: (el.innerText || el.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 100) }); };
@@ -1475,7 +1475,7 @@ const selectors = {
   factors: ['main [data-page="factors"] [data-strato="calibro"] [role="radio"]'], backtest: ['main [data-page="montecarlo"] select'],
   vol: ['main [data-page="vol"] #va-ticker'], edge: ['main [data-page="edge"] [data-zona="comandi"] button:nth-of-type(2)'],
   agents: ['main [data-page="agents"] .ag-panel .bbn-seg button:nth-of-type(3)'], 'agent-progress': ['main [data-page="agent-progress"] #ap-tab-action'],
-  memos: ['main [data-page="memos"] .mr'], decisions: ['main [data-page="decisions"] button'],
+  memos: ['main [data-page="memos"] .mm-run'], decisions: ['main [data-page="decisions"] button'],
   trades: ['main [data-page="trades"] #f7-tk'], movements: ['main [data-page="movements"] .vst button:nth-of-type(2)'],
   mandato: ['main [data-page="mandato"] #tab-diario'],
 };
@@ -1633,17 +1633,17 @@ async function preparePageState(q, id) {
     }
   }
   if (id === 'memos') {
-    const row = await q.js(() => !!document.querySelector('main [data-page="memos"] .mr'));
-    const candidate = await q.js(() => [...document.querySelectorAll('main [data-page="memos"] .mr')].find(el => !el.classList.contains('on'))?.getAttribute('data-memo-id') || null);
+    const row = await q.js(() => !!document.querySelector('main [data-page="memos"] .mm-run'));
+    const candidate = await q.js(() => [...document.querySelectorAll('main [data-page="memos"] .mm-run')].find(el => !el.classList.contains('is-on'))?.getAttribute('data-memo-id') || null);
     if (row) {
       const selector = await q.js(() => {
-        const item = [...document.querySelectorAll('main [data-page="memos"] .mr')].find(el => !el.classList.contains('on'));
+        const item = [...document.querySelectorAll('main [data-page="memos"] .mm-run')].find(el => !el.classList.contains('is-on'));
         if (!item) return null;
         item.setAttribute('data-qa-action-choice', 'memo'); return '[data-qa-action-choice="memo"]';
       });
       assert.ok(selector, `memo fixture has no unselected row (candidate ${candidate})`);
       await q.click(`main [data-page="memos"] ${selector}`);
-      await q.waitFor(() => document.querySelectorAll('main [data-page="memos"] .mr.on').length === 1, 'memo selection'); return;
+      await q.waitFor(() => document.querySelectorAll('main [data-page="memos"] .mm-run.is-on').length === 1, 'memo selection'); return;
     }
   }
   if (id === 'decisions') {
@@ -2355,34 +2355,35 @@ async function runPresentationRecovery(q) {
 
   const memoQuery = 'fixture recovery query';
   const memoRoute = '/memos/search/fixture%20recovery%20query';
+  const memoField = 'main [data-page="memos"] [data-qa="memo-search"]';
+  const memoPanel = 'main [data-page="memos"] [data-qa="memo-search-panel"]';
   await recoverLocally({ page: 'memos', scenario: 'memo-local-presenter-fault-retains-search-request', route: '/memos',
-    target: { className: 'f9b-scrim' }, readySelector: 'main [data-page="memos"] .qcall',
+    target: { className: 'bbn-memo' }, readySelector: memoField,
     request: { method: 'GET', route: memoRoute }, readRoutes: [memoRoute],
     prepare: async () => {
-      await q.click('main [data-page="memos"] .qcall');
-      await q.waitFor(() => !!document.querySelector('main [data-page="memos"] .f9b-scrim .mq input'), 'Memo semantic search opens');
+      await q.click(memoField);
+      await q.waitFor(sel => !!document.querySelector(sel), 'Memo semantic search opens', 5000, memoPanel);
       await q.fixture({ setRead: { [memoRoute]: { body: { query: memoQuery, results: [] }, delayMs: 12000 } } });
-      const selector = 'main [data-page="memos"] .f9b-scrim .mq input';
-      await q.typeText(selector, memoQuery);
+      await q.typeText(memoField, memoQuery);
       const keyEvidence = await q.key('Enter');
       assert.ok(keyEvidence.documentFocused, 'Memo search Enter needs real document focus');
-      await q.waitFor(() => /searching/i.test(document.querySelector('main [data-page="memos"] .f9b-scrim .mq .ms')?.textContent || ''),
-        'Memo semantic search enters pending state');
+      await q.waitFor(sel => /searching|cerco/i.test(document.querySelector(sel + ' .mm-drop-h')?.textContent || ''),
+        'Memo semantic search enters pending state', 5000, memoPanel);
       await q.waitFor(async () => {
         const state = await fetch('/__fixture').then(response => response.json());
         return state.requests.some(item => item.method === 'GET' && item.route === '/memos/search/fixture%20recovery%20query');
       }, 'Memo search reaches synthetic fixture', 5000);
     },
-    readValue: async () => q.js(() => ({ query: document.querySelector('main [data-page="memos"] .f9b-scrim .mq input')?.value || '',
-      status: document.querySelector('main [data-page="memos"] .f9b-scrim .mq .ms')?.textContent?.trim() || '',
-      modalOpen: !!document.querySelector('main [data-page="memos"] .f9b-scrim') })),
+    // the field and its pending search live in the page controller: the panel may close on recovery, the request may not restart
+    readValue: async () => q.js((field) => ({ query: document.querySelector(field)?.value || '' }), memoField),
     waitCompleted: async () => {
-      await q.waitFor(() => {
-        const status = document.querySelector('main [data-page="memos"] .f9b-scrim .mq .ms')?.textContent || '';
-        return !!status && !/searching/i.test(status);
-      }, 'Memo search result arrives after local recovery', 16000);
-      const result = await q.js(() => ({ status: document.querySelector('main [data-page="memos"] .f9b-scrim .mq .ms')?.textContent?.trim() || '',
-        results: document.querySelectorAll('main [data-page="memos"] .f9b-scrim .masse').length }));
+      await q.click(memoField);
+      await q.waitFor(sel => {
+        const status = document.querySelector(sel + ' .mm-drop-h')?.textContent || '';
+        return !!status && !/searching|cerco/i.test(status);
+      }, 'Memo search result arrives after local recovery', 16000, memoPanel);
+      const result = await q.js(sel => ({ status: document.querySelector(sel + ' .mm-drop-h')?.textContent?.trim() || '',
+        results: document.querySelectorAll(sel + ' .mm-hit').length }), memoPanel);
       assert.equal(result.results, 0, 'synthetic empty search result renders as empty, not as loading');
       return result;
     } });

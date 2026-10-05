@@ -55,6 +55,10 @@ Object.assign(NEUTRE_PER_CHIAVE, {
   'dashboardPage.dt_evEbitda': 'EV/EBITDA', 'dashboardPage.dt_volume': 'Vol.',
   'newsPage.theme_fed': 'Fed / FOMC', 'newsPage.theme_btc_etf': 'BTC / ETF',
   'tradeidea.pdfSectionPage': 'p. {page}', 'tradeidea.pdfSection_business': 'Business', 'tradeidea.pdfSection_red_team': 'Red team',
+  // archivio memo Nuova (05/10): tasti, sigle e nomi propri identici nelle due lingue
+  'memoarchive.nSearchKbd': 'Ctrl ⇧ F', 'memoarchive.nDist': 'dist. {d}', 'memoarchive.nKeyArrows': '↑↓', 'memoarchive.nKeyEsc': 'Esc',
+  'memoarchive.nKicker': 'Memo {id} · {d}', 'memoarchive.nPdf': 'Memo PDF', 'memoarchive.nRedTeam': 'Red team',
+  'memoarchive.nKitNote': 'memo {id}', 'memoarchive.nTokensSub': '{a} in · {b} out',
 });
 
 const NEUTRE = /^(OK|ESC|CTRL\+K|F\d{1,2}|N\.D\.|n\.d\.|n\/a|API|PING|LIVE|DOWN|ONLINE|OFFLINE|RUN LIVE|CONFIG|BELLOMBERG.*|PRIVATE INTELLIGENCE TERMINAL|V0\.9 OBSIDIAN|PIN AUTHENTICATION|◈ ACCESS GRANTED|◌ AUTHENTICATING…|◌ AUTHORIZE ACCESS|SAT-07|BLM-1 ASCENT|MEMORIA SQLITE|FEED NEWS \/ FRED|QUANT GARCH \/ MC|ALT|VEL|ORBIT|LINK|KM 0|Engine|Agents|SESSION|Command Center|Performance|Watchlist|Global Markets|News Desk|Fundamentals|Factor Lab|Monte Carlo|Vol Deck|Edge Scanner|Agent Chat|Agents Live|Memo Archive|Trade Entry|MKT \{ticker\}|NEWS \{ticker\}|REFRESH NEWS FEED|BACKUP DATABASE|pull \+ classify \(~60s\)|polygon -> yfinance.*|force refresh performance|weekly research note|snapshot data\/consigliere\.db|blotter \+ trade entry|\{tasto\} · \{label\} · \{gruppo\}|\{key\} \/\/ \{label\}|\{dd\}\/\{mm\}\/\{aa\}.*|\{n\} \{unita\}|\{n\}|\{testo\}|1 \{valuta\}|FX 60s|FX STALE \{minuti\}M|IMPATTO 2026-OB · 4\.2 KT|T\+\{mm\}:\{ss\}  ALT \{alt\} KM)$/;
