@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   PERIODI, periodoAttribuzione, indiceBase, statistichePeriodo, rendimentoAllaData,
-  sottAcqua, mediaMobile, rendimentiMensili, pnlGiornalieri, istogramma, sintesiDistribuzione, RichiesteUltime,
+  sottAcqua, mediaMobile, rendimentiMensili, pnlGiornalieri, pnlPeriodo, pnlTotale, istogramma, sintesiDistribuzione, RichiesteUltime,
 } from '../../src/pages/performance/calcoli.ts';
 
 const close = (a: number | null, b: number, eps = 1e-9) => a != null && Math.abs(a - b) < eps;
@@ -143,4 +143,27 @@ test('RichiesteUltime: una richiesta per volta per scenario, vince solo l\'ultim
   assert.equal(q.inVolo('none'), false);
   assert.equal(q.apri('gfc') > 0, true);
   assert.equal(q.apri('gfc'), null, 'non forzata mentre è in volo: nessun doppione');
+});
+
+// 05/10/2026: interruttore % / € sul riepilogo. Gli euro misurano la stessa finestra della percentuale.
+test('pnlPeriodo: somma il P&L delle sedute dopo la base, al netto dei versamenti', () => {
+  const date = ['a', 'b', 'c', 'd'], valori = [1000, 1600, 1550, 1600], flussi = [0, 500, 0, 0];
+  const indice = [100, 110, 110 * 1550 / 1600, 110 * 1600 / 1600];
+  assert.ok(close(pnlPeriodo(date, valori, flussi, indice, 0).eur, 100 - 50 + 50, 1e-6));
+  assert.ok(close(pnlPeriodo(date, valori, flussi, indice, 1).eur, 0, 1e-6)); // solo c e d: −50 + 50
+  assert.ok(close(pnlPeriodo(date, valori, flussi, indice, 2).eur, 50, 1e-6));
+  assert.equal(pnlPeriodo(date, valori, flussi, indice, 3).eur, null, 'nessuna seduta dopo la base: n.d., non 0');
+  assert.deepEqual(pnlPeriodo(date, valori, [0, 500], indice, 0), { eur: null, esclusi: 0 }, 'flussi disallineati');
+});
+
+test('pnlPeriodo: le sedute senza flusso sono escluse e contate, solo dentro la finestra', () => {
+  const r = pnlPeriodo(['a', 'b', 'c'], [1000, 1600, 1550], [0, null as unknown as number, 0], [100, 110, 110 * 1550 / 1600], 0);
+  assert.ok(close(r.eur, -50, 1e-6)); assert.equal(r.esclusi, 1);
+  assert.equal(pnlPeriodo(['a', 'b', 'c'], [1000, 1600, 1550], [0, null as unknown as number, 0], [100, 110, 110 * 1550 / 1600], 1).esclusi, 0);
+});
+
+test('pnlTotale: non realizzato + realizzato + dividendi, n.d. se una voce manca', () => {
+  assert.ok(close(pnlTotale(-40.5, 210.25, 12.75), 182.5, 1e-9));
+  assert.equal(pnlTotale(null, 210.25, 12.75), null);
+  assert.equal(pnlTotale(-40.5, 210.25, Number.NaN), null);
 });

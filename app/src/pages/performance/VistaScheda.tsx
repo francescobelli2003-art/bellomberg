@@ -6,7 +6,7 @@ import { linguaCorrente, localeDi } from '@/i18n/lingua';
 import { Segmenti } from '@/components/nuova/Card';
 import IconaTitolo from '@/components/nuova/IconaTitolo';
 import PastigliaVariazione from '@/components/nuova/PastigliaVariazione';
-import { PERIODI, indiceBase, rendimentiMensili, rendimentoAllaData, statistichePeriodo } from './calcoli';
+import { PERIODI, indiceBase, pnlPeriodo, pnlTotale, rendimentiMensili, rendimentoAllaData, statistichePeriodo } from './calcoli';
 import type { AnnoMensile, Periodo } from './calcoli';
 import GraficoTwr from './GraficoTwr';
 import { VUOTO, dataBreve, euro, num, pct, punti } from './formato';
@@ -49,6 +49,14 @@ export interface PropsScheda {
   nomi: Record<string, string>;
 }
 
+/** Cifra grande del riepilogo: rendimento % (TWR) o P&L del periodo in euro; l'altra resta sotto, in piccolo. */
+export type Unita = 'pct' | 'eur';
+const CHIAVE_UNITA = 'bb.performance.unit';
+/** Preferenza di vista ricordata solo in questo browser, mai dati. */
+function leggiUnita(): Unita {
+  try { return localStorage.getItem(CHIAVE_UNITA) === 'eur' ? 'eur' : 'pct'; } catch { return 'pct'; }
+}
+
 const ICONE: Record<string, typeof Cpu> = {
   Technology: Cpu, Crypto: Bitcoin, 'Consumer Cyclical': ShoppingBag, Energy: Zap,
   'Basic Materials': Mountain, 'Financial Services': Landmark, 'Communication Services': MessageSquare,
@@ -58,6 +66,11 @@ function Riepilogo({ periodo, onPeriodo, twr, spy, nav }: Pick<PropsScheda, 'per
   const w = parole();
   const [mostraSpy, setMostraSpy] = useState(true);
   const [mostraMedie, setMostraMedie] = useState(false);
+  const [unita, setUnitaStato] = useState<Unita>(leggiUnita);
+  const setUnita = (u: Unita) => {
+    setUnitaStato(u);
+    try { localStorage.setItem(CHIAVE_UNITA, u); } catch { /* preferenza non salvabile: vale per questa sessione */ }
+  };
   const date = twr.dates || [], indice = twr.twr_index || [];
   const base = indiceBase(date, periodo);
   // tasso privo di rischio non dichiarato dal motore: Sharpe n.d. col motivo, mai rf = 0 muto (08b S10)
@@ -75,13 +88,22 @@ function Riepilogo({ periodo, onPeriodo, twr, spy, nav }: Pick<PropsScheda, 'per
     const mappa = new Map(spyOk.date.map((d, i) => [d, spyOk.indice[i]]));
     return date.map(d => (mappa.has(d) ? mappa.get(d)! : null));
   }, [spyOk, date]);
+  const pnl = pnlPeriodo(date, twr.values_eur || [], twr.flows_eur, indice, base);
+  const cifraPct = pct(st.rendimentoPct), cifraEur = euro(pnl.eur, 2, true);
+  const parziale = pnl.eur != null && pnl.esclusi > 0 ? w.pnlPeriodPartial(pnl.esclusi) : null;
   const storiaCorta = base === 0 && periodo !== 'Tutto' && date.length > 0;
   return (
     <section className="bbn-card perf-hero" data-qa="perf-chart">
       <div className="perf-hero-top">
         <div>
-          <div className="perf-hero-label">{w.returnLabel(w.periodLong[periodo])} <Info testo={w.returnInfo} /></div>
-          <div className="perf-hero-value num">{pct(st.rendimentoPct)}</div>
+          <div className="perf-hero-label">{w.returnLabel(w.periodLong[periodo])} <Info testo={unita === 'eur' ? w.pnlPeriodInfo : w.returnInfo} />
+            <Segmenti<Unita> etichetta={w.unit} valore={unita} onChange={setUnita} className="perf-unit"
+              opzioni={[{ id: 'pct', testo: w.unitPct, title: w.unitPctHint }, { id: 'eur', testo: w.unitEur, title: w.unitEurHint }]} /></div>
+          <div className="perf-hero-value num" data-qa="perf-return">
+            <span className={unita === 'eur' ? classeSegno(pnl.eur) : undefined}>{unita === 'eur' ? cifraEur : cifraPct}</span>
+            <span className="perf-hero-alt" title={unita === 'eur' ? w.returnInfo : parziale ?? w.pnlPeriodInfo}>
+              {unita === 'eur' ? cifraPct : cifraEur}{parziale && <small> · {parziale}</small>}</span>
+          </div>
           <div className="perf-hero-row">
             <PastigliaVariazione valore={scarto}>{scarto == null ? w.vsSpy(VUOTO) : w.vsSpy(punti(scarto))}</PastigliaVariazione>
             <span className="bbn-pill is-piatto">{w.spyPill(pct(spyPct))}</span>
@@ -118,8 +140,8 @@ function Riepilogo({ periodo, onPeriodo, twr, spy, nav }: Pick<PropsScheda, 'per
   );
 }
 
-function Riga({ etichetta, info, children }: { etichetta: string; info: string; children: ReactNode }) {
-  return <div className="perf-mrow"><span title={info}>{etichetta}</span><b>{children}</b></div>;
+function Riga({ etichetta, info, children, forte = false }: { etichetta: string; info: string; children: ReactNode; forte?: boolean }) {
+  return <div className={'perf-mrow' + (forte ? ' is-strong' : '')}><span title={info}>{etichetta}</span><b>{children}</b></div>;
 }
 
 function AltreMetriche({ twr, avanzate, contabilita }: Pick<PropsScheda, 'twr' | 'avanzate' | 'contabilita'>) {
@@ -145,6 +167,8 @@ function AltreMetriche({ twr, avanzate, contabilita }: Pick<PropsScheda, 'twr' |
         <StatoCard s={contabilita}>{c => (
           <>
             {c.nota && <p className="perf-state" role="status">{c.nota}</p>}
+            <Riga etichetta={w.mTotal} info={w.mTotalInfo} forte>
+              <span className={classeSegno(pnlTotale(c.nonRealizzato, c.realizzato, c.dividendi))}>{euro(pnlTotale(c.nonRealizzato, c.realizzato, c.dividendi), 2, true)}</span></Riga>
             <Riga etichetta={w.mMv} info={w.mMvInfo}>{euro(c.valoreMercato)}{c.costo != null && <small>{w.mCost(euro(c.costo))}</small>}</Riga>
             <Riga etichetta={w.mUpl} info={w.mUplInfo}><span className={classeSegno(c.nonRealizzato)}>{euro(c.nonRealizzato, 2, true)}</span></Riga>
             <Riga etichetta={w.mRpl} info={w.mRplInfo}><span className={classeSegno(c.realizzato)}>{euro(c.realizzato, 2, true)}</span></Riga>

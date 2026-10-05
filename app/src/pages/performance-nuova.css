@@ -112,6 +112,10 @@
 .perf-hero-top { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 28px; align-items: end; }
 .perf-hero-label { display: inline-flex; gap: 6px; align-items: center; color: var(--bbn-muted); font-size: 14px; font-weight: 600; }
 .perf-hero-value { margin: 4px 0 10px; font-size: clamp(44px, 3.2vw, 56px); font-weight: 700; letter-spacing: -.035em; line-height: 1.08; }
+.perf-hero-alt { margin-left: 12px; font-size: 15px; font-weight: 700; letter-spacing: 0; color: var(--bbn-muted); white-space: nowrap; }
+.perf-hero-alt small { font-size: 12px; font-weight: 600; }
+.bb-page.bb-page-modern[data-page] .bbn-perf .bbn-seg.perf-unit { margin-left: 4px; padding: 2px; }
+.bb-page.bb-page-modern[data-page] .bbn-perf .bbn-seg.perf-unit button { min-width: 30px; padding: 3px 9px; font-size: 12px; }
 .perf-hero-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .perf-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .perf-tiles.is-two { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-top: 18px; }
@@ -158,6 +162,8 @@
 .perf-mrow > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-decoration: underline dotted var(--bbn-muted); text-underline-offset: 3px; cursor: help; }
 .perf-mrow b { font-weight: 700; white-space: nowrap; }
 .perf-mrow small { margin-left: 6px; color: var(--bbn-muted); font-weight: 600; }
+.perf-mrow.is-strong > span { color: var(--bbn-text); font-weight: 700; }
+.perf-mrow.is-strong b { font-size: 15px; font-weight: 800; }
 
 /* ── mensili ─────────────────────────────────────────────────────── */
 .perf-heat { padding: 8px 20px 18px; overflow-x: auto; }

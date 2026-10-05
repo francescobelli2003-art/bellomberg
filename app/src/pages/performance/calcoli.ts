@@ -121,6 +121,23 @@ export function pnlGiornalieri(date: string[], valori: number[], flussi: number[
   return { sedute: out, senzaFlusso, disallineata: false };
 }
 
+/** P&L in euro del periodo: somma del P&L giornaliero (pnlGiornalieri) sulle sedute DOPO la base,
+ *  cosi' euro e % del riquadro misurano la stessa finestra. Flussi disallineati o nessuna seduta = null;
+ *  i giorni senza flusso restano fuori e si contano in `esclusi` (mai 0 inventato, regola 14/07). */
+export interface PnlPeriodo { eur: number | null; esclusi: number }
+export function pnlPeriodo(date: string[], valori: number[], flussi: number[] | null | undefined, indice: number[], base: number): PnlPeriodo {
+  const p = pnlGiornalieri(date, valori, flussi, indice);
+  const da = date[Math.max(0, base)];
+  if (p.disallineata || !da) return { eur: null, esclusi: 0 };
+  const dentro = p.sedute.filter(s => s.data > da);
+  return { eur: dentro.length ? dentro.reduce((a, s) => a + s.eur, 0) : null, esclusi: p.senzaFlusso.filter(d => d > da).length };
+}
+
+/** P&L totale dall'inizio = non realizzato + realizzato + dividendi; una voce assente lo rende n.d. */
+export function pnlTotale(nonRealizzato: number | null, realizzato: number | null, dividendi: number | null): number | null {
+  return finito(nonRealizzato) && finito(realizzato) && finito(dividendi) ? nonRealizzato + realizzato + dividendi : null;
+}
+
 /** Richieste lunghe per chiave (scenari Monte Carlo): una sola in volo per chiave, e conta solo la risposta
  *  dell'ultima aperta. `apri` restituisce il numero della richiesta, o null se una e' gia' in volo e non si forza. */
 export class RichiesteUltime<K> {
