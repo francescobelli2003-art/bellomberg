@@ -343,9 +343,10 @@ test('manual divergence is offered for every non-operative status the backend ac
   }
   language.impostaLinguaCorrente('it');
   // la pagina e il pulsante della pagina Decisioni passano dall'helper, non dal letterale BLOCKED
-  for (const file of ['TradeEntryPage.tsx', 'Decisions.tsx']) {
+  // (05/10/2026: la pagina Decisioni Nuova tiene gruppi e pulsanti in pages/decisioni/)
+  for (const file of ['TradeEntryPage.tsx', 'Decisions.tsx', 'decisioni/logica.ts', 'decisioni/Vista.tsx']) {
     const src = fs.readFileSync(path.resolve(__dirname, '../../src/pages', file), 'utf8');
     assert.ok(!src.includes("=== 'BLOCKED'") && !src.includes("!== 'BLOCKED'"), file);
-    assert.ok(src.includes('statoDivergenza(d) !== null'), file);
+    if (file !== 'Decisions.tsx') assert.ok(/statoDivergenza\(\w+\) !== null/.test(src), file);
   }
 });

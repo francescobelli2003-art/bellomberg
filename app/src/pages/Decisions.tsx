@@ -1,658 +1,247 @@
-import { useEffect, useState, useCallback, useMemo, Fragment } from 'react';
-import { useT } from '@/i18n/provider';
-import { t as tr, type Chiave, type Parametri } from '@/i18n/t';
-import { linguaCorrente, localeDi, type Lingua } from '@/i18n/lingua';
-import { leggiDetail } from '@/lib/quota';
+/* Pagina Decisioni (Nuova, mockup approvato 05/10/2026: outputs/decisioni-nuova/mockup.html).
+   Viste Da decidere | In ricerca | Chiuse | Archivio, elenco + dettaglio. Il comportamento resta quello
+   di F10: lettura unica di /decisions (limit 500), archivio automatico con override del PM, veto eterno
+   con motivo obbligatorio, note di ricerca lette dalla run, ARCHIVIA/RIAPRI delle research = status.
+   Tutto lo stato sta qui (viste presentazionali; nuovi useState in coda: i test SSR indicizzano gli hook). */
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useT } from '@/i18n/provider';
+import { t as ora } from '@/i18n/t';
+import { linguaCorrente, type Lingua } from '@/i18n/lingua';
+import { leggiDetail } from '@/lib/quota';
 import ModernPage from '@/components/ModernPage';
-import { Bellomberg, Decision, DecisionNote } from '@/lib/api';
-import { fmtEUR, fmtNum, fmtPct } from '@/lib/format';
+import { Bellomberg, type Decision } from '@/lib/api';
 import { leggiNumeroConSegno } from '@/lib/cassa';
-import { assessmentAllowsExecution, decisioneCompatibile, statoDivergenza } from '@/lib/trade-entry';
-import { ChevronDown, ChevronRight, Check, X, Clock, MinusCircle, FlaskConical, Send, Archive, ArchiveRestore } from 'lucide-react';
-import './committee-modern.css';
+import { caricaLoghi } from '@/lib/loghi-remoti';
+import { assessmentAllowsExecution } from '@/lib/trade-entry';
+import { esitoPredefinito, isResearch, raggruppa, vistaDi, vociVista, type Esito, type FiltroChiuse, type TipoArchivio, type Vista } from './decisioni/logica';
+import VistaDecisioni, { statoTesto } from './decisioni/Vista';
+import type { AzioniDecisioni, Avviso, DatiDecisioni, Dialogo } from './decisioni/tipi';
+import './decisioni-nuova.css';
 
-// F10 v4 — restyle stile C scelto dal PM (17/07, mockup renderizzato F17, regola
-// 15/07: "fai anche l'opzione C per F10"): board scura con header arancio, righe con
-// sottotitolo, split 50/50 di v3 INVARIATO (era gia' scelta PM). NOVITA' funzionale:
-// ARCHIVIA / RIPORTA IN PAGINA manuali e persistenti (archive_override in DB) — il
-// click del PM vince sempre sulle regole automatiche (7gg operative / 30gg research).
-// Tutto il resto di v3 resta: thread note PM<->AI, bottoni esito, auto-archivio.
-
-const ORANGE = 'text-[#ff8c00]';
-const HDR = `${ORANGE} uppercase text-[10px] tracking-[2px]`;
-
-const STATUS_STYLE: Record<string, string> = {
-  EXECUTED: 'bg-emerald/20 text-emerald',
-  PARTIAL: 'bg-cyan/20 text-cyan',
-  PENDING: 'bg-gold/20 text-gold',
-  SKIPPED: 'bg-crimson/20 text-crimson',
-  EXPIRED: 'bg-crimson/20 text-crimson',
+// diagnosi di un numero illeggibile riletta nella lingua corrente della pagina
+const motivo = (k: 'invalidPct' | 'invalidEur', raw: string, lingua: Lingua) => {
+  const r = leggiNumeroConSegno(raw, lingua, linguaCorrente());
+  return ora(`decisiondesk.${k}`, { detail: r && !r.ok ? r.motivo : ora('decisiondesk.errorUnknown') });
 };
-
-type FeedbackMessage = { key: Chiave; params?: Parametri; error: boolean }
-  | { field: 'pct' | 'eur'; raw: string; language: Lingua };
 const detail = (error: any) => leggiDetail(error?.response?.data?.detail) || leggiDetail(error?.message) || leggiDetail(error);
-const statusLabel = (status: string) => {
-  const keys = { EXECUTED: 'executed', PARTIAL: 'partial', PENDING: 'pending', SKIPPED: 'skipped', EXPIRED: 'expired' } as const;
-  const key = keys[status as keyof typeof keys];
-  return key ? tr(`decisiondesk.${key}`) : status;
-};
-const displayDate = (iso?: string | null, withTime = false) => {
-  if (!iso) return tr('decisiondesk.na');
-  const date = new Date(iso.slice(0, 10) + 'T00:00:00');
-  if (!Number.isFinite(date.getTime())) return iso;
-  return date.toLocaleDateString(localeDi(linguaCorrente()), { day: '2-digit', month: '2-digit', year: 'numeric' })
-    + (withTime && iso.length >= 16 ? ' ' + iso.slice(11, 16) : '');
-};
-
-const giorniDa = (ts?: string | null) => {
-  if (!ts) return null;
-  const d = Math.floor((Date.now() - new Date(ts).getTime()) / 86400_000);
-  return isFinite(d) ? d : null;
-};
 
 export default function Decisions() {
   const tr = useT();
   const navigate = useNavigate();
   // The shell uses HashRouter. Reading the route query here also keeps the
   // decision desk renderable in the existing isolated i18n harness.
-  const routeQuery = typeof window !== 'undefined' ? window.location?.hash.split('?')[1] || '' : '';
+  const routeQuery = typeof window !== 'undefined' ? window.location?.hash?.split('?')[1] || '' : '';
   const linkedId = Number(new URLSearchParams(routeQuery).get('decision'));
-  const targetDecision = Number.isSafeInteger(linkedId) && linkedId > 0 ? linkedId : null;
-  const [filter, setFilter] = useState<string>('');
+  const target = Number.isSafeInteger(linkedId) && linkedId > 0 ? linkedId : null;
+
   const [decisions, setDecisions] = useState<Decision[]>([]);
-  const [expanded, setExpanded] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [avviso, setAvviso] = useState<Avviso | null>(null);
+  const [vista, setVista] = useState<Vista>('todo');
+  const [filtro, setFiltro] = useState<FiltroChiuse>('all');
+  const [tipoArch, setTipoArch] = useState<TipoArchivio>('op');
+  const [selId, setSelId] = useState<number | null>(target);
+  const [esito, setEsito] = useState<Esito | null>(null);
   const [feedback, setFeedback] = useState('');
   const [outcomePct, setOutcomePct] = useState('');
   const [outcomeEur, setOutcomeEur] = useState('');
   const [inputLanguage, setInputLanguage] = useState<Lingua>(linguaCorrente);
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<FeedbackMessage | null>(null);
-  const [noteDraft, setNoteDraft] = useState<Record<number, string>>({});
-  // F10 opzione A: motivo del veto (obbligatorio — senza testo il bottone resta spento)
   const [vetoReason, setVetoReason] = useState('');
-  const [archOpenOps, setArchOpenOps] = useState(false);
-  const [archOpenRes, setArchOpenRes] = useState(false);
-
-  const [loadErr, setLoadErr] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [noteDraft, setNoteDraft] = useState<Record<number, string>>({});
+  const [holdAperte, setHoldAperte] = useState(false);
+  const [dialogo, setDialogo] = useState<Dialogo>(null);
+  const [holdEsclusi, setHoldEsclusi] = useState<number[]>([]);
+  const [eventi, setEventi] = useState<DatiDecisioni['eventi']>(null);
+  const [targetAperto, setTargetAperto] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
-    // review 16/07: con limit=100 su 170 decisioni, 10 PENDING operative non arrivavano
-    // MAI al client e il contatore archivio sottostimava in silenzio.
-    Bellomberg.decisions(filter || undefined, 500)
+    // review 16/07: con limit=100 su 170 decisioni, 10 PENDING operative non arrivavano MAI al client.
+    // Lo stato si filtra in pagina (vista Chiuse): una sola lettura per tutte le viste.
+    return Bellomberg.decisions(undefined, 500)
       .then(r => {
         if (!Array.isArray(r?.decisions)) { setLoadErr(''); return; }
         setLoadErr(null); setDecisions(r.decisions);
       })
       .catch((e: any) => setLoadErr(detail(e)))
       .finally(() => setLoading(false));
-  }, [filter]);
+  }, []);
   useEffect(() => { load(); }, [load]);
 
-  // F10 v3: il gruppo archivio arriva dal backend ('archived', override incluso);
-  // fallback client con le STESSE regole per backend non ancora riavviato.
-  const isArchived = (d: Decision) => {
-    if (d.archive_override != null) return !!d.archive_override;
-    if (typeof d.archived === 'boolean') return d.archived;
-    const res = (d.action || '').toUpperCase() === 'RESEARCH';
-    if (res) return d.status !== 'PENDING';
-    const g = giorniDa(d.timestamp);
-    return g != null && g > 7;
-  };
-  const tutteProposte = decisions.filter(d => (d.action || '').toUpperCase() !== 'RESEARCH');
-  const tuttaResearch = decisions.filter(d => (d.action || '').toUpperCase() === 'RESEARCH');
-  const proposte = tutteProposte.filter(d => !isArchived(d));
-  const archProposte = tutteProposte.filter(d => isArchived(d));
-  const research = tuttaResearch.filter(d => !isArchived(d));
-  const archResearch = tuttaResearch.filter(d => isArchived(d));
-  const archiveEstimated = decisions.filter(d => d.archive_override == null && typeof d.archived !== 'boolean').length;
-  const countLabel = (n: number) => loadErr !== null ? tr('decisiondesk.na') : loading ? '…' : fmtNum(n, 0);
+  const gruppi = useMemo(() => raggruppa(decisions), [decisions]);
+  const voci = vociVista(gruppi, vista, filtro, tipoArch);
+  const sel = decisions.find(d => d.id === selId) ?? null;
+  const selVisibile = !!sel && voci.some(d => d.id === sel.id);
+  const selMostrata = selVisibile ? sel : voci[0] ?? null;
 
+  // collegamento ?decision=ID: si apre la vista dove vive la decisione, una volta sola
   useEffect(() => {
-    if (loading || loadErr !== null || targetDecision == null) return;
-    const selected = decisions.find(d => d.id === targetDecision);
-    if (!selected) return;
-    if (isArchived(selected)) {
-      if ((selected.action || '').toUpperCase() === 'RESEARCH') setArchOpenRes(true);
-      else setArchOpenOps(true);
-    }
-    if ((selected.action || '').toUpperCase() !== 'RESEARCH') setExpanded(targetDecision);
-    const timer = setTimeout(() => document.getElementById(`decision-${targetDecision}`)?.scrollIntoView({ block: 'center' }), 60);
+    if (loading || loadErr !== null || target == null || targetAperto) return;
+    const d = decisions.find(x => x.id === target);
+    setTargetAperto(true);
+    if (!d) return;
+    const v = vistaDi(d);
+    setVista(v);
+    if (v === 'arch') setTipoArch(isResearch(d) ? 'res' : 'op');
+    if (v === 'closed') setFiltro('all');
+    setSelId(d.id);
+    const timer = setTimeout(() => document.getElementById(`decision-${d.id}`)?.scrollIntoView({ block: 'center' }), 60);
     return () => clearTimeout(timer);
-  }, [decisions, loading, loadErr, targetDecision]);
+  }, [decisions, loading, loadErr, target, targetAperto]);
 
-  const toggle = (id: number) => {
-    setExpanded(expanded === id ? null : id);
-    setInputLanguage(linguaCorrente());
-    setFeedback(''); setOutcomePct(''); setOutcomeEur(''); setVetoReason(''); setMsg(null);
-  };
+  // cronologia (registro eventi) della proposta operativa aperta: sola lettura
+  const idCronologia = selMostrata && !isResearch(selMostrata) ? selMostrata.id : null;
+  useEffect(() => {
+    let vivo = true;
+    if (idCronologia == null) return () => { vivo = false; };
+    setEventi({ id: idCronologia, lista: null, err: null });
+    const leggi = Bellomberg.decisionEvents;
+    if (typeof leggi !== 'function') return () => { vivo = false; };
+    leggi(idCronologia).then(r => { if (vivo) setEventi({ id: idCronologia, lista: Array.isArray(r?.events) ? r.events : [], err: null }); })
+      .catch(e => { if (vivo) setEventi({ id: idCronologia, lista: null, err: detail(e) || tr('decisiondesk.errorUnknown') }); });
+    return () => { vivo = false; };
+  }, [idCronologia, decisions]);
 
-  // ⚠ Outcome scritti a mano: l'app gira in en-GB e su <input type="number"> la
-  // virgola veniva CANCELLATA senza badInput (12,5 → 125 nel DB). Stessa cura di
-  // F7 (lib/cassa.ts), variante col segno: un outcome può essere perdita o pari.
+  // loghi delle società (stesso store di Centro di comando e Mercati): una richiesta per i ticker nuovi
+  const tickerLoghi = [...new Set(decisions.map(d => (d.ticker || '').toUpperCase()).filter(Boolean))].sort().join(',');
+  useEffect(() => { if (tickerLoghi) caricaLoghi(tickerLoghi.split(',')); }, [tickerLoghi]);
+
+  // ⚠ Outcome scritti a mano: l'app gira in en-GB e su <input type="number"> la virgola veniva
+  // CANCELLATA senza badInput (12,5 → 125 nel DB). Lettura come F7 (lib/cassa.ts), variante col segno.
   const letturaPct = useMemo(() => leggiNumeroConSegno(outcomePct, inputLanguage, linguaCorrente()), [outcomePct, inputLanguage, tr]);
   const letturaEur = useMemo(() => leggiNumeroConSegno(outcomeEur, inputLanguage, linguaCorrente()), [outcomeEur, inputLanguage, tr]);
-  const inputHint = tr(inputLanguage === 'it' ? 'decisiondesk.inputIt' : 'decisiondesk.inputEn');
-  const messageText = (() => {
-    if (!msg) return '';
-    if ('field' in msg) {
-      const parsed = leggiNumeroConSegno(msg.raw, msg.language, linguaCorrente());
-      return tr(msg.field === 'pct' ? 'decisiondesk.invalidPct' : 'decisiondesk.invalidEur', {
-        detail: parsed && !parsed.ok ? parsed.motivo : tr('decisiondesk.errorUnknown'),
-      });
-    }
-    const params = msg.key === 'decisiondesk.updated' && msg.params ? { ...msg.params, status: statusLabel(String(msg.params.status)) } : msg.params;
-    return tr(msg.key, msg.error && params ? { ...params, detail: params.detail || tr('decisiondesk.errorUnknown') } : params);
-  })();
+  const eseguibile = !!selMostrata && assessmentAllowsExecution(selMostrata);
+  const esitoEffettivo: Esito = selMostrata
+    ? (esito && (eseguibile || (esito !== 'EXECUTED' && esito !== 'PARTIAL')) ? esito : esitoPredefinito(selMostrata, eseguibile))
+    : 'EXECUTED';
 
-  const setStatus = async (d: Decision, status: string) => {
+  const azzeraBozza = () => {
+    setEsito(null); setFeedback(''); setOutcomePct(''); setOutcomeEur(''); setVetoReason('');
+    setInputLanguage(linguaCorrente());
+  };
+  const scegli = (id: number) => { if (id !== selMostrata?.id) azzeraBozza(); setSelId(id); };
+
+  // i messaggi si compongono alla resa (lingua corrente), non al momento dell'azione
+  const esegui = async (fn: () => Promise<Avviso | null>, errore: (detail: string) => string) => {
+    setSaving(true); setAvviso(null);
+    try { const out = await fn(); if (out) setAvviso(out); await load(); }
+    catch (e: any) { const why = detail(e); setAvviso({ errore: true, testo: () => errore(why || ora('decisiondesk.errorUnknown')) }); }
+    finally { setSaving(false); }
+  };
+  const ok = (testo: () => string): Avviso => ({ errore: false, testo });
+
+  const setStatus = (d: Decision, status: string) => {
     // un outcome illeggibile non si scarta in silenzio: blocca e spiega
-    if (letturaPct && !letturaPct.ok) { setMsg({ field: 'pct', raw: outcomePct, language: inputLanguage }); return; }
-    if (letturaEur && !letturaEur.ok) { setMsg({ field: 'eur', raw: outcomeEur, language: inputLanguage }); return; }
-    setSaving(true); setMsg(null);
-    try {
+    if (letturaPct && !letturaPct.ok) { const raw = outcomePct, l = inputLanguage; setAvviso({ errore: true, testo: () => motivo('invalidPct', raw, l) }); return; }
+    if (letturaEur && !letturaEur.ok) { const raw = outcomeEur, l = inputLanguage; setAvviso({ errore: true, testo: () => motivo('invalidEur', raw, l) }); return; }
+    return esegui(async () => {
       const body: Record<string, unknown> = { status };
       if (feedback.trim()) body.pm_feedback = feedback.trim();
       if (letturaPct && letturaPct.ok) body.outcome_pct = letturaPct.valore;
       if (letturaEur && letturaEur.ok) body.outcome_eur = letturaEur.valore;
       await Bellomberg.updateDecision(d.id, body);
-      setMsg({ key: 'decisiondesk.updated', params: { id: d.id, status }, error: false });
-      load();
-    } catch (e: any) {
-      setMsg({ key: 'decisiondesk.error', params: { detail: detail(e) }, error: true });
-    } finally {
-      setSaving(false);
-    }
+      azzeraBozza();
+      return ok(() => ora('decisiondesk.updated', { id: d.id, status: statoTesto(status).toLowerCase() }));
+    }, x => ora('decisiondesk.error', { detail: x }));
   };
 
-  // F10 opzione A: veto eterno (SKIPPED + flag; il canale della run lo legge per sempre)
-  const setVeto = async (d: Decision) => {
-    const motivo = vetoReason.trim();
-    if (!motivo) return;
-    setSaving(true); setMsg(null);
-    try {
-      await Bellomberg.vetoDecision(d.id, motivo);
-      setVetoReason('');
-      setMsg({ key: 'decisiondesk.vetoActive', params: { id: d.id }, error: false });
-      load();
-    } catch (e: any) {
-      setMsg({ key: 'decisiondesk.vetoError', params: { detail: detail(e) }, error: true });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const revokeVeto = async (d: Decision) => {
-    if (!window.confirm(tr('decisiondesk.f001', {a: d.id, b: d.ticker}))) return;
-    setSaving(true); setMsg(null);
-    try {
-      await Bellomberg.revokeDecisionVeto(d.id);
-      setMsg({ key: 'decisiondesk.vetoRevoked', params: { id: d.id }, error: false });
-      load();
-    } catch (e: any) {
-      setMsg({ key: 'decisiondesk.revokeError', params: { detail: detail(e) }, error: true });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // F10-C: archivia / riporta in pagina — persistente, vince sull'automatico
-  const setArchive = async (d: Decision, archived: boolean | null) => {
-    setSaving(true); setMsg(null);
-    try {
+  const azioni: AzioniDecisioni = {
+    vista: v => { setVista(v); azzeraBozza(); setSelId(null); },
+    filtro: f => setFiltro(f),
+    tipoArch: t => { setTipoArch(t); setSelId(null); },
+    scegli,
+    vaiA: d => {
+      const v = vistaDi(d);
+      setVista(v);
+      if (v === 'arch') setTipoArch(isResearch(d) ? 'res' : 'op');
+      if (v === 'closed') setFiltro('all');
+      if (v === 'todo' && (d.action || '').toUpperCase() === 'HOLD') setHoldAperte(true);
+      scegli(d.id);
+    },
+    riprova: () => { load(); },
+    esito: e => setEsito(e),
+    feedback: setFeedback,
+    pct: setOutcomePct,
+    eur: setOutcomeEur,
+    confermaEsito: () => selMostrata ? setStatus(selMostrata, esitoEffettivo) : undefined,
+    riapri: () => selMostrata ? setStatus(selMostrata, 'PENDING') : undefined,
+    vetoReason: setVetoReason,
+    apriDialogo: d => { setDialogo(d); if (d?.tipo === 'hold') setHoldEsclusi([]); },
+    chiudiDialogo: () => setDialogo(null),
+    okDialogo: () => {
+      const dlg = dialogo;
+      if (!dlg) return;
+      setDialogo(null);
+      const d = 'id' in dlg ? decisions.find(x => x.id === dlg.id) : null;
+      if (dlg.tipo === 'veto' && d) {
+        // F10 opzione A: veto eterno (SKIPPED + flag; il canale della run lo legge per sempre)
+        const motivo = vetoReason.trim();
+        if (!motivo) return;
+        return esegui(async () => { await Bellomberg.vetoDecision(d.id, motivo); setVetoReason(''); return ok(() => ora('decisiondesk.vetoActive', { id: d.id })); },
+          x => ora('decisiondesk.vetoError', { detail: x }));
+      }
+      if (dlg.tipo === 'revoca' && d) return esegui(async () => { await Bellomberg.revokeDecisionVeto(d.id); return ok(() => ora('decisiondesk.vetoRevoked', { id: d.id })); },
+        x => ora('decisiondesk.revokeError', { detail: x }));
+      if (dlg.tipo === 'hold') {
+        // nessuna operazione di massa nel backend: una conferma alla volta, gli errori si dichiarano tutti
+        const lista = gruppi.conferme.filter(x => !holdEsclusi.includes(x.id));
+        return esegui(async () => {
+          const falliti: string[] = [];
+          for (const x of lista) {
+            try { await Bellomberg.updateDecision(x.id, { status: 'EXECUTED' }); }
+            catch (e: any) { falliti.push(`${x.ticker} (${detail(e) || ora('decisiondesk.errorUnknown')})`); }
+          }
+          if (falliti.length) return { errore: true, testo: () => ora('decisiondesk.holdPartial', { ok: lista.length - falliti.length, n: lista.length, failed: falliti.join(', ') }) };
+          return ok(() => ora(lista.length === 1 ? 'decisiondesk.holdDone_one' : 'decisiondesk.holdDone_other', { n: lista.length }));
+        }, x => ora('decisiondesk.error', { detail: x }));
+      }
+    },
+    escludiHold: id => setHoldEsclusi(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]),
+    holdAperte: () => setHoldAperte(v => !v),
+    // F10-C: archivia / riporta in pagina — persistente, vince sull'automatico (null = di nuovo automatico)
+    archivia: (d, archived) => esegui(async () => {
       await Bellomberg.setDecisionArchive(d.id, archived);
-      setMsg({ key: archived === null ? 'decisiondesk.archiveAuto' : archived ? 'decisiondesk.archived' : 'decisiondesk.restored', params: { id: d.id }, error: false });
-      load();
-    } catch (e: any) {
-      setMsg({ key: 'decisiondesk.archiveError', params: { detail: detail(e) }, error: true });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // decisione PM 17/07 (opzione B): sulle RESEARCH un bottone = un significato —
-  // ARCHIVIA chiude DAVVERO (status EXPIRED: la run la molla), RIPORTA riapre
-  // DAVVERO (status PENDING: la run la riprende al giro dopo). L'override resta
-  // per le operative; sulle research si azzera per lasciare comandare lo status.
-  const closeResearch = async (d: Decision) => {
-    setSaving(true); setMsg(null);
-    try {
+      return ok(() => ora(archived === null ? 'decisiondesk.archiveAuto' : archived ? 'decisiondesk.archived' : 'decisiondesk.restored', { id: d.id }));
+    }, x => ora('decisiondesk.archiveError', { detail: x })),
+    // decisione PM 17/07 (opzione B): sulle RESEARCH ARCHIVIA chiude DAVVERO (EXPIRED: la run la molla),
+    // RIPORTA riapre DAVVERO (PENDING); l'override si azzera per lasciare comandare lo status.
+    chiudiRicerca: d => esegui(async () => {
       await Bellomberg.updateDecision(d.id, { status: 'EXPIRED' });
       if (d.archive_override != null) await Bellomberg.setDecisionArchive(d.id, null);
-      setMsg({ key: 'decisiondesk.researchClosed', params: { id: d.id }, error: false });
-      load();
-    } catch (e: any) {
-      setMsg({ key: 'decisiondesk.error', params: { detail: detail(e) }, error: true });
-    } finally {
-      setSaving(false);
-    }
-  };
-  const reopenResearch = async (d: Decision) => {
-    setSaving(true); setMsg(null);
-    try {
+      return ok(() => ora('decisiondesk.researchClosed', { id: d.id }));
+    }, x => ora('decisiondesk.error', { detail: x })),
+    riapriRicerca: d => esegui(async () => {
       await Bellomberg.updateDecision(d.id, { status: 'PENDING' });
       if (d.archive_override != null) await Bellomberg.setDecisionArchive(d.id, null);
-      setMsg({ key: 'decisiondesk.researchReopened', params: { id: d.id }, error: false });
-      load();
-    } catch (e: any) {
-      setMsg({ key: 'decisiondesk.error', params: { detail: detail(e) }, error: true });
-    } finally {
-      setSaving(false);
-    }
+      return ok(() => ora('decisiondesk.researchReopened', { id: d.id }));
+    }, x => ora('decisiondesk.error', { detail: x })),
+    nota: v => { if (selMostrata) { const id = selMostrata.id; setNoteDraft(prev => ({ ...prev, [id]: v })); } },
+    inviaNota: () => {
+      const d = selMostrata;
+      const testo = d ? (noteDraft[d.id] || '').trim() : '';
+      if (!d || !testo || saving) return;
+      return esegui(async () => { await Bellomberg.addDecisionNote(d.id, testo); setNoteDraft(prev => ({ ...prev, [d.id]: '' })); return null; },
+        x => ora('decisiondesk.noteError', { detail: x }));
+    },
+    collegaTrade: d => navigate(`/trades?decision=${d.id}`),
+    divergenza: d => navigate(`/trades?divergence=${d.id}`),
+    apriRicercaCollegata: d => d.trade_idea && navigate(`/agents/trade-idea?run=${encodeURIComponent(d.trade_idea.run_id)}`),
+    apriMemo: () => navigate('/memos'),
+    chiudiAvviso: () => setAvviso(null),
   };
 
-  const sendNote = async (d: Decision) => {
-    const testo = (noteDraft[d.id] || '').trim();
-    if (!testo) return;
-    setSaving(true); setMsg(null);
-    try {
-      await Bellomberg.addDecisionNote(d.id, testo);
-      setNoteDraft(prev => ({ ...prev, [d.id]: '' }));
-      load();
-    } catch (e: any) {
-      setMsg({ key: 'decisiondesk.noteError', params: { detail: detail(e) }, error: true });
-    } finally {
-      setSaving(false);
-    }
+  const dati: DatiDecisioni = {
+    lingua: linguaCorrente(), decisions, gruppi, loading, loadErr, avviso, saving, vista, filtro, tipoArch,
+    sel: selMostrata, target,
+    targetMancante: target != null && !loading && loadErr === null && !decisions.some(d => d.id === target),
+    stimate: decisions.filter(d => d.archive_override == null && typeof d.archived !== 'boolean').length,
+    esito: esitoEffettivo, eseguibile, feedback, pct: outcomePct, eur: outcomeEur, letturaPct, letturaEur,
+    suggerimentoFormato: tr(inputLanguage === 'it' ? 'decisiondesk.inputIt' : 'decisiondesk.inputEn'),
+    vetoReason, nota: selMostrata ? noteDraft[selMostrata.id] || '' : '', holdAperte, dialogo, holdEsclusi, eventi,
   };
-
-  // bottone archivio contestuale (attiva -> ARCHIVIA; archiviata -> RIPORTA IN PAGINA)
-  const archiveBtn = (d: Decision, archived: boolean, compact = false) => (
-    <span className="inline-flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
-      {!archived ? (
-        <button disabled={saving} onClick={() => setArchive(d, true)}
-          title={tr('decisiondesk.f002')}
-          className={`${compact ? 'px-1.5 py-0.5' : 'px-2.5 py-1'} text-[10px] border border-border text-muted hover:text-[#ffb000] hover:border-[#7a5b1e] inline-flex items-center gap-1 disabled:opacity-50`}>
-          <Archive size={10} /> {tr('decisiondesk.f003')}
-        </button>
-      ) : (
-        <button disabled={saving} onClick={() => setArchive(d, false)}
-          title={tr('decisiondesk.f004')}
-          className={`${compact ? 'px-1.5 py-0.5' : 'px-2.5 py-1'} text-[10px] border border-[#7a5b1e] bg-[#1c1305] text-[#ffb000] hover:bg-[#33240a] inline-flex items-center gap-1 disabled:opacity-50`}>
-          <ArchiveRestore size={10} /> {tr('decisiondesk.f005')}
-        </button>
-      )}
-      {/* review 17/07 F8: nel compact solo il pin (gia' in riga); ⟲ auto vive nel dettaglio/card */}
-      {!compact && d.archive_override != null && (
-        <button disabled={saving} onClick={() => setArchive(d, null)}
-          title={tr('decisiondesk.f006')}
-          className="text-[9px] text-faint hover:text-muted underline decoration-dotted disabled:opacity-50">
-          {tr('decisiondesk.f007')}
-        </button>
-      )}
-    </span>
-  );
-
-  // ---------- colonna sinistra: DECISIONI OPERATIVE ----------
-  const detailRowOps = (d: Decision, archived: boolean) => (
-    <tr key={`${d.id}-detail`} className="border-b border-border/30 bg-[#0a0a0a]">
-      <td colSpan={6} className="p-4">{/* review 17/07: 6 colonne nel layout C */}
-        <div className="space-y-3 text-sm">
-          <div className="flex gap-6 text-xs text-muted flex-wrap">
-            <span>ID: <span className="text-white">#{d.id}</span></span>
-            <span>{tr('decisiondesk.f008')} <span className="text-white">{d.confidence || tr('decisiondesk.na')}</span></span>
-            {d.timing && <span>{tr('decisiondesk.f009')} <span className="text-white">{d.timing}</span></span>}
-            {d.memo_id && <span>{tr('decisiondesk.f010')} <span className="text-gold">#{d.memo_id}</span> {tr('decisiondesk.f011')}</span>}
-            {d.closed_at && <span>{tr('decisiondesk.f012')} {displayDate(d.closed_at)}</span>}
-          </div>
-          {ideaProvenance(d)}
-          <div>
-            <div className={`${HDR} mb-1`}>{tr('decisiondesk.f013')}</div>
-            <p className="text-white/90 whitespace-pre-wrap">{d.rationale || tr('decisiondesk.f014')}</p>
-            {d.rationale && <span className="text-[10px] text-faint">{tr('decisiondesk.archivedText')}</span>}
-          </div>
-          {!!d.veto && (
-            <div className="border border-crimson/60 bg-crimson/10 rounded px-3 py-2 text-xs"
-                 onClick={e => e.stopPropagation()}>
-              <span className="text-crimson font-semibold">{tr('decisiondesk.f015')} {displayDate(d.veto_at)}</span>
-              <span className="text-white/90"> — “{d.veto_reason}{tr('decisiondesk.f016')}{d.id} {tr('decisiondesk.f017')}</span>
-              <button disabled={saving} onClick={() => revokeVeto(d)}
-                className="ml-3 underline decoration-dotted text-muted hover:text-crimson disabled:opacity-50">
-                {tr('decisiondesk.f018')}
-              </button>
-            </div>
-          )}
-          {d.pm_feedback && (
-            <div>
-              <div className={`${HDR} mb-1`}>{tr('decisiondesk.f019')}</div>
-              <p className="text-muted whitespace-pre-wrap">{d.pm_feedback}</p>
-            </div>
-          )}
-          {d.outcome_notes && (
-            <div>
-              <div className={`${HDR} mb-1`}>{tr('decisiondesk.f020')}</div>
-              <p className="text-muted whitespace-pre-wrap">{d.outcome_notes}</p>
-            </div>
-          )}
-          {!!d.manual_divergences?.length && <div className="border border-crimson/40 bg-crimson/5 rounded px-3 py-2">
-            <div className="text-[10px] uppercase tracking-wider text-crimson mb-1">
-              {tr('decisiondesk.manual_divergence_title')}
-            </div>
-            {d.manual_divergences.map(event => <p key={event.id} className="text-xs text-white/80">
-              {tr('decisiondesk.manual_divergence_trade', {
-                id: event.details.trade_id,
-                action: event.details.trade_action,
-                ticker: event.details.ticker_eseguito,
-                date: displayDate(event.details.trade_data, true),
-                reason: event.reason,
-              })}
-              {event.details.isin ? tr('decisiondesk.manual_divergence_isin', { isin: event.details.isin }) : ''}
-            </p>)}
-          </div>}
-          <div className="border-t border-border/40 pt-3 space-y-2" onClick={e => e.stopPropagation()}>
-            <div className="flex gap-2 items-center flex-wrap">
-              <input value={feedback} onChange={e => setFeedback(e.target.value)}
-                placeholder={tr('decisiondesk.f021')}
-                className="bg-bg border border-border rounded px-2 py-1 text-xs w-64" />
-              <input value={outcomePct} onChange={e => setOutcomePct(e.target.value)}
-                placeholder={tr('decisiondesk.f022')} type="text" inputMode="decimal"
-                aria-invalid={!!(letturaPct && !letturaPct.ok)}
-                title={letturaPct && !letturaPct.ok ? letturaPct.motivo : inputHint}
-                className={`bg-bg border rounded px-2 py-1 text-xs w-24 ${letturaPct && !letturaPct.ok ? 'border-crimson text-crimson' : 'border-border'}`} />
-              <input value={outcomeEur} onChange={e => setOutcomeEur(e.target.value)}
-                placeholder={tr('decisiondesk.f023')} type="text" inputMode="decimal"
-                aria-invalid={!!(letturaEur && !letturaEur.ok)}
-                title={letturaEur && !letturaEur.ok ? letturaEur.motivo : inputHint}
-                className={`bg-bg border rounded px-2 py-1 text-xs w-24 ${letturaEur && !letturaEur.ok ? 'border-crimson text-crimson' : 'border-border'}`} />
-            </div>
-            <div className="flex gap-2 flex-wrap items-center">
-              {decisioneCompatibile(d, d.ticker, d.action) && (
-                <button onClick={() => navigate(`/trades?decision=${d.id}`)}
-                  className="px-3 py-1 text-xs rounded border border-cyan text-cyan hover:bg-cyan/20">
-                  {tr('decisiondesk.f024')}
-                </button>
-              )}
-              {statoDivergenza(d) !== null && (
-                <button onClick={() => navigate(`/trades?divergence=${d.id}`)}
-                  className="px-3 py-1 text-xs rounded border border-crimson/60 text-crimson hover:bg-crimson/10">
-                  {tr('decisiondesk.record_manual_divergence')}
-                </button>
-              )}
-              {d.esecuzione && <span className="text-xs text-muted">
-                {tr('decisiondesk.f025')} {fmtEUR(d.esecuzione.eur)}
-                {d.esecuzione.pct != null ? tr('decisiondesk.f026', {a: fmtNum(d.esecuzione.pct, 1)}) : tr('decisiondesk.f027')}
-                {' · '}{d.esecuzione.trade_ids.map(id => `#${id}`).join(', ')}
-                {d.esecuzione.inferito ? tr('decisiondesk.f028') : tr('decisiondesk.f029')}
-              </span>}
-              {assessmentAllowsExecution(d) && <>
-                <button disabled={saving} onClick={() => setStatus(d, 'EXECUTED')}
-                  className="px-3 py-1 text-xs rounded bg-emerald/20 text-emerald hover:bg-emerald/30 flex items-center gap-1 disabled:opacity-50">
-                  <Check size={12} /> {statusLabel('EXECUTED')}
-                </button>
-                <button disabled={saving} onClick={() => setStatus(d, 'PARTIAL')}
-                  className="px-3 py-1 text-xs rounded bg-cyan/20 text-cyan hover:bg-cyan/30 flex items-center gap-1 disabled:opacity-50">
-                  <MinusCircle size={12} /> {statusLabel('PARTIAL')}
-                </button>
-              </>}
-              <button disabled={saving} onClick={() => setStatus(d, 'SKIPPED')}
-                className="px-3 py-1 text-xs rounded bg-crimson/20 text-crimson hover:bg-crimson/30 flex items-center gap-1 disabled:opacity-50">
-                <X size={12} /> {statusLabel('SKIPPED')}
-              </button>
-              <button disabled={saving} onClick={() => setStatus(d, 'EXPIRED')}
-                className="px-3 py-1 text-xs rounded bg-panel text-muted hover:text-crimson flex items-center gap-1 disabled:opacity-50">
-                <Clock size={12} /> {statusLabel('EXPIRED')}
-              </button>
-              {!d.veto && (
-                <span className="inline-flex items-center gap-1">
-                  <input value={vetoReason} onChange={e => setVetoReason(e.target.value)}
-                    placeholder={tr('decisiondesk.f030')}
-                    title={tr('decisiondesk.f031')}
-                    className="bg-bg border border-crimson/40 rounded px-2 py-1 text-xs w-56" />
-                  <button disabled={saving || !vetoReason.trim()} onClick={() => setVeto(d)}
-                    title={tr('decisiondesk.f032')}
-                    className="px-3 py-1 text-xs rounded border border-crimson text-crimson bg-crimson/10 hover:bg-crimson/25 flex items-center gap-1 disabled:opacity-40">
-                    {tr('decisiondesk.f033')}
-                  </button>
-                </span>
-              )}
-              {d.status !== 'PENDING' && !d.veto && (
-                <button disabled={saving} onClick={() => setStatus(d, 'PENDING')}
-                  className="px-3 py-1 text-xs rounded bg-gold/20 text-gold hover:bg-gold/30 disabled:opacity-50">
-                  {tr('decisiondesk.f034')}
-                </button>
-              )}
-              <span className="ml-auto">{archiveBtn(d, archived)}</span>
-            </div>
-          </div>
-        </div>
-      </td>
-    </tr>
-  );
-
-  const opsRows = (list: Decision[], archived: boolean) => list.map(d => (
-    <Fragment key={d.id}>
-      <tr id={`decision-${d.id}`} onClick={() => toggle(d.id)}
-          className={`border-b border-border/20 hover:bg-bg/40 cursor-pointer ${targetDecision === d.id ? 'outline outline-1 outline-gold' : ''}`}>
-        <td className="text-muted pl-2">
-          {expanded === d.id ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-        </td>
-        <td className="py-1.5">
-          {/* stile C: riga principale + sottotitolo */}
-          <div className="font-mono font-semibold text-white text-sm">{d.ticker}
-            <span className="text-gold text-xs ml-2">{d.action}</span>
-            {!!d.veto && <span className="text-[9px] px-1.5 py-0.5 ml-2 rounded border border-crimson text-crimson bg-crimson/10" title={tr('decisiondesk.f035', {a: displayDate(d.veto_at), b: d.veto_reason || ''})}>⛔ VETO</span>}
-            {d.archive_override != null && <span className="text-[9px] text-faint ml-2" title={tr('decisiondesk.f036')}>📌</span>}
-          </div>
-          <div className="text-[10px] text-faint truncate max-w-[260px]">
-            {displayDate(d.timestamp)}{d.rationale ? ` · ${d.rationale}` : ''}
-          </div>
-          {d.assessment_status && <div className={`text-[10px] mt-0.5 ${d.assessment_status === 'OPERATIVE' ? 'text-emerald' : 'text-crimson'}`}>
-            {d.assessment_status}{d.assessment_reason ? ` · ${d.assessment_reason}` : ''}
-          </div>}
-        </td>
-        <td className="text-right text-xs font-mono">{d.eur_amount != null ? fmtEUR(d.eur_amount, true) : '-'}</td>
-        <td className="text-center">
-          <span className={`text-[10px] px-2 py-0.5 rounded ${STATUS_STYLE[d.status] || 'bg-panel text-muted'}`}>
-            {statusLabel(d.status)}
-          </span>
-        </td>
-        <td className={`text-right text-xs font-mono ${(d.outcome_pct || 0) >= 0 ? 'pl-positive' : 'pl-negative'}`}>
-          {d.outcome_pct != null ? fmtPct(d.outcome_pct, true, 1) : '-'}
-        </td>
-        <td className="text-right pr-2">{archiveBtn(d, archived, true)}</td>
-      </tr>
-      {expanded === d.id && detailRowOps(d, archived)}
-    </Fragment>
-  ));
-
-  const opsHeader = (
-    <thead>
-      <tr className="bg-[#141414]">
-        <th className="w-6"></th>
-        <th className={`text-left py-1.5 ${HDR}`}>{tr('decisiondesk.f037')}</th>
-        <th className={`text-right ${HDR}`}>EUR</th>
-        <th className={`text-center ${HDR}`}>{tr('decisiondesk.f038')}</th>
-        <th className={`text-right ${HDR}`}>{tr('decisiondesk.f039')}</th>
-        <th className={`text-right pr-2 ${HDR}`}>{tr('decisiondesk.f040')}</th>
-      </tr>
-    </thead>
-  );
-
-  // ---------- colonna destra: PIPELINE RESEARCH (card + thread note) ----------
-  const noteBubble = (n: DecisionNote) => (
-    <div key={n.id}
-         className={`text-xs rounded px-2 py-1.5 mb-1.5 border-l-2 ${n.autore === 'PM'
-           ? 'bg-panel border-gold' : 'bg-bg/60 border-border-bright'}`}>
-      <span className="text-[10px] uppercase tracking-wider text-muted">
-        {n.autore} · {displayDate(n.timestamp, true)}
-      </span>
-      <p className="text-white/85 whitespace-pre-wrap mt-0.5">{n.testo}</p>
-    </div>
-  );
-
-  const ideaProvenance = (d: Decision) => d.trade_idea && (
-    <div className="text-xs mt-1.5" onClick={event => event.stopPropagation()}>
-      <button className="text-cyan underline underline-offset-2"
-        onClick={() => navigate(`/agents/trade-idea?run=${encodeURIComponent(d.trade_idea!.run_id)}`)}>
-        {tr('tradeidea.linkedResearch')}
-      </button>
-      {d.trade_idea.destination_kind === 'dcn' &&
-        (d.trade_idea.technical_status !== 'completed' || !d.trade_idea.artifacts_ready) && (
-        <p className="text-crimson mt-1" role="status">
-          {tr('tradeidea.decisionBlocked')} {d.trade_idea.destination_reason || ''}
-        </p>
-      )}
-    </div>
-  );
-
-  const researchCard = (d: Decision, archived: boolean) => {
-    const g = giorniDa(d.timestamp);
-    return (
-      <div key={d.id} id={`decision-${d.id}`}
-           className={`bg-black/40 border p-3 mb-3 ${targetDecision === d.id ? 'border-gold' : 'border-border'} ${archived ? 'opacity-75' : ''}`}>
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-mono font-semibold text-white">{d.ticker}</span>
-          <span className={`text-[10px] px-2 py-0.5 rounded ${STATUS_STYLE[d.status] || 'bg-panel text-muted'}`}>
-            {d.status === 'PENDING' ? tr('decisiondesk.f041', {a: g != null ? tr('decisiondesk.f042', {a: g}) : ''}) : statusLabel(d.status)}
-          </span>
-          {d.memo_id && <span className="text-[10px] text-muted">memo #{d.memo_id}</span>}
-          {d.archive_override != null && <span className="text-[9px] text-faint" title={tr('decisiondesk.f043')}>{tr('decisiondesk.f044')}</span>}
-          <span className="ml-auto text-[10px] text-muted">#{d.id} · {displayDate(d.timestamp)}</span>
-        </div>
-        {d.rationale && <p className="text-xs text-white/80 mt-1.5 whitespace-pre-wrap">{d.rationale}</p>}
-        {ideaProvenance(d)}
-        {d.rationale && <span className="text-[10px] text-faint">{tr('decisiondesk.archivedText')}</span>}
-        {d.timing && <p className="text-[11px] text-cyan mt-1">{tr('decisiondesk.f045')} {d.timing}</p>}
-        {d.outcome_notes && <p className="text-[10px] text-muted italic mt-1">{d.outcome_notes}</p>}
-        <div className="mt-2 pt-2 border-t border-dashed border-border/60">
-          {(d.notes || []).map(noteBubble)}
-          {/* review 17/07 (ALTA F2): la run legge SOLO le research PENDING — l'input
-              note compare solo se la nota verra' DAVVERO letta; altrimenti si dichiara */}
-          {!archived && d.status === 'PENDING' && (
-            <div className="flex gap-2 items-center mt-1.5">
-              <input value={noteDraft[d.id] || ''}
-                onChange={e => setNoteDraft(prev => ({ ...prev, [d.id]: e.target.value }))}
-                onKeyDown={e => { if (e.key === 'Enter') sendNote(d); }}
-                placeholder={tr('decisiondesk.f046')}
-                className="bg-bg border border-border rounded px-2 py-1 text-xs flex-1" />
-              <button disabled={saving || !(noteDraft[d.id] || '').trim()} onClick={() => sendNote(d)}
-                className="px-2.5 py-1 text-xs rounded bg-gold text-bg font-semibold flex items-center gap-1 disabled:opacity-40">
-                <Send size={11} /> {tr('decisiondesk.f047')}
-              </button>
-            </div>
-          )}
-          {!archived && d.status !== 'PENDING' && (
-            <p className="text-[10px] text-faint mt-1.5">
-              {tr('decisiondesk.f048')} {d.status}{tr('decisiondesk.f049')}
-            </p>
-          )}
-          <div className="flex gap-2 mt-2 items-center flex-wrap">
-            {!archived ? (
-              <>
-                <button disabled={saving} onClick={() => closeResearch(d)}
-                  title={tr('decisiondesk.f050')}
-                  className="px-2.5 py-1 text-[10px] border border-border text-muted hover:text-[#ffb000] hover:border-[#7a5b1e] inline-flex items-center gap-1 disabled:opacity-50">
-                  <Archive size={10} /> {tr('decisiondesk.f051')}
-                </button>
-                {d.status !== 'PENDING' && (
-                  <button disabled={saving} onClick={() => reopenResearch(d)}
-                    className="px-2.5 py-1 text-[11px] rounded bg-gold/20 text-gold hover:bg-gold/30 disabled:opacity-50"
-                    title={tr('decisiondesk.f052')}>
-                    {tr('decisiondesk.f053')}
-                  </button>
-                )}
-              </>
-            ) : (
-              <button disabled={saving} onClick={() => reopenResearch(d)}
-                title={tr('decisiondesk.f054')}
-                className="px-2.5 py-1 text-[10px] border border-[#7a5b1e] bg-[#1c1305] text-[#ffb000] hover:bg-[#33240a] inline-flex items-center gap-1 disabled:opacity-50">
-                <ArchiveRestore size={10} /> {tr('decisiondesk.f055')}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <ModernPage page="decisions" render={() => (
-    <div className="space-y-4">
-      <div className="flex items-baseline justify-between border-b-2 border-[#ff8c00] pb-2">
-        <h1 className={`text-lg font-bold font-mono ${ORANGE}`}>{tr('decisiondesk.f056')}</h1>
-        <div className="flex gap-2 items-center">
-          {['', 'PENDING', 'EXECUTED', 'PARTIAL', 'SKIPPED', 'EXPIRED'].map(s => (
-            <button key={s} onClick={() => setFilter(s)}
-              className={`px-3 py-1 text-[10px] font-mono ${filter === s ? 'bg-[#1c1305] border border-[#7a5b1e] text-[#ffb000]' : 'text-muted hover:text-[#ffb000]'}`}>
-              {s ? statusLabel(s) : tr('decisiondesk.f057')}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* review 17/07 F4: feedback GLOBALE — le azioni archivio partono da qualsiasi
-          riga/card, il messaggio (anche gli errori) non puo' vivere solo nel dettaglio */}
-      {msg && (
-        <p className={`text-xs font-mono ${'field' in msg || msg.error ? 'text-crimson' : 'text-emerald'}`}>{messageText}</p>
-      )}
-
-      {loadErr !== null && (
-        <p className="text-xs font-mono text-crimson border border-crimson/50 bg-crimson/5 px-3 py-2">
-          {tr('decisiondesk.f058')} {loadErr || tr('decisiondesk.errorUnknown')}{tr('decisiondesk.f059')}
-        </p>
-      )}
-      {targetDecision != null && !loading && loadErr === null && !decisions.some(d => d.id === targetDecision) &&
-        <p className="text-xs text-amber border border-amber-deep px-3 py-2">{tr('tradeidea.decisionNotFound', { id: targetDecision })}</p>}
-      {archiveEstimated > 0 && <p className="text-xs text-muted">{tr('decisiondesk.archiveEstimated', { n: archiveEstimated })}</p>}
-
-      {/* split 50/50 di F10 v3 (scelta PM) — reskin stile C */}
-      <div className="grid grid-cols-2 gap-4 items-start">
-        <div className="border border-border bg-black/40">
-          <div className={`flex justify-between items-baseline px-3 py-2 bg-[#0c0f14] border-b border-border ${HDR}`}>
-            <span>{tr('decisiondesk.f060')} {countLabel(proposte.length)} {tr('decisiondesk.f061')}</span>
-            <span className="text-faint normal-case tracking-normal">{tr('decisiondesk.f062')}</span>
-          </div>
-          <table className="w-full text-sm">
-            {opsHeader}
-            <tbody>{opsRows(proposte, false)}</tbody>
-          </table>
-          {proposte.length === 0 && (
-            <p className={loadErr !== null ? 'text-crimson text-sm p-4 font-mono' : 'text-muted text-sm p-4'}>
-              {loadErr !== null ? tr('decisiondesk.f063') : loading ? tr('decisiondesk.loading') : tr('decisiondesk.f064')}
-            </p>
-          )}
-          <button onClick={() => setArchOpenOps(!archOpenOps)}
-            className={`w-full px-3 py-2 text-left flex justify-between border-t border-border bg-[#0c0f14] ${HDR} hover:text-[#ffb000]`}>
-            <span>{archOpenOps ? '▾' : '▸'} {tr('decisiondesk.f065')}{countLabel(archProposte.length)})</span>
-            <span className="text-faint normal-case tracking-normal">{tr('decisiondesk.f066')}</span>
-          </button>
-          {archOpenOps && (
-            <table className="w-full text-sm opacity-85">
-              {opsHeader}
-              <tbody>{opsRows(archProposte, true)}</tbody>
-            </table>
-          )}
-        </div>
-
-        <div className="border border-border bg-black/40">
-          <div className={`flex justify-between items-baseline px-3 py-2 bg-[#0c0f14] border-b border-border ${HDR}`}>
-            <span className="flex items-center gap-2"><FlaskConical size={12} /> {tr('decisiondesk.f067')} {countLabel(research.length)} {tr('decisiondesk.f068')}</span>
-            <span className="text-faint normal-case tracking-normal">{tr('decisiondesk.f069')}</span>
-          </div>
-          <div className="p-3">
-            {research.map(d => researchCard(d, false))}
-            {research.length === 0 && (
-              <p className={loadErr !== null ? 'text-crimson text-sm p-2 font-mono' : 'text-muted text-sm p-2'}>
-                {loadErr !== null ? tr('decisiondesk.f063') : loading ? tr('decisiondesk.loading') : tr('decisiondesk.f070')}
-              </p>
-            )}
-          </div>
-          <button onClick={() => setArchOpenRes(!archOpenRes)}
-            className={`w-full px-3 py-2 text-left flex justify-between border-t border-border bg-[#0c0f14] ${HDR} hover:text-[#ffb000]`}>
-            <span>{archOpenRes ? '▾' : '▸'} {tr('decisiondesk.f071')}{countLabel(archResearch.length)})</span>
-            <span className="text-faint normal-case tracking-normal">{tr('decisiondesk.f072')}</span>
-          </button>
-          {archOpenRes && <div className="p-3">{archResearch.map(d => researchCard(d, true))}</div>}
-        </div>
-      </div>
-
-      <p className="text-muted text-xs text-center">
-        {tr('decisiondesk.f073')}
-      </p>
-    </div>
-    )} />
-  );
+  return <ModernPage page="decisions" render={() => <VistaDecisioni d={dati} a={azioni} />} />;
 }
+

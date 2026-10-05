@@ -197,6 +197,7 @@ function startFixture() {
     else if (route === '/portfolio') body = { ...data.portfolio,
       n_positions: fixturePositionLimit, positions: data.portfolio.positions.slice(0, fixturePositionLimit) };
     else if (route === '/decisions') body = { decisions: data.decisions };
+    else if (/^\/decisions\/\d+\/events$/.test(route)) body = { events: [] };
     else if (route === '/portfolio/risk') {
       if (badRiskOnce) { badRiskOnce = false; body = { ...data.risk, alerts: [null] }; }
       else body = data.risk;
@@ -861,9 +862,9 @@ const { app, BrowserWindow } = require('electron');
       await settle();
       if (href === '#/decisions') {
         const decisionPage = await js(() => ({ heading: document.querySelector('h1')?.textContent.trim() || '',
-          hasFixtureDecision: document.body.innerText.includes('SYN01'),
+          hasFixtureDecision: /SYN0\d/.test(document.querySelector('main [data-page="decisions"]')?.innerText || ''),
           modernDashboardVisible: !!document.querySelector('.bbn-dashboard') }));
-        assert.match(decisionPage.heading, /DECISIONS TRACKER/i,
+        assert.match(decisionPage.heading, /^(Decisions|Decisioni)$/,
           `Decisions remains a real navigable route after removing its dashboard panel: ${JSON.stringify(decisionPage)}`);
         assert.ok(decisionPage.hasFixtureDecision && !decisionPage.modernDashboardVisible,
           `Decisions page renders its fixture data independently of the dashboard: ${JSON.stringify(decisionPage)}`);

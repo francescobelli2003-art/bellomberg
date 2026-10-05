@@ -450,109 +450,98 @@ async function run(q) {
       '/decisions/880/update': { body: { ok: true }, delayMs: 1200 },
       '/decisions/881/update': { body: { ok: true } },
     } });
+    // Pagina Nuova (05/10/2026): viste a segmenti, elenco + dettaglio; selettori data-dc-*.
+    const D = 'main [data-page="decisions"]';
     await q.toggle('classic'); await q.visit('/decisions');
     await q.waitFor(() => (document.querySelector('main [data-page="decisions"]')?.innerText || '').includes('SYNQ'), 'decision board delayed read', 7000);
     const before = await q.pageState(); await q.toggle('modern');
     assert.equal((await q.pageState()).id, before.id, 'decision controller remounted during load');
-    const filter = await markButton(q, { root: 'main [data-page="decisions"] .space-y-4 > div:first-child', pattern: 'pending' });
-    await q.click(filter);
-    await q.waitFor(() => !!document.querySelector('main [data-page="decisions"] .grid-cols-2'), 'filtered decision cards');
+    await q.click(await markButton(q, { root: `${D} .dc-top`, pattern: 'in ricerca|in research' }));
+    await q.waitFor(() => !!document.querySelector('main [data-page="decisions"] [data-dc-conv="880"]'), 'research view opens the pending research', 5000);
     await q.capture('decisions-research-pending-modern');
-    const researchCard = 'main [data-page="decisions"] .grid-cols-2 > div:nth-child(2) .p-3';
-    const noteInput = await markInput(q, `${researchCard} input`);
+    const noteInput = await markInput(q, `${D} [data-dc-campo="nota"]`);
     await q.setValue(noteInput, 'Synthetic committee note.');
-    const noteButton = await markButton(q, { root: researchCard, pattern: 'send|invia' });
-    const beforeNote = await q.counts(); await q.click(noteButton);
+    const beforeNote = await q.counts(); await q.click(`${D} [data-dc-azione="invia"]`);
     await waitForCount(q, 'POST /decisions/880/note', (beforeNote['POST /decisions/880/note'] || 0) + 1);
     await q.toggle('classic');
-    assert.equal(await q.js(() => !!document.querySelector('main [data-page="decisions"] .grid-cols-2')), true,
-      'research board should remain mounted while note saves');
-    assert.ok(await q.js(() => [...document.querySelectorAll('main [data-page="decisions"] button')].some(button => /send|invia/i.test(button.innerText) && button.disabled)),
+    assert.equal(await q.js(() => !!document.querySelector('main [data-page="decisions"] [data-dc-conv="880"]')), true,
+      'research detail should remain mounted while note saves');
+    assert.ok(await q.js(() => !!document.querySelector('main [data-page="decisions"] [data-dc-azione="invia"]')?.disabled),
       'committee note busy state should survive the presentation switch');
-    await q.waitFor(cardSelector => {
-      const input = document.querySelector(`${cardSelector} input`);
-      return !!input && input.value === '';
-    }, 'saved committee note clears its controlled draft', 8000, researchCard);
+    await q.waitFor(() => document.querySelector('main [data-page="decisions"] [data-dc-campo="nota"]')?.value === '',
+      'saved committee note clears its controlled draft', 8000);
     const notePost = (await q.snapshot()).requests.filter(item => item.method === 'POST' && item.route === '/decisions/880/note');
     assert.equal(notePost.length, 1); assert.equal(notePost[0].input.testo, 'Synthetic committee note.');
 
-    const closeButton = await markButton(q, { root: researchCard, pattern: 'archive.*close|close.*research|archivia' });
-    const beforeClose = await q.counts(); await q.click(closeButton);
+    // la pagina resta occupata finché non ha riletto le decisioni dopo la nota: poi la chiusura si abilita
+    await q.waitFor(() => document.querySelector('main [data-page="decisions"] [data-dc-azione="ricerca-chiudi"]')?.disabled === false,
+      'note write and reload settle', 9000);
+    const beforeClose = await q.counts(); await q.click(`${D} [data-dc-azione="ricerca-chiudi"]`);
     await waitForCount(q, 'POST /decisions/880/update', (beforeClose['POST /decisions/880/update'] || 0) + 1);
     await q.toggle('modern');
-    assert.ok(await q.js(() => [...document.querySelectorAll('main [data-page="decisions"] button')].some(button => /archive|close|archivia/i.test(button.innerText) && button.disabled)),
+    assert.ok(await q.js(() => !!document.querySelector('main [data-page="decisions"] [data-dc-azione="ricerca-chiudi"]')?.disabled),
       'research close remains pending across a presentation switch');
     const closePost = (await q.snapshot()).requests.filter(item => item.method === 'POST' && item.route === '/decisions/880/update').at(-1);
     assert.equal(closePost.input.status, 'EXPIRED', 'close research must send terminal status');
-    await q.waitFor(() => [...document.querySelectorAll('main [data-page="decisions"] .grid-cols-2 > div:nth-child(2) button')]
-      .some(button => /archive|close|archivia/i.test(button.innerText) && !button.disabled), 'research close write settles', 9000);
+    await q.waitFor(() => document.querySelector('main [data-page="decisions"] [data-dc-azione="ricerca-chiudi"]')?.disabled === false,
+      'research close write settles', 9000);
     await waitForStableCount(q, 'GET /decisions', (beforeClose['GET /decisions'] || 0) + 1);
 
-    const archiveToggle = await markButton(q, { root: 'main [data-page="decisions"] .grid-cols-2 > div:nth-child(2)', pattern: 'research archive' });
-    await q.click(archiveToggle);
-    await q.waitFor(() => (document.querySelector('main [data-page="decisions"] .grid-cols-2 > div:nth-child(2)')?.innerText || '').includes('#881'), 'archived research card');
-    await q.waitFor(() => [...document.querySelectorAll('main [data-page="decisions"] .grid-cols-2 > div:nth-child(2) button')]
-      .some(button => /restore and reopen|riporta.*riapri/i.test(button.innerText) && !button.disabled), 'archived research restore action enabled', 7000);
-    const reopenButton = await markButton(q, { root: 'main [data-page="decisions"] .grid-cols-2 > div:nth-child(2)', pattern: 'restore and reopen|riporta.*riapri' });
-    const beforeReopen = await q.counts(); await q.click(reopenButton);
+    await q.click(await markButton(q, { root: `${D} .dc-top`, pattern: 'archivio|archive' }));
+    await q.click(await markButton(q, { root: `${D} .dc-list .dc-head-row`, pattern: 'ricerche|research' }));
+    await q.waitFor(() => !!document.querySelector('main [data-page="decisions"] [data-dc-dettaglio="881"]'), 'archived research detail');
+    await q.waitFor(() => document.querySelector('main [data-page="decisions"] [data-dc-azione="ricerca-ripristina"]')?.disabled === false,
+      'archived research restore action enabled', 7000);
+    const beforeReopen = await q.counts(); await q.click(`${D} [data-dc-azione="ricerca-ripristina"]`);
     await waitForCount(q, 'POST /decisions/881/update', (beforeReopen['POST /decisions/881/update'] || 0) + 1);
     const reopenPost = (await q.snapshot()).requests.filter(item => item.method === 'POST' && item.route === '/decisions/881/update').at(-1);
     assert.equal(reopenPost.input.status, 'PENDING');
     await waitForStableCount(q, 'GET /decisions', (beforeReopen['GET /decisions'] || 0) + 1);
 
-    const opRow = await q.js(() => {
-      const rows = [...document.querySelectorAll('main [data-page="decisions"] tbody tr')];
-      const row = rows.find(el => /SYNQ/.test(el.innerText) && /BUY/.test(el.innerText));
-      if (!row) return null; row.setAttribute('data-qa-committee-op', 'target'); return '[data-qa-committee-op="target"]';
-    });
-    assert.ok(opRow, 'synthetic operational BUY row should remain available after status filtering');
-    await q.click(opRow);
-    const expandedRowStyle = [];
+    await q.click(await markButton(q, { root: `${D} .dc-top`, pattern: 'da decidere|to decide' }));
+    await q.waitFor(() => !!document.querySelector('main [data-page="decisions"] [data-dc-sel="882"]'), 'operational BUY row');
+    await q.click(`${D} [data-dc-sel="882"]`);
+    await q.waitFor(() => !!document.querySelector('main [data-page="decisions"] [data-dc-dettaglio="882"]'), 'operational detail');
+    const detailStyle = [];
     for (const [width, height] of [[1920, 1080], [2560, 1440], [3440, 1440], [5120, 1440],
       [1440, 1000], [1280, 900], [900, 700]]) {
       const style = await q.withViewport(width, height, async () => {
-        await q.toggle('modern'); // Move the native pointer off the expanded row before checking its base surface.
+        await q.toggle('modern');
         const result = await q.js(() => {
-          const row = [...document.querySelectorAll('main [data-page="decisions"] tr')]
-            .find(element => element.classList.contains('bg-[#0a0a0a]'));
-          const rationale = row?.querySelector('p.whitespace-pre-wrap');
-          const background = row ? getComputedStyle(row).backgroundColor : '';
+          const card = document.querySelector('main [data-page="decisions"] .dc-det');
+          const rationale = card?.querySelector('.dc-prose');
+          const background = card ? getComputedStyle(card).backgroundColor : '';
           const foreground = rationale ? getComputedStyle(rationale).color : '';
           const channels = value => (value.match(/[\d.]+/g) || []).slice(0, 3).map(Number).map(channel => {
             const normalized = channel / 255;
             return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
           });
-          const luminance = value => {
-            const [red, green, blue] = channels(value);
-            return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-          };
+          const luminance = value => { const [red, green, blue] = channels(value); return 0.2126 * red + 0.7152 * green + 0.0722 * blue; };
           const bgLuminance = luminance(background), fgLuminance = luminance(foreground);
           const contrast = (Math.max(bgLuminance, fgLuminance) + 0.05) / (Math.min(bgLuminance, fgLuminance) + 0.05);
-          return { exists: !!row && !!rationale, background, foreground, contrast,
-            hovered: !!row?.matches(':hover'), rationale: rationale?.textContent?.trim() || '' };
+          return { exists: !!card && !!rationale, background, foreground, contrast, overflowX: document.documentElement.scrollWidth > innerWidth,
+            rationale: rationale?.textContent?.trim() || '' };
         });
-        assert.ok(result.exists, `expanded operational detail row missing at ${width}x${height}`);
-        assert.equal(result.hovered, false, `expanded detail row should be checked outside hover at ${width}x${height}`);
-        assert.ok(result.contrast >= 4.5, `expanded detail text contrast below 4.5:1 at ${width}x${height}: ${JSON.stringify(result)}`);
-        assert.notEqual(result.background, 'rgb(10, 10, 10)', `expanded detail row retained the legacy dark fill at ${width}x${height}`);
-        await q.capture('decisions-operational-row-expanded-modern', { viewports: [[width, height]] });
+        assert.ok(result.exists, `operational detail missing at ${width}x${height}`);
+        assert.ok(result.contrast >= 4.5, `detail text contrast below 4.5:1 at ${width}x${height}: ${JSON.stringify(result)}`);
+        assert.equal(result.overflowX, false, `horizontal page overflow at ${width}x${height}`);
+        await q.capture('decisions-operational-detail-modern', { viewports: [[width, height]] });
         return result;
       });
-      expandedRowStyle.push({ viewport: `${width}x${height}`, ...style });
+      detailStyle.push({ viewport: `${width}x${height}`, ...style });
     }
-    const tradeLink = await markButton(q, { root: 'main [data-page="decisions"]', pattern: 'record.*trade|trade|registra.*operazione' });
-    await q.click(tradeLink);
+    await q.click(`${D} [data-dc-azione="collega"]`);
     await q.waitFor(expected => location.hash === expected, 'trade-entry navigation from linked decision', 5000, '#/trades?decision=882');
     const tradeHash = await q.js(() => location.hash);
     const snapshot = await q.snapshot();
     const writes = snapshot.requests.filter(item => item.method === 'POST' && /^\/decisions\/(880\/(note|update)|881\/update)$/.test(item.route));
     assert.equal(writes.length, 3, 'the explicit note, close, and reopen actions should each write once');
-    return { assertionResults: { filterActionWorksInModern: true, notePayloadExactAndOnce: true,
+    return { assertionResults: { viewSegmentsWorkInModern: true, notePayloadExactAndOnce: true,
       researchCloseSendsExpired: closePost.input.status === 'EXPIRED', archivedResearchCanReopen: reopenPost.input.status === 'PENDING',
       operationalDecisionOpensTradeEntry: tradeHash === '#/trades?decision=882',
-      expandedOperationalRowHasReadableBaseSurfaceAtSevenViewports: expandedRowStyle.length === 7,
+      operationalDetailReadableAtSevenViewports: detailStyle.length === 7,
       noTradeOrderSubmitted: true },
-      expandedRowStyle, writeRoutes: writes.map(item => item.route), tradeHash,
+      detailStyle, writeRoutes: writes.map(item => item.route), tradeHash,
       safety: 'GET /decisions remained fixture-only because the real route may auto-expire stale decisions.' };
   });
 
@@ -721,19 +710,16 @@ async function run(q) {
     await q.fixture({ setRead: { '/decisions': { body: { decisions: [] } } } });
     await q.visit('/decisions');
     await waitForCount(q, 'GET /decisions', (beforeEmpty['GET /decisions'] || 0) + 1);
-    await q.waitFor(() => !!document.querySelector('main [data-page="decisions"] .grid-cols-2'), 'decision board empty state');
-    await q.waitFor(() => {
-      const panes = [...document.querySelectorAll('main [data-page="decisions"] .grid-cols-2 p')].map(el => el.innerText.trim());
-      return panes.length >= 2 && panes.every(text => !/loading|caricamento|…|\.\.\./i.test(text));
-    }, 'both decision queues finish loading into the explicit empty state');
+    await q.waitFor(() => !!document.querySelector('main [data-page="decisions"] .dc-list .dc-empty'), 'decision board empty state');
     const before = await q.pageState(); await q.toggle('modern');
     const modern = await q.pageState();
-    const empty = await q.js(() => ({ loading: document.querySelector('main [data-page="decisions"]')?.innerText.includes('…') || false,
-      operationalRows: document.querySelectorAll('main [data-page="decisions"] .grid-cols-2 > div:first-child tbody tr').length,
-      researchCards: document.querySelectorAll('main [data-page="decisions"] .grid-cols-2 > div:nth-child(2) > div.p-3 > div.mb-3').length,
-      emptyPanes: [...document.querySelectorAll('main [data-page="decisions"] .grid-cols-2 p')].map(el => el.innerText).filter(Boolean) }));
-    assert.equal(empty.operationalRows, 0); assert.equal(empty.researchCards, 0);
-    assert.ok(empty.emptyPanes.length >= 2, `both empty queues should be declared: ${JSON.stringify(empty)}`);
+    const empty = await q.js(() => ({ loading: !!document.querySelector('main [data-page="decisions"] .dc-skel'),
+      rows: document.querySelectorAll('main [data-page="decisions"] [data-dc-sel]').length,
+      counts: [...document.querySelectorAll('main [data-page="decisions"] [data-dc-conta]')].map(el => el.textContent.trim()),
+      emptyPanes: [...document.querySelectorAll('main [data-page="decisions"] .dc-empty')].map(el => el.innerText).filter(Boolean) }));
+    assert.equal(empty.loading, false); assert.equal(empty.rows, 0);
+    assert.deepEqual(empty.counts, ['0', '0', '0', '0'], `all four views declare zero: ${JSON.stringify(empty)}`);
+    assert.ok(empty.emptyPanes.length >= 1, `the empty queue should be declared: ${JSON.stringify(empty)}`);
     assert.equal(modern.id, before.id);
     assert.equal((await q.counts())['GET /decisions'] - (beforeEmpty['GET /decisions'] || 0), 1);
     await q.capture('decisions-board-empty-modern');
@@ -743,14 +729,16 @@ async function run(q) {
     await q.fixture({ setRead: { '/decisions': { body: { detail: 'Synthetic decisions store unavailable.' }, status: 503 } } });
     await q.visit('/decisions');
     await waitForCount(q, 'GET /decisions', (beforeError['GET /decisions'] || 0) + 1);
-    await q.waitFor(() => !!document.querySelector('main [data-page="decisions"] p.text-crimson'), 'decisions error banner');
+    await q.waitFor(() => !!document.querySelector('main [data-page="decisions"] [data-dc-errore="lettura"]'), 'decisions error banner');
     await q.toggle('modern');
-    const error = await q.js(() => document.querySelector('main [data-page="decisions"] p.text-crimson')?.innerText || '');
+    const error = await q.js(() => document.querySelector('main [data-page="decisions"] [data-dc-errore="lettura"]')?.innerText || '');
+    assert.ok(await q.js(() => [...document.querySelectorAll('main [data-page="decisions"] [data-dc-conta]')].every(el => /^n[./]/.test(el.textContent.trim()))),
+      'a failed read never shows zero counters');
     assert.ok(error.includes('Synthetic decisions store unavailable.'), `decision API error not shown: ${error}`);
     assert.equal((await q.counts())['GET /decisions'] - (beforeError['GET /decisions'] || 0), 1,
       'exactly one fixture read for the failed board load');
     await q.capture('decisions-board-read-error-modern');
-    return { assertionResults: { emptyQueuesExplicitlyDeclared: empty.emptyPanes.length >= 2,
+    return { assertionResults: { emptyQueuesExplicitlyDeclared: empty.emptyPanes.length >= 1,
       apiReadFailureIsNotReportedAsEmpty: error.includes('Synthetic decisions store unavailable.'),
       oneFixtureReadPerLoad: true, noLiveDecisionReadOrAutoExpiry: true }, empty, error,
       safety: 'both GET /decisions responses were served by fixtures; the real auto-expiring route was not touched' };

@@ -359,6 +359,19 @@ export interface DecisionNote {
   timestamp: string;
 }
 
+// Registro eventi append-only di una decisione (GET /decisions/{id}/events, migrazione 13).
+export interface DecisionEvent {
+  id: number;
+  decision_id: number;
+  event_type: string;
+  from_status?: string | null;
+  to_status?: string | null;
+  actor?: string | null;
+  reason?: string | null;
+  details_json?: string | null;
+  created_at: string;
+}
+
 export interface Decision {
   id: number;
   trade_idea?: {
@@ -1527,6 +1540,9 @@ export const Bellomberg = {
   // F10-C (PM 17/07): archivia / riporta in pagina (true/false; null = automatico)
   setDecisionArchive: (id: number, archived: boolean | null) =>
     api.post(`/decisions/${id}/archive`, { archived }).then(r => r.data),
+  // cronologia in sola lettura della pagina Decisioni (registro decision_events)
+  decisionEvents: (id: number) =>
+    api.get<{events: DecisionEvent[]}>(`/decisions/${id}/events`).then(r => r.data),
   // Verifica ISIN e divergenza manuale NON hanno piu' chiamate proprie qui:
   // viaggiano nel corpo di previewTrade/logTrade e il backend le scrive nella
   // transazione del trade confermato (tabelle append-only: mai prima della conferma).
