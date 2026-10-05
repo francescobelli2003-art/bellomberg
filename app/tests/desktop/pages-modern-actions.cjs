@@ -2014,6 +2014,9 @@ async function runJournalAndConfig(q) {
     else await q.js(() => window.dispatchEvent(new Event('bb:settings')));
     await q.waitFor(() => !!document.querySelector('.f11v[role="dialog"][aria-modal="true"]'), 'Settings dialog');
     const openEvidence = await q.js(() => ({ dialog: !!document.querySelector('.f11v[role="dialog"][aria-modal="true"]'), opener: document.querySelector('[aria-label="Settings"]')?.outerHTML.slice(0, 180), focus: document.activeElement?.outerHTML?.slice(0, 180) || '' }));
+    // Settings shows one section at a time (Nuova, 05/10): open Backup before looking for its delete buttons.
+    await q.click('.f11v [data-sezione="backup"]');
+    await q.waitFor(() => !document.querySelector('.f11v [data-pannello="backup"]')?.hidden, 'Settings backup section');
     const backupButton = await q.js(() => [...document.querySelectorAll('.f11v button')].find(el => /delete/i.test(`${el.getAttribute('aria-label') || ''} ${el.title || ''}`))?.getAttribute('aria-label') || null);
     let confirmEvidence = { confirmationAvailable: false, escapeCancel: null, focusRestore: null, mutationCount: 0 };
     if (backupButton) {

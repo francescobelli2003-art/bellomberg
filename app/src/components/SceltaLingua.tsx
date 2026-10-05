@@ -3,11 +3,12 @@ import { Bellomberg } from '@/lib/api';
 import { caricaPreferenza, scegliLingua, ErrorePreferenza, type PreferenzaVerificata } from '@/i18n/preferenze';
 import { type Lingua } from '@/i18n/lingua';
 import { useLingua, useT } from '@/i18n/provider';
+import { Check } from 'lucide-react';
 
-type Props = { initial?: boolean; onReady?: (preference: PreferenzaVerificata) => void };
+type Props = { initial?: boolean; onReady?: (preference: PreferenzaVerificata) => void; variant?: 'nuova' };
 
 /** An explicit first choice; a failed save always offers readback before retry. */
-export default function SceltaLingua({ initial = false, onReady }: Props) {
+export default function SceltaLingua({ initial = false, onReady, variant }: Props) {
   const current = useLingua(), t = useT();
   const [choice, setChoice] = useState<Lingua | null>(initial ? null : current);
   const [state, setState] = useState<'loading' | 'ready' | 'saving' | 'error'>('loading');
@@ -46,6 +47,36 @@ export default function SceltaLingua({ initial = false, onReady }: Props) {
   };
   const busy = state === 'loading' || state === 'saving';
   const repair = !!problem?.fingerprint;
+  /* Impostazioni Nuova: stessa logica, due card per lingua. Il salvataggio resta
+     il primo pulsante della sezione (i test desktop lo cercano cosi'). */
+  if (variant === 'nuova') return <section className="bbn-imp-lang" aria-labelledby="language-title">
+    <div className="bbn-imp-card-head">
+      <h3 id="language-title">{t('settingsPage.langTitle')}</h3>
+      <span className="bbn-imp-card-note">{t('settingsPage.langNote')}</span>
+    </div>
+    <div className="bbn-imp-card-body">
+      <fieldset disabled={busy} className="bbn-imp-langopts">
+        <legend className="sr-only">{t('settingsPage.langTitle')}</legend>
+        {(['it', 'en'] as const).map(value => <label key={value} className="bbn-imp-langopt" data-on={choice === value ? '' : undefined}>
+          <input type="radio" name="language" value={value} checked={choice === value} onChange={() => setChoice(value)} />
+          {choice === value && <span className="ck" aria-hidden="true"><Check size={16} /></span>}
+          <span className="flag" aria-hidden="true">{value.toUpperCase()}</span>
+          <span className="t" lang={value}>{value === 'it' ? 'Italiano' : 'English'}
+            <small>{value === current ? t('settingsPage.langCurrent') : t('settingsPage.langOther')}</small></span>
+        </label>)}
+      </fieldset>
+      {state === 'loading' && <p role="status" className="bbn-imp-card-note">{t('lingua.caricamento')}</p>}
+      {problem && <div role="alert" className="bbn-imp-note is-ko"><span>
+        <b>{t('lingua.non_verificata')}</b> · {problem.message} {repair ? t('lingua.ripara_nota') : t('lingua.rileggi_nota')}</span></div>}
+      <div className="bbn-imp-lang-acts">
+        <button type="button" className="btn btn-amber bbn-imp-btn is-primary" disabled={!choice || busy || (state === 'error' && !repair)} onClick={() => void save()}>
+          {state === 'saving' ? t('settingsPage.langSaving') : repair ? t('settingsPage.langRepair') : t('settingsPage.langSave')}
+        </button>
+        {state === 'error' && <button type="button" className="bbn-imp-btn" disabled={busy} onClick={() => void load()}>{t('settingsPage.langReload')}</button>}
+        {notice && <span role="status" className="bbn-imp-card-note"><Check size={13} /> {t(notice === 'cache' ? 'lingua.cache_non_salvata' : notice === 'backup' ? 'lingua.backup_salvato' : 'lingua.salvata')}</span>}
+      </div>
+    </div>
+  </section>;
   return <section className="panel p-5 max-w-2xl font-mono text-xs" aria-labelledby="language-title">
     <h1 id="language-title" className="text-amber text-base mb-3">{initial ? 'Scegli la lingua / Choose your language' : t('lingua.titolo')}</h1>
     <p className="text-text-dim mb-4">{initial

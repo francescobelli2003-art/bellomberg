@@ -1431,6 +1431,8 @@ async function settingsActions(q) {
     await clickText(q, 'nav', 'CONFIG');
     await q.waitFor(() => !!document.querySelector('.f11v[role="dialog"][aria-modal="true"]'), 'Settings overlay');
     await q.waitFor(() => !!document.querySelector('.f11v input[name="language"]:not(:disabled)'), 'Settings language data');
+    // One section at a time (Nuova, 05/10): job rows live under «Automatic jobs».
+    await q.click('.f11v [data-sezione="lavori"]');
     await q.waitFor(names => names.every(name => (document.querySelector('.f11v')?.innerText || '').includes(name)),
       'synthetic scheduled task rows', 10000, expectedTaskNames);
     const hasTasks = await q.js(names => {
@@ -1449,6 +1451,7 @@ async function settingsActions(q) {
 
     await q.fixture({ setRead: { '/preferences': { language: 'it', selected: true, source: 'preferences' } },
       setWrite: { '/preferences': { language: 'it', selected: true, source: 'preferences' } } });
+    await q.click('.f11v [data-sezione="generale"]');
     await q.click('.f11v input[name="language"][value="it"]');
     await q.click('.f11v .btn-amber');
     await q.waitFor(() => document.documentElement.lang === 'it', 'Italian preference independently written and read back', 5000);
@@ -1478,6 +1481,7 @@ async function settingsActions(q) {
       setWrite: { '/db/backup': { ok: true, backup_path: 'fixture/backups/' + backupName, size_mb: 0.1,
         files_count: 2, files: ['fixture/db.sqlite', 'fixture/preferences.json'],
         db_quick_check: { integrity: 'ok', journal: 'ok' }, timestamp: STAMP } } });
+    await q.click('.f11v [data-sezione="backup"]');
     await q.click('.f11v button.btn.am');
     await q.waitFor(name => (document.querySelector('.f11v .esito')?.innerText || '').includes(name),
       'synthetic backup result', 5000, backupName);
@@ -1551,6 +1555,8 @@ async function settingsReadStates(q) {
     const busyAfterCapture = await q.js(() => document.querySelectorAll('.f11v [role="status"][aria-busy="true"]').length);
     assert.ok(busyAfterCapture >= 4, 'Settings resources remain busy after their presentation switch and capture');
     const expectedTaskNames = taskDisplayNames();
+    await q.waitFor(() => document.querySelectorAll('.f11v [aria-busy="true"]').length === 0, 'Settings synthetic reads settle', 25000);
+    await q.click('.f11v [data-sezione="lavori"]');
     await q.waitFor((names) => document.querySelectorAll('.f11v [aria-busy="true"]').length === 0
       && names.every(name => (document.querySelector('.f11v')?.innerText || '').includes(name)),
     'Settings synthetic reads complete', 25000, expectedTaskNames);

@@ -68,7 +68,11 @@ function harness(page, overrides = {}) {
     // invoking page/controller components or their effects.
     const presentation = typeof value.props?.render === 'function'
       && /ModernPage|Deferred|Boundary/.test(typeName) ? value.props.render() : null;
-    return [...(predicate(value) ? [value] : []), ...nodes(value.props?.children, predicate), ...nodes(presentation, predicate)];
+    // The Settings section views (components/impostazioni/Viste.tsx) are hook-free
+    // presentation functions: expanding them exposes their buttons the same way.
+    const view = typeof value.type === 'function' && /^Sezione/.test(typeName) ? value.type(value.props) : null;
+    return [...(predicate(value) ? [value] : []), ...nodes(value.props?.children, predicate), ...nodes(presentation, predicate),
+      ...nodes(view, predicate)];
   };
   return { calls, language, render, settle, listeners,
     elements: predicate => nodes(tree, predicate) };
@@ -87,7 +91,7 @@ test('Settings renders real IT/EN labels, original records and locale numbers wi
 
 test('an existing backup result follows language changes while its original path and measured values remain', async () => {
   const h = harness('SettingsPanel'); h.render(); await h.settle();
-  const button = h.elements(node => node.type === 'button' && node.props.className === 'btn am')[0];
+  const button = h.elements(node => node.type === 'button' && node.props['data-azione'] === 'backup')[0];
   await button.props.onClick(); const it = h.render();
   assert.match(it, /Backup creato/); assert.match(it, /synthetic\/path\/new\.zip/);
   const count = h.calls.length; h.language.impostaLinguaCorrente('en');
@@ -97,10 +101,10 @@ test('an existing backup result follows language changes while its original path
 
 test('Settings errors stay explicit in both languages and preserve the original backend detail', async () => {
   const h = harness('SettingsPanel', { fx: new Error('Original FX failure'), dbBackupCreate: new Error('Original backup failure') });
-  h.render(); const it = await h.settle(); assert.match(it, /DATI NON CARICATI/);
-  await h.elements(node => node.type === 'button' && node.props.className === 'btn am')[0].props.onClick();
+  h.render(); const it = await h.settle(); assert.match(it, /Dati non caricati/);
+  await h.elements(node => node.type === 'button' && node.props['data-azione'] === 'backup')[0].props.onClick();
   h.language.impostaLinguaCorrente('en'); const en = h.render();
-  assert.match(en, /DATA NOT LOADED/); assert.match(en, /Backup NOT created/); assert.match(en, /Original backup failure/);
+  assert.match(en, /Data not loaded/); assert.match(en, /Backup not created/); assert.match(en, /Original backup failure/);
 });
 
 test('palette localizes navigation and actions while preserving query and avoiding extra portfolio reads', async () => {
@@ -127,7 +131,7 @@ test('a scheduler error in an HTTP-success payload is declared with its original
   const h = harness('SettingsPanel', { scheduledTasks: { tasks: [], error: 'Original scheduler diagnostic' } });
   // The read clears its loading flag in `.finally`: settle twice so the error, not the spinner, is painted.
   h.render(); await h.settle(); const html = await h.settle();
-  assert.match(html, /Original scheduler diagnostic/); assert.match(html, /DATI NON CARICATI/);
+  assert.match(html, /Original scheduler diagnostic/); assert.match(html, /Dati non caricati/);
   assert.doesNotMatch(html, /Nessun lavoro schedulato/);
 });
 
@@ -144,12 +148,12 @@ test('delete confirmation follows language changes, preserves the original filen
   const h = harness('SettingsPanel'); h.render(); await h.settle();
   const trigger = h.elements(n => n.type === 'button' && n.props['aria-label'] === 'Elimina synthetic_backup.zip')[0];
   trigger.props.onClick({ currentTarget: { focus() {} } });
-  assert.match(h.render(), /Eliminazione definitiva/);
+  assert.match(h.render(), /Eliminare il backup\?/);
   const count = h.calls.length; h.language.impostaLinguaCorrente('en');
-  const en = h.render(); assert.match(en, /Permanent deletion/); assert.match(en, /2\.50 MB/); assert.match(en, /synthetic_backup\.zip/);
+  const en = h.render(); assert.match(en, /Delete the backup\?/); assert.match(en, /2\.50 MB/); assert.match(en, /synthetic_backup\.zip/);
   assert.equal(h.calls.length, count);
-  h.elements(n => n.type === 'button' && n.props.children === 'CANCEL')[0].props.onClick();
-  assert.doesNotMatch(h.render(), /Permanent deletion/); assert.equal(h.calls.length, count);
+  h.elements(n => n.type === 'button' && n.props.children === 'Cancel')[0].props.onClick();
+  assert.doesNotMatch(h.render(), /Delete the backup\?/); assert.equal(h.calls.length, count);
 });
 
 test('palette pending and completed action messages translate without executing the action again', async () => {
@@ -209,19 +213,19 @@ test('an engine read failure is declared with a translated label and its origina
   const h = harness('SettingsPanel', { agentsList: { engines: { engines_error: 'Original engine diagnostic', future_error: 'Original future diagnostic' } } });
   h.render(); const it = await h.settle();
   h.language.impostaLinguaCorrente('en'); const en = h.render();
-  assert.match(it, /<b class="ko">Lettura dei motori in errore<\/b>/); assert.match(en, /<b class="ko">Engine read failed<\/b>/);
+  assert.match(it, /<b>Lettura dei motori in errore<\/b>/); assert.match(en, /<b>Engine read failed<\/b>/);
   for (const html of [it, en]) {
     assert.match(html, /Original engine diagnostic/); assert.doesNotMatch(html, />engines_error</);
     // una chiave d'errore sconosciuta resta visibile col suo nome: mai sparita in silenzio
-    assert.match(html, /<b class="ko">future_error<\/b>/); assert.match(html, /Original future diagnostic/);
+    assert.match(html, /<b>future_error<\/b>/); assert.match(html, /Original future diagnostic/);
   }
 });
 
 test('Settings and palette leave only exact technical units, filenames and licence text outside the catalog', () => {
   const fs = require('node:fs'), path = require('node:path'), ts = require('typescript');
-  const allowed = new Set(['powershell -ExecutionPolicy Bypass -File .\\tools\\ops\\windows\\install_all_schedulers.ps1', 'MB', 'quick_check', 'TradingView Lightweight Charts', '· Apache-2.0', 'EUR', 'engines', 'MB ·']);
+  const allowed = new Set(['powershell -ExecutionPolicy Bypass -File .\\tools\\ops\\windows\\install_all_schedulers.ps1', 'MB', 'quick_check', 'TradingView Lightweight Charts', '· Apache-2.0', 'EUR', 'engines', 'MB ·', '1']);
   const residues = [];
-  for (const filename of ['SettingsPanel.tsx', 'CommandPalette.tsx']) {
+  for (const filename of ['SettingsPanel.tsx', 'CommandPalette.tsx', 'impostazioni/Viste.tsx']) {
     const source = fs.readFileSync(path.join(__dirname, '../../src/components', filename), 'utf8');
     const tree = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
     function walk(node) {
@@ -240,4 +244,16 @@ test('four-digit backup sizes keep locale grouping explicit in both languages', 
   const h = harness('SettingsPanel', { dbBackupsList: { count: 1, backups: [{ filename: 'synthetic_large.zip', path: 'synthetic/path/synthetic_large.zip', size_mb: 1000, created: '2026-09-10T23:00:00' }] } });
   h.render(); assert.match(await h.settle(), /1\.000,00 MB/);
   h.language.impostaLinguaCorrente('en'); assert.match(h.render(), /1,000\.00 MB/);
+});
+
+// 05/10 (Impostazioni Nuova): su macOS il backend lancia `powershell`, che non esiste. E' un sistema
+// non supportato, non un dato mancante: niente banner rosso, stato neutro con la diagnostica originale.
+test('a missing powershell on macOS is a neutral unsupported state, not a missing-data error', async () => {
+  const diagnostic = "[Errno 2] No such file or directory: 'powershell'";
+  const h = harness('SettingsPanel', { scheduledTasks: { tasks: [], error: diagnostic } });
+  h.render(); await h.settle(); const it = await h.settle();
+  assert.doesNotMatch(it, /Dati non caricati/); assert.match(it, /Non disponibili su macOS/);
+  assert.ok(it.includes('No such file or directory'), 'the original diagnostic stays readable');
+  h.language.impostaLinguaCorrente('en'); const en = h.render();
+  assert.match(en, /Not available on macOS/); assert.doesNotMatch(en, /Data not loaded/);
 });

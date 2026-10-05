@@ -503,8 +503,8 @@ async function renderer(config) {
     }
     scenarios.push(`rich baseline fixtures produced ${richReports.length} additional read-only Market, Fundamentals, News and Filing states`);
 
-    // Settings is a global overlay rather than a route. Capture every major
-    // named section by scrolling its real inner viewport; no action buttons run.
+    // Settings is a global overlay rather than a route. Capture every section
+    // of its index; no action buttons run.
     const settingsReports = [];
     const settingsModes = qa.modes || (config.phase === 'baseline' ? ['classic'] : ['classic', 'modern']);
     const settingsViewports = !qa.settings ? [] : qa.viewports || (config.phase === 'baseline' ? [[1920, 1080]] : FINAL_VIEWPORTS);
@@ -517,20 +517,17 @@ async function renderer(config) {
         await js(() => document.querySelector('[aria-label="Settings"]')?.click() || window.dispatchEvent(new Event('bb:settings')));
         await waitFor(() => !!document.querySelector('.f11v[role="dialog"]'), `SettingsPanel ${mode}`);
         await pause(450);
-        const sectionInfo = await js(() => {
-          const body = document.querySelector('.f11v .pbody');
-          return { scrollHeight: body?.scrollHeight || 0, clientHeight: body?.clientHeight || 0,
-            sections: [...document.querySelectorAll('.f11v .pbody > .p, .f11v .pbody > .coda')].map((el, index) => ({ index,
-              title: el.querySelector('.ph')?.innerText?.trim() || el.querySelector('.coda .ph')?.innerText?.trim() || `settings-${index}`, top: el.offsetTop })) };
-        });
+        // One section at a time (Nuova, 05/10): open each index entry and capture it.
+        const sectionInfo = await js(() => ({ sections: [...document.querySelectorAll('.f11v [data-sezione]')].map((el, index) => ({ index,
+          id: el.getAttribute('data-sezione'), title: el.querySelector('.t')?.innerText?.trim() || `settings-${index}` })) }));
         for (const section of sectionInfo.sections) {
-          await js((index) => { const body = document.querySelector('.f11v .pbody'); const el = [...body.querySelectorAll(':scope > .p, :scope > .coda')][index]; if (el) body.scrollTop = Math.max(0, el.offsetTop - 8); }, section.index);
-          await pause(180);
+          await js(id => document.querySelector(`.f11v [data-sezione="${id}"]`)?.click(), section.id);
+          await pause(250);
           const name = `settings-${section.index}-${section.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${modeLabel(mode)}-${viewWidth}x${viewHeight}.png`;
           await capture(name);
           settingsReports.push({ mode, viewport: { width: viewWidth, height: viewHeight }, section: section.title, index: section.index, screenshot: name, rendered: sectionInfo.sections.length > 0, visualReview: 'not performed' });
         }
-        await js(() => document.querySelector('.f11v .pbody').scrollTop = 0);
+        await js(() => document.querySelector('.f11v [data-sezione]')?.click());
         await capture(`settings-top-${modeLabel(mode)}-${viewWidth}x${viewHeight}.png`);
         await js(() => document.querySelector('.f11v .phead .x')?.click());
       }

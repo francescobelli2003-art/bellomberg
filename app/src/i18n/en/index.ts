@@ -28,6 +28,7 @@ import { marketsPage } from './marketsPage.js';
 import { newsPage } from './newsPage.js';
 import { performancePage } from './performancePage.js';
 import { tradePage } from './tradePage.js';
+import { settingsPage } from './settingsPage.js';
 
 export const en = {
   ui,
@@ -60,6 +61,7 @@ export const en = {
   newsPage,
   performancePage,
   tradePage,
+  settingsPage,
   lingua: {
     italiano: 'ITALIAN', inglese: 'ENGLISH', titolo: 'Choose your language',
     descrizione: 'The interface and new content will follow your choice. You can change it in settings. Existing documents stay in their original language.',
