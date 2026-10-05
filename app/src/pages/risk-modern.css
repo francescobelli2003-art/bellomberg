@@ -532,73 +532,6 @@
   .bb-page-modern[data-page="vol"] .vol-atlas .vsxrail { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* ── Opportunity scanner ────────────────────────────────────────────────── */
-.bb-page-modern[data-page="edge"] > .bb-interface-recovery { margin: 24px; }
-.bb-page-modern[data-page="edge"] > div:not(.bb-interface-recovery) {
-  display: flex; flex-direction: column; gap: 14px; min-height: 100%;
-  padding: 20px clamp(16px, 2vw, 32px) 28px; color: var(--bb-page-text);
-}
-.bb-page-modern[data-page="edge"] > div.space-y-3 > :not([hidden]) ~ :not([hidden]) { margin-top: 0; }
-.bb-page-modern[data-page="edge"] [data-zona="comandi"],
-.bb-page-modern[data-page="edge"] [data-zona="registro"],
-.bb-page-modern[data-page="edge"] [data-zona="sommario"] > div,
-.bb-page-modern[data-page="edge"] [data-stato="attesa"],
-.bb-page-modern[data-page="edge"] [data-stato="guasto"],
-.bb-page-modern[data-page="edge"] [data-avviso="chiamata-fallita"],
-.bb-page-modern[data-page="edge"] [data-vuoto],
-.bb-page-modern[data-page="edge"] [data-zona="lista"] > div {
-  border-color: var(--bb-page-line); border-radius: 8px; background: var(--bb-page-panel); color: var(--bb-page-text);
-}
-.bb-page-modern[data-page="edge"] [data-zona="comandi"] { gap: 8px; padding: 12px 14px; font: 13px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; }
-.bb-page-modern[data-page="edge"] [data-zona="comandi"] > button {
-  min-height: 34px; padding: 6px 11px; border: 1px solid var(--bb-page-line); border-radius: 6px;
-  background: #fff; color: var(--bb-page-text); font: 600 13px/1.35 Inter, ui-sans-serif, system-ui, sans-serif;
-}
-.bb-page-modern[data-page="edge"] [data-zona="comandi"] > button.bg-gold { border-color: var(--bb-page-accent); background: var(--bb-page-accent); color: #fff; }
-.bb-page-modern[data-page="edge"] [data-zona="comandi"] > button.bg-navy2 { border-color: #b8cbff; background: #eff4ff; color: var(--bb-page-accent); }
-.bb-page-modern[data-page="edge"] [data-zona="comandi"] > button[data-azione="rifai"]:disabled { border-color: var(--bb-page-line); background: var(--bb-page-soft); color: var(--bb-page-muted); }
-.bb-page-modern[data-page="edge"] [data-zona="registro"] { padding: 12px 14px; font: 13px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; }
-.bb-page-modern[data-page="edge"] [data-zona="sommario"] { gap: 12px; font: 14px/1.45 Inter, ui-sans-serif, system-ui, sans-serif; }
-.bb-page-modern[data-page="edge"] [data-zona="sommario"] > div { padding: 14px; }
-.bb-page-modern[data-page="edge"] [data-stato="attesa"] { min-height: 120px; padding: 28px; }
-.bb-page-modern[data-page="edge"] [data-stato="guasto"] { border-color: #fecaca; background: #fff7f7; padding: 16px; }
-.bb-page-modern[data-page="edge"] [data-avviso="chiamata-fallita"] { border-color: #ead49a; background: #fffaf0; padding: 14px; }
-.bb-page-modern[data-page="edge"] [data-zona="lista"] { display: grid; gap: 10px; }
-.bb-page-modern[data-page="edge"] [data-zona="lista"] > :not([hidden]) ~ :not([hidden]) { margin-top: 0; }
-.bb-page-modern[data-page="edge"] [data-zona="lista"] > div:not([data-vuoto]) { overflow: hidden; border: 1px solid var(--bb-page-line); box-shadow: 0 1px 2px rgb(15 23 42 / 4%); }
-.bb-page-modern[data-page="edge"] [data-zona="lista"] > div:not([data-vuoto]) > div:nth-child(2) { padding: 13px 16px; }
-.bb-page-modern[data-page="edge"] [data-zona="lista"] p { color: #334155; font-size: 14px; }
-.bb-page-modern[data-page="edge"] [data-zona="lista"] [class~="text-white/80"] { color: #334155; }
-.bb-page-modern[data-page="edge"] [data-zona="sommario"] > div:first-child > div:nth-child(2) { color: var(--bb-page-text); }
-.bb-page-modern[data-page="edge"] > div.space-y-3 > div:first-child > span:first-child {
-  color: var(--bb-page-text);
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-  font-size: 24px;
-  font-weight: 700;
-  letter-spacing: normal;
-  line-height: 1.2;
-  text-transform: none;
-}
-.bb-page-modern[data-page="edge"] > div.space-y-3 > div:first-child > span:first-child svg { color: var(--bb-page-accent); }
-.bb-page-modern[data-page="edge"] > div.space-y-3 > div:first-child > span:nth-child(2) {
-  color: var(--bb-page-muted);
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: normal;
-  text-transform: none;
-}
-.bb-page-modern[data-page="edge"] > div:not(.bb-interface-recovery) > p:last-child { color: var(--bb-page-muted); font: 12px/1.45 Inter, ui-sans-serif, system-ui, sans-serif; }
-
-@media (max-width: 1000px) {
-  .bb-page-modern[data-page="edge"] [data-zona="sommario"] { grid-template-columns: minmax(0, 1fr); }
-  .bb-page-modern[data-page="edge"] [data-zona="sommario"] > div.col-span-2 { grid-column: auto; }
-}
-@media (max-width: 760px) {
-  .bb-page-modern[data-page="edge"] > div:not(.bb-interface-recovery) { padding: 14px; }
-  .bb-page-modern[data-page="edge"] [data-zona="sommario"] { grid-template-columns: minmax(0, 1fr); }
-  .bb-page-modern[data-page="edge"] [data-zona="sommario"] > div.col-span-2 { grid-column: auto; }
-}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Dark Nuova (html[data-bb-theme="dark"], Nuova only).
@@ -795,15 +728,3 @@
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="vol"] .vol-atlas [style*="115, 130, 159"],
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="vol"] .vol-atlas [style*="141, 159, 196"],
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="vol"] .vol-atlas [style*="169, 186, 209"] { color: var(--bbt-muted) !important; }
-
-/* ── Dark · Opportunity scanner ─────────────────────────────────────────── */
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="edge"] [data-zona="comandi"] > button { background: var(--bbt-surface-2); border-color: var(--bbt-line-strong); color: var(--bbt-text-2); }
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="edge"] [data-zona="comandi"] > button:hover:not(:disabled) { background: var(--bbt-hover); border-color: var(--bbt-accent); color: var(--bbt-text); }
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="edge"] [data-zona="comandi"] > button.bg-gold { border-color: var(--bbt-accent-fill); background: var(--bbt-accent-fill); color: var(--bbt-on-accent); }
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="edge"] [data-zona="comandi"] > button.bg-navy2 { border-color: var(--bbt-selected-line); background: var(--bbt-accent-soft); color: var(--bbt-accent-text); }
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="edge"] [data-zona="comandi"] > button[data-azione="rifai"]:disabled { border-color: var(--bbt-line); background: var(--bbt-surface-2); color: var(--bbt-muted); }
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="edge"] [data-stato="guasto"] { border-color: color-mix(in srgb, var(--bbt-bad) 52%, var(--bbt-surface)); background: var(--bbt-bad-soft); }
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="edge"] [data-avviso="chiamata-fallita"] { border-color: color-mix(in srgb, var(--bbt-warn) 48%, var(--bbt-surface)); background: var(--bbt-warn-soft); }
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="edge"] [data-zona="lista"] p { color: var(--bbt-text-2); }
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="edge"] [data-zona="lista"] [class~="text-white/80"] { color: var(--bbt-text-2); }
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="edge"] [data-zona="lista"] > div:not([data-vuoto]) { box-shadow: none; }

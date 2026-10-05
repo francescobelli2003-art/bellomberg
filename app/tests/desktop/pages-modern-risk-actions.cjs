@@ -620,21 +620,21 @@ async function run(q) {
     await q.waitFor(() => !!document.querySelector('main [data-page="edge"] [data-zona="comandi"] button'), 'edge controls');
     await waitSettled(q, '/signals/edge_scan');
     await q.toggle('modern');
-    const category = await markButton(q, { root: 'main [data-page="edge"] [data-zona="comandi"]', pattern: 'momentum' });
+    const category = await markButton(q, { root: 'main [data-page="edge"] [data-zona="lista"] .ro-fbar', pattern: 'momentum' });
     await q.click(category);
-    const categoryView = await q.js(() => ({ tickers: [...document.querySelectorAll('main [data-page="edge"] [data-zona="lista"] .text-sm.font-bold')].map(el => el.textContent?.trim()) }));
+    const categoryView = await q.js(() => ({ tickers: [...document.querySelectorAll('main [data-page="edge"] [data-zona="lista"] .ro-row .ro-l1 > b')].map(el => el.textContent?.trim()) }));
     assert.ok(categoryView.tickers.includes('SYN1') && !categoryView.tickers.includes('SYN2'), `category filter was not applied: ${JSON.stringify(categoryView)}`);
     await q.toggle('classic');
     const beforeFilter = await q.snapshot();
-    const threshold = await markButton(q, { root: 'main [data-page="edge"] [data-zona="comandi"]', includes: '≥60' });
+    const threshold = await markButton(q, { root: 'main [data-page="edge"] [data-zona="comandi"]', pattern: '^≥\\s*60$' });
     await q.click(threshold);
     await q.waitFor(() => !!document.querySelector('main [data-page="edge"] [data-zona="registro"]'), 'edge cache-age register');
     const cacheText = await q.js(() => document.querySelector('main [data-page="edge"] [data-zona="registro"]')?.innerText || '');
     const expiredCache = await q.js(() => {
       const region = document.querySelector('main [data-page="edge"] [data-zona="registro"]');
-      return [...(region?.querySelectorAll('[title]') || [])].some(el => el.title.includes('Synthetic fixture deliberately beyond TTL.')
+      return [region, ...(region?.querySelectorAll('[title]') || [])].some(el => !!el?.title && el.title.includes('Synthetic fixture deliberately beyond TTL.')
         && /7200|2\s*(h|hours?|ore)/i.test(el.title) && /TTL\s*(3600|1\s*(h|hours?|ora))/i.test(el.title)
-        && el.classList.contains('text-amber'));
+        && el.classList.contains('is-warn'));
     });
     assert.ok(cacheText.includes('Synthetic fixture deliberately beyond TTL.'), `cache age rationale missing from the register: ${cacheText}`);
     assert.equal(expiredCache, true, 'the stale-age detail, TTL, and fixture rationale should be exposed in a title on the register');
@@ -645,7 +645,7 @@ async function run(q) {
     const idBefore = await q.pageState();
     await q.toggle('modern'); const idModern = await q.pageState(); await q.toggle('classic');
     assert.equal(idModern.id, idBefore.id);
-    const force = 'main [data-page="edge"] [data-zona="comandi"] [data-azione="rifai"]';
+    const force = 'main [data-page="edge"] [data-azione="rifai"]';
     await q.waitFor(sel => !!document.querySelector(sel) && !document.querySelector(sel).disabled, 'edge forced-refresh control enabled', 5000, force);
     const beforeForce = await q.counts(); await q.click(force);
     await waitForCount(q, 'GET /signals/edge_scan', (beforeForce['GET /signals/edge_scan'] || 0) + 1);

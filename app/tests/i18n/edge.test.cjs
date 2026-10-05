@@ -31,6 +31,7 @@ function retained(data = fixture(), failure = null) {
       useState(initial) { const at = state++; if (!(at in values)) values[at] = typeof initial === 'function' ? initial() : initial;
         return [values[at], value => { values[at] = typeof value === 'function' ? value(values[at]) : value; }]; } },
     '@/lib/api': { API_BASE: 'http://synthetic.invalid', requestHeaders: () => ({ 'X-BB-Language': load('i18n/lingua.ts').linguaCorrente(), 'X-Synthetic-Test': 'yes' }) },
+    '@/lib/loghi-remoti': { caricaLoghi: async () => {}, useLogoRemoto: () => ({}) },
     axios: { get: async (url, options) => { calls.push({ url, options }); if (failure) throw failure; return { data }; } },
   } });
   const language = load('i18n/lingua.ts'), Page = load('pages/EdgeScannerPage.tsx').default;
@@ -48,10 +49,10 @@ test('Edge updates authored variants and labels locally, preserving strength, so
   const data = fixture(), before = structuredClone(data), { render, calls } = retained(data);
   render('en'); await render.effects(); const en = render('en'); await render.effects();
   const it = render('it'); await render.effects();
-  assert.match(en, /Strength threshold/); assert.match(it, /Soglia forza/);
+  assert.match(en, /Minimum strength/); assert.match(it, /Forza minima/);
   assert.match(en, /Declared reading/); assert.match(en, /Declared note/); assert.match(it, /Lettura dichiarata/);
   assert.match(en, /1,234\.567/); assert.match(it, /1\.234,567/);
-  for (const html of [it, en]) { assert.match(html, /Original unmarked context/); assert.match(html, /SYNTH.X/); assert.match(html, /#7a4f00/i); }
+  for (const html of [it, en]) { assert.match(html, /Original unmarked context/); assert.match(html, /SYNTH.X/); assert.match(html, /<b>77<\/b>/); }
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].options, { params: { min_strength: 45 }, timeout: 420000, headers: { 'X-BB-Language': 'en', 'X-Synthetic-Test': 'yes' } });
   assert.deepEqual(data, before);
@@ -68,9 +69,9 @@ test('the positioning category is named in the UI language in filters, summary a
   for (const language of ['it', 'en']) {
     const html = render(language);
     const label = expected[language];
-    assert.ok(html.includes(`>${label}</button>`), `${language} filter`);
-    assert.ok(html.includes(`>${label}: <span class="text-white">1</span>`), `${language} summary`);
-    assert.match(html, new RegExp(`rounded-sm">${label}</span>`), `${language} signal tag`);
+    assert.match(html, new RegExp(`data-cat="positioning"[^>]*>${label}(<!-- -->)? <b>1</b></button>`), `${language} filter`);
+    assert.ok(html.includes(`<span class="ro-lane-l">${label}<small>`), `${language} strength map lane`);
+    assert.ok(html.includes(`ro-cat is-positioning">${label}</span>`), `${language} signal tag`);
     if (language === 'it') assert.doesNotMatch(html, /Positioning/);
   }
 });

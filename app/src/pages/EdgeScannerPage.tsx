@@ -1,22 +1,24 @@
 import { useT } from '@/i18n/provider';
 import ModernPage from '@/components/ModernPage';
-import { useInterfaceTheme, useThemePalette } from '@/components/InterfaceThemeProvider';
-import type { ThemePalette } from '@/lib/theme-palette';
-import './risk-modern.css';
-import { t as tr } from '@/i18n/t';
-import { linguaCorrente, localeDi } from '@/i18n/lingua';
 import { localizePayload } from '@/lib/api-presentation';
-import { Fragment, useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { API_BASE, requestHeaders } from '@/lib/api';
-import { RefreshCw, Radar, TrendingUp, TrendingDown, AlertTriangle, Minus } from 'lucide-react';
+import { caricaLoghi } from '@/lib/loghi-remoti';
 import {
-  leggiScan, vuotoScan, copyAttesa, esitoChiamata, etaScan, rigaCopertura, durata, oraIt,
-  LATENZE_MISURATE, type Segnale,
+  leggiScan, vuotoScan, esitoChiamata, etaScan, oraIt,
 } from '@/lib/edge';
+import { chiaveSegnale, nomeCategoria } from './ricerca/calcoli';
+import VistaRicerca, { type AzioniRicerca, type DatiRicerca, type Diagnosi } from './ricerca/VistaRicerca';
+import '@/components/nuova/nuova.css';
+import './ricerca-nuova.css';
 
 // #181 — F13 Edge Scanner: segnali quantitativi oggettivi del portafoglio, ranked.
 // L'agente non inventa: parte da QUESTI segnali. Qui il PM li vede ogni giorno.
+//
+// 05/10/2026 · stile Nuova (mockup approvato `outputs/ricerca-opportunita-nuova/mockup.html`):
+// Mappa della forza | Copertura in alto, Segnali | Dettaglio fisso sotto. Qui restano lo stato e
+// le chiamate, la vista (`ricerca/VistaRicerca.tsx`) è solo presentazione.
 //
 // 22/08 (F42, ponte 22/08-2/-3 della chat backend): la pagina non interpreta più il
 // payload per conto suo — legge l'esito di `lib/edge.ts` (attesa / guasto / viva, e
@@ -30,61 +32,20 @@ import {
 // forzate in coda (~763 s) possono sforare: è la debolezza DICHIARATA di T1 — il
 // pannello del timeout dice che il backend continua, e RIPROVA riusa la scansione.
 const TIMEOUT_MS = 420000;
-
-const categoryLabels = (): Record<string, string> => ({
-  volatility: tr('edge.f001'), positioning: tr('edge.categoryPositioning'), momentum: 'Momentum',
-  factor: tr('edge.f002'), insider: 'Insider', risk: tr('edge.f003'),
-});
-
-const DIR_STYLE: Record<string, { c: string; icon: any }> = {
-  bullish: { c: 'text-emerald', icon: TrendingUp },
-  bearish: { c: 'text-crimson', icon: TrendingDown },
-  caution: { c: 'text-amber', icon: AlertTriangle },
-  neutral: { c: 'text-muted', icon: Minus },
-};
-
-// `dark` carries the dark palette (only passed while that theme is painted):
-// the light modern shades below are calibrated on white and would vanish on navy.
-function strengthColor(s: number, dark: ThemePalette | null = null): string {
-  if (dark) {
-    if (s >= 85) return dark.badText;
-    if (s >= 65) return dark.warnText;
-    return dark.muted;
-  }
-  if (s >= 85) return '#a12b2b';
-  if (s >= 65) return '#7a4f00';
-  return '#475569';
-}
+// La diagnosi rifà i rilevatori su UN titolo (Polygon, yfinance, Quiver): niente cache.
+const TIMEOUT_DIAGNOSI_MS = 180000;
 
 /** La risposta buona più recente, con la soglia con cui è stata chiesta: un filtro
  *  fallito non può far passare la lista vecchia per una lista alla soglia nuova.
  *  `ricevutaAlMs` = quando è arrivata al client: l'età del registro invecchia da lì. */
 interface Risposta { payload: unknown; soglia: number; ricevutaAlMs: number }
 
-const TONO_VUOTO: Record<string, string> = {
-  misurato: 'text-muted border-border',
-  parziale: 'text-amber border-amber/50',
-  nd: 'text-amber border-amber/50',
-  filtro: 'text-muted border-border',
-};
-
-const failureTitles = (): Record<string, string> => ({
-  payload: tr('edge.f004'),
-  timeout: tr('edge.f005'),
-  chiamata: tr('edge.f006'),
-  forma: tr('edge.f007'),
-});
+function numeroFinito(x: unknown): x is number {
+  return typeof x === 'number' && Number.isFinite(x);
+}
 
 export default function EdgeScannerPage() {
   const tr = useT();
-  const { effective: effectiveTheme } = useInterfaceTheme();
-  const themePalette = useThemePalette();
-  const darkPalette = effectiveTheme === 'dark' ? themePalette : null;
-  const CAT_LABEL = categoryLabels();
-  const TITOLO_GUASTO = failureTitles();
-  const directionLabels: Record<string, string> = {
-    bullish: tr('edge.bullish'), bearish: tr('edge.bearish'), caution: tr('edge.caution'), neutral: tr('edge.neutral'),
-  };
   const [risposta, setRisposta] = useState<Risposta | null>(null);
   const [loading, setLoading] = useState(true);
   const [forzata, setForzata] = useState(false);
@@ -100,6 +61,12 @@ export default function EdgeScannerPage() {
   // in timeout) non deve spegnere l'attesa né sovrascrivere l'ultima chiesta.
   const generazione = useRef(0);
   const inVolo = useRef(0);
+  // stato della vista Nuova (05/10): in coda, così gli indici degli hook di prima non cambiano
+  const [selK, setSelK] = useState<string | null>(null);
+  const [copertura, setCopertura] = useState(false);
+  const [diagnosi, setDiagnosi] = useState<Diagnosi | null>(null);
+  const genDiagnosi = useRef(0);
+
   const payload = useMemo(() => localizePayload(risposta?.payload), [risposta, tr]);
   const errore = useMemo(() => erroreRaw === null ? null : esitoChiamata(erroreRaw, TIMEOUT_MS), [erroreRaw, tr]);
   // memoizzato: l'orologio del registro ticka a 1 Hz e senza memo ri-parserebbe
@@ -136,226 +103,70 @@ export default function EdgeScannerPage() {
   }, [minStrength]);
   useEffect(() => { load(false); }, [load]);
 
-  const segnali: Segnale[] = (viva?.segnali || []).filter(s => !cat || s.category === cat);
-  const cats: string[] = Array.from(new Set((viva?.segnali || []).map(s => s.category)));
+  // il dialogo della copertura si chiude con Esc
+  useEffect(() => {
+    if (!copertura) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setCopertura(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [copertura]);
+
+  const tutti = useMemo(() => (viva?.segnali || []).map((s, i) => ({ s, k: chiaveSegnale(s, i) })), [viva]);
+  const tickerLoghi = useMemo(() => [...new Set(tutti.map(x => x.s.ticker))].sort().join(','), [tutti]);
+  useEffect(() => { if (tickerLoghi) caricaLoghi(tickerLoghi.split(',')); }, [tickerLoghi]);
+
+  const righe = tutti.filter(x => !cat || x.s.category === cat);
   const sogliaResa = risposta?.soglia ?? minStrength;
-  const vuoto = viva ? vuotoScan(viva, sogliaResa, CAT_LABEL[cat] || cat, segnali.length) : null;
+  const vuoto = viva ? vuotoScan(viva, sogliaResa, nomeCategoria(cat, k => tr(k)), righe.length) : null;
+  const sel = righe.find(x => x.k === selK) ?? righe[0] ?? null;
   const attesaS = loading ? Math.max(0, (adesso - partita.current) / 1000) : 0;
   // E3 · IL REGISTRO (rosa E, scelta PM 25/08): età e copertura sono la STESSA
-  // dichiarazione e si leggono per intero senza hover — la nota del backend in chiaro.
+  // dichiarazione — l'età in chiaro nella testata, la copertura nella sua card.
   const eta = viva && risposta ? etaScan(viva.eta, risposta.ricevutaAlMs, adesso) : null;
-  const copRiga = viva ? rigaCopertura(viva.copertura) : null;
   const oraScan = viva
     ? oraIt((viva.eta.dichiarata && viva.eta.scansioneDelle) || viva.generated || '')
     : null;
-  const fonteEta = viva?.eta.dichiarata
-    ? (viva.eta.fuoriCache ? tr('edge.f008')
-        : viva.eta.servitaDaCache ? tr('edge.f009') : tr('edge.f010'))
-      + (viva.eta.fuoriCache ? ''
-        : viva.eta.ttlS != null
-          ? ` (TTL ${durata(viva.eta.ttlS)}${eta?.scaduta ? tr('edge.f011') : ''})`
-          : tr('edge.f012'))
-      + (viva.eta.ttlMotivo ? ` — ${viva.eta.ttlMotivo}` : '')
-    : null;
-  const costoForza = `${Math.round(LATENZE_MISURATE.caldoS)}-${Math.round(LATENZE_MISURATE.freddoS)} s `
-    + tr('edge.f013', {a: LATENZE_MISURATE.posizioni, b: LATENZE_MISURATE.misurateIl});
-  const titoloRiprova = tr('edge.f014')
-    + tr('edge.f015', {a: costoForza})
-    + tr('edge.f016');
 
-  return (
-    <ModernPage page="edge" render={() => (
-    <div className="space-y-3">
-      <div className="flex items-baseline gap-3 flex-wrap">
-        <span className="font-mono text-amber text-lg font-semibold uppercase tracking-[0.25em] flex items-center gap-2">
-          <Radar size={18} /> Edge Scanner
-        </span>
-        <span className="font-mono text-3xs text-faint uppercase tracking-widest">
-          {tr('edge.f017')}
-        </span>
-      </div>
+  const diagnostica = useCallback((ticker: string) => {
+    const mia = ++genDiagnosi.current;
+    setDiagnosi({ ticker, stato: 'attesa' });
+    axios.get(`${API_BASE}/signals/position_doctor/${encodeURIComponent(ticker)}`, { timeout: TIMEOUT_DIAGNOSI_MS, headers: requestHeaders() })
+      .then(r => {
+        if (mia !== genDiagnosi.current) return;
+        const p = localizePayload(r.data) as Record<string, unknown> | null;
+        if (!p || !numeroFinito(p.net_score)) { setDiagnosi({ ticker, stato: 'errore', motivo: tr('edge.diagShape') }); return; }
+        setDiagnosi({
+          ticker, stato: 'ok', score: p.net_score,
+          verdetto: typeof p.verdict === 'string' ? p.verdict : '',
+          nota: typeof p.verdict_nota === 'string' ? p.verdict_nota : '',
+          nSegnali: numeroFinito(p.n_signals) ? p.n_signals : null,
+          alle: oraIt(typeof p._timestamp === 'string' ? p._timestamp : ''),
+        });
+      })
+      .catch(e => { if (mia === genDiagnosi.current) setDiagnosi({ ticker, stato: 'errore', motivo: esitoChiamata(e, TIMEOUT_DIAGNOSI_MS).motivo }); });
+  }, [tr]);
 
-      {/* Controls */}
-      <div className="border border-border bg-bg-elev px-3 py-2 flex items-center gap-3 flex-wrap font-mono text-2xs" data-zona="comandi">
-        <span className="text-faint uppercase tracking-widest">{tr('edge.f018')}</span>
-        {[30, 45, 60, 75].map(v => (
-          <button key={v} onClick={() => setMinStrength(v)}
-            title={tr('edge.f019')}
-            className={`px-2.5 py-1 rounded-sm border ${minStrength === v ? 'bg-gold text-bg border-gold font-bold' : 'bg-bg text-muted border-border hover:text-gold'}`}>
-            ≥{v}
-          </button>
-        ))}
-        <span className="text-faint uppercase tracking-widest ml-3">{tr('edge.f020')}</span>
-        <button onClick={() => setCat('')}
-          className={`px-2.5 py-1 rounded-sm border ${!cat ? 'bg-navy2 text-white border-steel' : 'bg-bg text-muted border-border hover:text-gold'}`}>
-          {tr('edge.f021')}
-        </button>
-        {cats.map(c => (
-          <button key={c} onClick={() => setCat(c)}
-            className={`px-2.5 py-1 rounded-sm border ${cat === c ? 'bg-navy2 text-white border-steel' : 'bg-bg text-muted border-border hover:text-gold'}`}>
-            {CAT_LABEL[c] || c}
-          </button>
-        ))}
-        <button onClick={() => load(true)} disabled={loading} data-azione="rifai"
-          title={tr('edge.f022', {a: costoForza})}
-          // ⚠️ spento SENZA `opacity-50`: il tasto dimezzato scendeva a 3,12:1 (misurato dal
-          // cancello negli stati) — a tasto spento si cambia colore, non si sbiadisce il testo
-          className="ml-auto px-3 py-1 rounded-sm border font-bold flex items-center gap-1 bg-gold text-bg border-gold hover:bg-gold/90 disabled:bg-bg-elev disabled:text-muted disabled:border-border disabled:cursor-wait">
-          <RefreshCw size={11} className={loading ? 'animate-spin' : ''} /> {loading ? durata(attesaS) : tr('edge.f023')}
-        </button>
-      </div>
+  const dati: DatiRicerca = {
+    esito, viva, errore, loading, forzata: esito.stato === 'attesa' && esito.forzata, attesaS, timeoutMs: TIMEOUT_MS,
+    minStrength, sogliaResa, cat, tutti, righe, sel, vuoto, eta, oraScan, copertura, diagnosi,
+  };
+  const azioni: AzioniRicerca = {
+    soglia: v => setMinStrength(v),
+    categoria: c => setCat(c),
+    scegli: k => {
+      const x = tutti.find(t => t.k === k);
+      if (x && cat && x.s.category !== cat) setCat('');
+      setSelK(k);
+    },
+    rifai: () => load(true),
+    riprova: () => load(false),
+    copertura: aperta => setCopertura(aperta),
+    diagnosi: diagnostica,
+    apriMercati: ticker => {
+      try { sessionStorage.setItem('bb:mktTicker', ticker); } catch { /* il ticker resta da cercare in Mercati */ }
+      window.location.hash = '#/market';
+    },
+  };
 
-      {/* E3 · Registro della scansione (impianto scelto dal PM il 25/08 sulla rosa in
-          situ): sta sotto i comandi, sopra il sommario, in ogni stato viva. */}
-      {viva && eta && copRiga && (
-        <div className="border border-border bg-bg-elev px-3 py-2 font-mono" data-zona="registro">
-          {/* ⚠️ column-gap INLINE, non `gap-x-3`: il JIT di Tailwind genera solo le
-              classi presenti nei sorgenti (lezione della rosa E del 22/08) */}
-          {/* il title (la frase intera dell'età) sta sugli span dell'ETÀ, non sull'intera
-              riga: hover su un pezzo di copertura non deve rispondere sulla cache */}
-          <div className="text-white flex flex-wrap" style={{ fontSize: '12px', columnGap: '12px', rowGap: '2px' }}>
-            <span className="text-cyan" title={eta.testo}>{tr('edge.f024')}{oraScan ? tr('edge.f025', {a: oraScan}) : ''}</span>
-            {eta.secondi != null && fonteEta ? (
-              <>
-                <span title={eta.testo}>{tr('edge.f026')} {durata(eta.secondi)} {tr('edge.f027')}</span>
-                <span className={eta.tono === 'scaduta' ? 'text-amber' : 'text-muted'} title={eta.testo}>{fonteEta}</span>
-              </>
-            ) : (
-              <span className="text-amber">{eta.testo}</span>
-            )}
-            <span className="text-faint">|</span>
-            {copRiga.pezzi.map((p, i) => (
-              <Fragment key={i}>
-                {i > 0 && <span className="text-faint">·</span>}
-                <span className={p.tono === 'allarme' ? 'text-amber' : undefined}>{p.testo}</span>
-              </Fragment>
-            ))}
-          </div>
-          {copRiga.nota && (
-            <div className="text-2xs text-faint mt-1 leading-relaxed">{copRiga.nota}</div>
-          )}
-        </div>
-      )}
-
-      {/* Summary */}
-      {viva && (
-        <div className="grid grid-cols-3 gap-2 font-mono text-2xs" data-zona="sommario">
-          <div className="border border-border bg-bg-elev px-3 py-2">
-            <div className="text-3xs text-faint uppercase tracking-widest">{tr('edge.f028')}{sogliaResa}</div>
-            <div className="text-2xl tabular-nums text-white mt-0.5">
-              {viva.illeggibili > 0 ? viva.segnali.length : (viva.nForti ?? viva.segnali.length)}
-            </div>
-            <div className="text-3xs text-faint">
-              {viva.illeggibili > 0
-                ? tr('edge.f029', {a: viva.nForti ?? tr('edge.f030'), b: viva.illeggibili})
-                : (viva.nTotali != null ? tr('edge.f031', {a: viva.nTotali}) : tr('edge.f032'))}
-            </div>
-          </div>
-          <div className="border border-border bg-bg-elev px-3 py-2 col-span-2">
-            <div className="text-3xs text-faint uppercase tracking-widest mb-1">{tr('edge.f033')}</div>
-            <div className="flex gap-3 flex-wrap mt-1">
-              {Object.entries(viva.perCategoria).map(([k, v]) => (
-                <span key={k} className="text-cyan">{CAT_LABEL[k] || k}: <span className="text-white">{v}</span></span>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {esito.stato === 'attesa' && (
-        <div className="panel p-8 text-center text-muted font-mono text-sm flex items-center justify-center gap-2" data-stato="attesa">
-          <RefreshCw size={14} className="animate-spin shrink-0" /> {copyAttesa(attesaS, TIMEOUT_MS, esito.forzata)}
-        </div>
-      )}
-
-      {esito.stato === 'guasto' && (
-        <div className="panel p-4 font-mono text-sm border border-crimson/50" data-stato="guasto" data-origine={esito.origine}>
-          <div className="text-crimson text-2xs font-bold uppercase tracking-widest">
-            {esito.origine === 'timeout' ? tr('edge.f034') : tr('edge.f035')} — {TITOLO_GUASTO[esito.origine]}
-          </div>
-          <div className="text-white mt-1">{esito.motivo}</div>
-          <div className="text-faint text-2xs mt-1">
-            {esito.origine === 'payload' && (
-              tr('edge.f036')
-              + `${esito.quando ? tr('edge.f037', {a: oraIt(esito.quando) || esito.quando}) : ''}: `
-              + tr('edge.f038'))}
-            {esito.origine === 'timeout' && (
-              tr('edge.f039')
-              + tr('edge.f040'))}
-            {esito.origine === 'chiamata' && tr('edge.f041')}
-            {esito.origine === 'forma' && tr('edge.f042')}
-          </div>
-          <button onClick={() => load(false)} disabled={loading} title={titoloRiprova} data-azione="riprova"
-            className={`mt-2 px-3 py-1 rounded-sm border text-2xs ${esito.origine === 'timeout'
-              ? 'bg-gold text-bg border-gold font-bold hover:bg-gold/90'
-              : 'border-border text-muted hover:text-gold'}`}>
-            {tr('edge.f043')}
-          </button>
-        </div>
-      )}
-
-      {viva && viva.ultimaChiamataFallita && (
-        <div className="panel p-3 font-mono text-2xs border border-amber/50 text-amber flex items-start gap-3 flex-wrap" data-avviso="chiamata-fallita">
-          <span className="flex-1 min-w-[240px]">
-            {tr('edge.f044')} {viva.ultimaChiamataFallita.motivo}
-            {' '}{tr('edge.f045')}{sogliaResa}).
-          </span>
-          <button onClick={() => load(false)} disabled={loading} title={titoloRiprova} data-azione="riprova"
-            className="px-3 py-1 rounded-sm border border-amber/60 text-amber hover:bg-amber/10 shrink-0">
-            {tr('edge.f043')}
-          </button>
-        </div>
-      )}
-
-      {/* Signals list */}
-      {viva && (
-        <div className="space-y-2" data-zona="lista" data-stato="viva">
-          {vuoto && (
-            <div className={`panel p-4 font-mono text-sm border ${TONO_VUOTO[vuoto.tono]}`} data-vuoto={vuoto.tono}>
-              {vuoto.testo}
-            </div>
-          )}
-          {segnali.map((s, i) => {
-            const dir = DIR_STYLE[s.direction] || DIR_STYLE.neutral;
-            const Icon = dir.icon;
-            return (
-              <div key={i} className="border border-border bg-bg-elev hover:border-gold/40 flex">
-                {/* strength bar */}
-                <div className="w-1.5 shrink-0" style={{ backgroundColor: strengthColor(s.strength, darkPalette) }} />
-                <div className="flex-1 px-3 py-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono text-sm font-bold text-gold">{s.ticker}</span>
-                    <span className="font-mono text-3xs text-faint uppercase tracking-widest px-1.5 py-0.5 border border-border rounded-sm">
-                      {CAT_LABEL[s.category] || s.category}
-                    </span>
-                    <span className="font-mono text-2xs text-white">{s.name}</span>
-                    <span className="font-mono text-2xs text-cyan">{typeof s.value === 'number'
-                      ? s.value.toLocaleString(localeDi(linguaCorrente()), { maximumSignificantDigits: 21, useGrouping: true })
-                      : String(s.value)}</span>
-                    <span className={`flex items-center gap-1 font-mono text-3xs ${dir.c}`}>
-                      <Icon size={11} /> {directionLabels[s.direction] || s.direction}
-                    </span>
-                    <span className="ml-auto font-mono text-2xs tabular-nums" style={{ color: strengthColor(s.strength, darkPalette) }}>
-                      {tr('edge.f046')} {s.strength}
-                    </span>
-                  </div>
-                  <p className="text-2xs text-white/80 mt-1 leading-relaxed">{s.reading}</p>
-                  <div className="text-3xs text-faint font-mono mt-0.5">src: {s.source} · {s.context}</div>
-                </div>
-              </div>
-            );
-          })}
-          {viva.illeggibili > 0 && (
-            <div className="text-amber text-2xs font-mono" data-avviso="illeggibili">
-              {viva.illeggibili} {viva.illeggibili === 1 ? tr('edge.f047') : tr('edge.f048')} {tr('edge.f049')}
-            </div>
-          )}
-        </div>
-      )}
-      <p className="text-faint text-3xs font-mono text-center">
-        {tr('edge.f050')}
-      </p>
-    </div>
-    )} />
-  );
+  return <ModernPage page="edge" render={() => <VistaRicerca d={dati} a={azioni} />} />;
 }

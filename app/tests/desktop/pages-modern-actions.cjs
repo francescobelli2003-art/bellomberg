@@ -999,7 +999,7 @@ async function renderer(config) {
       if (selected) choices.push({ id: 'factors-gauge-radio', text: (selected.innerText || selected.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 100) });
     }
     if (root?.dataset.page === 'edge') {
-      const threshold = [...root.querySelectorAll('[data-zona="comandi"] button')].find(el => /^≥\s*\d+/.test(el.innerText.trim()) && el.className.includes('bg-gold'));
+      const threshold = [...root.querySelectorAll('[data-zona="comandi"] button')].find(el => /^≥\s*\d+/.test(el.innerText.trim()) && el.getAttribute('aria-pressed') === 'true');
       addChoice('edge-strength-threshold', threshold);
     }
     if (root?.dataset.page === 'decisions') {
@@ -1592,14 +1592,14 @@ async function preparePageState(q, id) {
     const target = await q.js(() => {
       const buttons = [...document.querySelectorAll('main [data-page="edge"] [data-zona="comandi"] button')]
         .filter(el => /^≥\s*\d+/.test(el.innerText.trim()));
-      const candidate = buttons.find(el => !el.classList.contains('bg-gold'));
-      if (!candidate) return { count: buttons.length, active: buttons.find(el => el.classList.contains('bg-gold'))?.innerText.trim() || null };
+      const candidate = buttons.find(el => el.getAttribute('aria-pressed') !== 'true');
+      if (!candidate) return { count: buttons.length, active: buttons.find(el => el.getAttribute('aria-pressed') === 'true')?.innerText.trim() || null };
       candidate.setAttribute('data-qa-action-choice', 'edge-threshold');
       return { count: buttons.length, target: candidate.innerText.trim(), selector: '[data-qa-action-choice="edge-threshold"]' };
     });
     assert.ok(target.selector, `Edge Scanner has no alternate strength filter: ${JSON.stringify(target)}`);
     await q.click(`main [data-page="edge"] ${target.selector}`);
-    await q.waitFor(() => document.querySelector('main [data-page="edge"] [data-qa-action-choice="edge-threshold"]')?.classList.contains('bg-gold'), 'Edge Scanner selected threshold');
+    await q.waitFor(() => document.querySelector('main [data-page="edge"] [data-qa-action-choice="edge-threshold"]')?.getAttribute('aria-pressed') === 'true', 'Edge Scanner selected threshold');
     return;
   }
   if (id === 'mandato') {
