@@ -27,6 +27,7 @@ import { filingPage } from './filingPage.js';
 import { marketsPage } from './marketsPage.js';
 import { newsPage } from './newsPage.js';
 import { performancePage } from './performancePage.js';
+import { factorsPage } from './factorsPage.js';
 import { tradePage } from './tradePage.js';
 
 export const it = {
@@ -59,6 +60,7 @@ export const it = {
   marketsPage,
   newsPage,
   performancePage,
+  factorsPage,
   tradePage,
   lingua: {
     italiano: 'ITALIANO', inglese: 'INGLESE', titolo: 'Scegli la lingua',

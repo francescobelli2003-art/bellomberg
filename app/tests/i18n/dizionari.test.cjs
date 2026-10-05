@@ -16,7 +16,9 @@ const NEUTRE_PER_CHIAVE = { 'trade.opening_ticker': 'Ticker', 'voldeck.chain': '
   'newsdesk.blipCountOne': '{a} BLIP', 'progress.callsCountOne': '{a} call',
   'movements.bothCounts': '{a} + {b}',
   'dashboardPage.heroNav': 'NAV', 'dashboardPage.heroCash': 'Cash',
-  'performancePage.unitPct': '%', 'performancePage.unitEur': '€' };
+  'performancePage.unitPct': '%', 'performancePage.unitEur': '€',
+  'factorsPage.colDelta': 'Δ', 'factorsPage.regDatasetOne': '1 dataset', 'factorsPage.sharpeTitle': 'Sharpe ratio',
+  'factorsPage.gapPp': '{v} pp' };
 // Nuova pages: shared domain terms, tickers, metric names and pure layouts of placeholders.
 Object.assign(NEUTRE_PER_CHIAVE, {
   'agentsPage.descDone_desk_one': '1 desk', 'agentsPage.descDone_round_one': '1 round', 'agentsPage.runSpan': '{giorno} · {da} → {a}',

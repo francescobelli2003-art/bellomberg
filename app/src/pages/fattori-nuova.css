@@ -1,0 +1,290 @@
+/* Fattori di rischio (palette consumer --bbn-*), stessa grammatica di Performance e Notizie.
+   Mockup approvato: outputs/fattori-nuova/mockup.html. Layout per larghezza dell'area contenuti
+   (container `bellomberg-content`):
+     < 1180 px   una colonna, la pagina scorre;
+     ≥ 1180 px   la pagina riempie lo schermo: nessuna fascia vuota in basso.
+   Il <main> di /factors non dichiara il container: lo dichiara questo foglio. */
+.bb-modern-main.bb-modern-main-classic-content:has(> .relative .bbn-fattori) {
+  container-type: inline-size; container-name: bellomberg-content;
+  background: var(--bbn-bg); color: var(--bbn-text); color-scheme: light;
+}
+.bb-modern-main.bb-modern-main-classic-content:has(> .relative .bbn-fattori) > .relative { background: var(--bbn-bg); }
+:root[data-bb-theme="dark"] .bb-modern-main.bb-modern-main-classic-content:has(> .relative .bbn-fattori),
+:root[data-bb-theme="dark"] .bb-modern-main.bb-modern-main-classic-content:has(> .relative .bbn-fattori) > .relative {
+  background: var(--bbn-bg); color: var(--bbn-text); color-scheme: dark;
+}
+.bb-modern-main:has(.bbn-fattori) { container-type: inline-size; container-name: bellomberg-content; background: var(--bbn-bg); }
+
+/* pages-modern.css veste ogni bottone e tabella delle pagine moderne: qui valgono i componenti Nuova. */
+.bb-page.bb-page-modern[data-page="factors"],
+:root[data-bb-theme="dark"] .bb-page.bb-page-modern[data-page="factors"] { height: 100%; background: var(--bbn-bg); color: var(--bbn-text); }
+.bb-page.bb-page-modern[data-page] .bbn-fattori button {
+  min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; color: inherit; font: inherit; line-height: inherit; box-shadow: none; cursor: pointer;
+}
+.bb-page.bb-page-modern[data-page] .bbn-fattori button.bbn-btn {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 18px; border-radius: 999px; background: var(--bbn-card);
+  color: var(--bbn-text); font-weight: 700; font-size: 14px; line-height: 1; box-shadow: var(--bbn-shadow); white-space: nowrap;
+}
+:root[data-bb-theme="dark"] .bb-page.bb-page-modern[data-page] .bbn-fattori button.bbn-btn { background: var(--bbn-raised); }
+.bb-page.bb-page-modern[data-page] .bbn-fattori button.bbn-btn:hover:not(:disabled) { filter: brightness(1.06); }
+.bb-page.bb-page-modern[data-page] .bbn-fattori button.bbn-btn:disabled { opacity: .6; cursor: progress; }
+.bb-page.bb-page-modern[data-page] .bbn-fattori .bbn-seg button { padding: 6px 12px; border-radius: 999px; color: var(--bbn-muted); font-weight: 700; font-size: 13px; line-height: 1.2; }
+.bb-page.bb-page-modern[data-page] .bbn-fattori .bbn-seg.is-large button { padding: 8px 18px; font-size: 14px; }
+.bb-page.bb-page-modern[data-page] .bbn-fattori .bbn-seg button.is-on { background: var(--bbn-seg-on); color: var(--bbn-text); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+.bb-page.bb-page-modern[data-page] .bbn-fattori button.bbn-icon-btn { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--bbn-raised); color: var(--bbn-muted); }
+.bb-page.bb-page-modern[data-page] .bbn-fattori :is(h1, h2, h3) { color: var(--bbn-text); letter-spacing: normal; text-transform: none; font-family: inherit; }
+.bb-page.bb-page-modern[data-page] .bbn-fattori table { width: 100%; color: var(--bbn-text); }
+.bb-page.bb-page-modern[data-page] .bbn-fattori :is(th, td) { border: 0; background: none; text-transform: none; letter-spacing: normal; }
+
+.bbn-fattori {
+  --fat-heat-up: 29, 86, 240; --fat-heat-down: 212, 42, 58; --fat-violet: #7c3aed; --fat-violet-soft: rgba(124, 58, 237, .12);
+  box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; min-width: 0; height: 100%; min-height: 820px;
+  padding: 20px 28px 24px; color: var(--bbn-text);
+  font-family: 'Manrope Variable', Manrope, system-ui, sans-serif; font-size: 14px; line-height: 1.45;
+  font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased;
+}
+/* In Scuro il rosso sta anche su --bbn-raised (tessere): #ff6b6b tiene 4,5:1. */
+:root[data-bb-theme="dark"] .bbn-fattori {
+  --bbn-bad: #ff6b6b; --fat-heat-up: 91, 140, 255; --fat-heat-down: 255, 107, 107; --fat-violet: #a78bfa; --fat-violet-soft: rgba(167, 139, 250, .16);
+}
+.bbn-fattori *, .bbn-fattori *::before, .bbn-fattori *::after { box-sizing: border-box; }
+.bbn-fattori :where(button, [tabindex], tr):focus-visible { outline: 2px solid var(--bbn-accent); outline-offset: 2px; }
+.bbn-fattori [hidden] { display: none !important; }
+.bbn-fattori .num { font-variant-numeric: tabular-nums; }
+.bbn-fattori .fat-muted { color: var(--bbn-muted); }
+.bbn-fattori .fat-missing { font-size: 13px; font-weight: 600; letter-spacing: 0; }
+.bbn-fattori .fat-good { color: var(--bbn-good); } .bbn-fattori .fat-bad { color: var(--bbn-bad); } .bbn-fattori .fat-acc { color: var(--bbn-accent); }
+.bbn-fattori .bbn-grow { flex: 1 1 auto; }
+.bbn-fattori .fat-spin { animation: fat-spin 1s linear infinite; }
+@keyframes fat-spin { to { transform: rotate(360deg); } }
+@keyframes fat-shimmer { to { background-position: -200% 0; } }
+
+/* ── testata ─────────────────────────────────────────────────────── */
+.fat-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.fat-top h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.01em; line-height: 1.25; }
+.fat-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; background: var(--bbn-raised); color: var(--bbn-muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.fat-chip b { color: var(--bbn-text); font-weight: 700; }
+.fat-warn-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--bbn-warn); display: inline-block; }
+
+/* ── pillole, note, info ─────────────────────────────────────────── */
+.fat-pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-weight: 700; font-size: 12px; white-space: nowrap; }
+.fat-pill.is-good { color: var(--bbn-good); background: var(--bbn-good-soft); }
+.fat-pill.is-bad { color: var(--bbn-bad); background: var(--bbn-bad-soft); }
+.fat-pill.is-warn { color: var(--bbn-warn); background: var(--bbn-warn-soft); }
+.fat-pill.is-flat { color: var(--bbn-muted); background: var(--bbn-raised); }
+.fat-pill.is-outline { color: var(--bbn-muted); background: none; box-shadow: inset 0 0 0 1px var(--bbn-line); padding: 1px 7px; font-size: 11px; }
+.fat-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; display: inline-block; }
+.fat-note { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 14px; font-size: 13px; font-weight: 600; }
+.fat-note .txt { flex: 1 1 auto; min-width: 0; }
+.fat-note.is-bad { background: var(--bbn-bad-soft); color: var(--bbn-bad); }
+.fat-note.is-warn { background: var(--bbn-warn-soft); color: var(--bbn-warn); }
+.fat-note.is-plain { background: var(--bbn-raised); color: var(--bbn-muted); }
+.fat-note.is-plain b { color: var(--bbn-text); }
+.fat-info { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--bbn-muted); color: var(--bbn-muted); display: inline-grid; place-items: center;
+  font-size: 10px; font-weight: 800; line-height: 1; cursor: help; flex: none; }
+
+/* ── card e viste ────────────────────────────────────────────────── */
+.fat-card { overflow: hidden; }
+.fat-card .bbn-card-head { padding: 18px 22px 6px; }
+.fat-body { display: flex; flex-direction: column; gap: 14px; flex: 1 1 auto; min-height: 0; padding: 8px 22px 20px; }
+.fat-views { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.fat-slot { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.fat-view { flex: 1 1 auto; min-height: 0; display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+.fat-lbl { display: flex; align-items: center; gap: 6px; color: var(--bbn-muted); font-size: 12px; font-weight: 700; }
+.fat-tile { background: var(--bbn-raised); border-radius: 16px; padding: 12px 14px; min-width: 0; }
+.fat-tile > span { display: flex; gap: 6px; align-items: center; color: var(--bbn-muted); font-size: 12px; font-weight: 600; }
+.fat-tile b { display: block; font-size: 24px; font-weight: 800; letter-spacing: -.02em; margin-top: 2px; }
+.fat-tile small { color: var(--bbn-muted); font-size: 12px; font-weight: 600; }
+.fat-tiles2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.fat-tiles3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.fat-tiles3 .fat-tile b { font-size: 20px; }
+.fat-skel { height: 78px; border-radius: 16px; background: linear-gradient(90deg, var(--bbn-raised), var(--bbn-line), var(--bbn-raised)); background-size: 200% 100%; animation: fat-shimmer 1.4s infinite; }
+
+/* ── vista Beta ──────────────────────────────────────────────────── */
+.fat-beta-top { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 34px; flex: 1 1 auto; min-height: 0; }
+.fat-cons { display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+.fat-cons .fat-lbl { font-size: 13px; font-weight: 600; }
+.fat-big { font-size: 56px; font-weight: 700; letter-spacing: -.035em; line-height: 1.05; }
+.fat-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.fat-cons small { color: var(--bbn-muted); font-size: 12px; font-weight: 600; margin-top: 8px; }
+.fat-ruler-wrap { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.fat-ruler { position: relative; flex: 1 1 auto; min-height: 190px; margin: 0 18px 0 6px; }
+.fat-axis { position: absolute; left: 0; right: 0; bottom: 30px; height: 2px; background: var(--bbn-line); border-radius: 2px; }
+.fat-tick { position: absolute; bottom: 24px; width: 1px; height: 8px; background: var(--bbn-line); }
+.fat-tlab { position: absolute; bottom: 4px; transform: translateX(-50%); color: var(--bbn-muted); font-size: 11px; font-weight: 600; }
+.fat-band { position: absolute; bottom: 22px; height: 18px; border-radius: 6px; background: var(--bbn-bad-soft); }
+.fat-band.is-ok { background: var(--bbn-accent-soft); }
+.fat-soglia { position: absolute; bottom: 18px; height: 26px; border-radius: 8px; box-shadow: inset 0 0 0 1.5px var(--bbn-good); background: var(--bbn-good-soft); }
+.bb-page.bb-page-modern[data-page] .bbn-fattori button.fat-mk { position: absolute; bottom: 25px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; z-index: 1; }
+.fat-mk .v { font-size: 15px; font-weight: 800; padding: 3px 9px; border-radius: 999px; background: var(--bbn-raised); white-space: nowrap; transition: background .15s, color .15s; }
+.fat-mk .stem { width: 2px; flex: 1 1 auto; margin-top: 4px; background: var(--bbn-accent); border-radius: 2px; }
+.fat-mk .head { width: 12px; height: 12px; border-radius: 50%; background: var(--bbn-accent); margin-bottom: -6px; box-shadow: 0 0 0 3px var(--bbn-card); }
+.fat-mk.is-out .stem { background: repeating-linear-gradient(var(--bbn-muted) 0 4px, transparent 4px 7px); }
+.fat-mk.is-out .head { background: var(--bbn-card); box-shadow: 0 0 0 2px var(--bbn-muted), 0 0 0 5px var(--bbn-card); }
+.fat-mk[aria-checked="true"] .v { background: var(--bbn-accent-fill); color: var(--bbn-on-accent); }
+.fat-mk.is-out[aria-checked="true"] .v { background: var(--bbn-muted); color: var(--bbn-card); }
+.fat-rkey { display: flex; gap: 18px; flex-wrap: wrap; color: var(--bbn-muted); font-size: 12px; font-weight: 600; padding-left: 6px; }
+.fat-rkey i { display: inline-block; width: 18px; height: 10px; border-radius: 4px; margin-right: 6px; vertical-align: -1px; }
+.fat-rkey .k-r { width: 10px; height: 10px; border-radius: 50%; background: var(--bbn-accent); }
+.fat-rkey .k-o { width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 2px var(--bbn-muted); }
+.fat-rkey .k-b { background: var(--bbn-bad-soft); } .fat-rkey .k-b.is-ok { background: var(--bbn-accent-soft); }
+.fat-rkey .k-s { background: var(--bbn-good-soft); box-shadow: inset 0 0 0 1.5px var(--bbn-good); }
+.fat-fonti { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.bb-page.bb-page-modern[data-page] .bbn-fattori button.fat-fonte { background: var(--bbn-raised); border-radius: 16px; padding: 12px 14px; min-width: 0; text-align: left;
+  box-shadow: inset 0 0 0 1.5px transparent; transition: box-shadow .15s; display: flex; flex-direction: column; gap: 2px; }
+.bb-page.bb-page-modern[data-page] .bbn-fattori button.fat-fonte[aria-current="true"] { box-shadow: inset 0 0 0 1.5px var(--bbn-accent); }
+.fat-fonte .k { display: flex; align-items: center; gap: 6px; color: var(--bbn-muted); font-size: 12px; font-weight: 700; }
+.fat-fonte b { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+.fat-fonte small { color: var(--bbn-muted); font-size: 12px; font-weight: 600; line-height: 1.35; }
+.fat-wait { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; color: var(--bbn-muted); font-weight: 600; }
+.fat-wait b { color: var(--bbn-text); font-size: 16px; }
+.fat-wait .fat-fonti { width: 100%; margin-top: 18px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+.fat-duel .fat-body { justify-content: space-between; }
+.fat-duel-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 18px; align-items: end; }
+.fat-side { min-width: 0; }
+.fat-side.is-b { text-align: right; } .fat-side.is-b .fat-lbl { justify-content: flex-end; }
+.fat-side b { display: block; font-size: 38px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; margin: 2px 0; }
+.fat-side.is-a b { color: var(--bbn-accent); } .fat-side.is-b b { color: var(--fat-violet); }
+.fat-side small { display: block; color: var(--bbn-muted); font-size: 12px; font-weight: 600; line-height: 1.35; }
+.fat-gap { display: flex; flex-direction: column; align-items: center; gap: 2px; padding-bottom: 20px; }
+.fat-gap span { color: var(--bbn-muted); font-size: 11px; font-weight: 700; }
+.fat-gap b { color: var(--bbn-warn); font-size: 15px; font-weight: 800; }
+.fat-dumb { position: relative; height: 52px; margin: 4px 24px 0; }
+.fat-dumb .ax { position: absolute; left: 0; right: 0; top: 20px; height: 2px; background: var(--bbn-line); }
+.fat-dumb .tk { position: absolute; top: 16px; width: 1px; height: 10px; background: var(--bbn-line); }
+.fat-dumb .z { position: absolute; top: 10px; width: 2px; height: 22px; margin-left: -1px; background: var(--bbn-muted); border-radius: 2px; }
+.fat-dumb .tl { position: absolute; top: 34px; transform: translateX(-50%); font-size: 11px; color: var(--bbn-muted); font-weight: 600; white-space: nowrap; }
+.fat-dumb .seg { position: absolute; top: 18px; height: 6px; border-radius: 999px; background: var(--bbn-warn-soft); }
+.fat-dumb .pt { position: absolute; top: 14px; width: 14px; height: 14px; border-radius: 50%; transform: translateX(-50%); box-shadow: 0 0 0 3px var(--bbn-card); }
+.fat-dumb .pt.is-a { background: var(--bbn-accent); } .fat-dumb .pt.is-b { background: var(--fat-violet); }
+
+/* ── vista Fattori ───────────────────────────────────────────────── */
+.fat-legend { display: inline-flex; gap: 14px; color: var(--bbn-muted); font-size: 12px; font-weight: 600; }
+.fat-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+.fat-legend i.is-a { background: var(--bbn-accent); } .fat-legend i.is-b { background: var(--fat-violet); }
+.fat-prof { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; justify-content: space-around; }
+.fat-prow { display: grid; grid-template-columns: minmax(170px, 210px) minmax(0, 1fr) 64px 64px 64px; gap: 16px; align-items: center; padding: 8px 0; }
+.fat-prow.is-head { color: var(--bbn-muted); font-size: 12px; font-weight: 600; padding: 0 0 4px; }
+.fat-prow.is-scale { color: var(--bbn-muted); font-size: 11px; font-weight: 600; padding: 0; }
+.fat-prow-dir { display: flex; justify-content: space-between; }
+.fat-prow .r { text-align: right; }
+.fat-prow .nm b { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; }
+.fat-prow .nm b em { font-style: normal; font-size: 11px; font-weight: 800; color: var(--bbn-muted); background: var(--bbn-raised); padding: 2px 7px; border-radius: 6px; }
+.fat-prow .nm small { color: var(--bbn-muted); font-size: 12px; font-weight: 600; }
+.fat-prow .v1 { font-weight: 800; color: var(--bbn-accent); }
+.fat-prow .v3 { font-weight: 800; color: var(--fat-violet); }
+.fat-prow .dl { font-weight: 700; color: var(--bbn-muted); }
+.fat-prow .dl.is-big { color: var(--bbn-warn); }
+.fat-bars { position: relative; height: 38px; border-radius: 10px;
+  background: linear-gradient(90deg, transparent calc(25% - .5px), var(--bbn-line) calc(25% - .5px) calc(25% + .5px), transparent calc(25% + .5px) calc(75% - .5px),
+    var(--bbn-line) calc(75% - .5px) calc(75% + .5px), transparent calc(75% + .5px)), var(--bbn-raised); }
+.fat-bars::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1.5px; background: var(--bbn-muted); opacity: .6; }
+.fat-bars i { position: absolute; height: 11px; border-radius: 999px; }
+.fat-bars i.b1 { top: 7px; background: var(--bbn-accent); }
+.fat-bars i.b3 { top: 20px; background: var(--fat-violet); opacity: .85; }
+.fat-stack { display: flex; height: 14px; border-radius: 999px; overflow: hidden; gap: 2px; }
+.fat-stack i { display: block; height: 100%; }
+.fat-stack .s1, .fat-kv i.s1 { background: var(--bbn-accent); }
+.fat-stack .s3, .fat-kv i.s3 { background: var(--bbn-muted); opacity: .45; }
+.fat-kv { display: grid; gap: 8px; margin: 0; font-size: 13px; }
+.fat-kv div { display: flex; justify-content: space-between; gap: 12px; }
+.fat-kv dt { color: var(--bbn-muted); font-weight: 600; display: flex; align-items: center; gap: 7px; }
+.fat-kv dt i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+.fat-kv dd { margin: 0; font-weight: 700; text-align: right; }
+.fat-reg { display: flex; flex-direction: column; gap: 8px; }
+.fat-rrow { display: grid; grid-template-columns: minmax(0, 1fr) 120px 58px; gap: 12px; align-items: center; background: var(--bbn-raised); border-radius: 14px; padding: 11px 14px; }
+.fat-rrow b { display: block; font-size: 14px; }
+.fat-rrow small { display: block; color: var(--bbn-muted); font-size: 12px; font-weight: 600; }
+.fat-rrow small.fat-bad { color: var(--bbn-bad); }
+.fat-rrow .r { text-align: right; font-weight: 800; }
+.fat-wbar { height: 8px; border-radius: 999px; background: var(--bbn-card); position: relative; overflow: hidden; }
+.fat-wbar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--bbn-accent); border-radius: 999px; }
+.fat-skipped .txt { display: flex; flex-direction: column; gap: 3px; }
+.fat-skip-row { font-weight: 600; }
+
+/* ── vista Titoli ────────────────────────────────────────────────── */
+.fat-tabwrap { flex: 1 1 auto; min-height: 0; overflow: auto; margin: 0 -10px; padding: 0 10px; scrollbar-width: thin; }
+.bb-page.bb-page-modern[data-page] .bbn-fattori table.fat-hm { height: 100%; border-collapse: separate; border-spacing: 0 4px; font-size: 13px; }
+.fat-hm thead tr { height: 1px; }
+.bb-page.bb-page-modern[data-page] .bbn-fattori .fat-hm th { position: sticky; top: 0; z-index: 1; background: var(--bbn-card); color: var(--bbn-muted); font-weight: 600; font-size: 12px;
+  padding: 4px 6px 8px; text-align: center; white-space: nowrap; }
+.bb-page.bb-page-modern[data-page] .bbn-fattori .fat-hm th.l { text-align: left; }
+.bb-page.bb-page-modern[data-page] .bbn-fattori .fat-hm th.r { text-align: right; }
+.bb-page.bb-page-modern[data-page] .bbn-fattori .fat-hm td { padding: 0 6px; height: 46px; white-space: nowrap; }
+.fat-hm tbody tr { cursor: pointer; }
+.fat-hm tbody tr td:first-child { border-radius: 14px 0 0 14px; } .fat-hm tbody tr td:last-child { border-radius: 0 14px 14px 0; }
+.bb-page.bb-page-modern[data-page] .bbn-fattori .fat-hm tbody tr:hover td,
+.bb-page.bb-page-modern[data-page] .bbn-fattori .fat-hm tbody tr[aria-selected="true"] td { background: var(--bbn-raised); }
+.fat-hm tbody tr[aria-selected="true"] td:first-child { box-shadow: inset 3px 0 0 var(--bbn-accent); }
+.fat-hm td.r { text-align: right; font-weight: 700; }
+.fat-hm td.hc { text-align: center; padding: 0 3px; }
+.fat-tt { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.fat-tt b { display: block; font-size: 14px; font-weight: 700; max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+.fat-tt small { color: var(--bbn-muted); font-size: 12px; font-weight: 600; }
+.fat-fx { font-size: 10px; font-weight: 800; color: var(--bbn-warn); background: var(--bbn-warn-soft); border-radius: 6px; padding: 1px 5px; margin-left: 6px; cursor: help; }
+.fat-cell { display: block; border-radius: 9px; padding: 7px 0; font-weight: 700; font-size: 12px; min-width: 54px; color: var(--bbn-text); }
+.fat-cell.is-strong { color: #fff; }
+.fat-cell.is-ns { color: var(--bbn-muted); font-weight: 600; box-shadow: inset 0 0 0 1px var(--bbn-line); }
+.fat-whisk-cell { min-width: 150px; }
+.fat-whisk { position: relative; height: 16px; min-width: 0; }
+.fat-whisk .ax { position: absolute; left: 0; right: 0; top: 7px; height: 2px; background: var(--bbn-line); border-radius: 2px; }
+.fat-whisk .z { position: absolute; left: 50%; top: 1px; width: 1.5px; height: 14px; background: var(--bbn-muted); }
+.fat-whisk .ic { position: absolute; top: 5px; height: 6px; border-radius: 999px; background: var(--bbn-muted); opacity: .45; }
+.fat-whisk .pt { position: absolute; top: 3px; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; background: var(--bbn-muted); }
+.fat-whisk.is-sig .ic { background: var(--bbn-good); opacity: .5; } .fat-whisk.is-sig .pt { background: var(--bbn-good); }
+.fat-whisk.is-sig.is-neg .ic { background: var(--bbn-bad); } .fat-whisk.is-sig.is-neg .pt { background: var(--bbn-bad); }
+.fat-hm-key { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; color: var(--bbn-muted); font-size: 12px; font-weight: 600; }
+.fat-grad { width: 120px; height: 8px; border-radius: 999px;
+  background: linear-gradient(90deg, rgba(var(--fat-heat-down), .85), rgba(var(--fat-heat-down), .1) 45%, rgba(var(--fat-heat-up), .1) 55%, rgba(var(--fat-heat-up), .85)); }
+.fat-ns-key { display: inline-block; width: 22px; height: 12px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--bbn-line); vertical-align: -2px; margin-right: 6px; }
+.fat-det-h { display: flex; align-items: center; gap: 12px; }
+.fat-det-h b { display: block; font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+.fat-det-h small { color: var(--bbn-muted); font-size: 13px; font-weight: 600; }
+.fat-fp { display: flex; flex-direction: column; gap: 4px; flex: 1 1 auto; justify-content: space-around; }
+.fat-fprow { display: grid; grid-template-columns: 120px minmax(0, 1fr) 58px; gap: 12px; align-items: center; padding: 6px 0; }
+.fat-fprow > span { font-weight: 700; font-size: 13px; }
+.fat-fprow > span small { display: block; color: var(--bbn-muted); font-weight: 600; font-size: 11px; }
+.fat-fprow > b { text-align: right; font-weight: 800; font-size: 13px; }
+.fat-fprow.is-head { color: var(--bbn-muted); font-size: 12px; font-weight: 600; padding-bottom: 0; }
+.fat-fprow.is-head > span { color: var(--bbn-muted); font-size: 12px; font-weight: 600; }
+.fat-fp-scale { display: flex; justify-content: space-between; }
+
+/* ── Metodo e fonti ──────────────────────────────────────────────── */
+.fat-method .bbn-drawer { width: min(540px, 94vw); }
+.fat-method section { padding: 14px 0; border-top: 1px solid var(--bbn-line); }
+.fat-method section:first-of-type { border-top: 0; }
+.fat-method h3 { margin: 0 0 8px; font-size: 14px; font-weight: 700; }
+.bb-page.bb-page-modern[data-page] .bbn-fattori .fat-method section.is-warn h3 { color: var(--bbn-warn); }
+.fat-method p { margin: 0 0 6px; color: var(--bbn-muted); font-size: 13px; }
+.fat-method dl { display: grid; gap: 7px; margin: 4px 0 0; font-size: 13px; }
+.fat-method dl div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; }
+.fat-method dt { color: var(--bbn-muted); font-weight: 600; }
+.fat-method dd { margin: 0; font-weight: 700; text-align: right; }
+.fat-method section:first-of-type dl div { display: block; background: var(--bbn-raised); border-radius: 12px; padding: 10px 12px; }
+.fat-method section:first-of-type dt { color: var(--bbn-text); font-weight: 700; }
+.fat-method section:first-of-type dd { color: var(--bbn-muted); font-weight: 600; text-align: left; font-size: 12px; margin-top: 2px; }
+
+/* ── impaginazione per larghezza ─────────────────────────────────── */
+@container bellomberg-content (min-width: 1180px) {
+  .fat-beta { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1.5fr) minmax(0, 1fr) auto; }
+  .fat-beta-card, .fat-misure-err { grid-column: 1 / -1; }
+  .fat-fattori { grid-template-columns: minmax(0, 1.65fr) minmax(380px, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1.15fr); }
+  .fat-cov-card .fat-body, .fat-reg-card .fat-body { justify-content: space-between; }
+  .fat-prof-card { grid-row: 1 / -1; }
+  .fat-titoli { grid-template-columns: minmax(0, 1.9fr) minmax(400px, 1fr); }
+}
+/* 49" 32:9: le tre card della vista Beta su una riga sola */
+@container bellomberg-content (min-width: 3600px) {
+  .fat-beta { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .fat-beta-card { grid-column: auto; }
+  .fat-duel .fat-body { justify-content: center; gap: 48px; }
+}
+@container bellomberg-content (max-width: 1179px) {
+  .bbn-fattori { height: auto; min-height: 0; }
+  .fat-beta-top { grid-template-columns: minmax(0, 1fr); }
+  .fat-hm-card { min-height: 520px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bbn-fattori .fat-spin, .bbn-fattori .fat-skel { animation: none; }
+}
