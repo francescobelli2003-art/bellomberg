@@ -98,42 +98,6 @@
   background: var(--bb-page-soft);
 }
 
-.bb-page-modern[data-page="watchlist"] .watchlist-page {
-  min-height: 100%;
-  gap: 12px;
-  padding: 12px;
-  overflow: auto;
-}
-
-.bb-page-modern[data-page="watchlist"] .watchlist-page .panel {
-  min-width: 0;
-  border: 1px solid var(--bb-page-line);
-  border-radius: 9px;
-  background: var(--bb-page-panel);
-  box-shadow: none;
-}
-
-.bb-page-modern[data-page="watchlist"] .watchlist-page textarea {
-  min-height: 54px;
-  resize: vertical;
-}
-
-.bb-page-modern[data-page="watchlist"] .watchlist-page tbody tr:hover {
-  background: var(--bb-page-accent-soft);
-}
-
-.bb-page-modern[data-page="watchlist"] .watchlist-page td[colspan] {
-  background: var(--bb-page-soft);
-}
-
-.bb-page-modern[data-page="watchlist"] .watchlist-page > .panel:first-child .text-amber-bright {
-  color: var(--bb-page-text);
-  font-size: 16px !important;
-  font-weight: 650;
-  letter-spacing: normal !important;
-  text-shadow: none;
-}
-
 .bb-page-modern[data-page="news"] .news-page {
   min-height: 0;
   height: 100%;
@@ -304,7 +268,6 @@
 
 @media (max-width: 760px) {
   .bb-page-modern[data-page="performance"] .performance-page,
-  .bb-page-modern[data-page="watchlist"] .watchlist-page,
   .bb-page-modern[data-page="news"] .news-page,
   .bb-page-modern[data-page="fundamentals"] .fundamentals-page {
     padding: 8px;
@@ -359,7 +322,7 @@
 .bb-page-modern[data-page="fundamentals"] .fundamentals-page h1 { color: var(--bb-page-text) !important; }
 
 /* Native keyboard actions retain the previous ticker typography in Classic. */
-:where(.watchlist-page, .fundamentals-page) button.research-ticker-action {
+:where(.fundamentals-page) button.research-ticker-action {
   border: 0;
   padding: 0;
   min-height: 0;

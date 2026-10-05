@@ -56,10 +56,11 @@ async function run(q) {
     const evidence = [];
     try {
       await fresh(q, 'watchlist', { '/favorites': delayed({ favorites: [] }) });
-      await q.waitFor(() => !!document.querySelector('[data-page="watchlist"] svg.animate-pulse'), 'favorites visibly loading');
+      // Preferiti Nuova (05/10/2026): lo stato della pagina è dichiarato in data-state
+      await q.waitFor(() => !!document.querySelector('[data-page="watchlist"] .bbn-preferiti[data-state="loading"]'), 'favorites visibly loading');
       evidence.push(...await both(q, 'watchlist', 'loading', async () => {
-        const state = await q.js(() => ({ loading: !!document.querySelector('[data-page="watchlist"] svg.animate-pulse'),
-          refreshDisabled: document.querySelector('[data-page="watchlist"] .btn')?.disabled }));
+        const state = await q.js(() => ({ loading: !!document.querySelector('[data-page="watchlist"] .bbn-preferiti[data-state="loading"] [aria-busy="true"]'),
+          refreshDisabled: document.querySelector('[data-page="watchlist"] .pf-refresh')?.disabled }));
         assert.ok(state.loading && state.refreshDisabled); return state;
       }));
       await q.waitFor(() => /No favorites/i.test(document.querySelector('[data-page="watchlist"]')?.innerText || ''), 'favorites empty after fixture read', 20000);
@@ -76,16 +77,16 @@ async function run(q) {
       }));
       await restore(q, ['/favorites']);
       await fresh(q, 'watchlist', { '/market/quote': { ticker: 'SYN1', price: 0, change_pct: 0, currency: 'EUR' } });
-      await q.waitFor(() => /0\.00 EUR/.test(document.querySelector('[data-page="watchlist"] table')?.innerText || ''), 'observed zero quote');
+      const zero = () => [...document.querySelectorAll('[data-page="watchlist"] .pf-row .pf-px')].map(el => el.textContent.trim());
+      await q.waitFor(() => [...document.querySelectorAll('[data-page="watchlist"] .pf-row .pf-px')].some(el => /^0\.0+\s*EUR$/.test(el.textContent.trim())), 'observed zero quote');
       evidence.push(...await both(q, 'watchlist', 'zero', async () => {
-        const value = await text(q, 'watchlist'); assert.match(value, /0\.00 EUR/); return { zeroQuoteDisplayed: true };
+        const prices = await q.js(zero); assert.ok(prices.some(price => /^0\.0+\s*EUR$/.test(price)), JSON.stringify(prices)); return { zeroQuoteDisplayed: true };
       }));
       await fresh(q, 'watchlist', { '/market/quote': { ticker: 'SYN1', currency: 'EUR' } });
-      await q.waitFor(() => !!document.querySelector('[data-page="watchlist"] table') && !document.querySelector('[data-page="watchlist"] .btn:disabled'), 'missing quotes settled');
+      await q.waitFor(() => !!document.querySelector('[data-page="watchlist"] .pf-row') && !document.querySelector('[data-page="watchlist"] .pf-refresh:disabled'), 'missing quotes settled');
       evidence.push(...await both(q, 'watchlist', 'missing-quote', async () => {
-        const prices = await q.js(() => [...document.querySelectorAll('[data-page="watchlist"] tbody tr')]
-          .filter(row => row.cells.length > 4).map(row => row.cells[3]?.innerText?.trim()));
-        assert.ok(prices.length > 0); assert.ok(prices.every(price => price === '- EUR'), 'missing price marker retains its declared currency');
+        const prices = await q.js(() => [...document.querySelectorAll('[data-page="watchlist"] .pf-row .pf-px')].map(el => el.textContent.trim()));
+        assert.ok(prices.length > 0); assert.ok(prices.every(price => /^—\s*EUR$/.test(price)), 'missing price marker retains its declared currency');
         assert.ok(prices.every(price => !/0\.00/.test(price)), 'absence cannot become an observed zero');
         return { observedPrices: prices, absenceIsNotZero: true };
       }));

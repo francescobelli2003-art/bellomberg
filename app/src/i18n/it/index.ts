@@ -25,6 +25,7 @@ import { chatPage } from './chatPage.js';
 import { dashboardPage } from './dashboardPage.js';
 import { filingPage } from './filingPage.js';
 import { marketsPage } from './marketsPage.js';
+import { favoritesPage } from './favoritesPage.js';
 import { newsPage } from './newsPage.js';
 import { performancePage } from './performancePage.js';
 import { tradePage } from './tradePage.js';
@@ -57,6 +58,7 @@ export const it = {
   dashboardPage,
   filingPage,
   marketsPage,
+  favoritesPage,
   newsPage,
   performancePage,
   tradePage,

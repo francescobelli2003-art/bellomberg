@@ -1,55 +1,130 @@
-import { useEffect, useRef, useState, Fragment } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bellomberg, FavCompany, MktQuote } from '@/lib/api';
-import { Star, Cpu, Heart, RefreshCw, Globe, Lightbulb } from 'lucide-react';
+import { Bellomberg, type FavCompany, type FilingOverviewTitolo, type MktQuote, type MktSearchHit } from '@/lib/api';
 import { useT } from '@/i18n/provider';
 import { linguaCorrente, localeDi } from '@/i18n/lingua';
+import { leggiDetail } from '@/lib/quota';
 import ModernPage from '@/components/ModernPage';
-import './research-modern.css';
+import { parole } from './preferiti/parole';
+import { elenco, TUTTI, type Ordine } from './preferiti/calcoli';
+import VistaPreferiti from './preferiti/VistaPreferiti';
+import './preferiti-nuova.css';
 
-/** T4-3: WATCHLIST - le favorite companies del PM con quote live. */
+/** Preferiti (palette Nuova): elenco dei titoli seguiti con interessi per settore, ordinamento e
+ *  filtro, e dettaglio del titolo scelto (prezzo e intervallo a 52 settimane, dati chiave, nota del
+ *  PM letta dal Consigliere, stato del filing). Gli stati restano tutti qui, chiamati sempre nello
+ *  stesso ordine: le viste sono solo presentazione. */
 
-const fx2 = (v?: number | null) => v == null || !isFinite(v) ? '-' : v.toLocaleString(localeDi(linguaCorrente()), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const erroreDi = (e: any) => leggiDetail(e?.response?.data?.detail) || leggiDetail(e?.message) || String(e);
+const oraOra = () => new Date().toLocaleTimeString(localeDi(linguaCorrente()), { hour: '2-digit', minute: '2-digit' });
 
 export default function WatchlistPage() {
-  const tr = useT();
+  useT();
+  const w = parole();
   const [favs, setFavs] = useState<FavCompany[] | null>(null);
   const [quotes, setQuotes] = useState<Record<string, MktQuote>>({});
+  const [quoteErr, setQuoteErr] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [savedNote, setSavedNote] = useState<Record<string, boolean>>({});
   const [noteErrors, setNoteErrors] = useState<Record<string, string>>({});
   const [savingNotes, setSavingNotes] = useState<Record<string, boolean>>({});
+  const [sel, setSel] = useState<string | null>(null);
+  const [settore, setSettore] = useState<string>(TUTTI);
+  const [ordine, setOrdine] = useState<Ordine>('var');
+  const [testo, setTesto] = useState('');
+  const [filing, setFiling] = useState<Record<string, FilingOverviewTitolo> | null>(null);
+  const [filingErr, setFilingErr] = useState<string | null>(null);
+  const [quotesAt, setQuotesAt] = useState<string | null>(null);
+  const [profiloAperto, setProfiloAperto] = useState(false);
+  const [avviso, setAvviso] = useState<{ tono: 'ok' | 'bad'; testo: string } | null>(null);
+  const [aggiungo, setAggiungo] = useState<string | null>(null);
   const notesRef = useRef<Record<string, string>>({});
   const savingRef = useRef(new Set<string>());
+  const serverRef = useRef<Record<string, string>>({});
+  const addRef = useRef<HTMLInputElement | null>(null);
   const navigate = useNavigate();
+
+  const leggiFiling = () => {
+    Bellomberg.filingOverviewAmbito('preferiti')
+      .then(r => { setFiling(Object.fromEntries((r.titoli || []).map(t => [t.ticker, t]))); setFilingErr(null); })
+      .catch(e => { setFiling(null); setFilingErr(erroreDi(e)); });
+  };
 
   const load = async () => {
     setLoading(true); setErr(null);
+    leggiFiling();
     try {
       const r = await Bellomberg.favorites();
       const list = r.favorites || [];
       setFavs(list);
-      notesRef.current = Object.fromEntries(list.map(f => [f.ticker, f.note || '']));
+      // una bozza non salvata sopravvive ad «Aggiorna»; le altre note seguono il server
+      const prima = notesRef.current, server = serverRef.current;
+      notesRef.current = Object.fromEntries(list.map(f => [f.ticker,
+        f.ticker in prima && prima[f.ticker] !== (server[f.ticker] ?? '') ? prima[f.ticker] : f.note || '']));
+      serverRef.current = Object.fromEntries(list.map(f => [f.ticker, f.note || '']));
       setNotes(notesRef.current);
       const settled = await Promise.allSettled(list.map(f => Bellomberg.mktQuote(f.ticker)));
-      const q: Record<string, MktQuote> = {};
-      settled.forEach((s, i) => { if (s.status === 'fulfilled') q[list[i].ticker] = s.value; });
-      setQuotes(q);
+      const q: Record<string, MktQuote> = {}, qe: Record<string, string> = {};
+      settled.forEach((s, i) => { if (s.status === 'fulfilled') q[list[i].ticker] = s.value; else qe[list[i].ticker] = erroreDi(s.reason); });
+      setQuotes(q); setQuoteErr(qe); setQuotesAt(oraOra());
     } catch (e: any) {
       // Buco DICHIARATO (regola 14/07): errore backend ≠ "0 PREFERITI"
-      setFavs(null); setErr(e?.response?.data?.detail || e?.message || String(e));
+      setFavs(null); setErr(erroreDi(e));
     }
     finally { setLoading(false); }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // l'avviso si chiude da solo dopo qualche secondo
+  useEffect(() => {
+    if (!avviso) return;
+    const t = setTimeout(() => setAvviso(null), avviso.tono === 'bad' ? 8000 : 4000);
+    return () => clearTimeout(t);
+  }, [avviso]);
+
+  const visibili = favs ? elenco(favs, quotes, { settore, testo, ordine }) : [];
+  // il dettaglio segue la scelta; senza scelta (o se il titolo è uscito) il primo dell'elenco
+  const scelto = favs?.find(f => f.ticker === sel) ?? visibili[0] ?? null;
+
+  const scegli = (t: string) => { setSel(t); setProfiloAperto(false); };
 
   const remove = async (t: string) => {
-    setFavs(f => (f || []).filter(x => x.ticker !== t));
-    try { await Bellomberg.favDel(t); } catch { load(); }
+    const resto = (favs || []).filter(x => x.ticker !== t);
+    if (scelto?.ticker === t) setSel(visibili.find(x => x.ticker !== t)?.ticker ?? null);
+    setFavs(resto);
+    try { await Bellomberg.favDel(t); setAvviso({ tono: 'ok', testo: w.removedToast(t) }); }
+    catch (e) { setAvviso({ tono: 'bad', testo: w.removeError(t, erroreDi(e)) }); load(); }
   };
-  const openMkt = (t: string) => { sessionStorage.setItem('bb:mktTicker', t); navigate('/market'); };
+
+  const add = async (hit: MktSearchHit) => {
+    const t = hit.symbol.toUpperCase();
+    if (aggiungo || favs?.some(f => f.ticker === t)) return;
+    setAggiungo(t);
+    // la quotazione dà nome e settore; se manca si aggiunge lo stesso con il nome della ricerca
+    let q: MktQuote | null = null;
+    try { q = await Bellomberg.mktQuote(t); } catch { q = null; }
+    const nuovo: FavCompany = { ticker: t, name: (q?.name && q.name.toUpperCase() !== t ? q.name : hit.name) || '', sector: q?.sector || '', industry: q?.industry || '' };
+    try {
+      await Bellomberg.favAdd(nuovo);
+      setFavs(f => [{ ...nuovo, note: '', added_at: new Date().toISOString() }, ...(f || []).filter(x => x.ticker !== t)]);
+      if (q) setQuotes(s => ({ ...s, [t]: q! }));
+      notesRef.current = { ...notesRef.current, [t]: '' }; setNotes(notesRef.current);
+      serverRef.current = { ...serverRef.current, [t]: '' };
+      setSettore(TUTTI); setTesto(''); scegli(t);
+      setAvviso({ tono: 'ok', testo: w.addedToast(t) });
+      leggiFiling();
+    } catch (e) {
+      setAvviso({ tono: 'bad', testo: w.addError(t, erroreDi(e)) });
+    } finally { setAggiungo(null); }
+  };
+
+  const editNote = (t: string, v: string) => {
+    notesRef.current = { ...notesRef.current, [t]: v };
+    setNotes(notesRef.current);
+    setSavedNote(s => ({ ...s, [t]: false }));
+  };
   const saveNote = async (t: string) => {
     if (savingRef.current.has(t)) return;
     savingRef.current.add(t);
@@ -58,131 +133,35 @@ export default function WatchlistPage() {
     const submitted = notesRef.current[t] || '';
     try {
       await Bellomberg.favSetNote(t, submitted);
+      serverRef.current = { ...serverRef.current, [t]: submitted };
+      setFavs(f => (f || []).map(x => x.ticker === t ? { ...x, note: submitted } : x));
       setSavedNote(s => ({ ...s, [t]: notesRef.current[t] === submitted }));
-    } catch (e: any) {
-      setNoteErrors(s => ({ ...s, [t]: e?.response?.data?.detail || e?.message || String(e) }));
+    } catch (e) {
+      setNoteErrors(s => ({ ...s, [t]: erroreDi(e) }));
     } finally {
       savingRef.current.delete(t);
       setSavingNotes(s => ({ ...s, [t]: false }));
     }
   };
 
-  const sectors: Record<string, number> = {};
-  (favs || []).forEach(f => { const k = (f.sector || f.industry || '').trim(); if (k) sectors[k] = (sectors[k] || 0) + 1; });
+  const openMkt = (t: string) => { sessionStorage.setItem('bb:mktTicker', t); navigate('/market'); };
+  const openTradeIdea = (f: FavCompany) => {
+    const draft = notesRef.current[f.ticker] ?? '';
+    navigate(`/agents/trade-idea?ticker=${encodeURIComponent(f.ticker)}&source=favorites`, { state: { viewDraft: draft, noteSaved: draft === (f.note || '') } });
+  };
+  const openFiling = (t: string) => navigate(`/filing?t=${encodeURIComponent(t)}`);
 
   return (
     <ModernPage page="watchlist" render={() => (
-    <div className="space-y-3 font-sans animate-fadeIn watchlist-page">
-      <div className="panel flex items-center justify-between px-3 py-2 border-amber-deep">
-        <div className="flex items-center gap-3 font-mono text-2xs">
-          <Star size={13} className="text-amber" />
-          <span className="text-amber-bright text-glow-amber uppercase tracking-[0.2em]">{tr('ui.watchlist_title')}</span>
-          <span className="text-faint">|</span>
-          <span className="text-muted">{tr('ui.watchlist_followed', { count: err ? tr('settings.nd_upper') : favs?.length ?? '...' })}</span>
-        </div>
-        <button onClick={load} disabled={loading} className="btn btn-cyan disabled:opacity-50">
-          <RefreshCw size={11} className={loading ? 'animate-spin' : ''} /> {tr('ui.refresh')}
-        </button>
-      </div>
-
-      {Object.keys(sectors).length > 0 && (
-        <div className="panel px-3 py-2 flex items-center gap-2 flex-wrap font-mono text-2xs">
-          <span className="text-faint uppercase tracking-wider">{tr('ui.watchlist_interests')}</span>
-          {Object.entries(sectors).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
-            <span key={k} className="px-2 py-0.5 border border-cyan-deep text-cyan">{k} &middot; {v}</span>
-          ))}
-        </div>
-      )}
-
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-header-title">{tr('ui.watchlist_companies')}</span>
-          <span className="text-3xs text-faint font-mono">{tr('ui.watchlist_open')}</span>
-        </div>
-        {err ? (
-          <div className="text-crimson text-2xs font-mono py-10 text-center">
-            {tr('ui.watchlist_unavailable', { error: err })}
-          </div>
-        ) : favs === null ? (
-          <div className="text-faint text-2xs font-mono py-10 text-center"><Cpu size={12} className="animate-pulse inline mr-2" />{tr('ui.loading')}</div>
-        ) : favs.length === 0 ? (
-          <div className="py-12 text-center font-mono">
-            <Heart size={22} className="inline text-faint mb-2" />
-            <div className="text-muted text-2xs uppercase tracking-[0.2em]">{tr('ui.watchlist_empty')}</div>
-            <button onClick={() => navigate('/market')} className="btn btn-amber mt-4"><Globe size={11} /> {tr('ui.search_global')}</button>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="table-bbg">
-              <thead><tr>
-                <th>Ticker</th><th>{tr('ui.name')}</th><th>{tr('ui.sector_industry')}</th>
-                <th className="text-right">{tr('ui.price')}</th><th className="text-right">{tr('ui.change_pct')}</th>
-                <th className="text-right">52W</th><th className="text-right">{tr('ui.since')}</th><th className="text-right"></th>
-              </tr></thead>
-              <tbody>
-                {favs.map(f => {
-                  const q = quotes[f.ticker];
-                  const chg = q?.price != null && q?.prev_close ? ((q.price / q.prev_close) - 1) * 100 : null;
-                  const rng = q?.low_52w != null && q?.high_52w != null && q?.price != null && q.high_52w > q.low_52w
-                    ? Math.min(100, Math.max(0, ((q.price - q.low_52w) / (q.high_52w - q.low_52w)) * 100)) : null;
-                  return (
-                    <Fragment key={f.ticker}>
-                    <tr onClick={() => openMkt(f.ticker)} className="cursor-pointer">
-                      <td className="text-gold font-semibold"><button type="button" className="research-ticker-action" onClick={event => { event.stopPropagation(); openMkt(f.ticker); }}>{f.ticker}</button></td>
-                      <td className="text-text-dim">{q?.name || f.name || '-'}</td>
-                      <td className="text-muted text-3xs">{(f.sector || '-') + (f.industry ? ' / ' + f.industry : '')}</td>
-                      <td className="text-right text-cyan tabular-nums">{q ? fx2(q.price) + ' ' + (q.currency || '') : '...'}</td>
-                      <td className={'text-right tabular-nums font-semibold ' + (chg == null ? 'text-muted' : chg >= 0 ? 'pl-positive' : 'pl-negative')}>
-                        {chg == null ? '-' : (chg >= 0 ? '+' : '') + fx2(chg) + '%'}
-                      </td>
-                      <td className="text-right">
-                        {rng == null ? <span className="text-muted">-</span> : (
-                          <span className="inline-block w-14 h-[5px] bg-bg-elev border border-border/40 relative align-middle">
-                            <span className="absolute top-1/2 -translate-y-1/2 w-1 h-2.5 bg-amber" style={{ left: 'calc(' + rng.toFixed(0) + '% - 2px)' }} />
-                          </span>
-                        )}
-                      </td>
-                      <td className="text-right text-muted text-3xs">{f.added_at ? f.added_at.slice(0, 10) : '—'}</td>
-                      <td className="text-right">
-                        <button onClick={e => { e.stopPropagation(); remove(f.ticker); }}
-                                title={tr('ui.remove_favorite')}
-                                className="text-crimson hover:text-crimson-deep transition-colors">
-                          <Heart size={11} fill="currentColor" />
-                        </button>
-                      </td>
-                    </tr>
-                    <tr className="bg-bg-elev/30">
-                      <td colSpan={8} className="py-1.5 px-3">
-                        <div className="flex items-start gap-2" onClick={e => e.stopPropagation()}>
-                          <span className="text-3xs text-faint font-mono uppercase tracking-wider mt-1 shrink-0">{tr('ui.pm_note')}</span>
-                          <textarea aria-label={`${tr('ui.pm_note')} · ${f.ticker}`} value={notes[f.ticker] ?? ''}
-                            onChange={e => {
-                              notesRef.current = { ...notesRef.current, [f.ticker]: e.target.value };
-                              setNotes(notesRef.current);
-                              setSavedNote(s => ({ ...s, [f.ticker]: false }));
-                            }}
-                            onClick={e => e.stopPropagation()}
-                            placeholder={tr('ui.pm_note_hint')}
-                            rows={2}
-                            className="flex-1 bg-bg border border-border/50 text-2xs font-mono text-text-dim px-2 py-1 resize-y outline-none focus:border-cyan-deep" />
-                          <button disabled={savingNotes[f.ticker]} onClick={e => { e.stopPropagation(); saveNote(f.ticker); }} className="btn btn-cyan shrink-0 mt-0.5">
-                            {savingNotes[f.ticker] ? tr('ui.saving') : savedNote[f.ticker] ? tr('ui.saved') : tr('ui.save')}
-                          </button>
-                          <button onClick={e => { e.stopPropagation(); const draft = notesRef.current[f.ticker] ?? ''; navigate(`/agents/trade-idea?ticker=${encodeURIComponent(f.ticker)}&source=favorites`, { state: { viewDraft: draft, noteSaved: draft === (f.note || '') } }); }}
-                                  className="btn btn-amber shrink-0 mt-0.5"><Lightbulb size={11} />{tr('tradeidea.openTradeIdea')}</button>
-                        </div>
-                        {noteErrors[f.ticker] && <div role="alert" className="text-crimson text-2xs">{tr('ui.note_failed', { error: noteErrors[f.ticker] })}</div>}
-                      </td>
-                    </tr>
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
+      <VistaPreferiti w={w} favs={favs} visibili={visibili} scelto={scelto} quotes={quotes} quoteErr={quoteErr}
+        loading={loading} err={err} quotesAt={quotesAt} filing={filing} filingErr={filingErr}
+        settore={settore} setSettore={setSettore} ordine={ordine} setOrdine={setOrdine} testo={testo} setTesto={setTesto}
+        notes={notes} savedNote={savedNote} noteErrors={noteErrors} savingNotes={savingNotes}
+        profiloAperto={profiloAperto} setProfiloAperto={setProfiloAperto} avviso={avviso} chiudiAvviso={() => setAvviso(null)}
+        aggiungo={aggiungo} addRef={addRef}
+        onRefresh={load} onScegli={scegli} onRemove={remove} onAdd={add} onEditNote={editNote} onSaveNote={saveNote}
+        onOpenMarket={openMkt} onTradeIdea={openTradeIdea} onOpenFiling={openFiling}
+        onExploreMarket={() => navigate('/market')} />
     )} />
   );
 }

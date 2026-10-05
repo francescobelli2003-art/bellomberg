@@ -23,32 +23,35 @@ function page(relative, seed = {}) {
   };
 }
 
+// Preferiti Nuova (05/10/2026): stati della pagina nell'ordine di WatchlistPage
+// (0 favs, 1 quotes, 2 quoteErr, 3 loading, 4 err, 5 notes, ...).
 test('Watchlist switches labels and numeric locale while preserving notes and ticker', () => {
   const original = 'Nota originale: non tradurre queste parole';
   const render = page('pages/WatchlistPage.tsx', {
     0: [{ ticker: 'SYNTH.X', name: 'Synthetic issuer', note: original }],
-    1: { 'SYNTH.X': { price: 12345.67, currency: 'EUR' } },
-    4: { 'SYNTH.X': original },
+    1: { 'SYNTH.X': { ticker: 'SYNTH.X', name: 'Synthetic issuer', price: 12345.67, prev_close: 9000, currency: 'EUR' } },
+    5: { 'SYNTH.X': original },
   });
   const it = render('it'), en = render('en'), again = render('it');
-  assert.match(it, /SEGUITI DAL CONSIGLIERE/);
-  assert.match(en, /FOLLOWED BY THE COMMITTEE/);
+  assert.match(it, /seguito dal Consigliere/);
+  assert.match(en, /followed by the Committee/);
   assert.match(it, /12\.345,67/);
   assert.match(en, /12,345\.67/);
   for (const html of [it, en, again]) {
     assert.match(html, /SYNTH\.X/);
     assert.ok(html.includes(original));
-    assert.doesNotMatch(html, /⟦ui\./);
+    assert.doesNotMatch(html, /⟦/);
   }
   assert.equal(again, it);
 });
 
 // 13/09 (Claude Opus 5): il conteggio dei preferiti in errore era il letterale italiano 'N.D.' anche in EN.
 test('a failed watchlist read declares the favorite count unavailable in the page language', () => {
-  const render = page('pages/WatchlistPage.tsx', { 3: 'Original favorites error' });
+  const render = page('pages/WatchlistPage.tsx', { 4: 'Original favorites error' });
   const it = render('it'), en = render('en');
-  assert.match(it, /N\.D\. PREFERITI/); assert.match(en, /N\/A FAVORITES/);
-  assert.doesNotMatch(en, /N\.D\./);
+  assert.match(it, /Preferiti n\.d\./); assert.match(en, /Favorites N\/A/);
+  assert.doesNotMatch(en, /n\.d\./i);
+  assert.doesNotMatch(it, /0 titoli/); assert.doesNotMatch(en, /No favorites/);
   for (const html of [it, en]) assert.ok(html.includes('Original favorites error'));
 });
 

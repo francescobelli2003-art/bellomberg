@@ -1752,7 +1752,7 @@ async function runResearch(q) {
   await q.executeScenario('watchlist', 'note-draft-is-retained-without-writing', async () => {
     await q.visit('/watchlist');
     await q.waitFor(() => document.querySelectorAll('main [data-page="watchlist"] textarea').length > 0, 'Watchlist note editor');
-    const selector = 'main [data-page="watchlist"] tbody textarea';
+    const selector = 'main [data-page="watchlist"] .pf-nota textarea';
     const beforeCounts = await q.counts();
     await q.setValue(selector, 'Synthetic note retained across presentation mode.');
     const before = await q.pageState(); await q.toggle('modern'); await q.toggle('classic');

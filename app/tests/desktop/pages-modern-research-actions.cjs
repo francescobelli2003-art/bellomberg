@@ -41,9 +41,12 @@ async function runOperations(q) {
     const route = '/favorites/SYN1/note';
     try {
       await fresh(q, 'watchlist');
-      await q.waitFor(() => !!document.querySelector('[data-page="watchlist"] textarea'), 'favorite note loaded');
-      const textarea = '[data-page="watchlist"] textarea';
-      const submit = '[data-page="watchlist"] tbody tr:nth-child(2) button';
+      // Preferiti Nuova (05/10/2026): elenco + dettaglio; la nota è nel dettaglio del titolo scelto
+      await q.waitFor(() => !!document.querySelector('[data-page="watchlist"] .pf-row[data-ticker="SYN1"]'), 'favorite list loaded');
+      await q.click('[data-page="watchlist"] .pf-row[data-ticker="SYN1"]');
+      await q.waitFor(() => !!document.querySelector('[data-page="watchlist"] [data-save-note="SYN1"]'), 'favorite note loaded');
+      const textarea = '[data-page="watchlist"] .pf-nota textarea';
+      const submit = '[data-page="watchlist"] [data-save-note="SYN1"]';
       const draft = 'Synthetic long PM draft: preserved across presentation changes.';
       await q.typeText(textarea, draft);
       await q.fixture({ setWrite: { [route]: delayed({ ok: true }) } });
@@ -52,24 +55,25 @@ async function runOperations(q) {
       await pending(q, submit, 'favorite-note', async () => assert.equal(await q.js(s => document.querySelector(s)?.value, textarea), draft));
       assert.equal((await writesFor(q, route)).length, initial + 1);
       assert.equal((await writesFor(q, route)).at(-1).query.note, draft);
-      await q.waitFor(s => !document.querySelector(s)?.disabled, 'note save completes', 30000, submit);
-      assert.match(await q.js(s => document.querySelector(s)?.textContent, submit), /Saved/i);
+      await q.waitFor(() => !!document.querySelector('[data-page="watchlist"] .pf-nota .pf-stato.is-ok'), 'note save completes', 30000);
+      assert.match(await q.js(() => document.querySelector('[data-page="watchlist"] .pf-nota .pf-stato')?.textContent), /saved/i);
       await q.fixture({ setWrite: { [route]: { status: 503, body: { detail: 'Synthetic note persistence failure' } } } });
       await q.typeText(textarea, 'Synthetic retry draft'); await q.click(submit);
-      await q.waitFor(() => /Synthetic note persistence failure/.test(document.querySelector('[data-page="watchlist"] [role="alert"]')?.textContent || ''), 'note error explicit');
+      await q.waitFor(() => /Synthetic note persistence failure/.test(document.querySelector('[data-page="watchlist"] .pf-nota [role="alert"]')?.textContent || ''), 'note error explicit');
       assert.equal(await q.js(s => document.querySelector(s)?.value, textarea), 'Synthetic retry draft');
       await q.toggle('modern');
       await q.capture('research-favorite-note-error');
       await q.fixture({ setWrite: { '/favorites/SYN1': { ok: true } } });
-      const remove = '[data-page="watchlist"] tbody tr:first-child td:last-child button';
-      await q.click(remove);
-      await q.waitFor(() => ![...document.querySelectorAll('[data-page="watchlist"] .research-ticker-action')].some(el => el.textContent.trim() === 'SYN1'), 'favorite optimistic removal');
+      await q.click('[data-page="watchlist"] [data-remove="SYN1"]');
+      await q.waitFor(() => !document.querySelector('[data-page="watchlist"] .pf-row[data-ticker="SYN1"]'), 'favorite optimistic removal');
       assert.equal((await writesFor(q, '/favorites/SYN1', 'DELETE')).length, 1);
-      const target = '[data-page="watchlist"] .research-ticker-action';
+      const target = '[data-page="watchlist"] [data-open-market]';
+      const next = await q.js(s => document.querySelector(s)?.dataset.openMarket || null, target);
+      assert.ok(next && next !== 'SYN1', 'detail moved to another favorite after removal');
       await q.js(s => document.querySelector(s).focus(), target); await q.key('Enter');
       await q.waitFor(() => location.hash.startsWith('#/market'), 'favorite keyboard opens market');
       // Market consumes the one-shot session key on mount; assert the selected UI.
-      await q.waitFor(() => document.querySelector('[data-page="market"] .mk-dtitle span')?.textContent.split(' · ')[0] === 'SYN2', 'favorite ticker selected in market');
+      await q.waitFor(t => document.querySelector('[data-page="market"] .mk-dtitle span')?.textContent.split(' · ')[0] === t, 'favorite ticker selected in market', 10000, next);
       assert.equal(await q.js(() => sessionStorage.getItem('bb:mktTicker')), null);
       return { assertionResults: { oneNoteWriteAcrossToggles: true, queryPayloadPreserved: true, errorRetainsDraft: true, deleteOnce: true, keyboardTickerNavigation: true }, allWritesSynthetic: true };
     } finally { await reset(q, []); }
