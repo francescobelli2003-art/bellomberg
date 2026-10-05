@@ -36,6 +36,8 @@ FILE_CENSITI = [
     'src/bellomberg/storage/memory_db.py',
     "app/src/pages/Dashboard.tsx",
     "app/src/pages/MovementsPage.tsx",
+    "app/src/pages/movimenti/VistaMovimenti.tsx",
+    "app/src/pages/movimenti/calcoli.ts",
     "app/src/pages/dashboard-command.css",
     "app/src/lib/quota.ts",
     "app/src/lib/curva.ts",

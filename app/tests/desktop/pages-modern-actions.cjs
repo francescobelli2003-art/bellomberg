@@ -124,7 +124,7 @@ const REQUIRED_SCENARIOS_BY_GROUP = {
     'trades:cash-threshold-confirmation-cancellation-and-inflight-switch',
     'trades:opening-preview-cancel-and-confirm-once-while-pending',
     'trades:opening-register-loading-empty-and-error-are-distinct',
-    'movements:register-filters-lanes-and-three-views-use-fixture-only',
+    'movements:register-filters-month-and-detail-use-fixture-only',
     'movements:register-loading-empty-and-stale-refresh-error',
     'mandato:seven-section-validation-preview-save-and-pending-switch',
     'mandato:stale-preview-fingerprint-is-disclosed-without-retry',
@@ -1476,7 +1476,7 @@ const selectors = {
   vol: ['main [data-page="vol"] #va-ticker'], edge: ['main [data-page="edge"] [data-zona="comandi"] button:nth-of-type(2)'],
   agents: ['main [data-page="agents"] .ag-panel .bbn-seg button:nth-of-type(3)'], 'agent-progress': ['main [data-page="agent-progress"] #ap-tab-action'],
   memos: ['main [data-page="memos"] .mr'], decisions: ['main [data-page="decisions"] button'],
-  trades: ['main [data-page="trades"] #f7-tk'], movements: ['main [data-page="movements"] .vst button:nth-of-type(2)'],
+  trades: ['main [data-page="trades"] #f7-tk'], movements: ['main [data-page="movements"] [data-mov-filtro="BUY"]'],
   mandato: ['main [data-page="mandato"] #tab-diario'],
 };
 

@@ -794,122 +794,68 @@ async function openingReadStates(q) {
   });
 }
 
+// Movimenti in stile Nuova (05/10/2026): una pagina sola, Registro | Dettaglio, con Attività per mese e
+// Realizzato. Le vecchie viste Scie e Diario vivono nel dettaglio (Storia del titolo, commento completo).
+const MV = 'main [data-page="movements"] .bbn-movimenti';
 async function movementsActions(q) {
-  await executeFixtureScenario(q, 'movements', 'register-filters-lanes-and-three-views-use-fixture-only', async () => {
+  await executeFixtureScenario(q, 'movements', 'register-filters-month-and-detail-use-fixture-only', async () => {
     await q.toggle('classic');
     await q.visit('/movements');
-    await q.waitFor(() => !!document.querySelector('main [data-page="movements"] .f14m .vst'), 'Movements page');
-    await q.waitFor(() => !document.querySelector('main [data-page="movements"] .kpi .azioni button')?.disabled,
+    await q.waitFor(() => !!document.querySelector('main [data-page="movements"] .bbn-movimenti [data-mov-row]'), 'Movements page');
+    await q.waitFor(() => !document.querySelector('main [data-page="movements"] [data-mov-azione="aggiorna"]')?.disabled,
       'trade and cash archive reads complete');
     const before = await q.counts();
-    const initialRows = await q.js(() => document.querySelectorAll('main [data-page="movements"] tbody tr').length);
+    const initialRows = await q.js(() => document.querySelectorAll('main [data-page="movements"] [data-mov-row]').length);
     assert.ok(initialRows >= 5, 'expected mixed synthetic register rows, found ' + initialRows);
     await capture(q, 'operations/movements-register');
 
-    await clickText(q, 'main [data-page="movements"] .fil', '^(CASH|CASSA)');
-    const cashRows = await q.js(() => [...document.querySelectorAll('main [data-page="movements"] tbody tr')].map(row => row.className));
-    const cashDataRows = cashRows.filter(className => !className.split(/\s+/).includes('msep'));
-    assert.ok(cashDataRows.length > 0 && cashDataRows.every(className => className.split(/\s+/).includes('cassa')),
-      'CASH filter keeps every data row in the cash lane while allowing structural month separators: ' + JSON.stringify(cashRows));
+    await q.click(MV + ' [data-mov-filtro="CASSA"]');
+    const cashRows = await q.js(() => [...document.querySelectorAll('main [data-page="movements"] [data-mov-row]')].map(row => row.dataset.specie));
+    assert.ok(cashRows.length > 0 && cashRows.every(kind => kind === 'cassa'),
+      'Cash filter keeps only cash rows: ' + JSON.stringify(cashRows));
     const modernCaptures = [];
     modernCaptures.push(await captureModernRetention(q, 'movements-register-cash-selected', 'movements', {
-      controllerSelector: 'main [data-page="movements"] .f14m',
-      stateSelectors: ['main [data-page="movements"] .vst button[aria-pressed="true"]',
-        'main [data-page="movements"] .fil button[aria-pressed="true"]',
-        'main [data-page="movements"] .fil .tolg'],
-      evidenceSelector: 'main [data-page="movements"] .f14m .p',
-      rowSelector: 'main [data-page="movements"] tbody tr:not(.msep)',
+      controllerSelector: MV,
+      stateSelectors: [MV + ' .mv-fbar button[aria-pressed="true"]', MV + ' [data-mov-dettaglio] h2'],
+      evidenceSelector: MV + ' .mv-list',
+      rowSelector: MV + ' [data-mov-row]',
     }, ['/trades', '/cash/movements'], {
       before: state => {
-        assert.equal(state.rowCount, cashDataRows.length, 'Modern cash-filtered register keeps the selected synthetic rows');
-        assert.ok(state.controls[1].elements.some(item => /CASH|CASSA/i.test(item.text) && item.pressed === 'true'),
+        assert.equal(state.rowCount, cashRows.length, 'Modern cash-filtered register keeps the selected synthetic rows');
+        assert.ok(state.controls[0].elements.some(item => /CASH|CASSA/i.test(item.text) && item.pressed === 'true'),
           'cash filter remains selected before its Modern capture');
       },
     }));
-    await clickText(q, 'main [data-page="movements"] .vst', 'trails|scie');
-    await q.waitFor(() => !!document.querySelector('main [data-page="movements"] .scie .lane'), 'Movements trail lanes');
-    const laneCount = await q.js(() => document.querySelectorAll('main [data-page="movements"] .scie .lane').length);
-    assert.ok(laneCount >= 3, 'expected synthetic ticker lanes, found ' + laneCount);
-    await capture(q, 'operations/movements-trails');
-    const selected = await q.js(() => {
-      const button = document.querySelector('main [data-page="movements"] .scie .lane .lk');
-      if (!button) return null;
-      button.setAttribute('data-ops-lane', 'true');
-      return button.querySelector('.tk')?.textContent?.trim() || null;
-    });
-    assert.ok(selected, 'fixture has a selectable ticker lane');
-    await q.click('main [data-page="movements"] .scie .lane .lk[data-ops-lane="true"]');
-    await q.waitFor(() => /diary|diario/i.test(document.querySelector('main [data-page="movements"] .vst button[aria-pressed="true"]')?.innerText || '')
-      && !!document.querySelector('main [data-page="movements"] .fil .tolg'), 'lane selection opens its filtered diary');
-    await q.waitFor(() => document.querySelectorAll('main [data-page="movements"] .voce').length > 0,
-      'selected lane diary entries');
-    const laneChip = await text(q, 'main [data-page="movements"] .fil .tolg');
-    assert.ok(laneChip.includes(selected), 'selected lane is visible in the active filter chip');
-    const selectedDiaryRows = await q.js(() => [...document.querySelectorAll('main [data-page="movements"] .voce .tkn')]
-      .map(node => (node.textContent || '').trim()));
-    assert.ok(selectedDiaryRows.length > 0 && selectedDiaryRows.every(ticker => ticker === selected),
-      'selecting a chart lane intentionally opens a diary containing only that ticker: ' + JSON.stringify(selectedDiaryRows));
 
-    // Lane selection navigates to the filtered diary. Reopen Trails to prove
-    // the original three lanes and selected lane survive this supported path.
-    await clickText(q, 'main [data-page="movements"] .vst', 'trails|scie');
-    await q.waitFor(count => document.querySelectorAll('main [data-page="movements"] .scie .lane').length === count
-      && !!document.querySelector('main [data-page="movements"] .scie .lane.sel .tk'),
-    'selected lane retained when returning to Trails', 6000, laneCount);
-    const selectedTrailLane = await text(q, 'main [data-page="movements"] .scie .lane.sel .tk');
-    assert.equal(selectedTrailLane, selected, 'returning to Trails preserves the selected ticker lane');
-    modernCaptures.push(await captureModernRetention(q, 'movements-trails-selected-lane', 'movements', {
-      controllerSelector: 'main [data-page="movements"] .f14m',
-      stateSelectors: ['main [data-page="movements"] .vst button[aria-pressed="true"]',
-        'main [data-page="movements"] .scie .lane.sel .tk',
-        'main [data-page="movements"] .scie .lane.sel .lk'],
-      evidenceSelector: 'main [data-page="movements"] .f14m .p',
-      rowSelector: 'main [data-page="movements"] .scie .lane',
-    }, ['/trades', '/cash/movements'], {
-      before: state => {
-        assert.equal(state.rowCount, laneCount, 'returning from the filtered diary restores all chart lanes');
-        assert.match(state.controls[0].elements[0]?.text || '', /trails|scie/i, 'Trails is the active view');
-        assert.ok(state.controls[1].elements.some(item => item.text === selected), 'selected trail lane is present');
-        assert.ok(state.controls[2].elements.some(item => item.text.includes(selected)), 'selected trail control remains in the lane');
-      },
-    }));
-    await clickText(q, 'main [data-page="movements"] .vst', 'diary|diario');
-    await q.waitFor(() => !!document.querySelector('main [data-page="movements"] .voce'), 'Movements diary rows');
-    const diaryCount = await q.js(() => document.querySelectorAll('main [data-page="movements"] .voce').length);
-    assert.ok(diaryCount > 0, 'selected lane diary shows synthetic text');
-    await capture(q, 'operations/movements-diary-filtered');
-    modernCaptures.push(await captureModernRetention(q, 'movements-diary-selected-lane', 'movements', {
-      controllerSelector: 'main [data-page="movements"] .f14m',
-      stateSelectors: ['main [data-page="movements"] .vst button[aria-pressed="true"]',
-        'main [data-page="movements"] .fil button[aria-pressed="true"]',
-        'main [data-page="movements"] .fil .tolg'],
-      evidenceSelector: 'main [data-page="movements"] .f14m .p',
-      rowSelector: 'main [data-page="movements"] .voce',
-    }, ['/trades', '/cash/movements'], {
-      before: state => {
-        assert.equal(state.rowCount, diaryCount, 'Modern filtered diary retains the rendered synthetic entries');
-        assert.ok(state.controls[1].elements.some(item => item.pressed === 'true'), 'diary filter selection remains set');
-        assert.ok(state.controls[2].elements.some(item => item.text.includes(selected)), 'selected lane remains the active diary filter');
-      },
-    }));
-    await q.click('main [data-page="movements"] .fil .tolg');
-    await q.waitFor(() => !document.querySelector('main [data-page="movements"] .fil .tolg'), 'lane selection cleared');
-    await clickText(q, 'main [data-page="movements"] .vst', 'register|registro');
+    await q.click(MV + ' [data-mov-filtro="TUTTI"]');
+    await q.click(MV + ' [data-mov-row][data-specie="titolo"]');
+    await q.waitFor(() => !!document.querySelector('main [data-page="movements"] [data-mov-dettaglio^="t:"]'), 'security detail');
+    const detail = await q.js(() => {
+      const ticker = document.querySelector('main [data-page="movements"] [data-mov-dettaglio] h2')?.firstChild?.textContent?.trim() || '';
+      const history = [...document.querySelectorAll('main [data-page="movements"] [data-mov-storia]')].length;
+      return { ticker, history };
+    });
+    assert.ok(detail.ticker && detail.history >= 1, 'security detail shows its history: ' + JSON.stringify(detail));
+    await capture(q, 'operations/movements-detail');
+
+    const month = await q.js(() => document.querySelector('main [data-page="movements"] [data-mov-mese]:not(:disabled)')?.dataset.movMese || null);
+    assert.ok(month, 'activity chart has a selectable month');
+    await q.click(`${MV} [data-mov-mese="${month}"]`);
+    const heads = await q.js(() => [...document.querySelectorAll('main [data-page="movements"] [data-mov-mhead]')].map(h => h.dataset.movMhead));
+    assert.deepEqual(heads, [month], 'month selection keeps only that month in the register');
+    await q.click(MV + ' [data-mov-togli="mese"]');
+    await q.waitFor(() => !document.querySelector('main [data-page="movements"] [data-mov-togli="mese"]'), 'month filter cleared');
     const after = await q.counts();
     const readDeltas = Object.fromEntries(Object.entries(after)
       .filter(([key]) => /^GET \/(trades|cash\/movements)/.test(key))
       .map(([key, value]) => [key, value - (before[key] || 0)]).filter(([, value]) => value));
-    assert.deepEqual(readDeltas, {}, 'derived view/filter changes must not issue repeated reads');
+    assert.deepEqual(readDeltas, {}, 'derived filter, month and detail changes must not issue repeated reads');
     return { assertionResults: { mixedRegisterLoaded: initialRows >= 5,
-      cashFilterOnlyShowsCash: cashDataRows.length > 0 && cashDataRows.every(value => value.split(/\s+/).includes('cassa')),
-      tickerLanesReachable: laneCount >= 3,
-      selectedLaneOpensFilteredDiary: selectedDiaryRows.length > 0 && selectedDiaryRows.every(ticker => ticker === selected),
-      selectedLaneSurvivesReturnToTrails: selectedTrailLane === selected,
-      selectedLaneReachesDiary: diaryCount > 0,
-      laneCanBeCleared: true, derivedControlsDoNotRefetch: Object.keys(readDeltas).length === 0,
-      threeModernViewsRetainControllerAndIssueNoReads: modernCaptures.length === 3 },
-      initialRows, cashRows, laneCount, selected, diaryCount, readDeltas,
-      modernCaptures,
+      cashFilterOnlyShowsCash: cashRows.length > 0 && cashRows.every(kind => kind === 'cassa'),
+      detailShowsSecurityHistory: detail.history >= 1, monthFilterKeepsOneMonth: heads.length === 1,
+      derivedControlsDoNotRefetch: Object.keys(readDeltas).length === 0,
+      modernCaptureRetainsControllerAndIssuesNoReads: modernCaptures.length === 1 },
+      initialRows, cashRows, detail, month, readDeltas, modernCaptures,
       fixtureVsReal: { dataSource: 'synthetic fixtures only', writes: 0 } };
   });
 }
@@ -922,50 +868,49 @@ async function movementsReadStates(q) {
     await q.fixture({ clearAll: true, setRead: {
       '/trades': { body: { count: fixtureData.trades.length, trades: clone(fixtureData.trades) }, delayMs: 8000 },
       '/cash/movements': { body: { count: 2, movements: [
-        { id: 811, tipo: 'DEPOSIT', importo_eur: 500, data: '2026-09-26', nota: 'Synthetic movements state-check deposit' },
-        { id: 812, tipo: 'WITHDRAWAL', importo_eur: 125, data: '2026-09-28', nota: 'Synthetic movements state-check withdrawal' },
+        { id: 811, type: 'DEPOSIT', amount_eur: 500, date: '2026-09-26', note: 'Synthetic movements state-check deposit' },
+        { id: 812, type: 'WITHDRAWAL', amount_eur: 125, date: '2026-09-28', note: 'Synthetic movements state-check withdrawal' },
       ] }, delayMs: 8000 },
     } });
     await q.visit('/movements');
-    await q.waitFor(() => !!document.querySelector('main [data-page="movements"] .stato.load'), 'Movements initial loading');
+    await q.waitFor(() => !!document.querySelector('main [data-page="movements"] [data-mov-stato="caricamento"]'), 'Movements initial loading');
     await q.toggle('modern');
-    const loading = await text(q, 'main [data-page="movements"] .stato.load');
+    const loading = await text(q, MV + ' [data-mov-stato="caricamento"]');
     assert.ok(loading, 'Movements reports that both archives are still loading');
     await capture(q, 'operations/movements-read-loading-modern', [[1920, 1080]]);
-    assert.ok(await q.js(() => !!document.querySelector('.bb-page-modern[data-page="movements"] .stato.load')),
+    assert.ok(await q.js(() => !!document.querySelector('.bb-page-modern[data-page="movements"] [data-mov-stato="caricamento"]')),
       'Movements remains in its first-read state after the mode switch and capture');
-    await q.waitFor(() => !document.querySelector('main [data-page="movements"] .stato.load'), 'Movements archive reads complete', 25000);
+    await q.waitFor(() => !document.querySelector('main [data-page="movements"] [data-mov-stato="caricamento"]'), 'Movements archive reads complete', 25000);
 
     await q.fixture({ setRead: { '/trades': { count: 0, trades: [] }, '/cash/movements': { count: 0, movements: [] } } });
-    await q.click('main [data-page="movements"] .kpi .azioni button');
-    await q.waitFor(() => !!document.querySelector('main [data-page="movements"] .stato.vuoto .tt'), 'Movements empty archives');
-    const emptyTitle = await text(q, 'main [data-page="movements"] .stato.vuoto .tt');
-    const emptyBody = await text(q, 'main [data-page="movements"] .stato.vuoto .tx');
-    assert.ok(emptyTitle && emptyBody, 'successful empty reads have a distinct empty-state explanation');
+    await q.click(MV + ' [data-mov-azione="aggiorna"]');
+    await q.waitFor(() => !!document.querySelector('main [data-page="movements"] [data-mov-stato="vuoto"] b'), 'Movements empty archives');
+    const emptyText = await text(q, MV + ' [data-mov-stato="vuoto"]');
+    assert.ok(emptyText && emptyText.length > 30, 'successful empty reads have a distinct empty-state explanation');
     await capture(q, 'operations/movements-read-empty-modern', [[1920, 1080]]);
 
     await q.fixture({ clearReads: ['/trades', '/cash/movements'] });
-    await q.click('main [data-page="movements"] .kpi .azioni button');
-    await q.waitFor(() => document.querySelectorAll('main [data-page="movements"] tbody tr').length >= 4,
+    await q.click(MV + ' [data-mov-azione="aggiorna"]');
+    await q.waitFor(() => document.querySelectorAll('main [data-page="movements"] [data-mov-row]').length >= 4,
       'Movements populated synthetic register restored');
-    const rowsBeforeError = await q.js(() => document.querySelectorAll('main [data-page="movements"] tbody tr').length);
+    const rowsBeforeError = await q.js(() => document.querySelectorAll('main [data-page="movements"] [data-mov-row]').length);
     assert.ok(rowsBeforeError >= 4);
     await q.fixture({ setRead: { '/trades': { status: 503, body: { detail: 'Synthetic trade archive unavailable during refresh.' } } } });
-    await q.click('main [data-page="movements"] .kpi .azioni button');
-    await q.waitFor(() => !!document.querySelector('main [data-page="movements"] .stato.ko.avviso[role="alert"]'),
+    await q.click(MV + ' [data-mov-azione="aggiorna"]');
+    await q.waitFor(() => !!document.querySelector('main [data-page="movements"] [data-mov-stato="vecchio"][role="alert"]'),
       'Movements failed refresh announces stale securities');
-    const stale = await q.js(() => ({ rows: document.querySelectorAll('main [data-page="movements"] tbody tr').length,
-      alert: document.querySelector('main [data-page="movements"] .stato.ko.avviso[role="alert"]')?.innerText || '' }));
+    const stale = await q.js(() => ({ rows: document.querySelectorAll('main [data-page="movements"] [data-mov-row]').length,
+      alert: document.querySelector('main [data-page="movements"] [data-mov-stato="vecchio"][role="alert"]')?.innerText || '' }));
     assert.ok(stale.rows >= rowsBeforeError, 'Movements keeps its last successful archive rows during a failed refresh');
     assert.match(stale.alert, /Synthetic trade archive unavailable during refresh/);
-    assert.ok(/stale|old|old|non aggiorn|vecchi|precedent/i.test(stale.alert), 'Movements labels the retained rows as stale');
+    assert.ok(/stale|old|non aggiorn|vecchi|precedent/i.test(stale.alert), 'Movements labels the retained rows as stale');
     await capture(q, 'operations/movements-read-stale-modern', [[1920, 1080]]);
     await q.fixture({ clearAll: true });
     await q.toggle('classic');
-    return { assertionResults: { loadingExplicit: !!loading, emptyExplicit: !!emptyTitle && !!emptyBody,
+    return { assertionResults: { loadingExplicit: !!loading, emptyExplicit: !!emptyText,
       failedRefreshAnnouncesStaleData: stale.rows >= rowsBeforeError && /Synthetic trade archive unavailable/.test(stale.alert),
       retainedRowsAreDisclosedAsStale: /stale|old|non aggiorn|vecchi|precedent/i.test(stale.alert) },
-      loading, emptyTitle, emptyBody, rowsBeforeError, stale,
+      loading, emptyText, rowsBeforeError, stale,
       fixtureVsReal: { allReadsSynthetic: true, writes: 0, backendStarted: false, llmStarted: false } };
   });
 }
