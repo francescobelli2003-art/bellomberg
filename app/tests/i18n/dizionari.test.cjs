@@ -47,7 +47,11 @@ Object.assign(NEUTRE_PER_CHIAVE, {
   'tradePage.verbs_BUY': 'Buy', 'tradePage.verbs_ADD': 'Add', 'tradePage.verbs_TRIM': 'Trim', 'tradePage.verbs_SELL': 'Sell',
   'tradePage.live': 'Live {v}', 'tradePage.nav': 'NAV', 'tradePage.colPl': 'P&L',
   'trade.trade_ref': 'Trade #{id}', 'trade.div_short': 'DIV',
-  'dashboardPage.period_1M': '1M', 'newsPage.theme_fed': 'Fed / FOMC', 'newsPage.theme_btc_etf': 'BTC / ETF',
+  'dashboardPage.period_1M': '1M',
+  // pannello titolo (05/10): sigle finanziarie identiche nelle due lingue
+  'dashboardPage.dt_pe': 'P/E (ttm)', 'dashboardPage.dt_eps': 'EPS (ttm)', 'dashboardPage.dt_beta': 'Beta',
+  'dashboardPage.dt_evEbitda': 'EV/EBITDA', 'dashboardPage.dt_volume': 'Vol.',
+  'newsPage.theme_fed': 'Fed / FOMC', 'newsPage.theme_btc_etf': 'BTC / ETF',
   'tradeidea.pdfSectionPage': 'p. {page}', 'tradeidea.pdfSection_business': 'Business', 'tradeidea.pdfSection_red_team': 'Red team',
 });
 

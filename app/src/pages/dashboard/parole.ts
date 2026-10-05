@@ -130,6 +130,26 @@ function costruisci(l: Lingua) {
     close: tr('dashboardPage.close'),
     detailOf: tr('dashboardPage.detailOf'),
     openMarkets: tr('dashboardPage.openMarkets'),
+    titolo: {
+      keyData: tr('dashboardPage.dt_keyData'), marketCap: tr('dashboardPage.dt_marketCap'), pe: tr('dashboardPage.dt_pe'),
+      fwdPe: tr('dashboardPage.dt_fwdPe'), eps: tr('dashboardPage.dt_eps'), dividend: tr('dashboardPage.dt_dividend'),
+      beta: tr('dashboardPage.dt_beta'), evEbitda: tr('dashboardPage.dt_evEbitda'), range52: tr('dashboardPage.dt_range52'),
+      fromHigh: (pct: string) => tr('dashboardPage.dt_fromHigh', { pct }), analysts: tr('dashboardPage.dt_analysts'),
+      target: tr('dashboardPage.dt_target'), upside: tr('dashboardPage.dt_upside'),
+      noAnalysts: tr('dashboardPage.dt_noAnalysts'), prevClose: tr('dashboardPage.dt_prevClose'), volume: tr('dashboardPage.dt_volume'),
+      avgVolume: tr('dashboardPage.dt_avgVolume'), avgPrice: tr('dashboardPage.dt_avgPrice'), quoteLoading: tr('dashboardPage.dt_quoteLoading'),
+      quoteError: (motivo: string) => tr('dashboardPage.dt_quoteError', { motivo }),
+      source: (valuta: string) => tr('dashboardPage.dt_source', { valuta }),
+      // consenso di Yahoo (recommendationKey): le chiavi note tradotte, le altre restano come arrivano
+      reco: (k: string) => {
+        const note: Record<string, Chiave> = {
+          strong_buy: 'dashboardPage.dt_reco_strong_buy', buy: 'dashboardPage.dt_reco_buy', hold: 'dashboardPage.dt_reco_hold',
+          underperform: 'dashboardPage.dt_reco_underperform', sell: 'dashboardPage.dt_reco_sell', strong_sell: 'dashboardPage.dt_reco_strong_sell',
+        };
+        const chiave = note[k.toLowerCase().replace(/[\s-]+/g, '_')];
+        return chiave ? tr(chiave) : k;
+      },
+    },
     value: tr('dashboardPage.value'),
     totalPl: tr('dashboardPage.totalPl'),
     weight: tr('dashboardPage.weight'),

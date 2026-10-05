@@ -6,7 +6,7 @@ import { localizePayload } from '@/lib/api-presentation';
 import { t as tr } from '@/i18n/t';
 import { linguaCorrente, localeDi } from '@/i18n/lingua';
 import { Bellomberg } from '@/lib/api';
-import type { BenchmarkPayload, Decision, NavHistory, PortfolioRisk, PortfolioSnapshot, TwrPayload } from '@/lib/api';
+import type { BenchmarkPayload, Decision, MktQuote, NavHistory, PortfolioRisk, PortfolioSnapshot, TwrPayload } from '@/lib/api';
 import { fmtEUR, fmtNum, fmtPct } from '@/lib/format';
 import { leggiQuota, motivoChiamata, leggiDetail } from '@/lib/quota';
 import { leggiCurva } from '@/lib/curva';
@@ -128,6 +128,17 @@ export default function Dashboard() {
   const [vistaAlloc, setVistaAlloc] = usePreferenza<VistaAllocazione>('bb.dashboard.allocation', ['titoli', 'regioni', 'heatmap'], 'titoli');
   const [dettagliata, setDettagliata] = useState(false);
   const [titoloAperto, setTitoloAperto] = useState<string | null>(null);
+  // Dati chiave del titolo aperto (/market/quote, cache 5 min nel motore): letti solo all'apertura.
+  const [quoteAperta, setQuoteAperta] = useState<{ ticker: string; quote: MktQuote | null; errore: string | null } | null>(null);
+  useEffect(() => {
+    if (!titoloAperto) { setQuoteAperta(null); return; }
+    let m = true;
+    setQuoteAperta({ ticker: titoloAperto, quote: null, errore: null });
+    Bellomberg.mktQuote(titoloAperto)
+      .then(quote => { if (m) setQuoteAperta({ ticker: titoloAperto, quote, errore: null }); })
+      .catch(error => { if (m) setQuoteAperta({ ticker: titoloAperto, quote: null, errore: motivoChiamata(error) || tr('dashboard.na') }); });
+    return () => { m = false; };
+  }, [titoloAperto]);
 
   // silent=true: rilettura quasi-live senza smontare la pagina
   const loadAll = async (silent = false) => {
@@ -324,8 +335,9 @@ export default function Dashboard() {
       </div>
 
       <DettaglioTitolo posizione={posAperta} nome={posAperta ? nomeTitolo(posAperta) : ''} onChiudi={() => setTitoloAperto(null)} onApriMercati={goMkt}
+        quote={quoteAperta && quoteAperta.ticker === posAperta?.ticker ? quoteAperta : null}
         testi={{ detailOf: w.detailOf, close: w.close, openMarkets: w.openMarkets, today: w.today, value: w.value,
-          totalPl: w.totalPl, weight: w.weight, quantity: w.quantity, stalePrice: w.stalePrice }} />
+          totalPl: w.totalPl, weight: w.weight, quantity: w.quantity, stalePrice: w.stalePrice, ...w.titolo }} />
       <RunConfirmDialog open={askRun} onConfirm={() => { setAskRun(false); triggerRun(); }} onCancel={() => setAskRun(false)} />
     </div>
   );
