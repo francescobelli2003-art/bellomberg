@@ -54,6 +54,8 @@ Object.assign(NEUTRE_PER_CHIAVE, {
   'dashboardPage.dt_pe': 'P/E (ttm)', 'dashboardPage.dt_eps': 'EPS (ttm)', 'dashboardPage.dt_beta': 'Beta',
   'dashboardPage.dt_evEbitda': 'EV/EBITDA', 'dashboardPage.dt_volume': 'Vol.',
   'newsPage.theme_fed': 'Fed / FOMC', 'newsPage.theme_btc_etf': 'BTC / ETF',
+  // Monte Carlo (05/10): sigle d'orizzonte identiche nelle due lingue
+  'montecarlo.h21': '1M', 'montecarlo.h63': '3M', 'montecarlo.h126': '6M',
   'tradeidea.pdfSectionPage': 'p. {page}', 'tradeidea.pdfSection_business': 'Business', 'tradeidea.pdfSection_red_team': 'Red team',
 });
 

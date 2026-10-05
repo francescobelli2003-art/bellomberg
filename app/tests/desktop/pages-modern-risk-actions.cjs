@@ -224,39 +224,39 @@ async function run(q) {
     await q.fixture({ setRead: { '/portfolio/validate_ticker': { ok: true, symbol: 'SYNQ', name: 'Synthetic QA security', currency: 'EUR', last_price: 100 } },
       setWrite: { '/portfolio/montecarlo/v3': { body: { ...mcResult, modifications_applied: [{ action: 'add', ticker: 'SYNQ', amount_eur: 1000 }], synthetic: true }, delayMs: 20000 } } });
     await q.toggle('classic'); await q.visit('/backtest');
-    await q.waitFor(() => !!document.querySelector('main [data-page="montecarlo"] .asst select'), 'Monte Carlo controls');
-    await q.waitFor(() => !!document.querySelector('main [data-page="montecarlo"] .scopewrap svg'), 'Monte Carlo fan chart');
-    const method = 'main [data-page="montecarlo"] .asst select';
+    await q.waitFor(() => !!document.querySelector('main [data-page="montecarlo"] .mc-params select'), 'Monte Carlo controls');
+    await q.waitFor(() => !!document.querySelector('main [data-page="montecarlo"] .mc-cone .mc-chart svg'), 'Monte Carlo fan chart');
+    const method = 'main [data-page="montecarlo"] .mc-params select';
     await q.setValue(method, 'block_bootstrap');
     assert.equal(await q.js(sel => document.querySelector(sel)?.value, method), 'block_bootstrap');
-    const add = await markButton(q, { root: 'main [data-page="montecarlo"]', selector: undefined, pattern: 'add' });
-    await q.click(add);
-    const ticker = await markInput(q, { root: 'main [data-page="montecarlo"]', selector: '.wif input[type="text"]', nth: 0 });
+    await q.click('main [data-page="montecarlo"] [data-action="open-banco"]');
+    await q.waitFor(() => !!document.querySelector('main [data-page="montecarlo"] .mc-drawer'), 'what-if panel open');
+    await q.click('main [data-page="montecarlo"] .mc-drawer [data-add="add"]');
+    const ticker = await markInput(q, { root: 'main [data-page="montecarlo"]', selector: '.mc-mod input.is-tk', nth: 0 });
     await q.typeText(ticker, 'SYNQ');
-    assert.equal(await q.js(() => document.querySelector('main [data-page="montecarlo"] .wif input[type="text"]')?.value), 'SYNQ',
+    assert.equal(await q.js(() => document.querySelector('main [data-page="montecarlo"] .mc-mod input.is-tk')?.value), 'SYNQ',
       'ticker draft should be controlled by React before blur validation');
-    const amount = await markInput(q, { root: 'main [data-page="montecarlo"]', selector: '.wif input[inputmode="decimal"]' });
+    const amount = await markInput(q, { root: 'main [data-page="montecarlo"]', selector: '.mc-mod input.is-eur' });
     const beforeTickerValidation = await q.counts();
     await q.click(amount);
     await q.typeText(amount, '1000');
-    await q.waitFor(() => (document.querySelector('main [data-page="montecarlo"] .wif')?.innerText || '').includes('Synthetic QA security'), 'fixture ticker validation', 5000);
+    await q.waitFor(() => (document.querySelector('main [data-page="montecarlo"] .mc-mod')?.innerText || '').includes('Synthetic QA security'), 'fixture ticker validation', 5000);
     assert.equal(delta(beforeTickerValidation, await q.counts(), 'GET /portfolio/validate_ticker'), 1,
       'one ticker blur should cause exactly one fixture validation read');
-    const runButton = 'main [data-page="montecarlo"] button.go';
     const before = await q.counts();
-    await q.click(runButton);
-    await q.waitFor(() => document.querySelector('main [data-page="montecarlo"] button.go')?.disabled === true, 'Monte Carlo v3 request in progress', 3000);
+    await q.click('main [data-page="montecarlo"] [data-action="simulate-banco"]');
+    await q.waitFor(() => document.querySelector('main [data-page="montecarlo"] button[data-action="simulate"]')?.disabled === true, 'Monte Carlo v3 request in progress', 3000);
     const idBefore = await q.pageState();
     await q.toggle('modern');
     const idModern = await q.pageState();
     assert.equal(idModern.id, idBefore.id, 'Monte Carlo page controller remounted during v3 request');
-    assert.equal(await q.js(() => document.querySelector('main [data-page="montecarlo"] button.go')?.disabled), true,
+    assert.equal(await q.js(() => document.querySelector('main [data-page="montecarlo"] button[data-action="simulate"]')?.disabled), true,
       'Monte Carlo must remain visibly busy after switching to modern');
     await q.capture('backtest-v3-pending-modern');
-    assert.equal(await q.js(() => document.querySelector('main [data-page="montecarlo"] button.go')?.disabled), true,
+    assert.equal(await q.js(() => document.querySelector('main [data-page="montecarlo"] button[data-action="simulate"]')?.disabled), true,
       'Monte Carlo must remain in flight through the modern viewport captures');
     await q.toggle('classic');
-    await q.waitFor(() => document.querySelector('main [data-page="montecarlo"] button.go')?.disabled === false, 'Monte Carlo v3 request complete', 25000);
+    await q.waitFor(() => document.querySelector('main [data-page="montecarlo"] button[data-action="simulate"]')?.disabled === false, 'Monte Carlo v3 request complete', 25000);
     const after = await q.counts();
     const snapshot = await q.snapshot();
     const requests = snapshot.requests.filter(item => item.method === 'POST' && item.route === '/portfolio/montecarlo/v3');
@@ -696,37 +696,41 @@ async function run(q) {
       '/portfolio/validate_ticker': { body: { ok: false, symbol: 'BADQA', error: 'Synthetic ticker does not exist.' } },
     }, setWrite: { '/portfolio/montecarlo/v3': { body: { detail: 'Synthetic Monte Carlo engine rejected fixture request.' }, status: 422, delayMs: 1600 } } });
     await q.toggle('classic'); await q.visit('/backtest');
-    await q.waitFor(() => !!document.querySelector('main [data-page="montecarlo"] button.go'), 'Monte Carlo scenario controls');
+    await q.waitFor(() => !!document.querySelector('main [data-page="montecarlo"] button[data-action="simulate"]'), 'Monte Carlo scenario controls');
     await q.toggle('modern');
-    const add = await markButton(q, { root: 'main [data-page="montecarlo"]', pattern: 'add' });
-    await q.click(add);
-    const ticker = await markInput(q, { root: 'main [data-page="montecarlo"]', selector: '.wif input[type="text"]' });
-    const emptyState = await q.js(() => ({ disabled: document.querySelector('main [data-page="montecarlo"] button.go')?.disabled,
-      row: document.querySelector('main [data-page="montecarlo"] .wif')?.innerText || '' }));
+    const openPanel = async () => {
+      await q.click('main [data-page="montecarlo"] [data-action="open-banco"]');
+      await q.waitFor(() => !!document.querySelector('main [data-page="montecarlo"] .mc-drawer'), 'what-if panel open');
+    };
+    await openPanel();
+    await q.click('main [data-page="montecarlo"] .mc-drawer [data-add="add"]');
+    const ticker = await markInput(q, { root: 'main [data-page="montecarlo"]', selector: '.mc-mod input.is-tk' });
+    const emptyState = await q.js(() => ({ disabled: document.querySelector('main [data-page="montecarlo"] [data-action="simulate-banco"]')?.disabled,
+      row: document.querySelector('main [data-page="montecarlo"] .mc-mod')?.innerText || '' }));
     assert.equal(emptyState.disabled, false, 'a blank what-if draft is explicitly inactive and does not block the portfolio simulation');
-    assert.match(emptyState.row, /inactive|inerte/i, `blank what-if row should declare its excluded state: ${emptyState.row}`);
+    assert.match(emptyState.row, /set aside|messa da parte/i, `blank what-if row should declare its excluded state: ${emptyState.row}`);
     await q.typeText(ticker, 'BADQA');
-    assert.equal(await q.js(() => document.querySelector('main [data-page="montecarlo"] .wif input[type="text"]')?.value), 'BADQA',
+    assert.equal(await q.js(() => document.querySelector('main [data-page="montecarlo"] .mc-mod input.is-tk')?.value), 'BADQA',
       'invalid ticker should remain in the controlled draft before blur validation');
-    const amount = await markInput(q, { root: 'main [data-page="montecarlo"]', selector: '.wif input[inputmode="decimal"]' });
+    const amount = await markInput(q, { root: 'main [data-page="montecarlo"]', selector: '.mc-mod input.is-eur' });
     const beforeInvalidValidation = await q.counts();
     await q.click(amount);
     await q.typeText(amount, '850');
-    await q.waitFor(() => (document.querySelector('main [data-page="montecarlo"] .wif')?.innerText || '').includes('Synthetic ticker does not exist'), 'invalid ticker fixture validation');
+    await q.waitFor(() => (document.querySelector('main [data-page="montecarlo"] .mc-mod')?.innerText || '').includes('Synthetic ticker does not exist'), 'invalid ticker fixture validation');
     assert.equal(delta(beforeInvalidValidation, await q.counts(), 'GET /portfolio/validate_ticker'), 1,
       'one invalid ticker blur should cause exactly one fixture validation read');
-    assert.equal(await q.js(() => document.querySelector('main [data-page="montecarlo"] button.go')?.disabled), false,
+    assert.equal(await q.js(() => document.querySelector('main [data-page="montecarlo"] [data-action="simulate-banco"]')?.disabled), false,
       'ticker lookup error is informative; the app leaves engine eligibility to the Monte Carlo response');
     const beforeRejected = await q.counts();
-    await q.click('main [data-page="montecarlo"] button.go');
-    await q.waitFor(() => document.querySelector('main [data-page="montecarlo"] button.go')?.disabled === true,
+    await q.click('main [data-page="montecarlo"] [data-action="simulate-banco"]');
+    await q.waitFor(() => document.querySelector('main [data-page="montecarlo"] button[data-action="simulate"]')?.disabled === true,
       'invalid ticker fixture reaches the authoritative Monte Carlo engine', 4000);
     const rejectedBeforeMode = await q.pageState();
     await q.toggle('classic');
     assert.equal((await q.pageState()).id, rejectedBeforeMode.id, 'page identity changed during rejected invalid-ticker run');
-    await q.waitFor(() => (document.querySelector('main [data-page="montecarlo"] .p3.cr')?.innerText || '')
+    await q.waitFor(() => (document.querySelector('main [data-page="montecarlo"] [data-error]')?.innerText || '')
       .includes('Synthetic Monte Carlo engine rejected fixture request.'), 'fixture engine rejection is preserved', 9000);
-    const rejection = await q.js(() => document.querySelector('main [data-page="montecarlo"] .p3.cr')?.innerText || '');
+    const rejection = await q.js(() => document.querySelector('main [data-page="montecarlo"] [data-error]')?.innerText || '');
     assert.ok(rejection.includes('Synthetic Monte Carlo engine rejected fixture request.'),
       `the engine error should preserve its declared source detail: ${rejection}`);
     const invalidRequest = (await q.snapshot()).requests.filter(item => item.method === 'POST' && item.route === '/portfolio/montecarlo/v3').at(-1);
@@ -738,43 +742,44 @@ async function run(q) {
     await q.toggle('modern');
     await q.capture('backtest-invalid-ticker-engine-rejection-modern');
     await q.fixture({ setRead: { '/portfolio/validate_ticker': { body: { ok: true, symbol: 'SYNQ', name: 'Synthetic QA security', currency: 'EUR', last_price: 100 } } } });
-    const tickerForValid = await markInput(q, { root: 'main [data-page="montecarlo"]', selector: '.wif input[type="text"]' });
+    await openPanel();
+    const tickerForValid = await markInput(q, { root: 'main [data-page="montecarlo"]', selector: '.mc-mod input.is-tk' });
     await q.typeText(tickerForValid, 'SYNQ');
-    assert.equal(await q.js(() => document.querySelector('main [data-page="montecarlo"] .wif input[type="text"]')?.value), 'SYNQ',
+    assert.equal(await q.js(() => document.querySelector('main [data-page="montecarlo"] .mc-mod input.is-tk')?.value), 'SYNQ',
       'valid ticker should remain in the controlled draft before blur validation');
-    const amountForValid = await markInput(q, { root: 'main [data-page="montecarlo"]', selector: '.wif input[inputmode="decimal"]' });
+    const amountForValid = await markInput(q, { root: 'main [data-page="montecarlo"]', selector: '.mc-mod input.is-eur' });
     const beforeValidValidation = await q.counts();
     await q.click(amountForValid);
     await waitForCount(q, 'GET /portfolio/validate_ticker', (beforeValidValidation['GET /portfolio/validate_ticker'] || 0) + 1);
-    await q.waitFor(() => (document.querySelector('main [data-page="montecarlo"] .wif')?.innerText || '').includes('Synthetic QA security'), 'valid fixture ticker replaces invalid draft');
+    await q.waitFor(() => (document.querySelector('main [data-page="montecarlo"] .mc-mod')?.innerText || '').includes('Synthetic QA security'), 'valid fixture ticker replaces invalid draft');
     assert.equal(delta(beforeValidValidation, await q.counts(), 'GET /portfolio/validate_ticker'), 1,
       'one corrected ticker blur should cause exactly one fixture validation read');
     await q.fixture({ setWrite: { '/portfolio/montecarlo/v3': { body: { ...mcResult, modifications_applied: [{ action: 'add', ticker: 'SYNQ', amount_eur: 850 }], synthetic: true }, delayMs: 1600 } } });
     const before = await q.counts();
-    await q.click('main [data-page="montecarlo"] button.go');
-    await q.waitFor(() => document.querySelector('main [data-page="montecarlo"] button.go')?.disabled === true, 'corrected fixture POST in flight');
+    await q.click('main [data-page="montecarlo"] [data-action="simulate-banco"]');
+    await q.waitFor(() => document.querySelector('main [data-page="montecarlo"] button[data-action="simulate"]')?.disabled === true, 'corrected fixture POST in flight');
     const validBeforeMode = await q.pageState();
     await q.toggle('classic');
-    assert.equal(await q.js(() => document.querySelector('main [data-page="montecarlo"] button.go')?.disabled), true,
+    assert.equal(await q.js(() => document.querySelector('main [data-page="montecarlo"] button[data-action="simulate"]')?.disabled), true,
       'simulation busy state must remain after modern-to-classic switch');
     assert.equal((await q.pageState()).id, validBeforeMode.id, 'controller identity changed during corrected simulation');
-    await q.waitFor(() => document.querySelector('main [data-page="montecarlo"] button.go')?.disabled === false,
+    await q.waitFor(() => document.querySelector('main [data-page="montecarlo"] button[data-action="simulate"]')?.disabled === false,
       'corrected fixture simulation completes', 9000);
     const after = await q.counts();
     const allMonteCarloPosts = (await q.snapshot()).requests.filter(item => item.method === 'POST' && item.route === '/portfolio/montecarlo/v3');
     const correctedRequest = allMonteCarloPosts.at(-1);
     assert.equal(delta(before, after, 'POST /portfolio/montecarlo/v3'), 1, 'corrected valid ticker should dispatch one request');
     assert.deepEqual(correctedRequest.input.modifications, [{ action: 'add', ticker: 'SYNQ', amount_eur: 850 }]);
-    const remainingEngineError = await q.js(() => [...document.querySelectorAll('main [data-page="montecarlo"] .p3.cr .dec.ko')]
+    const remainingEngineError = await q.js(() => [...document.querySelectorAll('main [data-page="montecarlo"] [data-error]')]
       .map(node => node.innerText || '').find(text => text.includes('Synthetic Monte Carlo engine rejected fixture request.')) || '');
     assert.equal(remainingEngineError, '', 'a successful corrected run should clear the previous engine rejection');
     assert.equal(delta(beforeRejected, after, 'POST /portfolio/montecarlo/v3'), 2,
       'the invalid and corrected drafts should each reach the engine once');
     assert.equal(allMonteCarloPosts.length, 3, 'one earlier valid run plus this invalid/corrected pair should be recorded');
-    const completedText = await q.js(() => [...document.querySelectorAll('main [data-page="montecarlo"] .p3.hero')]
+    const completedText = await q.js(() => [...document.querySelectorAll('main [data-page="montecarlo"] .mc-esito')]
       .map(node => node.innerText || '').find(text => text.includes('+4.20%')) || '');
     assert.ok(completedText.includes('+4.20%'), `corrected simulation result should replace the prior error: ${completedText}`);
-    return { assertionResults: { emptyDraftIsDeclaredInactive: !emptyState.disabled && /inactive|inerte/i.test(emptyState.row),
+    return { assertionResults: { emptyDraftIsDeclaredInactive: !emptyState.disabled && /set aside|messa da parte/i.test(emptyState.row),
       invalidTickerErrorIsInformativeAndEngineAuthoritative: rejection.includes('Synthetic Monte Carlo engine rejected fixture request.'),
       invalidDraftSubmittedExactlyOnce: delta(beforeRejected, afterRejected, 'POST /portfolio/montecarlo/v3') === 1,
       validCorrectionSubmittedExactlyOnce: delta(before, after, 'POST /portfolio/montecarlo/v3') === 1,
@@ -902,13 +907,13 @@ async function run(q) {
     await q.fixture({ setRead: { '/portfolio': { body: { detail: 'Synthetic portfolio snapshot unavailable.' }, status: 503, delayMs: 700 } } });
     try {
     await q.visit('/backtest');
-    await q.waitFor(() => !!document.querySelector('main [data-page="montecarlo"] .asst'), 'Monte Carlo read state header');
-    await q.waitFor(() => !!document.querySelector('main [data-page="montecarlo"] .p3.hero'), 'Monte Carlo read state surface');
+    await q.waitFor(() => !!document.querySelector('main [data-page="montecarlo"] .mc-params'), 'Monte Carlo read state header');
+    await q.waitFor(() => !!document.querySelector('main [data-page="montecarlo"] .mc-head'), 'Monte Carlo read state surface');
     const before = await q.pageState(); await q.toggle('modern');
     const modern = await q.pageState();
-    await q.waitFor(() => (document.querySelector('main [data-page="montecarlo"] .p3.hero [role="alert"]')?.innerText || '')
+    await q.waitFor(() => (document.querySelector('main [data-page="montecarlo"] .mc-note[role="alert"]')?.innerText || '')
       .includes('Synthetic portfolio snapshot unavailable.'), 'portfolio read failure explanation');
-    const error = await q.js(() => document.querySelector('main [data-page="montecarlo"] .p3.hero [role="alert"]')?.innerText || '');
+    const error = await q.js(() => document.querySelector('main [data-page="montecarlo"] .mc-note[role="alert"]')?.innerText || '');
     assert.ok(error.includes('Synthetic portfolio snapshot unavailable.'), `portfolio snapshot failure must not be a false empty book: ${error}`);
     assert.equal(modern.id, before.id);
     assert.equal((await q.counts())['GET /portfolio'] - (beforeReads['GET /portfolio'] || 0), 1);

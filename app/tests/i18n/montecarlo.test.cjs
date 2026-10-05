@@ -63,6 +63,17 @@ function find(node, predicate) {
   if (node && typeof node === 'object' && node.props) { if (predicate(node)) return node; return find(node.props.children, predicate); }
 }
 
+// Testo reso senza tag, con i «?» ridotti al segno (la spiegazione vive nel tooltip):
+// le attese si leggono come la pagina, «|» separa gli elementi.
+const plain = html => html.replace(/<span class="mc-tipbox"[^>]*>[^<]*<\/span>/g, '').replace(/<[^>]+>/g, '|').replace(/\s*\|[\s|]*/g, '|').replace(/[\u00a0\u202f]/g, ' ');
+const named = name => n => typeof n.type === 'function' && n.type.name === name;
+async function settled(data, languages = ['it', 'en']) {
+  const { render } = retained(data), out = {};
+  render('it'); await render.effects();
+  for (const language of languages) { out[language] = render(language); await render.effects(); }
+  return out;
+}
+
 test('Monte Carlo preserves the numeric grammar of each draft through an interface language change', () => {
   const load = creaCaricatore(), language = load('i18n/lingua.ts'), mc = load('lib/montecarlo.ts');
   for (const [inputLanguage, amount] of [['it', '1.234,50'], ['en', '1,234.50']]) {
@@ -71,7 +82,7 @@ test('Monte Carlo preserves the numeric grammar of each draft through an interfa
       language.impostaLinguaCorrente(viewLanguage);
       assert.equal(mc.classificaRiga(rows[0]).stato, 'entra');
       assert.deepEqual(mc.costruisciPayload(rows), [{ action: 'add', ticker: 'SYNTH.X', amount_eur: 1234.5 }]);
-      assert.equal(mc.etichettaSimula(mc.contaBanco(rows), false), viewLanguage === 'it' ? 'SIMULA' : 'SIMULATE');
+      assert.equal(mc.etichettaSimula(mc.contaBanco(rows), false), viewLanguage === 'it' ? 'Simula' : 'Simulate');
     }
   }
 });
@@ -80,12 +91,13 @@ test('Monte Carlo renders local labels and declared variants while retaining the
   const data = fixture(), before = structuredClone(data), { render, calls } = retained(data);
   render('it'); await render.effects(); const it = render('it'); await render.effects();
   const en = render('en'); await render.effects();
-  assert.match(it, /NOTE DEL MOTORE/); assert.match(en, /ENGINE NOTES/);
+  assert.match(it, /Note del motore/); assert.match(en, /Engine notes/);
   assert.match(it, /Nota dichiarata/); assert.match(en, /Declared note/); assert.match(en, /Declared method/);
   assert.match(it, /1\.234,50/); assert.match(en, /1,234\.50/); assert.match(en, /10\.50%/);
   for (const html of [it, en]) assert.match(html, /Original unmarked returns basis/);
+  // tre bande + due tracce + mediana nel cono: le stesse curve in entrambe le lingue
   const paths = html => [...html.matchAll(/<path[^>]* d="([^"]+)"/g)].map(m => m[1]);
-  assert.ok(paths(it).length >= 10); assert.deepEqual(paths(it), paths(en));
+  assert.ok(paths(it).length >= 6); assert.deepEqual(paths(it), paths(en));
   assert.deepEqual(calls, [['portfolio'], ['base', { horizon_days: 252, n_sims: 10000, lookback_years: 5, method: 'fhs', drift_mode: 'zero', stress: 'none', force: false }]]);
   assert.deepEqual(data, before);
 });
@@ -94,7 +106,7 @@ test('the explicit what-if run submits the preserved draft value after language 
   const mods = [{ id: 1, action: 'add', ticker: 'SYNTH.X', amount_eur: '1.234,50', amount_pct: '', inputLanguage: 'it' }];
   const { render, calls } = retained(fixture(), mods);
   render('it'); await render.effects(); render('en'); await render.effects();
-  const button = find(render.view(), n => n.type === 'button' && n.props.className === 'go');
+  const button = find(render.view(), n => n.type === 'button' && n.props['data-action'] === 'simulate');
   assert.equal(button.props.disabled, false); await button.props.onClick();
   assert.equal(calls.filter(c => c[0] === 'whatif').length, 2);
   const sent = calls.at(-1)[1]; assert.equal(sent.force, true);
@@ -102,19 +114,35 @@ test('the explicit what-if run submits the preserved draft value after language 
   assert.equal(mods[0].amount_eur, '1.234,50');
 });
 
-test('new rows capture input grammar and keep the same raw text and amount after switching language', async () => {
+test('new rows added in the what-if panel keep the same raw text and amount after switching language', async () => {
   const { render, calls } = retained();
   render('it'); await render.effects(); render('it');
-  const add = find(render.view(), n => n.type === 'button' && n.props.className === 'addb'); add.props.onClick();
+  assert.equal(find(render.view(), named('Banco')), undefined, 'the what-if panel opens only on request');
+  find(render.view(), n => n.type === 'button' && n.props['data-action'] === 'open-banco').props.onClick();
   render('it');
-  find(render.view(), n => n.type === 'input' && n.props.placeholder?.startsWith('ticker')).props.onChange({ target: { value: 'SYNTH.X' } });
+  find(render.view(), named('Banco')).props.onAdd('add');
   render('it');
-  find(render.view(), n => n.type === 'input' && n.props.placeholder === 'importo in euro').props.onChange({ target: { value: '1.234,50' } });
+  const panel = () => find(render.view(), named('Banco')).props;
+  const id = panel().mods[0].id;
+  panel().onUpdate(id, { ticker: 'SYNTH.X' }); render('it');
+  panel().onUpdate(id, { amount_eur: '1.234,50' });
   const en = render('en');
-  assert.match(en, /value="1\.234,50"/);
-  const run = find(render.view(), n => n.type === 'button' && n.props.className === 'go');
+  assert.match(en, /value="1\.234,50"/); assert.match(en, /value="SYNTH\.X"/);
+  assert.match(plain(en), /\|What-if\|/);
+  const run = find(render.view(), n => n.type === 'button' && n.props['data-action'] === 'simulate');
   assert.equal(run.props.disabled, false); await run.props.onClick();
   assert.deepEqual(calls.at(-1)[1].modifications, [{ action: 'add', ticker: 'SYNTH.X', amount_eur: 1234.5 }]);
+});
+
+test('a blocking what-if row disables Simulate and says why next to the row', async () => {
+  const mods = [{ id: 7, action: 'add', ticker: 'SYNTH.X', amount_eur: '', amount_pct: '', inputLanguage: 'it' }];
+  const { render } = retained(fixture(), mods);
+  render('it'); await render.effects(); render('it');
+  find(render.view(), n => n.type === 'button' && n.props['data-action'] === 'open-banco').props.onClick();
+  const it = render('it'), en = render('en');
+  assert.equal(find(render.view(), n => n.type === 'button' && n.props['data-action'] === 'simulate').props.disabled, true);
+  assert.match(plain(it), /\|importo mancante\|/); assert.match(plain(en), /\|amount missing\|/);
+  assert.match(plain(it), /\|0 pronte · 1 da correggere\|/); assert.match(plain(en), /\|0 ready · 1 to fix\|/);
 });
 
 test('numeric draft errors follow the UI language while preserving original input grammar', () => {
@@ -127,13 +155,6 @@ test('numeric draft errors follow the UI language while preserving original inpu
   assert.equal(row.amount_eur, '1.234');
 });
 
-async function settled(data, languages = ['it', 'en']) {
-  const { render } = retained(data), out = {};
-  render('it'); await render.effects();
-  for (const language of languages) { out[language] = render(language); await render.effects(); }
-  return out;
-}
-
 test('unavailable percentiles, probabilities, drawdowns and path counts use the marker of the UI language', async () => {
   const data = fixture();
   delete data.percentiles_ratio.p95; delete data.prob_gain_20pct; delete data.max_drawdown_p95_pct; data.n_sims = null;
@@ -145,27 +166,22 @@ test('unavailable percentiles, probabilities, drawdowns and path counts use the 
   const html = await settled(data);
   // Frasi attese scritte qui, una per ogni punto che stampava il segnaposto fisso.
   const expected = {
-    it: ['<td class="num" style="font-weight:600;color:#8D9FC4">n.d.</td>', 'text-anchor="end" font-family="&#x27;JetBrains Mono&#x27;, monospace">n.d.</text>',
-      '>p95 n.d.</text>', 'SU n.d. TRAIETTORIE',
-      '<div class="k">CF-VaR 99%</div><div class="v num">n.d.</div>', '<i>sharpe</i><b class="num" style="color:#FFA51E">n.d.</b>',
-      '<div class="k">VaR 95%</div><div class="v num">n.d.</div>', '<div class="k">ES 99%</div><div class="v num">n.d.</div>',
-      '<b class="num" style="color:#29D3F2">n.d.</b>', '<i>atteso</i><b class="num" style="font-weight:600;color:#21E0A0">n.d.</b>',
-      '<td>P90</td><td class="num" style="color:#ECF1FA">n.d.</td>'],
-    en: ['<td class="num" style="font-weight:600;color:#8D9FC4">n/a</td>', 'text-anchor="end" font-family="&#x27;JetBrains Mono&#x27;, monospace">n/a</text>',
-      '>p95 n/a</text>', 'OVER n/a PATHS',
-      '<div class="k">CF-VaR 99%</div><div class="v num">n/a</div>', '<i>sharpe</i><b class="num" style="color:#FFA51E">n/a</b>',
-      '<div class="k">VaR 95%</div><div class="v num">n/a</div>', '<div class="k">ES 99%</div><div class="v num">n/a</div>',
-      '<b class="num" style="color:#29D3F2">n/a</b>', '<b class="num" style="font-weight:600;color:#21E0A0">n/a</b>',
-      '<td>P90</td><td class="num" style="color:#ECF1FA">n/a</td>'],
+    it: ['|P95|1.728 €|n.d.|P90|n.d.|+30,00%|', '|Guadagno oltre il 20%|n.d.|', '|P95|19 su 20 scendono di più|n.d.|',
+      '|n.d. traiettorie · 1 titolo|', '|su n.d.|', '|3 punti · 2 tracce su n.d.|', '|CF-VaR 99%|?|n.d.|n.d.|', '|Sharpe|?|n.d.|',
+      '|VaR 95%|?|n.d.|n.d.|', '|ES 99%|?|n.d.|n.d.|', '|Volatilità|?|n.d.|', '|Atteso|?|n.d.|'],
+    en: ['|P95|€1,728|n/a|P90|n/a|+30.00%|', '|Gain over 20%|n/a|', '|P95|19 in 20 fall further|n/a|',
+      '|n/a paths · 1 security|', '|of n/a|', '|3 points · 2 sample paths of n/a|', '|CF-VaR 99%|?|n/a|n/a|', '|Sharpe|?|n/a|',
+      '|VaR 95%|?|n/a|n/a|', '|ES 99%|?|n/a|n/a|', '|Volatility|?|n/a|', '|Expected|?|n/a|'],
   };
   for (const language of ['it', 'en']) {
-    for (const phrase of expected[language]) assert.ok(html[language].includes(phrase), `${language}: ${phrase}`);
+    const text = plain(html[language]);
+    for (const phrase of expected[language]) assert.ok(text.includes(phrase), `${language}: ${phrase}`);
   }
   assert.doesNotMatch(html.it, /n\/a/);
-  // NAV di partenza assente: la cifra grande (EUR a 2 decimali) dichiara il buco nella lingua della UI
+  // NAV di partenza assente: la riga di partenza (EUR a 2 decimali) dichiara il buco nella lingua della UI
   const nav = await settled({ ...fixture(), base_nav_eur: null });
-  assert.ok(nav.it.includes('<div class="big num">n.d.</div>'), 'it: NAV di partenza');
-  assert.ok(nav.en.includes('<div class="big num">n/a</div>'), 'en: starting NAV');
+  assert.ok(plain(nav.it).includes('|Partenza n.d. · 1 titolo in simulazione|'), 'it: NAV di partenza');
+  assert.ok(plain(nav.en).includes('|Start n/a · 1 security simulated|'), 'en: starting NAV');
   assert.doesNotMatch(nav.it, /n\/a/);
 });
 
@@ -176,24 +192,26 @@ test('engine notes name method, drift and stress with the labels of the page sel
     stress_requested: 'gfc_2008', stress_fallback: true, stress_meta: { fallback_reason: 'Original fallback reason' } });
   const html = await settled(data);
   const expected = {
-    it: ['[1] Metodo.</b> Block bootstrap · drift storico (distorto) · stress shock −3σ · 10.000 traiettorie · lookback 5Y · calibrazione su 1000 osservazioni.',
-      '[!] Stress in fallback.</b> richiesto GFC 2008, replay non disponibile — Original fallback reason'],
-    en: ['[1] Method.</b> Block bootstrap · drift historical (biased) · stress shock −3σ · 10,000 paths · lookback 5Y · calibration over 1000 observations.',
-      '[!] Stress fallback.</b> requested GFC 2008, replay unavailable — Original fallback reason'],
+    it: ['Metodo.</b> Block bootstrap · drift Storico (distorto) · stress Shock −3σ · 10.000 traiettorie · storico 5 anni · calibrazione su 1.000 osservazioni.',
+      'Stress non applicato.</b> Richiesto GFC 2008: replay non disponibile — Original fallback reason',
+      'Lo scenario GFC 2008 non è stato applicato'],
+    en: ['Method.</b> Block bootstrap · drift Historical (biased) · stress −3σ shock · 10,000 paths · 5-year history · calibration over 1,000 observations.',
+      'Stress not applied.</b> Requested GFC 2008: replay unavailable — Original fallback reason',
+      'The GFC 2008 scenario was not applied'],
   };
   for (const language of ['it', 'en']) {
     for (const phrase of expected[language]) assert.ok(html[language].includes(phrase), `${language}: ${phrase}`);
     // solo le note del motore: i value dei select portano gli id di proposito
-    const from = html[language].indexOf('<div class="notes">'), notes = html[language].slice(from, html[language].indexOf('</div></div></div>', from));
-    assert.ok(from > 0 && notes.includes('[1]'));
-    assert.doesNotMatch(notes, /block_bootstrap|drift historical ·|shock_3sigma|gfc_2008/);
+    const from = html[language].indexOf('<section class="bbn-card mc-notes">'), notes = html[language].slice(from, html[language].indexOf('</section>', from));
+    assert.ok(from > 0 && notes.includes('mc-nrow'));
+    assert.doesNotMatch(notes, /block_bootstrap|drift historical|shock_3sigma|gfc_2008/);
   }
-  const labels = { fhs: ['FHS · GARCH + bootstrap residui', 'FHS · GARCH + residual bootstrap'],
+  const labels = { fhs: ['FHS · GARCH + bootstrap dei residui', 'FHS · GARCH + residual bootstrap'],
     parametric_t: ['Student-t parametrica (legacy)', 'Parametric Student-t (legacy)'] };
   for (const [method, [it, en]] of Object.entries(labels)) {
     const other = await settled({ ...data, method, drift_mode: 'zero', stress_scenario: 'none', stress_fallback: false });
-    assert.ok(other.it.includes(`[1] Metodo.</b> ${it} · drift zero (neutrale) · stress nessuno ·`), `it ${method}`);
-    assert.ok(other.en.includes(`[1] Method.</b> ${en} · drift zero (neutral) · stress none ·`), `en ${method}`);
+    assert.ok(other.it.includes(`Metodo.</b> ${it} · drift Zero (neutrale) · stress Nessuno ·`), `it ${method}`);
+    assert.ok(other.en.includes(`Method.</b> ${en} · drift Zero (neutral) · stress None ·`), `en ${method}`);
   }
 });
 
@@ -204,31 +222,35 @@ test('engine ids without a page label are shown as ids and declared, never given
     stress_requested: 'synthetic_request', stress_fallback: true, stress_meta: {} });
   const html = await settled(data);
   const expected = {
-    it: ['[1] Metodo.</b> synthetic_method (id del motore senza etichetta) · drift risk_neutral_rf (id del motore senza etichetta) · stress synthetic_stress (id del motore senza etichetta) ·',
-      'richiesto synthetic_request (id del motore senza etichetta), replay non disponibile'],
-    en: ['[1] Method.</b> synthetic_method (engine id without a label) · drift risk_neutral_rf (engine id without a label) · stress synthetic_stress (engine id without a label) ·',
-      'requested synthetic_request (engine id without a label), replay unavailable'],
+    it: ['Metodo.</b> synthetic_method (id del motore senza etichetta) · drift risk_neutral_rf (id del motore senza etichetta) · stress synthetic_stress (id del motore senza etichetta) ·',
+      'Richiesto synthetic_request (id del motore senza etichetta): replay non disponibile'],
+    en: ['Method.</b> synthetic_method (engine id without a label) · drift risk_neutral_rf (engine id without a label) · stress synthetic_stress (engine id without a label) ·',
+      'Requested synthetic_request (engine id without a label): replay unavailable'],
   };
   for (const language of ['it', 'en']) {
     for (const phrase of expected[language]) assert.ok(html[language].includes(phrase), `${language}: ${phrase}`);
   }
 });
 
-test('NAV before and after the what-if follow the wording of the weight table', async () => {
+test('the invested value before and after the what-if is shown in the header in the UI language', async () => {
   const html = await settled({ ...fixture(), nav_pre_eur: 1000, nav_post_eur: 1100 });
-  assert.ok(html.it.includes('<div class="k">NAV pre</div>') && html.it.includes('<div class="k">NAV post</div>'));
-  assert.ok(html.en.includes('<div class="k">NAV before</div>') && html.en.includes('<div class="k">NAV after</div>'));
-  assert.doesNotMatch(html.en, /NAV pre|NAV post/);
+  assert.ok(plain(html.it).includes('|Banco di prova|Valore investito|1.000 €|→|1.100 €|+100 €|'));
+  assert.ok(plain(html.en).includes('|What-if|Invested value|€1,000|→|€1,100|+€100|'));
+  assert.ok(html.it.includes('title="prima"') && html.en.includes('title="before"'));
+  assert.doesNotMatch(html.en, /Valore investito|Banco di prova/);
+  // senza what-if il confronto non compare
+  const base = await settled(fixture());
+  assert.doesNotMatch(base.it, /data-cmp/);
 });
 
 test('a missing cone or terminal histogram is described in words and keeps the declared field id', async () => {
   const data = fixture(); delete data.fan_bands; delete data.terminal_hist;
   const html = await settled(data);
   const expected = {
-    it: ['CONO NON DISPONIBILE — il payload non porta <b>le bande dei percentili</b> (campo fan_bands: backend da riavviare o versione vecchia del motore). Senza le bande vere qui non si disegna niente: la UI non inventa una distribuzione.',
-      'PROFILO NON DISPONIBILE — il payload non porta <b>l’istogramma dei valori a scadenza</b> (campo terminal_hist). Restano i percentili nella tabella qui sotto.'],
-    en: ['CONE UNAVAILABLE — the payload has no <b>percentile bands</b> (fan_bands field: a backend restart or engine update may be needed). Actual bands are required to draw a distribution.',
-      'DISTRIBUTION UNAVAILABLE — the payload has no <b>terminal value histogram</b> (terminal_hist field). Percentiles remain in the table below.'],
+    it: ['Cono non disponibile: il payload non porta <b>le bande dei percentili</b> (campo fan_bands: backend da riavviare o versione vecchia del motore). Senza le bande vere qui non si disegna niente: la pagina non inventa una distribuzione.',
+      'Distribuzione non disponibile: il payload non porta <b>l’istogramma dei valori a scadenza</b> (campo terminal_hist). Restano i percentili nella tabella qui sotto.'],
+    en: ['Cone unavailable: the payload has no <b>percentile bands</b> (fan_bands field: a backend restart or engine update may be needed). Actual bands are required to draw anything: the page does not invent a distribution.',
+      'Distribution unavailable: the payload has no <b>terminal value histogram</b> (terminal_hist field). Percentiles remain in the table below.'],
   };
   for (const language of ['it', 'en']) {
     for (const phrase of expected[language]) assert.ok(html[language].includes(phrase), `${language}: ${phrase}`);
@@ -244,6 +266,7 @@ test('simulation and portfolio read errors are explicit and preserve structured 
   render('it'); await render.effects();
   for (const lang of ['it', 'en']) {
     const html = render(lang); assert.match(html, /Original portfolio failure/); assert.match(html, /Original simulation failure/);
-    assert.match(html, lang === 'it' ? /SIMULAZIONE FALLITA/ : /SIMULATION FAILED/);
+    assert.match(html, lang === 'it' ? /Simulazione non riuscita/ : /Simulation failed/);
+    assert.match(html, lang === 'it' ? /Portafoglio non disponibile/ : /Portfolio unavailable/);
   }
 });
