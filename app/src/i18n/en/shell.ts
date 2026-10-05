@@ -23,6 +23,9 @@ export const shell = {
   appearance_recovery_note: 'Retry: your data and running operations were kept.',
   appearance_recovery_light_action: 'Return to Light theme',
   appearance_recovery_light_note: 'The Light theme keeps tabs, filters and running operations.',
+  system_status: 'System status', service: 'Service', prices: 'Prices', fx_rates: 'Rates in euro', timezone: 'Time zone',
+  group_toggle: 'Open or close the {g} group', decisions_pending: '{n} decisions to make',
+  agents_working: 'Committee at work: {done} of {total} agents done',
 };
 
 export const nav = {

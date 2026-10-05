@@ -63,272 +63,6 @@
 }
 
 
-.bb-modern-shell {
-  --bb-shell-bg: #f7f9fc;
-  --bb-shell-panel: #fff;
-  --bb-shell-line: #dfe7f3;
-  --bb-shell-text: #1e293b;
-  --bb-shell-muted: #64748b;
-  --bb-shell-accent: #1455ff;
-  --bb-shell-good: #008f63;
-  --bb-shell-bad: #c52943;
-  display: grid;
-  grid-template-columns: 232px minmax(0, 1fr);
-  grid-template-rows: 58px auto minmax(0, 1fr) 27px;
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  overflow: hidden;
-  background: var(--bb-shell-bg);
-  color: var(--bb-shell-text);
-  color-scheme: light;
-  font-family: Arial, system-ui, sans-serif;
-}
-
-.bb-modern-header {
-  grid-column: 2;
-  grid-row: 1;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  padding: 0 150px 0 16px;
-  border-bottom: 1px solid var(--bb-shell-line);
-  background: var(--bb-shell-panel);
-}
-
-.bb-modern-brand {
-  display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 126px;
-}
-
-.bb-modern-brand strong { color: #172554; font-size: 12px; letter-spacing: .12em; }
-.bb-modern-brand span { color: var(--bb-shell-muted); font-size: 9px; letter-spacing: .1em; }
-
-.bb-modern-markets {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 8px;
-  color: var(--bb-shell-muted);
-  font: 600 9px/1 Arial, system-ui, sans-serif;
-}
-
-.bb-modern-market { display: inline-flex; align-items: center; gap: 4px; }
-.bb-modern-market i { width: 6px; height: 6px; border-radius: 50%; background: #cbd5e1; }
-.bb-modern-market.is-live i { background: #008f63; box-shadow: 0 0 5px rgba(0, 143, 99, .4); }
-.bb-modern-market.is-live { color: #334155; }
-
-.bb-modern-search {
-  display: flex;
-  flex: 1 1 160px;
-  align-items: center;
-  gap: 8px;
-  min-width: 88px;
-  height: 34px;
-  padding: 0 10px;
-  border: 1px solid var(--bb-shell-line);
-  border-radius: 7px;
-  background: #f8fafc;
-  color: var(--bb-shell-muted);
-  cursor: pointer;
-  text-align: left;
-}
-
-.bb-modern-search:hover { border-color: #a9bdf1; background: #fff; }
-.bb-modern-search span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bb-modern-search kbd { margin-left: auto; color: #94a3b8; font: 10px/1 Arial, system-ui, sans-serif; white-space: nowrap; }
-
-.bb-modern-statuses { display: flex; flex: 0 0 auto; align-items: center; gap: 9px; }
-.bb-modern-status { display: inline-flex; align-items: center; gap: 5px; color: var(--bb-shell-muted); font-size: 9px; font-weight: 700; }
-.bb-modern-status i { width: 6px; height: 6px; border-radius: 50%; background: #e6ad37; }
-.bb-modern-status.is-good { color: var(--bb-shell-good); }
-.bb-modern-status.is-good i { background: var(--bb-shell-good); }
-.bb-modern-status.is-bad { color: var(--bb-shell-bad); }
-.bb-modern-status.is-bad i { background: var(--bb-shell-bad); }
-.bb-modern-status-dot { padding: 6px; cursor: help; }
-.bb-modern-status-dot i { width: 9px; height: 9px; box-shadow: 0 0 0 4px rgba(0, 143, 99, .12); }
-.bb-modern-status-dot.is-bad i { box-shadow: 0 0 0 4px rgba(197, 41, 67, .14); }
-.bb-modern-status-dot.is-pending i { box-shadow: 0 0 0 4px rgba(230, 173, 55, .16); }
-
-.bb-modern-clock {
-  display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  gap: 3px;
-  color: var(--bb-shell-muted);
-  font-size: 9px;
-  text-align: right;
-  white-space: nowrap;
-}
-
-.bb-modern-clock strong { color: var(--bb-shell-text); font-size: 11px; font-variant-numeric: tabular-nums; }
-
-.bb-modern-settings {
-  position: relative;
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: 1px solid var(--bb-shell-line);
-  border-radius: 7px;
-  background: white;
-  color: #475569;
-  cursor: pointer;
-}
-
-.bb-modern-settings:hover, .bb-modern-settings[aria-expanded="true"] { color: var(--bb-shell-accent); background: #f2f6ff; }
-.bb-modern-settings:focus-visible, .bb-modern-sidebar a:focus-visible, .bb-modern-sidebar button:focus-visible { outline: 2px solid var(--bb-shell-accent); outline-offset: 2px; }
-.bb-modern-settings .bb-settings-alarm { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border: 1px solid white; border-radius: 50%; background: #dfa72e; }
-.bb-modern-settings .bb-settings-alarm.is-error { background: var(--bb-shell-bad); }
-
-.bb-modern-sidebar {
-  grid-column: 1;
-  grid-row: 1 / 5;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  border-right: 1px solid var(--bb-shell-line);
-  background: #fff;
-}
-
-.bb-modern-sidebar-brand {
-  display: flex;
-  flex: 0 0 58px;
-  flex-direction: column;
-  justify-content: center;
-  gap: 3px;
-  padding: 0 13px;
-  border-bottom: 1px solid var(--bb-shell-line);
-}
-
-.bb-modern-sidebar-brand strong { color: #172554; font-size: 13px; letter-spacing: .02em; }
-.bb-modern-sidebar-brand span { color: var(--bb-shell-muted); font-size: 11px; }
-
-.bb-modern-nav-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 7px 6px 10px; scrollbar-width: thin; }
-.bb-modern-nav-group { padding: 12px 8px 5px; color: #64748b; font-size: 12px; font-weight: 650; letter-spacing: 0; line-height: 1.2; }
-.bb-modern-nav-link {
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  min-height: 42px;
-  margin: 1px 0;
-  padding: 0 9px;
-  border-radius: 6px;
-  color: #475569;
-  font-size: 14px;
-  text-decoration: none;
-  transition: background-color .12s ease, color .12s ease;
-}
-
-.bb-modern-nav-link svg { width: 19px; height: 19px; color: #7b8ba3; }
-.bb-modern-nav-link:hover { background: #f3f6fb; color: #172554; }
-.bb-modern-nav-link:hover svg { color: var(--bb-shell-accent); }
-.bb-modern-nav-link.is-active { background: #edf3ff; color: #1248d8; font-weight: 700; box-shadow: inset 2px 0 #1455ff; }
-.bb-modern-nav-link.is-active svg { color: #1455ff; }
-.bb-modern-nav-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* badge delle novità (Filing, fase E): pillola a destra dell'etichetta */
-.bb-modern-nav-link:has(.bb-nav-badge) { grid-template-columns: 20px minmax(0, 1fr) auto; }
-.bb-modern-nav-link span.bb-nav-badge { min-width: 20px; padding: 0 7px; border-radius: 999px; background: rgba(29, 86, 240, .10); color: #1248d8; font-size: 11px; font-weight: 800; line-height: 18px; text-align: center; }
-:root[data-bb-theme="dark"] .bb-modern-nav-link span.bb-nav-badge { background: rgba(91, 140, 255, .16); color: #8fb0ff; }
-
-.bb-modern-config {
-  position: relative;
-  display: flex;
-  flex: 0 0 43px;
-  align-items: center;
-  gap: 10px;
-  margin: 0 9px 10px;
-  padding: 0 11px;
-  border: 1px solid var(--bb-shell-line);
-  border-radius: 6px;
-  background: #fff;
-  color: #475569;
-  cursor: pointer;
-  font: 600 14px/1 Arial, system-ui, sans-serif;
-  text-align: left;
-}
-
-.bb-modern-config:hover { border-color: #a9bdf1; color: var(--bb-shell-accent); background: #f8faff; }
-.bb-modern-config kbd { margin-left: auto; color: #64748b; font: 10px/1 Arial, system-ui, sans-serif; }
-.bb-modern-config .bb-settings-alarm { position: absolute; top: 6px; right: 6px; width: 6px; height: 6px; border: 1px solid white; border-radius: 50%; background: #dfa72e; }
-.bb-modern-config .bb-settings-alarm.is-error { background: var(--bb-shell-bad); }
-
-.bb-modern-fx {
-  grid-column: 2;
-  grid-row: 2;
-  height: 34px;
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  min-width: 0;
-  padding: 0 15px;
-  overflow: hidden;
-  border-bottom: 1px solid var(--bb-shell-line);
-  background: #fbfcfe;
-  color: #475569;
-  font-size: 10px;
-  white-space: nowrap;
-}
-
-.bb-modern-fx-title { color: #94a3b8; font-size: 9px; font-weight: 700; letter-spacing: .08em; }
-.bb-modern-fx-rates { display: flex; flex: 1 1 auto; align-items: center; gap: 17px; min-width: 0; overflow: hidden; }
-.bb-modern-fx-rate { display: inline-flex; align-items: center; gap: 5px; }
-.bb-modern-fx-rate strong { color: #1455ff; font-variant-numeric: tabular-nums; font-weight: 600; }
-.bb-modern-fx-meta { flex: 0 0 auto; color: #94a3b8; font-size: 9px; }
-.bb-modern-fx-meta.is-stale, .bb-modern-fx-error { color: #a94331; }
-
-.bb-modern-main {
-  grid-column: 2;
-  grid-row: 3;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  background: var(--bb-shell-bg);
-  position: relative;
-}
-.bb-modern-main:not(.bb-modern-main-classic-content) {
-  container-type: inline-size;
-  container-name: bellomberg-content;
-}
-.bb-modern-hud-placeholder { display: none; }
-
-/* Other routes keep the current dark page canvas and inherited typography. */
-.bb-modern-main-classic-content {
-  background: #050608;
-  color: #ecf1fa;
-  color-scheme: dark;
-  font-family: 'Inter', system-ui, sans-serif;
-}
-
-.bb-modern-footer {
-  grid-column: 2;
-  grid-row: 4;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-width: 0;
-  padding: 0 12px;
-  border-top: 1px solid var(--bb-shell-line);
-  background: #fff;
-  color: var(--bb-shell-muted);
-  font-size: 9px;
-  white-space: nowrap;
-}
-
-.bb-modern-footer-brand { color: #738198; font-weight: 700; letter-spacing: .04em; }
-.bb-modern-footer strong { color: #334155; font-weight: 600; }
-.bb-modern-footer .is-live { color: var(--bb-shell-good); }
-.bb-modern-footer .is-warning { color: #9a6700; }
-.bb-modern-footer .is-error { color: var(--bb-shell-bad); }
-.bb-modern-footer-workspace { margin-left: auto; overflow: hidden; text-overflow: ellipsis; }
 
 .bb-interface-recovery {
   display: grid;
@@ -354,81 +88,12 @@
 .bb-interface-recovery-actions button:first-child { border-color: #1455ff; background: #1455ff; color: #fff; }
 .bb-interface-recovery-actions button:focus-visible { outline: 2px solid #0f172a; outline-offset: 2px; }
 
-@media (max-width: 1100px) {
-  .bb-modern-header { gap: 8px; padding-left: 11px; padding-right: 138px; }
-  .bb-modern-brand { min-width: 112px; }
-  .bb-modern-markets { gap: 5px; }
-  .bb-modern-statuses { gap: 6px; }
-  .bb-modern-footer { gap: 9px; }
-}
-
-@media (max-width: 900px) {
-  .bb-modern-shell { grid-template-columns: 52px minmax(0, 1fr); }
-  .bb-modern-sidebar-brand { align-items: center; padding: 0 3px; }
-  .bb-modern-sidebar-brand strong { font-size: 8px; letter-spacing: .03em; }
-  .bb-modern-sidebar-brand span, .bb-modern-nav-group, .bb-modern-nav-link span,
-  .bb-modern-config span, .bb-modern-config kbd, .bb-modern-config i { display: none; }
-  .bb-modern-nav-link { display: flex; justify-content: center; min-height: 33px; padding: 0; }
-  .bb-modern-nav-link svg { width: 16px; height: 16px; }
-  .bb-modern-config { justify-content: center; margin-inline: 5px; padding: 0; }
-  .bb-modern-config kbd { display: none; }
-  .bb-modern-brand span, .bb-modern-markets { display: none; }
-  .bb-modern-header { padding-left: 10px; gap: 8px; }
-  .bb-modern-statuses { gap: 7px; }
-  .bb-modern-footer-brand, .bb-modern-footer-workspace { display: none; }
-}
-
-@media (max-width: 650px) {
-  .bb-modern-shell { grid-template-columns: 45px minmax(0, 1fr); grid-template-rows: 54px auto minmax(0, 1fr) 25px; }
-  .bb-modern-fx { height: 32px; }
-  .bb-modern-sidebar-brand { flex-basis: 54px; }
-  .bb-modern-header { padding-right: 130px; gap: 6px; }
-  .bb-modern-brand { min-width: 83px; }
-  .bb-modern-brand strong { font-size: 9px; }
-  .bb-modern-brand span { display: none; }
-  .bb-modern-search { min-width: 32px; width: 32px; flex: 0 0 32px; padding: 0 8px; }
-  .bb-modern-search span, .bb-modern-search kbd { display: none; }
-  .bb-modern-status { font-size: 0; }
-  .bb-modern-statuses { gap: 8px; }
-  .bb-modern-clock { display: none; }
-  .bb-modern-fx { gap: 8px; padding: 0 8px; font-size: 9px; }
-  .bb-modern-fx-rates { gap: 9px; }
-  .bb-modern-fx-meta { display: none; }
-  .bb-modern-footer { gap: 8px; padding: 0 7px; font-size: 8px; }
-}
-
-/* White reference chrome: compact brand, search, then live information. */
-.bb-modern-sidebar-brand { flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; }
-.bb-modern-sidebar-brand > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.bb-modern-sidebar-brand strong { font-size: 13px; letter-spacing: .02em; }
-.bb-modern-header .bb-modern-brand { display: none; }
-.bb-modern-search { order: 0; max-width: 530px; font-size: 11px; }
-.bb-modern-statuses { order: 1; }
-.bb-modern-markets { order: 2; }
-.bb-modern-clock { order: 3; }
-.bb-modern-settings { order: 4; }
-@media (max-width: 900px) {
-  .bb-modern-sidebar-brand { justify-content: center; padding: 0 3px; }
-  .bb-modern-sidebar-brand > div { display: none; }
-  .bb-modern-markets { display: none; }
-}
 
 /* ===== Appearance menu: Light/Dark selector ===== */
 .bb-interface-mode-control { gap: 6px; }
 .bb-interface-theme-switch button { display: inline-flex; align-items: center; gap: 4px; }
 .bb-interface-theme-switch button svg { flex: 0 0 auto; }
-.bb-layout-frame[data-mode="modern"] .bb-modern-header { padding-right: 56px; }
-@media (max-width: 1100px) {
-  /* Icon-only below 1100px; the accessible name stays on the button title/label. */
-  .bb-interface-theme-switch button span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .bb-interface-theme-switch button { padding: 0 6px; }
-  .bb-layout-frame[data-mode="modern"] .bb-modern-header { padding-right: 52px; }
-}
-@media (max-width: 650px) {
-  .bb-layout-frame[data-mode="modern"] .bb-modern-header { padding-right: 48px; }
-}
 
-/* ===== Dark Nuova: shell chrome (header, sidebar, FX bar, API status, footer) ===== */
 :root[data-bb-theme="dark"] .bb-interface-mode-switch {
   border-color: var(--bbt-line-strong);
   background: rgba(21, 30, 45, .96);
@@ -442,57 +107,6 @@
   border-color: #6b5420; background: var(--bbt-warn-soft); color: var(--bbt-warn-text); box-shadow: 0 4px 12px var(--bbt-shadow);
 }
 
-:root[data-bb-theme="dark"] .bb-modern-shell {
-  --bb-shell-bg: var(--bbt-bg);
-  --bb-shell-panel: var(--bbt-surface);
-  --bb-shell-line: var(--bbt-line);
-  --bb-shell-text: var(--bbt-text);
-  --bb-shell-muted: var(--bbt-muted);
-  --bb-shell-accent: var(--bbt-accent);
-  --bb-shell-good: var(--bbt-good);
-  --bb-shell-bad: var(--bbt-bad);
-  color-scheme: dark;
-}
-:root[data-bb-theme="dark"] .bb-modern-brand strong,
-:root[data-bb-theme="dark"] .bb-modern-sidebar-brand strong { color: var(--bbt-text-strong); }
-:root[data-bb-theme="dark"] .bb-modern-market i { background: #46556d; }
-:root[data-bb-theme="dark"] .bb-modern-market.is-live i { background: var(--bbt-good); box-shadow: 0 0 5px rgba(52, 201, 143, .45); }
-:root[data-bb-theme="dark"] .bb-modern-market.is-live { color: var(--bbt-text-2); }
-:root[data-bb-theme="dark"] .bb-modern-search { background: var(--bbt-surface-2); }
-:root[data-bb-theme="dark"] .bb-modern-search:hover { border-color: var(--bbt-selected-line); background: var(--bbt-surface-3); }
-:root[data-bb-theme="dark"] .bb-modern-search kbd { color: var(--bbt-muted); }
-:root[data-bb-theme="dark"] .bb-modern-status i { background: var(--bbt-warn); }
-:root[data-bb-theme="dark"] .bb-modern-settings { background: var(--bbt-surface-2); color: var(--bbt-text-2); }
-:root[data-bb-theme="dark"] .bb-modern-settings:hover,
-:root[data-bb-theme="dark"] .bb-modern-settings[aria-expanded="true"] { background: var(--bbt-accent-soft); color: var(--bbt-accent-text); }
-:root[data-bb-theme="dark"] .bb-modern-settings:focus-visible,
-:root[data-bb-theme="dark"] .bb-modern-sidebar a:focus-visible,
-:root[data-bb-theme="dark"] .bb-modern-sidebar button:focus-visible { outline-color: var(--bbt-focus); }
-:root[data-bb-theme="dark"] .bb-modern-settings .bb-settings-alarm,
-:root[data-bb-theme="dark"] .bb-modern-config .bb-settings-alarm { border-color: var(--bbt-surface); background: var(--bbt-warn); }
-:root[data-bb-theme="dark"] .bb-modern-settings .bb-settings-alarm.is-error,
-:root[data-bb-theme="dark"] .bb-modern-config .bb-settings-alarm.is-error { background: var(--bbt-bad); }
-:root[data-bb-theme="dark"] .bb-modern-sidebar { background: var(--bbt-surface); }
-:root[data-bb-theme="dark"] .bb-modern-nav-group { color: var(--bbt-muted); }
-:root[data-bb-theme="dark"] .bb-modern-nav-link { color: var(--bbt-text-2); }
-:root[data-bb-theme="dark"] .bb-modern-nav-link svg { color: var(--bbt-muted); }
-:root[data-bb-theme="dark"] .bb-modern-nav-link:hover { background: var(--bbt-hover); color: var(--bbt-text-strong); }
-:root[data-bb-theme="dark"] .bb-modern-nav-link:hover svg { color: var(--bbt-accent); }
-:root[data-bb-theme="dark"] .bb-modern-nav-link.is-active { background: var(--bbt-selected); color: var(--bbt-accent-text); box-shadow: inset 2px 0 var(--bbt-accent); }
-:root[data-bb-theme="dark"] .bb-modern-nav-link.is-active svg { color: var(--bbt-accent-text); }
-:root[data-bb-theme="dark"] .bb-modern-config { background: var(--bbt-surface-2); color: var(--bbt-text-2); }
-:root[data-bb-theme="dark"] .bb-modern-config:hover { border-color: var(--bbt-selected-line); background: var(--bbt-accent-soft); color: var(--bbt-accent-text); }
-:root[data-bb-theme="dark"] .bb-modern-config kbd { color: var(--bbt-muted); }
-:root[data-bb-theme="dark"] .bb-modern-fx { background: var(--bbt-surface-2); color: var(--bbt-text-2); }
-:root[data-bb-theme="dark"] .bb-modern-fx-title,
-:root[data-bb-theme="dark"] .bb-modern-fx-meta { color: var(--bbt-muted); }
-:root[data-bb-theme="dark"] .bb-modern-fx-rate strong { color: var(--bbt-accent-text); }
-:root[data-bb-theme="dark"] .bb-modern-fx-meta.is-stale,
-:root[data-bb-theme="dark"] .bb-modern-fx-error { color: #f29a7f; }
-:root[data-bb-theme="dark"] .bb-modern-footer { background: var(--bbt-surface); }
-:root[data-bb-theme="dark"] .bb-modern-footer-brand { color: var(--bbt-muted); }
-:root[data-bb-theme="dark"] .bb-modern-footer strong { color: var(--bbt-text-2); }
-:root[data-bb-theme="dark"] .bb-modern-footer .is-warning { color: var(--bbt-warn-text); }
 
 /* Recovery card (shell and page boundaries) */
 :root[data-bb-theme="dark"] .bb-interface-recovery { background: var(--bbt-bg); color: var(--bbt-text); }
@@ -503,6 +117,7 @@
 :root[data-bb-theme="dark"] .bb-interface-recovery-actions button { border-color: var(--bbt-line-strong); background: var(--bbt-surface-2); color: var(--bbt-text-2); }
 :root[data-bb-theme="dark"] .bb-interface-recovery-actions button:first-child { border-color: var(--bbt-accent-fill); background: var(--bbt-accent-fill); color: var(--bbt-on-accent); }
 :root[data-bb-theme="dark"] .bb-interface-recovery-actions button:focus-visible { outline-color: var(--bbt-focus); }
+
 
 /* Window-drag exclusion under the global selector (see Layout.tsx). It sits
    after the header in the DOM and above it in paint order, never takes
@@ -526,15 +141,9 @@
   .bb-layout-frame[data-mode="modern"] .bb-interface-mode-drag-exclusion { width: 192px; }
 }
 
-/* macOS hiddenInset title bar: keep the brand clear of the native traffic lights
-   on every Nuova page and theme (they sit over the sidebar's top-left corner). */
-html[data-platform="darwin"] .bb-modern-sidebar-brand { padding-left: 94px; }
-@media (max-width: 900px) {
-  html[data-platform="darwin"] .bb-modern-sidebar-brand { flex-basis: 100px; padding: 60px 3px 0; }
-}
 
 /* Nuova: compact Appearance button; the two switches live in its popover. */
-.bb-interface-mode-control.is-compact { top: 12px; right: 12px; }
+.bb-interface-mode-control.is-compact { top: 15px; right: 16px; }
 .bb-interface-menu-toggle { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #475569; cursor: pointer; }
 .bb-interface-menu-toggle:hover, .bb-interface-menu-toggle[aria-expanded="true"] { border-color: #1455ff; color: #1455ff; }
 .bb-interface-menu-toggle:focus-visible { outline: 2px solid #1455ff; outline-offset: 2px; }
@@ -548,25 +157,271 @@ html[data-platform="darwin"] .bb-modern-sidebar-brand { padding-left: 94px; }
 :root[data-bb-theme="dark"] .bb-interface-menu-toggle[aria-expanded="true"] { border-color: var(--bbt-accent); color: var(--bbt-accent-text); }
 :root[data-bb-theme="dark"] .bb-interface-menu { border-color: var(--bbt-line-strong); background: var(--bbt-surface); box-shadow: 0 10px 28px rgba(0, 0, 0, .45); }
 
-/* ===== Consumer palette for the shell chrome (2026-10-02) =====
-   Sidebar, header and footer follow the neutral --bbn-* palette of the Dashboard
-   in both themes; page content keeps its own styles until it is migrated. */
-.bb-modern-shell :is(.bb-modern-sidebar, .bb-modern-header, .bb-modern-footer) {
-  border-color: var(--bbn-line);
-  background: var(--bbn-card);
-  font-family: 'Manrope Variable', Manrope, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+/* ===== Shell Nuova (05/10/2026) =====
+   Sidebar a tutta altezza, a destra barra (titolo della pagina, contesto e azioni
+   della pagina, ricerca, stato del sistema), contenuto, statusbar. Palette --bbn-*
+   come la Dashboard, nei due temi. */
+.bb-modern-shell {
+  --sh-hover: rgba(10, 10, 11, .045);
+  --sh-active: #fff;
+  --sh-active-shadow: 0 1px 2px rgba(10, 10, 11, .06), 0 2px 8px rgba(10, 10, 11, .05);
+  --sh-font: 'Manrope Variable', Manrope, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  display: grid;
+  grid-template-columns: 264px minmax(0, 1fr);
+  grid-template-rows: 64px auto minmax(0, 1fr) 28px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bbn-bg);
+  color: var(--bbn-text);
+  color-scheme: light;
+  font-family: var(--sh-font);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
 }
-.bb-modern-shell .bb-modern-nav-link.is-active { background: var(--bbn-accent-soft); color: var(--bbn-accent); box-shadow: none; }
-.bb-modern-shell .bb-modern-nav-link.is-active svg { color: var(--bbn-accent); }
-:root[data-bb-theme="dark"] .bb-modern-shell :is(.bb-modern-sidebar, .bb-modern-header, .bb-modern-footer) {
-  border-color: var(--bbn-line);
+:root[data-bb-theme="dark"] .bb-modern-shell {
+  --sh-hover: rgba(255, 255, 255, .045);
+  --sh-active: var(--bbn-card);
+  --sh-active-shadow: inset 0 0 0 1px var(--bbn-line);
+  color-scheme: dark;
+}
+.bb-modern-shell kbd { font-family: var(--sh-font); }
+
+/* ── sidebar ─────────────────────────────────────────────────────── */
+.bb-modern-sidebar {
+  grid-column: 1;
+  grid-row: 1 / 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 10px 10px;
+  border-right: 1px solid var(--bbn-line);
+}
+.bb-modern-sidebar-brand { display: flex; flex: 0 0 64px; align-items: center; gap: 10px; padding: 0 8px; }
+.bb-brand-mark {
+  display: grid; flex: none; place-items: center; width: 30px; height: 30px; border-radius: 9px;
+  background: var(--bbn-accent-fill); color: var(--bbn-on-accent); font-size: 15px; font-weight: 800; letter-spacing: -.02em;
+}
+.bb-brand-mark::before { content: 'B'; }
+.bb-modern-sidebar-brand strong { color: var(--bbn-text); font-size: 15px; font-weight: 800; letter-spacing: -.01em; }
+
+.bb-modern-nav-scroll {
+  flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 2px 2px 8px 0;
+  scrollbar-width: thin; scrollbar-color: var(--bbn-line) transparent;
+}
+.bb-nav-group { display: grid; gap: 1px; margin-bottom: 6px; }
+.bb-modern-nav-group {
+  display: flex; align-items: center; gap: 6px; width: 100%; padding: 8px 8px 6px;
+  border: 0; border-radius: 8px; background: none; color: var(--bbn-muted);
+  font: 700 12px/1.2 var(--sh-font); text-align: left; cursor: pointer;
+}
+.bb-modern-nav-group:hover { color: var(--bbn-text); }
+.bb-nav-chevron { flex: none; transition: transform .18s ease; }
+.bb-nav-group.is-closed .bb-nav-chevron { transform: rotate(-90deg); }
+.bb-nav-dot { width: 7px; height: 7px; margin-left: auto; border-radius: 50%; background: var(--bbn-accent); }
+.bb-nav-dot.is-live { background: var(--bbn-good); animation: bb-shell-pulse 1.4s ease-in-out infinite; }
+
+.bb-modern-nav-link {
+  display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 8px 0 10px;
+  border-radius: 10px; color: var(--bbn-muted); font-size: 14px; font-weight: 600; text-decoration: none;
+}
+.bb-modern-nav-link svg { flex: none; width: 16px; height: 16px; }
+.bb-modern-nav-link:hover { background: var(--sh-hover); color: var(--bbn-text); }
+.bb-modern-nav-link.is-active { background: var(--sh-active); box-shadow: var(--sh-active-shadow); color: var(--bbn-text); }
+.bb-modern-nav-link.is-active svg { color: var(--bbn-accent); }
+.bb-modern-nav-link > span:first-of-type { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bb-modern-shell kbd {
+  flex: none; min-width: 26px; padding: 1px 5px; border-radius: 6px; background: none; color: var(--bbn-muted);
+  font-size: 10.5px; font-weight: 700; letter-spacing: .02em; text-align: center; opacity: .7;
+}
+.bb-modern-nav-link:hover kbd, .bb-modern-nav-link.is-active kbd { background: var(--bbn-raised); opacity: 1; }
+:root[data-bb-theme="dark"] .bb-modern-nav-link.is-active kbd { background: var(--bbn-raised); }
+
+/* contatori e stati: Filing (giallo, novità da leggere), Decisioni (da prendere), agenti al lavoro */
+.bb-modern-nav-link span.bb-nav-badge, .bb-nav-count {
+  flex: none; min-width: 20px; padding: 0 6px; border-radius: 999px; font-size: 11px; font-weight: 800; line-height: 18px; text-align: center;
+}
+.bb-modern-nav-link span.bb-nav-badge { background: var(--bbn-warn-soft); color: var(--bbn-warn); }
+.bb-nav-count { background: var(--bbn-accent-soft); color: var(--bbn-accent); }
+.bb-nav-live {
+  display: inline-flex; flex: none; align-items: center; gap: 5px; padding: 0 7px 0 6px; border-radius: 999px;
+  background: var(--bbn-good-soft); color: var(--bbn-good); font-size: 11px; font-style: normal; font-weight: 800; line-height: 18px;
+}
+.bb-nav-live i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: bb-shell-pulse 1.4s ease-in-out infinite; }
+@keyframes bb-shell-pulse { 50% { opacity: .3; } }
+
+.bb-modern-config {
+  position: relative; display: flex; flex: 0 0 auto; align-items: center; gap: 10px; min-height: 38px;
+  margin-top: 6px; padding: 0 8px 0 10px; border: 0; border-top: 1px solid var(--bbn-line); border-radius: 0;
+  background: none; color: var(--bbn-muted); font: 600 14px/1 var(--sh-font); text-align: left; cursor: pointer;
+}
+.bb-modern-config > span { flex: 1 1 auto; }
+.bb-modern-config:hover { color: var(--bbn-text); }
+.bb-modern-config .bb-settings-alarm { width: 7px; height: 7px; border-radius: 50%; background: var(--bbn-warn); box-shadow: 0 0 0 3px var(--bbn-warn-soft); }
+.bb-modern-config .bb-settings-alarm.is-error { background: var(--bbn-bad); box-shadow: 0 0 0 3px var(--bbn-bad-soft); }
+.bb-modern-sidebar :is(a, button):focus-visible { outline: 2px solid var(--bbn-accent); outline-offset: 1px; }
+
+/* ── barra in alto ───────────────────────────────────────────────── */
+.bb-modern-header {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 0 64px 0 20px;
+}
+.bb-modern-title { display: flex; flex: none; flex-direction: column; justify-content: center; order: 0; }
+.bb-modern-crumb { color: var(--bbn-muted); font-size: 12px; font-weight: 600; line-height: 1.15; }
+.bb-modern-title h1 { margin: 0; color: var(--bbn-text); font-size: 20px; font-weight: 800; letter-spacing: -.01em; line-height: 1.2; white-space: nowrap; }
+
+/* La riga titolo della pagina entra nella barra: i suoi elementi diventano voci della barra.
+   Contesto (pillole, stato) subito dopo il titolo, pulsanti dopo la ricerca. */
+.bb-modern-slot, .bb-modern-header .bb-barra-ospite.bb-barra-ospite, .bb-modern-header .bb-barra-ospite > header { display: contents; }
+.bb-modern-header .bb-barra-ospite > header > * { order: 1; flex: none; }
+.bb-modern-header .bb-barra-ospite > header > h1 { display: none; }
+.bb-modern-header .bb-barra-ospite > header > .bbn-grow { display: none; }
+.bb-modern-header .bb-barra-ospite > header > :is(button, a) { order: 3; }
+.bb-modern-header .bb-barra-ospite :is(.bbn-btn) { min-height: 36px; border-radius: 12px; }
+
+.bb-modern-search {
+  display: flex; flex: 1 1 auto; order: 2; align-items: center; gap: 8px;
+  min-width: 40px; max-width: 380px; height: 36px; margin-left: auto; padding: 0 6px 0 12px;
+  border: 1px solid var(--bbn-line); border-radius: 12px; background: var(--bbn-card); color: var(--bbn-muted);
+  font: 600 13px/1 var(--sh-font); text-align: left; cursor: pointer;
+}
+.bb-modern-search:hover { border-color: color-mix(in srgb, var(--bbn-muted) 40%, var(--bbn-line)); }
+.bb-modern-search svg { flex: none; }
+.bb-modern-search span { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bb-modern-search kbd { margin-left: auto; background: var(--bbn-raised); opacity: 1; }
+
+.bb-modern-sep { flex: none; order: 4; width: 1px; height: 26px; background: var(--bbn-line); }
+
+.bb-modern-sys-wrap { position: relative; flex: none; order: 5; }
+.bb-modern-sys {
+  display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 10px;
+  border: 0; border-radius: 12px; background: none; color: inherit; font-family: var(--sh-font); cursor: pointer; white-space: nowrap;
+}
+.bb-modern-sys:hover, .bb-modern-sys[aria-expanded="true"] { background: var(--sh-hover); }
+.bb-modern-sys:focus-visible { outline: 2px solid var(--bbn-accent); outline-offset: 1px; }
+.bb-modern-markets { display: flex; gap: 8px; }
+.bb-modern-market { display: inline-flex; align-items: center; gap: 4px; color: var(--bbn-muted); font-size: 11.5px; font-weight: 800; opacity: .6; }
+.bb-modern-market i { width: 6px; height: 6px; border-radius: 50%; background: var(--bbn-line); }
+.bb-modern-market.is-live { color: var(--bbn-text); opacity: 1; }
+.bb-modern-market.is-live i { background: var(--bbn-good); box-shadow: 0 0 0 3px var(--bbn-good-soft); }
+.bb-modern-statuses { display: flex; }
+.bb-modern-status-dot { display: inline-flex; padding: 4px; }
+.bb-modern-status-dot i { width: 8px; height: 8px; border-radius: 50%; background: var(--bbn-warn); box-shadow: 0 0 0 3px var(--bbn-warn-soft); }
+.bb-modern-status-dot.is-good i { background: var(--bbn-good); box-shadow: 0 0 0 3px var(--bbn-good-soft); }
+.bb-modern-status-dot.is-bad i { background: var(--bbn-bad); box-shadow: 0 0 0 3px var(--bbn-bad-soft); }
+.bb-modern-clock { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; }
+.bb-modern-clock strong { font-size: 14px; font-weight: 800; letter-spacing: .01em; }
+.bb-modern-clock span { color: var(--bbn-muted); font-size: 11px; font-weight: 600; }
+
+.bb-modern-sys-pop {
+  position: absolute; z-index: 30; top: calc(100% + 8px); right: 0; width: 320px; padding: 14px 16px;
+  border: 1px solid var(--bbn-line); border-radius: 16px; background: var(--bbn-card);
+  box-shadow: 0 16px 40px rgba(10, 10, 11, .18); font-size: 13px;
+}
+:root[data-bb-theme="dark"] .bb-modern-sys-pop { box-shadow: 0 16px 40px rgba(0, 0, 0, .5); }
+.bb-modern-sys-pop[hidden] { display: none; }
+.bb-modern-sys-pop > b { display: block; margin-bottom: 6px; font-weight: 800; }
+.bb-modern-sys-pop dl { display: grid; grid-template-columns: auto 1fr; margin: 0; }
+.bb-modern-sys-pop :is(dt, dd) { margin: 0; padding: 6px 0; border-top: 1px solid var(--bbn-line); }
+.bb-modern-sys-pop dt { padding-right: 16px; color: var(--bbn-muted); font-weight: 600; }
+.bb-modern-sys-pop dd { font-weight: 700; text-align: right; overflow-wrap: anywhere; }
+.bb-modern-sys-pop dd.is-good { color: var(--bbn-good); }
+.bb-modern-sys-pop dd.is-bad { color: var(--bbn-bad); }
+
+/* ── fascia cambi (solo Mercati) ─────────────────────────────────── */
+.bb-modern-fx {
+  grid-column: 2; grid-row: 2; display: flex; align-items: center; gap: 16px; height: 32px; min-width: 0;
+  margin: 0 16px 4px 20px; padding: 0 14px; overflow: hidden; border-radius: 10px; background: var(--bbn-card);
+  color: var(--bbn-muted); font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+:root[data-bb-theme="dark"] .bb-modern-fx { box-shadow: inset 0 0 0 1px var(--bbn-line); }
+.bb-modern-fx-title { color: var(--bbn-text); font-weight: 800; }
+.bb-modern-fx-rates { display: flex; flex: 1 1 auto; align-items: center; gap: 16px; min-width: 0; overflow: hidden; }
+.bb-modern-fx-rate { display: inline-flex; align-items: center; gap: 5px; }
+.bb-modern-fx-rate strong { color: var(--bbn-text); font-weight: 700; }
+.bb-modern-fx-meta { flex: 0 0 auto; }
+.bb-modern-fx-meta.is-stale, .bb-modern-fx-error { color: var(--bbn-bad); }
+
+/* ── contenuto ───────────────────────────────────────────────────── */
+.bb-modern-main {
+  grid-column: 2;
+  grid-row: 3;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   background: var(--bbn-bg);
 }
-:root[data-bb-theme="dark"] .bb-modern-shell .bb-modern-nav-link { color: var(--bbn-muted); }
-:root[data-bb-theme="dark"] .bb-modern-shell .bb-modern-nav-link:hover { background: var(--bbn-raised); color: var(--bbn-text); }
-:root[data-bb-theme="dark"] .bb-modern-shell .bb-modern-nav-link.is-active { background: var(--bbn-raised); color: var(--bbn-text); box-shadow: none; }
-:root[data-bb-theme="dark"] .bb-modern-shell .bb-modern-nav-link.is-active svg { color: var(--bbn-accent); }
-:root[data-bb-theme="dark"] .bb-modern-shell :is(.bb-modern-search, .bb-modern-settings, .bb-modern-config) { border-color: var(--bbn-line); background: var(--bbn-raised); }
-:root[data-bb-theme="dark"] .bb-modern-shell { background: var(--bbn-bg); }
-.bb-modern-status-dot.is-good i { background: var(--bbn-good); }
-.bb-modern-status-dot.is-bad i { background: var(--bbn-bad); }
+.bb-modern-main:not(.bb-modern-main-classic-content) { container-type: inline-size; container-name: bellomberg-content; }
+.bb-modern-hud-placeholder { display: none; }
+/* Other routes keep the current dark page canvas and inherited typography. */
+.bb-modern-main-classic-content { background: #050608; color: #ecf1fa; color-scheme: dark; font-family: 'Inter', system-ui, sans-serif; }
+
+/* Il titolo sta nella barra: le pagine Nuova che ancora lo ripetono nella propria riga lo nascondono. */
+.bb-modern-main :is(.dc-top, .fl-top, .mv-top, .pf-top, .mk-top, .news-top, .perf-top, .fat-top, .te-top, .mm-top, .mandato-workspace-head, .mc-head, .ro-top) > h1 { display: none; }
+
+/* ── statusbar ───────────────────────────────────────────────────── */
+.bb-modern-footer {
+  grid-column: 2;
+  grid-row: 4;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  padding: 0 20px;
+  border-top: 1px solid var(--bbn-line);
+  color: var(--bbn-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.bb-modern-footer > span { display: inline-flex; align-items: center; gap: 5px; }
+.bb-modern-footer-brand { color: var(--bbn-text); font-weight: 700; }
+.bb-modern-footer strong { color: var(--bbn-text); font-weight: 700; }
+.bb-modern-footer .is-live { color: var(--bbn-good); }
+.bb-modern-footer .is-warning { color: var(--bbn-warn); }
+.bb-modern-footer .is-error { color: var(--bbn-bad); }
+.bb-modern-footer-workspace { margin-left: auto; overflow: hidden; text-overflow: ellipsis; }
+
+/* macOS hiddenInset: i semafori stanno sopra l'angolo della sidebar; il marchio si sposta e la
+   fascia del marchio trascina la finestra come la barra. */
+html[data-platform="darwin"] .bb-modern-sidebar-brand { padding-left: 76px; -webkit-app-region: drag; }
+
+/* ── schermi stretti: prima si stringe la ricerca, poi i pulsanti diventano icone ── */
+@media (max-width: 1700px) {
+  .bb-modern-markets { display: none; }
+  .bb-modern-search { flex: 0 0 auto; }
+  .bb-modern-search span, .bb-modern-search kbd { display: none; }
+}
+@media (max-width: 1500px) {
+  .bb-modern-header .bb-barra-ospite > header > .bbn-btn:not(.is-primary) { gap: 0; font-size: 0; }
+  .bb-modern-header .bb-barra-ospite > header > .bbn-btn:not(.is-primary) .bbn-count { margin-left: 6px; font-size: 12px; }
+}
+@media (max-width: 1250px) {
+  .bb-modern-header .bb-barra-ospite > header > :not(button, a, h1) { display: none; }
+  .bb-modern-header .bb-barra-ospite > header > .bbn-btn { gap: 0; font-size: 0; }
+}
+@media (max-width: 900px) {
+  .bb-modern-shell { grid-template-columns: 56px minmax(0, 1fr); }
+  .bb-modern-sidebar { padding-inline: 6px; }
+  .bb-modern-sidebar-brand { justify-content: center; padding: 0; }
+  .bb-modern-sidebar-brand strong, .bb-modern-nav-group, .bb-modern-nav-link > :not(svg), .bb-modern-config > :not(svg) { display: none; }
+  .bb-nav-group.is-closed .bb-modern-nav-link { display: flex; }
+  .bb-modern-nav-link, .bb-modern-config { justify-content: center; padding: 0; }
+  .bb-modern-header { padding-left: 12px; }
+  .bb-modern-footer-brand, .bb-modern-footer-workspace { display: none; }
+  html[data-platform="darwin"] .bb-modern-sidebar-brand { flex-basis: 96px; align-items: flex-end; padding: 0 0 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bb-nav-chevron { transition: none; }
+  .bb-nav-dot.is-live, .bb-nav-live i { animation: none; }
+}

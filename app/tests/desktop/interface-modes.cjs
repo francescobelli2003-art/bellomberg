@@ -534,7 +534,8 @@ const { app, BrowserWindow } = require('electron');
     assert.ok(d.events.visible === d.events.total || d.events.listBottom - d.events.lastBottom < d.events.rowStep,
       `${tag}: the events card shows every row that fits, not a fixed minimum: ${JSON.stringify(d.events)}`);
     if (width >= 901 && d.sidebar) {
-      assert.ok(d.sidebar.width >= 220 && d.sidebar.width <= 240, `${tag}: sidebar 220–240px: ${d.sidebar.width}`);
+      // 05/10/2026 shell Nuova: 264px, perché i tasti F restano visibili accanto a etichette a 14px non troncate.
+      assert.ok(d.sidebar.width >= 256 && d.sidebar.width <= 272, `${tag}: sidebar 256–272px: ${d.sidebar.width}`);
       assert.equal(d.sidebar.navLinks.length, SIDEBAR_PAGES, `${tag}: all ${SIDEBAR_PAGES} sidebar links`);
       assert.ok(d.sidebar.navLinks.every(link => link.text && link.fontSize >= 14 && link.labelScrollWidth <= link.labelWidth + 1),
         `${tag}: sidebar labels readable without truncation: ${JSON.stringify(d.sidebar.navLinks.filter(l => l.labelScrollWidth > l.labelWidth + 1))}`);
@@ -860,7 +861,7 @@ const { app, BrowserWindow } = require('electron');
       await wait(expected => !!document.querySelector(`.bb-modern-nav-scroll a[href="${expected}"][aria-current="page"]`), 'active destination ' + href, 5000, href);
       await settle();
       if (href === '#/decisions') {
-        const decisionPage = await js(() => ({ heading: document.querySelector('h1')?.textContent.trim() || '',
+        const decisionPage = await js(() => ({ heading: document.querySelector('main h1')?.textContent.trim() || '',
           hasFixtureDecision: document.body.innerText.includes('SYN01'),
           modernDashboardVisible: !!document.querySelector('.bbn-dashboard') }));
         assert.match(decisionPage.heading, /DECISIONS TRACKER/i,
@@ -884,7 +885,7 @@ const { app, BrowserWindow } = require('electron');
     assert.ok(englishSidebarLabels.labels.every(label => label.text && label.fontSize >= 14
       && label.width > 0 && label.scrollWidth <= label.width + 1),
     `English sidebar labels remain fully readable: ${JSON.stringify(englishSidebarLabels)}`);
-    assert.deepEqual(englishSidebarLabels.config, { text: 'CONFIG', visible: true });
+    assert.deepEqual(englishSidebarLabels.config, { text: 'Settings', visible: true });
     await click('.bb-modern-config');
     await wait(() => {
       const input = document.querySelector('.f11v input[name="language"][value="it"]');
@@ -902,7 +903,7 @@ const { app, BrowserWindow } = require('electron');
     assert.ok(italianSidebarLabels.labels.every(label => label.text && label.fontSize >= 14
       && label.width > 0 && label.scrollWidth <= label.width + 1),
     `Italian sidebar labels remain fully readable: ${JSON.stringify(italianSidebarLabels)}`);
-    assert.deepEqual(italianSidebarLabels.config, { text: 'CONFIG', visible: true });
+    assert.deepEqual(italianSidebarLabels.config, { text: 'Impostazioni', visible: true });
     await wait(() => document.querySelector('.f11v input[name="language"][value="en"]')?.disabled === false,
       'language selector is ready to restore English');
     await click('.f11v input[name="language"][value="en"]');

@@ -23,6 +23,9 @@ export const shell = {
   appearance_recovery_note: 'Riprova: i dati e le operazioni in corso non sono stati persi.',
   appearance_recovery_light_action: 'Torna al tema Chiaro',
   appearance_recovery_light_note: 'Il tema Chiaro mantiene schede, filtri e operazioni in corso.',
+  system_status: 'Stato del sistema', service: 'Servizio', prices: 'Prezzi', fx_rates: 'Cambi in euro', timezone: 'Fuso orario',
+  group_toggle: 'Apri o chiudi il gruppo {g}', decisions_pending: '{n} decisioni da prendere',
+  agents_working: 'Comitato al lavoro: {done} agenti su {total} hanno finito',
 };
 
 export const nav = {

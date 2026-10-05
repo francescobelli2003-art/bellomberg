@@ -1,3 +1,4 @@
+import { InBarra } from '@/components/BarraPagina';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Cpu, ListChecks, Play, RefreshCw } from 'lucide-react';
@@ -286,6 +287,7 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard-modern bbn-dashboard">
+      <InBarra>
       <header className="bbn-toolbar">
         <h1>{w.title}</h1>
         {/* P&L del giorno del portafoglio: stessa formula di lib/dailypl usata dalla pastiglia del grafico */}
@@ -315,6 +317,7 @@ export default function Dashboard() {
           <Play size={15} aria-hidden="true" />{w.runCommittee}
         </button>
       </header>
+      </InBarra>
       {errori.length > 0 && <div className="bbn-failures">{errori.map(([source, failure]) => (
         <span key={source} role="status" className="bbn-warn-pill">{w.readFailure} · {source} · {readFailureText(failure!)}</span>
       ))}</div>}

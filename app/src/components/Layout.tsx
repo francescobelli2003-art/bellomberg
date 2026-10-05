@@ -3,7 +3,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { frase } from '@/lib/frase';
 import {
   LayoutDashboard, FileText, MessageSquare, CheckSquare, ClipboardList,
-  Settings as SettingsIcon, TrendingUp, Activity, Zap, Cpu, Wallet, Newspaper, PieChart, LineChart, Waves, Radar, ArrowLeftRight, Globe, Star, FileSpreadsheet, FileSearch
+  Settings as SettingsIcon, ChevronDown, Search, TrendingUp, Activity, Zap, Cpu, Wallet, Newspaper, PieChart, LineChart, Waves, Radar, ArrowLeftRight, Globe, Star, FileSpreadsheet, FileSearch
 } from 'lucide-react';
 import { Bellomberg } from '@/lib/api';
 import { version as appVersion } from '../../package.json';
@@ -14,6 +14,8 @@ import { fmtDataBreve, fmtOra, fmtNum } from '@/lib/format';
 import { startGlobalPriceRefresh } from '../lib/price-refresh';
 
 import BadgeFiling from './BadgeFiling';
+import BadgeDecisioni from './BadgeDecisioni';
+import { FornitoreBarra } from './BarraPagina';
 import { PAGE_DESTINATIONS, SETTINGS_DESTINATION, localizeDestination } from '../lib/navigation';
 import AppearanceMenu from './AppearanceMenu';
 import NewInterfaceBoundary from './NewInterfaceBoundary';
@@ -251,9 +253,24 @@ function ShellSurface({ render }: { render: () => React.ReactNode }) {
   return <>{render()}</>;
 }
 
+// I gruppi del menu chiusi dall'utente (chiave = gruppo di navigation.ts, non tradotto).
+const CHIAVE_GRUPPI = 'bb.nav.gruppiChiusi';
+function useGruppiChiusi() {
+  const [chiusi, setChiusi] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(CHIAVE_GRUPPI) || '[]')); } catch { return new Set(); }
+  });
+  const alterna = (gruppo: string) => setChiusi(prima => {
+    const dopo = new Set(prima);
+    if (dopo.has(gruppo)) dopo.delete(gruppo); else dopo.add(gruppo);
+    try { localStorage.setItem(CHIAVE_GRUPPI, JSON.stringify([...dopo])); } catch { /* vale per la sessione */ }
+    return dopo;
+  });
+  return [chiusi, alterna] as const;
+}
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   const language = useLingua(), t = useT();
-  const nav = PAGE_DESTINATIONS.map(entry => ({ ...localizeDestination(entry, language), icon: icons[entry.id] }));
+  const nav = PAGE_DESTINATIONS.map(entry => ({ ...localizeDestination(entry, language), base: entry.group, icon: icons[entry.id] }));
   const now = useNow();
   const health = useBackendHealth();
   const { fx, fxAt, fxErr } = useFx();
@@ -265,6 +282,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
   const current = nav.find(n => location.pathname.startsWith(n.to));
+  const [chiusi, alternaGruppo] = useGruppiChiusi();
+  const [slotBarra, setSlotBarra] = useState<HTMLElement | null>(null);
+  const [sysOpen, setSysOpen] = useState(false);
 
   // Function keys use the same registry as the menu and command palette.
   useEffect(() => {
@@ -294,8 +314,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   }, []);
 
   /* Col pannello aperto tutto cio' che sta DIETRO e' inerte: non si legge
-     (c'e' il velo sopra) e non si deve poter navigare col tab. La fascia in
-     alto NO: ci vive la rotellina, che e' anche il bottone per richiudere.
+     (c'e' il velo sopra) e non si deve poter navigare col tab.
      Il marcatore serve anche al cancello (qa_app.py), che altrimenti
      misurerebbe il contrasto della pagina dietro il velo e riferirebbe
      difetti che non esistono. */
@@ -304,6 +323,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const timeStr = fmtOra(now, language);
   const dateStr = fmtDataBreve(now, language);
   const tzOffset = now.getTimezoneOffset();
+  const fuso = `UTC${tzOffset <= 0 ? '+' : '-'}${Math.abs(Math.round(tzOffset / 60))}`;
 
   const settingsTitle = guasti == null
     ? t('shell.settings_unknown', { key: KEY_SETTINGS })
@@ -311,95 +331,137 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       ? t('shell.settings_failed', { key: KEY_SETTINGS, n: guasti })
       : `${t('shell.settings')} (${KEY_SETTINGS})`;
 
+  // Un solo pallino: verde se backend e prezzi sono a posto, rosso se uno dei due è giù,
+  // giallo mentre si verifica. Il dettaglio sta nel tooltip e nel pannello di stato.
+  const statoDati = health === false || priceSync.state === 'error' ? 'is-bad'
+    : health && priceSync.state === 'ok' ? 'is-good' : 'is-pending';
+  const api = `API ${health === null ? 'PING' : health ? 'LIVE' : 'DOWN'}`;
+  const esitoPx = priceSync.state === 'partial' ? ` · ${t('shell.prices_failed', { n: String(priceSync.failed) })}`
+    : priceSync.state === 'undeclared' ? ` · ${t('shell.prices_undeclared')}` : '';
+  const pxStato = `${t(PX_STATE[priceSync.state])}${esitoPx}`;
+  const px = `PX ${pxStato}${priceSync.at ? ` · ${t('shell.last_snapshot')} ${priceSync.at}` : ''}`;
+  const cambi = Object.entries(fx).filter(([, rate]) => typeof rate === 'number' && isFinite(rate)).slice(0, 4);
+
+  const gruppi: { id: string; label: string; voci: typeof nav }[] = [];
+  for (const voce of nav) {
+    const ultimo = gruppi[gruppi.length - 1];
+    if (ultimo?.id === voce.base) ultimo.voci.push(voce);
+    else gruppi.push({ id: voce.base, label: voce.group, voci: [voce] });
+  }
+  const agentiAlLavoro = tel.running === true;
+
   return (
     <div className="bb-layout-frame" data-mode="modern">
       <AppearanceMenu />
       <NewInterfaceBoundary language={language}>
         <ShellSurface render={() => (
+        <FornitoreBarra value={slotBarra}>
         <div className="bb-modern-shell">
-          <header className="bb-modern-header">
-              <>
-                <div className="bb-modern-brand">
-                  <strong>{current?.label ?? nav[0]?.label}</strong>
-                  <span>{current?.group ?? nav[0]?.group}</span>
-                </div>
-                <div className="bb-modern-markets" aria-label={t('shell.markets')}>
-                  {markets.map(m => (
-                    <span key={m.label} className={'bb-modern-market' + (m.live ? ' is-live' : '')} title={`${m.label} ${m.live ? t('shell.market_open') : t('shell.market_closed')}`}>
-                      <i aria-hidden="true" />{m.label}
-                    </span>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => window.dispatchEvent(new Event('bb:palette'))}
-                  className="bb-modern-search"
-                  title={t('shell.palette')}
-                >
-                  <span aria-hidden="true">⌕</span>
-                  <span>{frase(t('shell.search'))}</span>
-                  <kbd>CTRL+K</kbd>
-                </button>
-                {/* Un solo pallino: verde se backend e prezzi sono a posto, rosso se uno dei due
-                    è giù, giallo mentre si verifica. Il dettaglio sta nel tooltip. */}
-                <div className="bb-modern-statuses">
-                  {(() => {
-                    const stato = health === false || priceSync.state === 'error' ? 'is-bad'
-                      : health && priceSync.state === 'ok' ? 'is-good' : 'is-pending';
-                    const api = `API ${health === null ? 'PING' : health ? 'LIVE' : 'DOWN'}`;
-                    const esitoPx = priceSync.state === 'partial' ? ` · ${t('shell.prices_failed', { n: String(priceSync.failed) })}`
-                      : priceSync.state === 'undeclared' ? ` · ${t('shell.prices_undeclared')}` : '';
-                    const px = `PX ${t(PX_STATE[priceSync.state])}${esitoPx}${priceSync.at ? ` · ${t('shell.last_snapshot')} ${priceSync.at}` : ''}`;
-                    return <span className={'bb-modern-status bb-modern-status-dot ' + stato} role="status" title={`${api}\n${px}`}
-                      aria-label={`${t('shell.data_status')}: ${api}, ${px}`}><i aria-hidden="true" /></span>;
-                  })()}
-                </div>
-                <div className="bb-modern-clock" title={`UTC${tzOffset <= 0 ? '+' : '-'}${Math.abs(Math.round(tzOffset / 60))}`}>
-                  <span>{dateStr}</span><strong>{timeStr}</strong>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setCfgOpen(o => !o)}
-                  title={settingsTitle}
-                  aria-label={t('shell.settings')}
-                  aria-expanded={cfgOpen}
-                  className="bb-modern-settings"
-                >
-                  <SettingsIcon size={15} />
-                  {guasti == null ? <span className="bb-settings-alarm" aria-label={t('shell.settings_unknown', { key: KEY_SETTINGS })} />
-                    : guasti > 0 ? <span className="bb-settings-alarm is-error" aria-label={t('shell.settings_failed', { key: KEY_SETTINGS, n: guasti })} /> : null}
-                </button>
-              </>
-          </header>
-
           <nav {...dietro} aria-label={t('shell.modules')} className="bb-modern-sidebar">
-              <>
-                <div className="bb-modern-sidebar-brand"><div><strong>BELLOMBERG</strong></div></div>
-                <div className="bb-modern-nav-scroll">
-                  {nav.map(({ to, label, group, icon: Icon, key }, index) => (
-                    <Fragment key={to}>
-                      {(index === 0 || nav[index - 1].group !== group) && <div className="bb-modern-nav-group">{group}</div>}
+            <div className="bb-modern-sidebar-brand">
+              <span className="bb-brand-mark" aria-hidden="true" />
+              <strong>{'Bellomberg'}</strong>
+            </div>
+            <div className="bb-modern-nav-scroll">
+              {gruppi.map(gruppo => {
+                const chiuso = chiusi.has(gruppo.id);
+                // a gruppo chiuso resta visibile solo la pagina aperta, se sta lì
+                const voci = chiuso ? gruppo.voci.filter(v => location.pathname.startsWith(v.to)) : gruppo.voci;
+                const nascoste = gruppo.voci.filter(v => !voci.includes(v));
+                return (
+                  <div key={gruppo.id} className={'bb-nav-group' + (chiuso ? ' is-closed' : '')}>
+                    <button type="button" className="bb-modern-nav-group" aria-expanded={!chiuso}
+                      title={t('shell.group_toggle', { g: gruppo.label })} onClick={() => alternaGruppo(gruppo.id)}>
+                      <ChevronDown size={14} aria-hidden="true" className="bb-nav-chevron" />{gruppo.label}
+                      {chiuso && nascoste.some(v => v.id === 'agents') && agentiAlLavoro && <i className="bb-nav-dot is-live" aria-hidden="true" />}
+                    </button>
+                    {voci.map(({ to, label, group, icon: Icon, key, id }) => (
                       <NavLink
+                        key={to}
                         to={to}
                         title={`${key} · ${label} · ${group}`}
                         aria-label={`${key} · ${label} · ${group}`}
                         className={({ isActive }) => 'bb-modern-nav-link' + (isActive ? ' is-active' : '')}
                       >
-                        <Icon size={13} aria-hidden="true" />
+                        <Icon size={16} aria-hidden="true" />
                         <span>{label}</span>
-                        {to === '/filing' && <BadgeFiling etichetta={n => t('shell.filing_new', { n })} />}
+                        {id === 'filing' && <BadgeFiling etichetta={n => t('shell.filing_new', { n })} />}
+                        {id === 'decisions' && <BadgeDecisioni percorso={location.pathname} etichetta={n => t('shell.decisions_pending', { n })} />}
+                        {id === 'agents' && agentiAlLavoro && (
+                          <em className="bb-nav-live" title={t('shell.agents_working', { done: tel.done ?? '—', total: tel.total ?? '—' })}>
+                            <i aria-hidden="true" />{tel.done ?? '—'}/{tel.total ?? '—'}
+                          </em>
+                        )}
+                        <kbd>{key}</kbd>
                       </NavLink>
-                    </Fragment>
-                  ))}
-                </div>
-                <button onClick={() => setCfgOpen(true)} title={`${KEY_SETTINGS} · ${t('shell.settings')}`}
-                  aria-label={`${KEY_SETTINGS} · ${t('shell.settings')}`} className="bb-modern-config">
-                  <SettingsIcon size={14} aria-hidden="true" /><span>CONFIG</span><kbd>{KEY_SETTINGS}</kbd>
-                  {guasti == null ? <i className="bb-settings-alarm" aria-label={t('shell.settings_unknown', { key: KEY_SETTINGS })} />
-                    : guasti > 0 ? <i className="bb-settings-alarm is-error" aria-label={t('shell.settings_failed', { key: KEY_SETTINGS, n: guasti })} /> : null}
-                </button>
-              </>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+            <button onClick={() => setCfgOpen(true)} title={settingsTitle}
+              aria-label={`${KEY_SETTINGS} · ${t('shell.settings')}`} className="bb-modern-config">
+              <SettingsIcon size={16} aria-hidden="true" /><span>{t('shell.settings')}</span>
+              {guasti == null ? <i className="bb-settings-alarm" aria-label={t('shell.settings_unknown', { key: KEY_SETTINGS })} />
+                : guasti > 0 ? <i className="bb-settings-alarm is-error" aria-label={t('shell.settings_failed', { key: KEY_SETTINGS, n: guasti })} /> : null}
+              <kbd>{KEY_SETTINGS}</kbd>
+            </button>
           </nav>
+
+          <header {...dietro} className="bb-modern-header">
+            <div className="bb-modern-title">
+              <span className="bb-modern-crumb">{current?.group ?? nav[0]?.group}</span>
+              <h1>{current?.label ?? nav[0]?.label}</h1>
+            </div>
+            {/* qui la pagina porta contesto e azioni (BarraPagina.tsx) */}
+            <div className="bb-modern-slot" ref={setSlotBarra} />
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event('bb:palette'))}
+              className="bb-modern-search"
+              title={t('shell.palette')}
+            >
+              <Search size={15} aria-hidden="true" />
+              <span>{frase(t('shell.search'))}</span>
+              <kbd>CTRL K</kbd>
+            </button>
+            <i className="bb-modern-sep" aria-hidden="true" />
+            <div className="bb-modern-sys-wrap"
+              onBlur={event => { if (sysOpen && !event.currentTarget.contains(event.relatedTarget as Node | null)) setSysOpen(false); }}
+              onKeyDown={event => { if (sysOpen && event.key === 'Escape') setSysOpen(false); }}>
+              <button type="button" className="bb-modern-sys" aria-expanded={sysOpen} aria-controls="bb-modern-sys-pop"
+                aria-label={t('shell.system_status')} onClick={() => setSysOpen(o => !o)}>
+                <span className="bb-modern-markets" aria-label={t('shell.markets')}>
+                  {markets.map(m => (
+                    <span key={m.label} className={'bb-modern-market' + (m.live ? ' is-live' : '')} title={`${m.label} ${m.live ? t('shell.market_open') : t('shell.market_closed')}`}>
+                      <i aria-hidden="true" />{m.label}
+                    </span>
+                  ))}
+                </span>
+                <span className="bb-modern-statuses">
+                  <span className={'bb-modern-status bb-modern-status-dot ' + statoDati} role="status" title={`${api}\n${px}`}
+                    aria-label={`${t('shell.data_status')}: ${api}, ${px}`}><i aria-hidden="true" /></span>
+                </span>
+                <span className="bb-modern-clock" title={fuso}>
+                  <strong>{timeStr}</strong><span>{dateStr}</span>
+                </span>
+              </button>
+              <div id="bb-modern-sys-pop" className="bb-modern-sys-pop" hidden={!sysOpen}>
+                <b>{t('shell.system_status')}</b>
+                <dl>
+                  <dt>{t('shell.service')}</dt><dd className={health === false ? 'is-bad' : health ? 'is-good' : ''}>{api}</dd>
+                  <dt>{t('shell.prices')}</dt><dd className={priceSync.state === 'error' ? 'is-bad' : priceSync.state === 'ok' ? 'is-good' : ''}>{pxStato}{priceSync.at ? ` · ${fmtOra(new Date(priceSync.at), language)}` : ''}</dd>
+                  <dt>{t('shell.fx_rates')}</dt><dd className={fxErr ? 'is-bad' : ''}>
+                    {cambi.length === 0 ? (fxErr ? t('shell.fx_error') : t('shell.fx_waiting'))
+                      : cambi.map(([currency, rate]) => `${currency} ${fmtNum(rate, currency === 'GBX' ? 5 : 4)}`).join(' · ')}
+                    {fxErr && fxAt != null ? ` · STALE ${Math.max(1, Math.round((now.getTime() - fxAt) / 60000))}M` : ''}
+                  </dd>
+                  {markets.map(m => <Fragment key={m.label}><dt>{m.label}</dt><dd className={m.live ? 'is-good' : ''}>{m.live ? t('shell.market_open') : t('shell.market_closed')}</dd></Fragment>)}
+                  <dt>{t('shell.timezone')}</dt><dd>{fuso}</dd>
+                </dl>
+              </div>
+            </div>
+          </header>
 
           {/* I cambi servono a chi guarda i mercati: la fascia vive solo nella pagina Mercati. */}
           {location.pathname.startsWith('/market') && <div {...dietro} className="bb-modern-fx">
@@ -441,6 +503,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </>
           </footer>
         </div>
+        </FornitoreBarra>
         )} />
       </NewInterfaceBoundary>
       {/* macOS/Electron: the header is a window-drag region and Electron applies
