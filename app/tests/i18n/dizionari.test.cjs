@@ -11,7 +11,7 @@ const { it } = carica('i18n/it/index.ts');
 const { en } = carica('i18n/en/index.ts');
 
 // Exact shared domain term; do not exempt other content under the same namespace.
-const NEUTRE_PER_CHIAVE = { 'trade.opening_ticker': 'Ticker', 'voldeck.chain': 'Chain',
+const NEUTRE_PER_CHIAVE = { 'mandate.no': 'No', 'mandate.sum_profilo': '{a} · {b} · {c}', 'trade.opening_ticker': 'Ticker', 'voldeck.chain': 'Chain',
   'voldeck.spot': 'Spot', 'voldeck.expected_move': 'Expected move 1σ',
   'newsdesk.blipCountOne': '{a} BLIP', 'progress.callsCountOne': '{a} call',
   'movements.bothCounts': '{a} + {b}',

@@ -79,7 +79,8 @@ async function renderer(config){
     // One article per schema field. The expected count is the schema this fixture serves to the page
     // (48 since 79fe8e9 added sizing.tolleranza_sforo_sizing_pct), not a literal that lags behind the schema.
     assert.ok(config.campi>=48,'fixture schema lost fields: '+config.campi);
-    assert.equal(await js(()=>document.querySelectorAll('.mandato-grid article').length),config.campi);
+    // 05/10 (Nuova): i campi stanno nella griglia o nel riquadro principale della sezione; ognuno porta data-field.
+    assert.equal(await js(()=>document.querySelectorAll('.mandato-form [data-field]').length),config.campi);
     assert.equal(await js(()=>document.querySelectorAll('.mandato-form section:not([hidden])').length),1);
     await field('#m-orizzonte_anni','7');await click('#tab-diario');await wait(()=>document.querySelector('.journal-title-input'));await click('#tab-mandato');assert.equal(await js(()=>document.querySelector('#m-orizzonte_anni').value),'7');
     scenarios.push(config.campi+' fields, one active section, tab draft preserved');

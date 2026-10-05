@@ -95,5 +95,8 @@ export const journal = {
   "user_origin": "Origine utente",
   "session_draft": "Bozza conservata nella sessione",
   "archived_notes": "Archiviate",
-  "footer": "La versione precedente sarà conservata"
+  "footer": "La versione precedente sarà conservata",
+  "history_open": "Cronologia",
+  "close": "Chiudi",
+  "outline": "Traccia"
 };

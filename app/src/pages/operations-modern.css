@@ -1,6 +1,5 @@
 /* Light presentation for the operational pages. Every rule is gated by the
    ModernPage mode and its page slug so Classic keeps its established skin. */
-
 /* Movements: register, lanes and narrative notes share one quiet surface. */
 .bb-page-modern[data-page="movements"] .f14m {
   --bd: #dfe7f3;
@@ -20,19 +19,16 @@
   font: 13px/1.5 Inter, ui-sans-serif, system-ui, sans-serif;
   color: #1e293b;
 }
-
 .bb-page-modern[data-page="movements"] .f14m .cmd {
   gap: 12px;
   padding: 2px 0 4px;
 }
-
 .bb-page-modern[data-page="movements"] .f14m .vst {
   padding: 3px;
   border: 1px solid #dfe7f3;
   border-radius: 8px;
   background: #edf2f8;
 }
-
 .bb-page-modern[data-page="movements"] .f14m .vst button {
   min-height: 36px;
   height: auto;
@@ -43,17 +39,14 @@
   font: 600 12px/1.35 Inter, ui-sans-serif, system-ui, sans-serif;
   letter-spacing: .02em;
 }
-
 .bb-page-modern[data-page="movements"] .f14m .vst button[aria-pressed="true"] {
   color: #1747c8;
   background: #fff;
   box-shadow: 0 1px 3px #182c521f;
 }
-
 .bb-page-modern[data-page="movements"] .f14m .vst button .k {
   color: inherit;
 }
-
 .bb-page-modern[data-page="movements"] .f14m .fil button {
   min-height: 32px;
   border: 1px solid #d6dfeb;
@@ -63,28 +56,23 @@
   font: 600 11px/1.3 Inter, ui-sans-serif, system-ui, sans-serif;
   letter-spacing: .01em;
 }
-
 .bb-page-modern[data-page="movements"] .f14m .fil button[aria-pressed="true"] {
   border-color: #9eb6fb;
   color: #1747c8;
   background: #eef3ff;
 }
-
 .bb-page-modern[data-page="movements"] .f14m .fil button:disabled {
   color: #64748b;
   border-color: #dfe7f3;
   background: #f7f9fc;
 }
-
 .bb-page-modern[data-page="movements"] .f14m .kpi .k,
 .bb-page-modern[data-page="movements"] .f14m .kpi .sub {
   color: #64748b;
 }
-
 .bb-page-modern[data-page="movements"] .f14m .kpi .v {
   color: #1e293b;
 }
-
 .bb-page-modern[data-page="movements"] .f14m .agg {
   min-height: 34px;
   border: 1px solid #cbd6e5;
@@ -94,7 +82,6 @@
   font: 600 12px/1.3 Inter, ui-sans-serif, system-ui, sans-serif;
   letter-spacing: 0;
 }
-
 .bb-page-modern[data-page="movements"] .f14m .p {
   border: 1px solid #dfe7f3;
   border-radius: 10px;
@@ -102,7 +89,6 @@
   box-shadow: 0 1px 2px #1023420a;
   overflow: hidden;
 }
-
 .bb-page-modern[data-page="movements"] .f14m .ph {
   min-height: 40px;
   height: auto;
@@ -113,31 +99,25 @@
   letter-spacing: .03em;
   white-space: normal;
 }
-
 .bb-page-modern[data-page="movements"] .f14m .ph .side {
   color: #64748b;
   letter-spacing: 0;
 }
-
 .bb-page-modern[data-page="movements"] .f14m .pb {
   background: #fff;
 }
-
 .bb-page-modern[data-page="movements"] .f14m .pb::-webkit-scrollbar-track,
 .bb-page-modern[data-page="movements"] .f14m .corsie::-webkit-scrollbar-track {
   background: #f1f5f9;
 }
-
 .bb-page-modern[data-page="movements"] .f14m .pb::-webkit-scrollbar-thumb,
 .bb-page-modern[data-page="movements"] .f14m .corsie::-webkit-scrollbar-thumb {
   background: #cbd6e5;
   border-color: #e2e8f0;
 }
-
 .bb-page-modern[data-page="movements"] .f14m table {
   min-width: 900px;
 }
-
 .bb-page-modern[data-page="movements"] .f14m th {
   color: #64748b;
   background: #f7f9fc;
@@ -145,732 +125,31 @@
   font-size: 11px;
   letter-spacing: .06em;
 }
-
 .bb-page-modern[data-page="movements"] .f14m td {
   color: #334155;
   border-bottom-color: #edf1f6;
 }
-
 .bb-page-modern[data-page="movements"] .f14m td.cm,
 .bb-page-modern[data-page="movements"] .f14m .voce .tx {
   color: #475569;
   font: 13px/1.55 Inter, ui-sans-serif, system-ui, sans-serif;
 }
-
 .bb-page-modern[data-page="movements"] .f14m tr.msep td {
   background: #f5f8fc;
   border-bottom-color: #dfe7f3;
 }
-
 .bb-page-modern[data-page="movements"] .f14m tr.msep .mm,
 .bb-page-modern[data-page="movements"] .f14m .vst button[aria-pressed="true"] {
   color: #1747c8;
 }
-
 .bb-page-modern[data-page="movements"] .f14m .stato.ko.avviso {
   border-color: #f1c2ca;
   background: #fff2f3;
 }
-
 /* Mandate workbench: section rail, editable form, review panel and actions. */
-.bb-page-modern[data-page="mandato"] {
-  overflow: auto;
-  padding: 12px clamp(14px, 2vw, 28px) 24px;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-workspace {
-  width: min(100%, 1840px);
-  max-width: none;
-  margin: 0 auto;
-  color: #1e293b;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-workspace-head {
-  padding: 6px 0 18px;
-  color: #1e293b;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-workspace-head h1 {
-  margin: 0 0 6px;
-  color: #172033;
-  font-size: clamp(22px, 2vw, 28px);
-  font-weight: 680;
-  letter-spacing: -.03em;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-workspace-head p {
-  color: #64748b;
-  font-size: 14px;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-tabs {
-  position: sticky;
-  top: -12px;
-  z-index: 5;
-  gap: 6px;
-  margin: 0 0 18px;
-  padding: 5px;
-  border: 1px solid #dfe7f3;
-  border-radius: 9px;
-  background: #edf2f8ed;
-  backdrop-filter: blur(10px);
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-tabs button {
-  min-height: 36px;
-  padding: 7px 14px;
-  border: 0;
-  border-radius: 6px;
-  color: #526176;
-  background: transparent;
-  font: 600 13px/1.35 Inter, ui-sans-serif, system-ui, sans-serif;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-tabs button[aria-selected="true"] {
-  color: #1747c8;
-  background: #fff;
-  box-shadow: 0 1px 3px #182c521f;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-toolbar {
-  padding: 12px 14px;
-  border: 1px solid #dfe7f3;
-  border-radius: 9px;
-  background: #fff;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-toolbar p {
-  color: #64748b;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-toolbar button,
-.bb-page-modern[data-page="mandato"] .mandato-actions button {
-  min-height: 36px;
-  padding: 7px 12px;
-  border: 1px solid #cbd6e5;
-  border-radius: 7px;
-  color: #334155;
-  background: #fff;
-  font: 600 12px/1.4 Inter, ui-sans-serif, system-ui, sans-serif;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-shell {
-  grid-template-columns: minmax(190px, 220px) minmax(0, 1fr) minmax(265px, 320px);
-  gap: 18px;
-  margin: 14px 0 18px;
-  align-items: start;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-index,
-.bb-page-modern[data-page="mandato"] .mandato-preview {
-  position: sticky;
-  top: 58px;
-  max-height: calc(100vh - 210px);
-  border: 1px solid #dfe7f3;
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 1px 3px #1023420a;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-index {
-  padding: 14px 10px;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-index h2 {
-  margin: 0 7px 8px;
-  color: #334155;
-  font-size: 13px;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-index a {
-  grid-template-columns: 24px minmax(0, 1fr) 20px;
-  gap: 7px;
-  padding: 10px 8px;
-  border-left: 2px solid transparent;
-  border-radius: 6px;
-  color: #334155;
-  font: 13px/1.4 Inter, ui-sans-serif, system-ui, sans-serif;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-index a[aria-current="step"] {
-  border-left-color: #1455ff;
-  color: #1747c8;
-  background: #eef3ff;
-  font-weight: 650;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-index a:hover,
-.bb-page-modern[data-page="mandato"] .mandato-index a:focus-visible {
-  color: #1747c8;
-  background: #f4f7fc;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-index span {
-  color: #64748b;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-index p,
-.bb-page-modern[data-page="mandato"] .mandato-index small {
-  padding: 0 8px;
-  color: #64748b;
-  font-size: 11px;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-form section {
-  margin: 0 0 12px;
-  padding: 18px;
-  border: 1px solid #dfe7f3;
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 1px 3px #1023420a;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-form h2 {
-  padding: 0 0 14px;
-  color: #172033;
-  font-size: 19px;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-form h2 span {
-  color: #1455ff;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-grid article {
-  grid-template-columns: minmax(0, 1fr) minmax(245px, 40%);
-  gap: 20px;
-  padding: 15px 0;
-  border-bottom-color: #edf1f6;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-grid article:last-child {
-  border-bottom: 0;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-grid article.invalid {
-  box-shadow: inset 3px 0 #c52943;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-grid .field-label {
-  color: #1e293b;
-  font-weight: 650;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-grid sup,
-.bb-page-modern[data-page="mandato"] .mandato-form h2 span {
-  color: #1455ff;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-field-copy p {
-  color: #526176;
-  font-size: 13px;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-field-copy small {
-  color: #64748b;
-}
-
-.bb-page-modern[data-page="mandato"] .coverage {
-  border-radius: 999px;
-  font-size: 11px;
-}
-
-.bb-page-modern[data-page="mandato"] .coverage.motore {
-  color: #087553;
-  border-color: #a8d9c8;
-  background: #eff9f5;
-}
-
-.bb-page-modern[data-page="mandato"] .coverage.prompt {
-  color: #805900;
-  border-color: #ead59f;
-  background: #fff9e8;
-}
-
-.bb-page-modern[data-page="mandato"] .coverage.validazione {
-  color: #1354b8;
-  border-color: #b8ccf5;
-  background: #f0f5ff;
-}
-
-.bb-page-modern[data-page="mandato"] .coverage.informativo {
-  color: #526176;
-  border-color: #d6dfeb;
-  background: #f7f9fc;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-page input,
-.bb-page-modern[data-page="mandato"] .mandato-page select,
-.bb-page-modern[data-page="mandato"] .mandato-page textarea {
-  min-height: 38px;
-  border: 1px solid #cbd6e5;
-  border-radius: 7px;
-  color: #1e293b;
-  background: #fff;
-  font: 14px/1.45 Inter, ui-sans-serif, system-ui, sans-serif;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-page input:focus,
-.bb-page-modern[data-page="mandato"] .mandato-page select:focus,
-.bb-page-modern[data-page="mandato"] .mandato-page textarea:focus,
-.bb-page-modern[data-page="mandato"] .mandato-page button:focus-visible {
-  border-color: #1455ff;
-  box-shadow: 0 0 0 3px #1455ff20;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-choice button,
-.bb-page-modern[data-page="mandato"] .mandato-switches button {
-  min-height: 34px;
-  border: 1px solid #cbd6e5;
-  border-radius: 6px;
-  color: #526176;
-  background: #fff;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-choice button.on,
-.bb-page-modern[data-page="mandato"] .mandato-switches button.on {
-  border-color: #9eb6fb;
-  color: #1747c8;
-  background: #eef3ff;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-checks label {
-  border-color: #d6dfeb;
-  border-radius: 6px;
-  color: #334155;
-  background: #fff;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-switches span,
-.bb-page-modern[data-page="mandato"] .mandato-input span,
-.bb-page-modern[data-page="mandato"] .mandato-range em {
-  color: #526176;
-}
-
-.bb-page-modern[data-page="mandato"] .field-error {
-  color: #a5223a;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-preview {
-  padding: 16px;
-}
-
-.bb-page-modern[data-page="mandato"] .preview-title {
-  color: #1e293b;
-}
-
-.bb-page-modern[data-page="mandato"] .preview-title b {
-  color: #1747c8;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-preview pre {
-  color: #334155;
-  font: 13px/1.65 Inter, ui-sans-serif, system-ui, sans-serif;
-}
-
-.bb-page-modern[data-page="mandato"] .preview-message {
-  border-top-color: #dfe7f3;
-  color: #1747c8;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-trace {
-  border-top-color: #dfe7f3;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-trace span,
-.bb-page-modern[data-page="mandato"] .mandato-trace small {
-  color: #64748b;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-trace b {
-  color: #1747c8;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-actions {
-  position: sticky;
-  bottom: 0;
-  z-index: 4;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid #dfe7f3;
-  border-radius: 10px;
-  background: #ffffffed;
-  box-shadow: 0 -4px 16px #10234212;
-  backdrop-filter: blur(8px);
-}
-
-@media (max-height: 760px) {
-  .bb-page-modern[data-page="mandato"] .mandato-form {
-    padding-bottom: 112px;
-  }
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-actions > span {
-  flex: 1 1 auto;
-  align-self: center;
-  color: #526176;
-  font-size: 12px;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-actions button.primary {
-  border-color: #1747c8;
-  color: #fff;
-  background: #1747c8;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-banner {
-  border-radius: 8px;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-banner.amber {
-  border-color: #ead59f;
-  color: #805900;
-  background: #fff9e8;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-banner.red {
-  border-color: #f1c2ca;
-  color: #8f2639;
-  background: #fff2f3;
-}
-
-.bb-page-modern[data-page="mandato"] .mandato-banner.draft {
-  border-color: #b8d8e7;
-  color: #14516b;
-  background: #f0f8fc;
-}
-
-@media (max-width: 1280px) {
-  .bb-page-modern[data-page="mandato"] .mandato-shell {
-    grid-template-columns: minmax(175px, 205px) minmax(0, 1fr);
-    gap: 14px;
-  }
-  .bb-page-modern[data-page="mandato"] .mandato-preview {
-    grid-column: 2;
-    position: static;
-    max-height: 360px;
-  }
-}
-
-@media (max-width: 900px) {
-  .bb-page-modern[data-page="mandato"] .mandato-shell {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .bb-page-modern[data-page="mandato"] .mandato-index,
-  .bb-page-modern[data-page="mandato"] .mandato-form,
-  .bb-page-modern[data-page="mandato"] .mandato-preview {
-    grid-column: 1;
-  }
-  .bb-page-modern[data-page="mandato"] .mandato-index,
-  .bb-page-modern[data-page="mandato"] .mandato-preview {
-    position: static;
-    max-height: none;
-  }
-  .bb-page-modern[data-page="mandato"] .mandato-grid article {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
-  }
-}
-
 /* Journal editor, note library and revision history ------------------------- */
-.bb-page-modern[data-page="journal"] {
-  overflow: auto;
-  padding: 4px 0 16px;
-}
-
-.bb-page-modern[data-page="journal"] .journal-page {
-  --j-border: #dfe7f3;
-  --j-muted: #64748b;
-  --j-panel: #fff;
-  --j-gold: #1455ff;
-  width: min(100%, 1840px);
-  max-width: none;
-  margin: 0 auto;
-  color: #1e293b;
-  font: 14px/1.55 Inter, ui-sans-serif, system-ui, sans-serif;
-}
-
-.bb-page-modern[data-page="journal"] .journal-layout {
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(250px, 300px);
-  gap: 18px;
-  align-items: start;
-}
-
-.bb-page-modern[data-page="journal"] .journal-library,
-.bb-page-modern[data-page="journal"] .journal-editor,
-.bb-page-modern[data-page="journal"] .journal-history {
-  min-width: 0;
-  border: 1px solid #dfe7f3;
-  border-radius: 10px;
-  color: #1e293b;
-  background: #fff;
-  box-shadow: 0 1px 3px #1023420a;
-}
-
-.bb-page-modern[data-page="journal"] .journal-library,
-.bb-page-modern[data-page="journal"] .journal-history {
-  padding: 14px;
-  overflow: hidden;
-}
-
-.bb-page-modern[data-page="journal"] .journal-editor {
-  overflow: hidden;
-}
-
-.bb-page-modern[data-page="journal"] .journal-library-head,
-.bb-page-modern[data-page="journal"] .journal-editor-top {
-  border-bottom-color: #e8edf5;
-  background: #f7f9fc;
-}
-
-.bb-page-modern[data-page="journal"] .journal-library-head {
-  padding: 12px 14px;
-  margin: -14px -14px 0;
-}
-
-.bb-page-modern[data-page="journal"] .journal-library-head button {
-  margin-top: 10px;
-}
-
-.bb-page-modern[data-page="journal"] .journal-page h2,
-.bb-page-modern[data-page="journal"] .journal-page h3 {
-  color: #1e293b;
-}
-
-.bb-page-modern[data-page="journal"] .journal-page button {
-  min-height: 34px;
-  border: 1px solid #cbd6e5;
-  border-radius: 6px;
-  color: #334155;
-  background: #fff;
-  font: 600 12px/1.4 Inter, ui-sans-serif, system-ui, sans-serif;
-}
-
-.bb-page-modern[data-page="journal"] .journal-page button:hover:not(:disabled) {
-  border-color: #1455ff;
-  color: #1747c8;
-  background: #f5f8ff;
-}
-
-.bb-page-modern[data-page="journal"] .journal-page button.journal-primary {
-  border-color: #1747c8;
-  color: #fff;
-  background: #1747c8;
-}
-
-.bb-page-modern[data-page="journal"] .journal-page input,
-.bb-page-modern[data-page="journal"] .journal-page select,
-.bb-page-modern[data-page="journal"] .journal-page textarea {
-  border-color: #cbd6e5;
-  border-radius: 6px;
-  color: #1e293b;
-  background: #fff;
-  font: 14px/1.5 Inter, ui-sans-serif, system-ui, sans-serif;
-}
-
-.bb-page-modern[data-page="journal"] .journal-page input::placeholder,
-.bb-page-modern[data-page="journal"] .journal-page textarea::placeholder {
-  color: #64748b;
-}
-
-.bb-page-modern[data-page="journal"] .journal-page label {
-  color: #526176;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.bb-page-modern[data-page="journal"] .journal-page label small,
-.bb-page-modern[data-page="journal"] .journal-muted,
-.bb-page-modern[data-page="journal"] .journal-page .journal-note time,
-.bb-page-modern[data-page="journal"] .journal-note-kind small {
-  color: #64748b;
-}
-
-.bb-page-modern[data-page="journal"] .journal-search {
-  display: block;
-  padding: 14px 0 10px;
-}
-
-.bb-page-modern[data-page="journal"] .journal-filters {
-  padding: 0 0 12px;
-}
-
-.bb-page-modern[data-page="journal"] .journal-notes {
-  max-height: min(42vh, 480px);
-  min-height: 180px;
-  overflow: auto;
-}
-
-.bb-page-modern[data-page="journal"] .journal-page .journal-note {
-  padding: 12px 10px;
-  border-bottom-color: #edf1f6;
-  border-radius: 6px;
-  color: #334155;
-}
-
-.bb-page-modern[data-page="journal"] .journal-page .journal-note.selected {
-  border-left-color: #1455ff;
-  color: #1747c8;
-  background: #eef3ff;
-}
-
-.bb-page-modern[data-page="journal"] .journal-note-kind {
-  color: #1747c8;
-}
-
-.bb-page-modern[data-page="journal"] .journal-excerpt {
-  color: #526176;
-}
-
-.bb-page-modern[data-page="journal"] .journal-editor-top {
-  padding: 12px 18px;
-  color: #526176;
-  font: 12px/1.45 Inter, ui-sans-serif, system-ui, sans-serif;
-}
-
-.bb-page-modern[data-page="journal"] .journal-dirty {
-  color: #805900;
-}
-
-.bb-page-modern[data-page="journal"] .journal-fields {
-  padding: 20px 24px 8px;
-}
-
-.bb-page-modern[data-page="journal"] .journal-title-label {
-  margin: 20px 0 16px;
-}
-
-.bb-page-modern[data-page="journal"] .journal-page .journal-title-input {
-  border: 0;
-  border-bottom: 1px solid #cbd6e5;
-  border-radius: 0;
-  background: transparent;
-  color: #172033;
-  font-size: 23px;
-  font-weight: 650;
-}
-
-.bb-page-modern[data-page="journal"] .journal-writing-guide {
-  padding: 10px 0;
-  border-color: #e8edf5;
-  color: #526176;
-  font-size: 12px;
-}
-
-.bb-page-modern[data-page="journal"] .journal-writing-guide i {
-  color: #1455ff;
-}
-
-.bb-page-modern[data-page="journal"] .journal-body-label textarea {
-  min-height: 320px;
-  padding: 14px 16px;
-  color: #1e293b;
-  font: 15px/1.75 Inter, ui-sans-serif, system-ui, sans-serif;
-}
-
-.bb-page-modern[data-page="journal"] .journal-writing-foot,
-.bb-page-modern[data-page="journal"] .journal-origin {
-  color: #64748b;
-}
-
-.bb-page-modern[data-page="journal"] .journal-editor-actions {
-  position: sticky;
-  bottom: 0;
-  z-index: 3;
-  flex-wrap: wrap;
-  padding: 13px 18px;
-  border-top-color: #e8edf5;
-  background: #ffffffed;
-  backdrop-filter: blur(8px);
-}
-
-.bb-page-modern[data-page="journal"] .journal-editor-actions > span {
-  margin-right: auto;
-  color: #64748b;
-}
-
-.bb-page-modern[data-page="journal"] .journal-history {
-  padding: 16px;
-}
-
-.bb-page-modern[data-page="journal"] .journal-history > p,
-.bb-page-modern[data-page="journal"] .journal-history time {
-  color: #64748b;
-}
-
-.bb-page-modern[data-page="journal"] .journal-history li {
-  border-top-color: #e8edf5;
-}
-
-.bb-page-modern[data-page="journal"] .journal-version {
-  color: #1747c8;
-}
-
-.bb-page-modern[data-page="journal"] .journal-version-body pre,
-.bb-page-modern[data-page="journal"] .journal-conflict pre {
-  border-color: #dfe7f3;
-  border-radius: 6px;
-  color: #334155;
-  background: #f7f9fc;
-}
-
-.bb-page-modern[data-page="journal"] .journal-error {
-  border-color: #f1c2ca;
-  border-radius: 7px;
-  color: #8f2639;
-  background: #fff2f3;
-}
-
-.bb-page-modern[data-page="journal"] .journal-warning {
-  border-color: #ead59f;
-  border-radius: 7px;
-  color: #805900;
-  background: #fff9e8;
-}
-
-.bb-page-modern[data-page="journal"] .journal-message {
-  border-color: #a8d9c8;
-  border-radius: 7px;
-  color: #087553;
-  background: #eff9f5;
-}
-
-@media (max-width: 1280px) {
-  .bb-page-modern[data-page="journal"] .journal-layout {
-    grid-template-columns: minmax(210px, 250px) minmax(0, 1fr);
-    gap: 14px;
-  }
-  .bb-page-modern[data-page="journal"] .journal-history {
-    grid-column: 1 / -1;
-  }
-  .bb-page-modern[data-page="journal"] .journal-history ol {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px 18px;
-  }
-}
-
-@media (max-width: 900px) {
-  .bb-page-modern[data-page="journal"] .journal-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .bb-page-modern[data-page="journal"] .journal-library,
-  .bb-page-modern[data-page="journal"] .journal-editor,
-  .bb-page-modern[data-page="journal"] .journal-history {
-    grid-column: 1;
-  }
-  .bb-page-modern[data-page="journal"] .journal-notes {
-    max-height: 260px;
-  }
-  .bb-page-modern[data-page="journal"] .journal-history ol {
-    display: block;
-  }
-}
-
 /* SettingsPanel is rendered after the app shell; keep its scrim and card in
    that overlay layer, with the mode control above it and recovery reachable. */
-
 .bb-page-modern.bb-page-settings[data-page="settings"] {
   position: fixed;
   inset: 0;
@@ -882,14 +161,12 @@
   pointer-events: none;
   background: transparent;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11-scrim {
   z-index: 40;
   pointer-events: auto;
   background: #13233b45;
   backdrop-filter: blur(3px);
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v {
   z-index: 41;
   width: min(1480px, calc(100vw - 40px));
@@ -902,7 +179,6 @@
   font: 13px/1.5 Inter, ui-sans-serif, system-ui, sans-serif;
   pointer-events: auto;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask {
   pointer-events: auto;
   color: #1e293b;
@@ -910,7 +186,6 @@
   backdrop-filter: blur(3px);
   font: 14px/1.55 Inter, ui-sans-serif, system-ui, sans-serif;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .box {
   width: min(580px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
@@ -922,7 +197,6 @@
   box-shadow: 0 24px 72px #10234240;
   font: 14px/1.55 Inter, ui-sans-serif, system-ui, sans-serif;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .bh {
   padding: 14px 18px;
   border-bottom: 1px solid #f2cbd2;
@@ -931,28 +205,23 @@
   font: 700 14px/1.4 Inter, ui-sans-serif, system-ui, sans-serif;
   letter-spacing: .045em;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .bb {
   padding: 18px;
   color: #334155;
   font: 14px/1.6 Inter, ui-sans-serif, system-ui, sans-serif;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .bb b {
   color: #1e293b;
   font-weight: 700;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .bb .nota {
   margin-top: 10px;
   color: #475569;
   font: 14px/1.6 Inter, ui-sans-serif, system-ui, sans-serif;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .bb .nota .ko {
   color: #b4233d;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .bf {
   display: flex;
   flex-wrap: wrap;
@@ -962,7 +231,6 @@
   border-top: 1px solid #e6ebf2;
   background: #f8fafc;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .btn {
   min-height: 40px;
   padding: 8px 14px;
@@ -975,32 +243,27 @@
   text-transform: none;
   cursor: pointer;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .btn:hover:not(:disabled) {
   border-color: #1455ff;
   color: #1747c8;
   background: #f5f8ff;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .btn.ko {
   border-color: #b4233d;
   color: #a31431;
   background: #fff;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .btn.ko:hover:not(:disabled) {
   border-color: #9f1239;
   color: #8f102e;
   background: #fff4f5;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .btn:focus,
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .btn:focus-visible {
   outline: 3px solid #1455ff;
   outline-offset: 2px;
   box-shadow: 0 0 0 2px #fff;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .phead {
   min-height: 48px;
   height: auto;
@@ -1008,27 +271,23 @@
   border-bottom-color: #e8edf5;
   background: #f7f9fc;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .phead .tt {
   color: #1747c8;
   font: 700 13px/1.35 Inter, ui-sans-serif, system-ui, sans-serif;
   letter-spacing: .05em;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .phead .sub,
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .phead .x {
   color: #64748b;
   font: 600 12px/1.35 Inter, ui-sans-serif, system-ui, sans-serif;
   letter-spacing: 0;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .phead .x {
   min-height: 32px;
   border-color: #cbd6e5;
   border-radius: 6px;
   background: #fff;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pfoot {
   border-top-color: #e8edf5;
   background: #f7f9fc;
@@ -1036,28 +295,23 @@
   font-size: 12px;
   letter-spacing: normal;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pbody {
   padding: 16px;
   gap: 12px;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pbody::-webkit-scrollbar-track {
   background: #f1f5f9;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pbody::-webkit-scrollbar-thumb {
   background: #cbd6e5;
   border-color: #e2e8f0;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .p {
   border-color: #dfe7f3;
   border-radius: 9px;
   background: #fff;
   box-shadow: 0 1px 3px #1023420a;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .ph {
   min-height: 34px;
   height: auto;
@@ -1068,42 +322,34 @@
   letter-spacing: .04em;
   white-space: normal;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .ph.a,
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .ph.c {
   color: #1747c8;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pb {
   padding: 12px;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .grd,
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v td,
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v th {
   color: #334155;
   border-bottom-color: #edf1f6;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .grd .nm,
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .grd .qd b {
   color: #1e293b;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .grd .qd,
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .grd .tm,
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .grd .tm i {
   color: #526176;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .kv .k {
   color: #64748b;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .kv .v {
   color: #334155;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pbody button {
   min-height: 32px;
   border: 1px solid #cbd6e5;
@@ -1113,13 +359,11 @@
   font: 600 12px/1.35 Inter, ui-sans-serif, system-ui, sans-serif;
   letter-spacing: 0;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pbody button:hover:not(:disabled) {
   border-color: #1455ff;
   color: #1747c8;
   background: #f5f8ff;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v input,
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v select,
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v textarea {
@@ -1128,20 +372,17 @@
   color: #1e293b;
   background: #fff;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .nota,
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .sub,
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v small {
   color: #64748b;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .chip.n,
 .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .chip.m {
   border-color: #d6dfeb;
   color: #526176;
   background: #f7f9fc;
 }
-
 .bb-page-modern.bb-page-settings[data-page="settings"] .bb-interface-recovery {
   position: fixed;
   z-index: 42;
@@ -1152,22 +393,20 @@
   overflow: auto;
   pointer-events: auto;
 }
-
 @media (max-width: 760px) {
-  .bb-page-modern.bb-page-settings[data-page="settings"] .f11v {
+.bb-page-modern.bb-page-settings[data-page="settings"] .f11v {
     top: 82px;
     width: calc(100vw - 20px);
     max-height: calc(100vh - 96px);
   }
-  .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pbody {
+.bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pbody {
     padding: 10px;
   }
-  .bb-page-modern.bb-page-settings[data-page="settings"] .bb-interface-recovery {
+.bb-page-modern.bb-page-settings[data-page="settings"] .bb-interface-recovery {
     top: 82px;
     right: 10px;
   }
 }
-
 /* ===== Dark Nuova: operations pages (Movements, Mandate, Journal, Config; Trade Entry lives in trade-nuova.css) =====
    Everything below is gated by :root[data-bb-theme="dark"], which exists only
    while the Nuova is active and Dark is chosen. The light rules above are
@@ -1181,7 +420,6 @@
   --ops-violet: #b9a4ff;   /* "gate / not estimated" violet, readable on dark */
   color-scheme: dark;
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m {
   --bd: var(--bbt-line);
   --bd2: var(--bbt-line-strong);
@@ -1198,707 +436,230 @@
   --vi: var(--ops-violet);
   color: var(--bbt-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .vst {
   border: 1px solid var(--bbt-line);
   background: var(--bbt-surface-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .vst button {
   color: var(--bbt-text-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .vst button[aria-pressed="true"] {
   color: var(--bbt-accent-text);
   background: var(--bbt-selected);
   box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .fil button {
   border: 1px solid var(--ops-ctl);
   color: var(--bbt-text-2);
   background: var(--bbt-surface-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .fil button[aria-pressed="true"] {
   border-color: var(--bbt-selected-line);
   color: var(--bbt-accent-text);
   background: var(--bbt-selected);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .fil button:disabled {
   color: var(--bbt-muted);
   border-color: var(--bbt-line);
   background: var(--bbt-surface-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .kpi .k,
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .kpi .sub {
   color: var(--bbt-muted);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .kpi .v {
   color: var(--bbt-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .agg {
   border: 1px solid var(--ops-ctl);
   color: var(--bbt-text-2);
   background: var(--bbt-surface-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .p {
   border: 1px solid var(--bbt-line);
   background: var(--bbt-surface);
   box-shadow: 0 1px 2px rgba(0, 0, 0, .22);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .ph {
   border-bottom-color: var(--bbt-line);
   color: var(--bbt-text-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .ph .side {
   color: var(--bbt-muted);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .pb {
   background: var(--bbt-surface);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .pb::-webkit-scrollbar-track,
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .corsie::-webkit-scrollbar-track {
   background: var(--bbt-surface-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .pb::-webkit-scrollbar-thumb,
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .corsie::-webkit-scrollbar-thumb {
   background: #34425a;
   border-color: var(--bbt-line);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m th {
   color: var(--bbt-muted);
   background: var(--bbt-surface-2);
   border-bottom-color: var(--bbt-line);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m td {
   color: var(--bbt-text-2);
   border-bottom-color: var(--bbt-line);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m td.cm,
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .voce .tx {
   color: var(--bbt-text-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m tr.msep td {
   background: var(--bbt-surface-2);
   border-bottom-color: var(--bbt-line);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m tr.msep .mm,
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .vst button[aria-pressed="true"] {
   color: var(--bbt-accent-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .stato.ko.avviso {
   border-color: color-mix(in srgb, var(--bbt-bad) 40%, var(--bbt-surface));
   background: var(--bbt-bad-soft);
 }
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-workspace {
-  color: var(--bbt-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-workspace-head {
-  color: var(--bbt-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-workspace-head h1 {
-  color: var(--bbt-text-strong);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-workspace-head p {
-  color: var(--bbt-muted);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-tabs {
-  border: 1px solid var(--bbt-line);
-  background: color-mix(in srgb, var(--bbt-surface-2) 93%, transparent);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-tabs button {
-  color: var(--bbt-text-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-tabs button[aria-selected="true"] {
-  color: var(--bbt-accent-text);
-  background: var(--bbt-selected);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-toolbar {
-  border: 1px solid var(--bbt-line);
-  background: var(--bbt-surface);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-toolbar p {
-  color: var(--bbt-muted);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-toolbar button,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-actions button {
-  border: 1px solid var(--ops-ctl);
-  color: var(--bbt-text-2);
-  background: var(--bbt-surface-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-index,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-preview {
-  border: 1px solid var(--bbt-line);
-  background: var(--bbt-surface);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .22);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-index h2 {
-  color: var(--bbt-text-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-index a {
-  color: var(--bbt-text-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-index a[aria-current="step"] {
-  border-left-color: var(--bbt-accent);
-  color: var(--bbt-accent-text);
-  background: var(--bbt-selected);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-index a:hover,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-index a:focus-visible {
-  color: var(--bbt-accent-text);
-  background: var(--bbt-hover);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-index span {
-  color: var(--bbt-muted);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-index p,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-index small {
-  color: var(--bbt-muted);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-form section {
-  border: 1px solid var(--bbt-line);
-  background: var(--bbt-surface);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .22);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-form h2 {
-  color: var(--bbt-text-strong);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-form h2 span {
-  color: var(--bbt-accent-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-grid article {
-  border-bottom-color: var(--bbt-line);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-grid article.invalid {
-  box-shadow: inset 3px 0 var(--bbt-bad);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-grid .field-label {
-  color: var(--bbt-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-grid sup,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-form h2 span {
-  color: var(--bbt-accent-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-field-copy p {
-  color: var(--bbt-text-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-field-copy small {
-  color: var(--bbt-muted);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .coverage.motore {
-  color: var(--bbt-good-text);
-  border-color: color-mix(in srgb, var(--bbt-good) 40%, var(--bbt-surface));
-  background: var(--bbt-good-soft);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .coverage.prompt {
-  color: var(--bbt-warn-text);
-  border-color: color-mix(in srgb, var(--bbt-warn) 40%, var(--bbt-surface));
-  background: var(--bbt-warn-soft);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .coverage.validazione {
-  color: var(--bbt-accent-text);
-  border-color: var(--bbt-selected-line);
-  background: var(--bbt-accent-soft);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .coverage.informativo {
-  color: var(--bbt-text-2);
-  border-color: var(--ops-ctl);
-  background: var(--bbt-surface-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-page input,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-page select,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-page textarea {
-  border: 1px solid var(--ops-ctl);
-  color: var(--bbt-text);
-  background: var(--bbt-bg);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-page input:focus,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-page select:focus,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-page textarea:focus,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-page button:focus-visible {
-  border-color: var(--bbt-accent);
-  box-shadow: 0 0 0 3px rgba(107, 147, 255, .30);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-choice button,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-switches button {
-  border: 1px solid var(--ops-ctl);
-  color: var(--bbt-text-2);
-  background: var(--bbt-surface-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-choice button.on,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-switches button.on {
-  border-color: var(--bbt-selected-line);
-  color: var(--bbt-accent-text);
-  background: var(--bbt-selected);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-checks label {
-  border-color: var(--ops-ctl);
-  color: var(--bbt-text-2);
-  background: var(--bbt-surface);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-switches span,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-input span,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-range em {
-  color: var(--bbt-text-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .field-error {
-  color: var(--bbt-bad-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .preview-title {
-  color: var(--bbt-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .preview-title b {
-  color: var(--bbt-accent-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-preview pre {
-  color: var(--bbt-text-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .preview-message {
-  border-top-color: var(--bbt-line);
-  color: var(--bbt-accent-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-trace {
-  border-top-color: var(--bbt-line);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-trace span,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-trace small {
-  color: var(--bbt-muted);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-trace b {
-  color: var(--bbt-accent-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-actions {
-  border: 1px solid var(--bbt-line);
-  background: color-mix(in srgb, var(--bbt-surface) 93%, transparent);
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, .3);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-actions > span {
-  color: var(--bbt-text-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-actions button.primary {
-  border-color: var(--bbt-accent);
-  color: var(--bbt-on-accent);
-  background: var(--bbt-accent-fill);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-banner.amber {
-  border-color: color-mix(in srgb, var(--bbt-warn) 40%, var(--bbt-surface));
-  color: var(--bbt-warn-text);
-  background: var(--bbt-warn-soft);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-banner.red {
-  border-color: color-mix(in srgb, var(--bbt-bad) 40%, var(--bbt-surface));
-  color: var(--bbt-bad-text);
-  background: var(--bbt-bad-soft);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-banner.draft {
-  border-color: color-mix(in srgb, var(--bbt-accent) 40%, var(--bbt-surface));
-  color: var(--bbt-accent-text);
-  background: var(--bbt-accent-soft);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page {
-  --j-border: var(--bbt-line);
-  --j-muted: var(--bbt-muted);
-  --j-panel: var(--bbt-surface);
-  --j-gold: var(--bbt-accent-text);
-  color: var(--bbt-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-library,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-editor,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-history {
-  border: 1px solid var(--bbt-line);
-  color: var(--bbt-text);
-  background: var(--bbt-surface);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .22);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-library-head,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-editor-top {
-  border-bottom-color: var(--bbt-line);
-  background: var(--bbt-surface-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page h2,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page h3 {
-  color: var(--bbt-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page button {
-  border: 1px solid var(--ops-ctl);
-  color: var(--bbt-text-2);
-  background: var(--bbt-surface-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page button:hover:not(:disabled) {
-  border-color: var(--bbt-accent);
-  color: var(--bbt-accent-text);
-  background: var(--bbt-hover);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page button.journal-primary {
-  border-color: var(--bbt-accent);
-  color: var(--bbt-on-accent);
-  background: var(--bbt-accent-fill);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page input,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page select,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page textarea {
-  border-color: var(--ops-ctl);
-  color: var(--bbt-text);
-  background: var(--bbt-bg);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page input::placeholder,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page textarea::placeholder {
-  color: var(--bbt-muted);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page label {
-  color: var(--bbt-text-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page label small,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-muted,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page .journal-note time,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-note-kind small {
-  color: var(--bbt-muted);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page .journal-note {
-  border-bottom-color: var(--bbt-line);
-  color: var(--bbt-text-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page .journal-note.selected {
-  border-left-color: var(--bbt-accent);
-  color: var(--bbt-accent-text);
-  background: var(--bbt-selected);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-note-kind {
-  color: var(--bbt-accent-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-excerpt {
-  color: var(--bbt-text-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-editor-top {
-  color: var(--bbt-text-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-dirty {
-  color: var(--bbt-warn-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page .journal-title-input {
-  border-bottom: 1px solid var(--ops-ctl);
-  color: var(--bbt-text-strong);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-writing-guide {
-  border-color: var(--bbt-line);
-  color: var(--bbt-text-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-writing-guide i {
-  color: var(--bbt-accent-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-body-label textarea {
-  color: var(--bbt-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-writing-foot,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-origin {
-  color: var(--bbt-muted);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-editor-actions {
-  border-top-color: var(--bbt-line);
-  background: color-mix(in srgb, var(--bbt-surface) 93%, transparent);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-editor-actions > span {
-  color: var(--bbt-muted);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-history > p,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-history time {
-  color: var(--bbt-muted);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-history li {
-  border-top-color: var(--bbt-line);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-version {
-  color: var(--bbt-accent-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-version-body pre,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-conflict pre {
-  border-color: var(--bbt-line);
-  color: var(--bbt-text-2);
-  background: var(--bbt-surface-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-error {
-  border-color: color-mix(in srgb, var(--bbt-bad) 40%, var(--bbt-surface));
-  color: var(--bbt-bad-text);
-  background: var(--bbt-bad-soft);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-warning {
-  border-color: color-mix(in srgb, var(--bbt-warn) 40%, var(--bbt-surface));
-  color: var(--bbt-warn-text);
-  background: var(--bbt-warn-soft);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-message {
-  border-color: color-mix(in srgb, var(--bbt-good) 40%, var(--bbt-surface));
-  color: var(--bbt-good-text);
-  background: var(--bbt-good-soft);
-}
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11-scrim {
   background: var(--bbt-overlay);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v {
   border: 1px solid var(--ops-ctl);
   color: var(--bbt-text);
   background: var(--bbt-surface);
   box-shadow: 0 24px 80px rgba(0, 0, 0, .55);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask {
   color: var(--bbt-text);
   background: var(--bbt-overlay);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .box {
   border: 1px solid var(--bbt-bad);
   color: var(--bbt-text);
   background: var(--bbt-surface);
   box-shadow: 0 24px 72px rgba(0, 0, 0, .55);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .bh {
   border-bottom: 1px solid color-mix(in srgb, var(--bbt-bad) 30%, var(--bbt-surface));
   color: var(--bbt-bad-text);
   background: var(--bbt-bad-soft);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .bb {
   color: var(--bbt-text-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .bb b {
   color: var(--bbt-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .bb .nota {
   color: var(--bbt-text-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .bb .nota .ko {
   color: var(--bbt-bad-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .bf {
   border-top: 1px solid var(--bbt-line);
   background: var(--bbt-surface-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .btn {
   border: 1px solid var(--ops-ctl);
   color: var(--bbt-text-2);
   background: var(--bbt-surface-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .btn:hover:not(:disabled) {
   border-color: var(--bbt-accent);
   color: var(--bbt-accent-text);
   background: var(--bbt-hover);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .btn.ko {
   border-color: var(--bbt-bad);
   color: var(--bbt-bad-text);
   background: var(--bbt-surface-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .btn.ko:hover:not(:disabled) {
   border-color: var(--bbt-bad);
   color: var(--bbt-bad-text);
   background: var(--bbt-bad-soft);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .btn:focus,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11-ask .btn:focus-visible {
   outline: 3px solid var(--bbt-accent);
   box-shadow: 0 0 0 2px var(--bbt-surface);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .phead {
   border-bottom-color: var(--bbt-line);
   background: var(--bbt-surface-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .phead .tt {
   color: var(--bbt-accent-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .phead .sub,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .phead .x {
   color: var(--bbt-muted);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .phead .x {
   border-color: var(--ops-ctl);
   background: var(--bbt-surface-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pfoot {
   border-top-color: var(--bbt-line);
   background: var(--bbt-surface-2);
   color: var(--bbt-muted);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pbody::-webkit-scrollbar-track {
   background: var(--bbt-surface-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pbody::-webkit-scrollbar-thumb {
   background: #34425a;
   border-color: var(--bbt-line);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .p {
   border-color: var(--bbt-line);
   background: var(--bbt-surface);
   box-shadow: 0 1px 3px rgba(0, 0, 0, .22);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .ph {
   border-bottom-color: var(--bbt-line);
   color: var(--bbt-text-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .ph.a,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .ph.c {
   color: var(--bbt-accent-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .grd,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v td,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v th {
   color: var(--bbt-text-2);
   border-bottom-color: var(--bbt-line);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .grd .nm,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .grd .qd b {
   color: var(--bbt-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .grd .qd,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .grd .tm,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .grd .tm i {
   color: var(--bbt-text-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .kv .k {
   color: var(--bbt-muted);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .kv .v {
   color: var(--bbt-text-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pbody button {
   border: 1px solid var(--ops-ctl);
   color: var(--bbt-text-2);
   background: var(--bbt-surface-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pbody button:hover:not(:disabled) {
   border-color: var(--bbt-accent);
   color: var(--bbt-accent-text);
   background: var(--bbt-hover);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v input,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v select,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v textarea {
@@ -1906,121 +667,98 @@
   color: var(--bbt-text);
   background: var(--bbt-bg);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .nota,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .sub,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v small {
   color: var(--bbt-muted);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .chip.n,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .chip.m {
   border-color: var(--ops-ctl);
   color: var(--bbt-text-2);
   background: var(--bbt-surface-2);
 }
-
 /* ---- Residual classic rules (movimenti.css, mandato.css,
    journal.css, settings-veglia.css) that the light Nuova leaves untouched
    because they already read well on white. In the dark Nuova they would carry
    the Classica's own dark literals, so they are remapped here. ---- */
-
 /* Movements: scrollbars, separators, markers, tooltip */
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m {
   --cy: #8cc4ff;
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .pb::-webkit-scrollbar-thumb,
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .corsie::-webkit-scrollbar-thumb {
   background: #34425a;
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .voce,
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .lane {
   border-bottom-color: var(--bbt-line);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .voce:last-child,
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .lane:last-child {
   border-bottom: 0;
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .voce:hover,
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m tbody tr:hover td {
   background: var(--bbt-hover);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m tr.msep:hover td {
   background: var(--bbt-surface-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m tr.cassa td {
   background: color-mix(in srgb, var(--bbt-text) 4%, transparent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m tr.cassa:hover td {
   background: color-mix(in srgb, var(--bbt-text) 8%, transparent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m tr.cassa td:first-child {
   box-shadow: inset 2px 0 0 0 color-mix(in srgb, var(--bbt-text) 50%, transparent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .flx {
   border-color: color-mix(in srgb, var(--bbt-text) 50%, transparent);
   background: color-mix(in srgb, var(--bbt-text) 7%, transparent);
   color: var(--bbt-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m tr.uscita td {
   background: color-mix(in srgb, var(--ops-violet) 8%, transparent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m tr.uscita:hover td {
   background: color-mix(in srgb, var(--ops-violet) 14%, transparent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .act.BUY {
   color: var(--bbt-accent-text);
   border-color: color-mix(in srgb, var(--bbt-accent) 55%, transparent);
   background: color-mix(in srgb, var(--bbt-accent) 14%, transparent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .act.ADD {
   color: var(--bbt-text);
   border-color: color-mix(in srgb, var(--bbt-text-2) 50%, transparent);
   background: color-mix(in srgb, var(--bbt-text-2) 10%, transparent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .act.TRIM,
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .act.SELL {
   color: var(--bbt-bad-text);
   border-color: color-mix(in srgb, var(--bbt-bad) 55%, transparent);
   background: color-mix(in srgb, var(--bbt-bad) 14%, transparent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .act.DIVIDEND {
   color: var(--bbt-warn-text);
   border-color: color-mix(in srgb, var(--bbt-warn) 55%, transparent);
   background: color-mix(in srgb, var(--bbt-warn) 14%, transparent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .fil button.tolg {
   border-color: color-mix(in srgb, var(--bbt-accent) 60%, transparent);
   color: var(--bbt-accent-text);
   background: color-mix(in srgb, var(--bbt-accent) 16%, transparent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .agg:hover {
   color: var(--bbt-accent-text);
   border-color: var(--bbt-accent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .vst button:hover[aria-pressed="false"] {
   background: var(--bbt-hover);
   color: var(--bbt-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .vst button:focus-visible,
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .fil button:focus-visible,
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .agg:focus-visible,
@@ -2028,315 +766,96 @@
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .mk:focus-visible {
   outline-color: var(--bbt-focus);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .stato.avviso {
   border-color: color-mix(in srgb, var(--bbt-bad) 45%, transparent);
   background: var(--bbt-bad-soft);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .lane.sel {
   background: var(--bbt-selected);
   box-shadow: inset 2px 0 0 0 var(--bbt-accent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .lane.sel .lk .tk {
   color: var(--bbt-accent-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .lane .lt::before {
   background: color-mix(in srgb, var(--bbt-line-strong) 80%, transparent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .lane.sel .lt::before {
   background: color-mix(in srgb, var(--bbt-accent) 45%, transparent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .guide .gm {
   background: color-mix(in srgb, var(--bbt-line-strong) 45%, transparent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .mk.in {
   background: linear-gradient(180deg, var(--bbt-accent), color-mix(in srgb, var(--bbt-accent) 40%, transparent));
   border-color: var(--bbt-accent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .mk.in.ADD {
   background: linear-gradient(180deg, var(--bbt-text-2), color-mix(in srgb, var(--bbt-text-2) 40%, transparent));
   border-color: var(--bbt-text-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .mk.out {
   background: color-mix(in srgb, var(--ops-violet) 24%, transparent);
   border-color: color-mix(in srgb, var(--ops-violet) 90%, transparent);
   box-shadow: 0 -1px 0 0 var(--ops-violet);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .mk.out.su {
   background: color-mix(in srgb, var(--bbt-good) 28%, transparent);
   border-color: var(--bbt-good);
   box-shadow: 0 -1px 0 0 var(--bbt-good);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .mk.out.giu {
   background: color-mix(in srgb, var(--bbt-bad) 28%, transparent);
   border-color: var(--bbt-bad);
   box-shadow: 0 -1px 0 0 var(--bbt-bad);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .mk.div {
   background: var(--bbt-warn);
   border-color: var(--bbt-warn);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .mk:hover {
   filter: brightness(1.25);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .leg .sw.in {
   background: var(--bbt-accent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .leg .sw.add {
   background: var(--bbt-text-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .leg .sw.out {
   background: color-mix(in srgb, var(--ops-violet) 24%, transparent);
   border-color: color-mix(in srgb, var(--ops-violet) 85%, transparent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .leg .sw.dv {
   background: var(--bbt-warn);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .tip {
   background: var(--bbt-tooltip-bg);
   border-color: var(--bbt-tooltip-line);
   color: var(--bbt-tooltip-text);
   box-shadow: 0 8px 26px rgba(0, 0, 0, .5);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .tip b {
   color: var(--bbt-accent-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .gate,
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .kpi .v.gate {
   color: var(--ops-violet);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .gate {
   border-color: color-mix(in srgb, var(--ops-violet) 60%, transparent);
   background: color-mix(in srgb, var(--ops-violet) 10%, transparent);
 }
-
 /* Mandate: residual classic rules and states */
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-index i {
-  color: var(--bbt-good-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .eyebrow {
-  color: var(--bbt-accent-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-coverage-help {
-  border-top-color: var(--bbt-line);
-  color: var(--bbt-text-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-field-control small,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-preview-language,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-loading {
-  color: var(--bbt-muted);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-index a:focus-visible,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-page button:focus-visible,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-coverage-help summary:focus-visible {
-  outline-color: var(--bbt-focus);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-page input::placeholder,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-page textarea::placeholder {
-  color: var(--bbt-muted);
-  opacity: 1;
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-page input:disabled,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-page select:disabled,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-page textarea:disabled {
-  color: var(--bbt-muted);
-  background: var(--bbt-surface-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-page select option {
-  color: var(--bbt-text);
-  background: var(--bbt-surface-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-toolbar button:hover:not(:disabled),
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-actions button:hover:not(:disabled):not(.primary),
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-choice button:hover:not(.on),
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-switches button:hover:not(.on) {
-  border-color: var(--bbt-accent);
-  color: var(--bbt-accent-text);
-  background: var(--bbt-hover);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-actions button.primary:hover:not(:disabled) {
-  background: #4a77f7;
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-actions {
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, .35);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-banner button {
-  border-color: var(--ops-ctl);
-  color: inherit;
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-grid article.invalid {
-  background: color-mix(in srgb, var(--bbt-bad) 6%, transparent);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-grid article.invalid input,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-grid article.invalid select,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-grid article.invalid textarea {
-  border-color: var(--bbt-bad);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .preview-actions {
-  border-top-color: var(--bbt-line);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-preview button {
-  border-color: var(--bbt-line);
-  background: var(--bbt-surface-2);
-  color: var(--bbt-text-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-preview button.primary {
-  background: var(--bbt-accent-fill);
-  color: var(--bbt-on-accent);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-preview .example {
-  color: var(--bbt-accent-text);
-  border-top-color: var(--bbt-line);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-preview .discard {
-  color: var(--bbt-muted);
-  border-top-color: var(--bbt-line);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-fault {
-  border-color: color-mix(in srgb, var(--bbt-bad) 45%, var(--bbt-surface));
-  background: var(--bbt-bad-soft);
-  color: var(--bbt-bad-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-fault pre {
-  color: var(--bbt-text-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-fault button {
-  border-color: var(--bbt-bad);
-  color: var(--bbt-bad-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-tabs button:hover:not([aria-selected="true"]) {
-  color: var(--bbt-text);
-  background: var(--bbt-hover);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-tabs button:focus-visible {
-  outline-color: var(--bbt-focus);
-}
-
 /* Journal: residual classic rules and states */
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page button.journal-primary:hover:not(:disabled) {
-  background: #4a77f7;
-  color: var(--bbt-on-accent);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page input::placeholder,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page textarea::placeholder {
-  opacity: 1;
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page input:disabled,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page select:disabled,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page textarea:disabled {
-  color: var(--bbt-muted);
-  background: var(--bbt-surface-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page .journal-title-input {
-  background: transparent;
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page button:focus-visible,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page input:focus-visible,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page select:focus-visible,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page textarea:focus-visible,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page summary:focus-visible {
-  outline-color: var(--bbt-focus);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page input:focus,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page select:focus,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page textarea:focus {
-  border-color: var(--bbt-accent);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page .journal-note:hover:not(.selected) {
-  background: var(--bbt-hover);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-session-draft {
-  color: var(--bbt-accent-text);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-pagination {
-  border-top-color: var(--bbt-line);
-  color: var(--bbt-muted);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-conflict {
-  border-top-color: color-mix(in srgb, var(--bbt-warn) 45%, var(--bbt-surface));
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-history summary:after {
-  color: var(--bbt-muted);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-error button,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-warning button {
-  background: var(--bbt-surface-2);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-version-body > span,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-version-body small,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-empty {
-  color: var(--bbt-muted);
-}
-
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-editor-actions {
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, .3);
-}
-
 /* Settings overlay (CONFIG): residual classic rules */
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .sq {
   border-color: var(--bbt-accent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .phead .x:hover {
   color: var(--bbt-accent-text);
   border-color: var(--bbt-accent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .phead .x:focus-visible,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .btn:focus-visible,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .bl .rm button:focus-visible,
@@ -2344,245 +863,191 @@
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .kv .v a.lnk:focus-visible {
   outline-color: var(--bbt-focus);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pb.scroll::-webkit-scrollbar-track {
   background: var(--bbt-surface-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pb.scroll::-webkit-scrollbar-thumb {
   background: #34425a;
   border-color: var(--bbt-line);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v #language-title {
   color: var(--bbt-text-strong);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v input:disabled,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v select:disabled,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v textarea:disabled {
   color: var(--bbt-muted);
   background: var(--bbt-surface-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .chip.a,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .chip.o {
   color: var(--bbt-warn-text);
   border-color: color-mix(in srgb, var(--bbt-warn) 50%, transparent);
   background: var(--bbt-warn-soft);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .chip.c {
   color: var(--bbt-accent-text);
   border-color: color-mix(in srgb, var(--bbt-accent) 50%, transparent);
   background: var(--bbt-accent-soft);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .chip.g {
   color: var(--bbt-good-text);
   border-color: color-mix(in srgb, var(--bbt-good) 50%, transparent);
   background: var(--bbt-good-soft);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .chip.r {
   color: var(--bbt-bad-text);
   border-color: color-mix(in srgb, var(--bbt-bad) 50%, transparent);
   background: var(--bbt-bad-soft);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .grd {
   border-bottom-color: var(--bbt-line);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .grd.ko {
   background: var(--bbt-bad-soft);
   border-left-color: var(--bbt-bad);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .contro {
   border-color: color-mix(in srgb, var(--bbt-bad) 50%, transparent);
   background: var(--bbt-bad-soft);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .contro .lato + .lato {
   border-left-color: color-mix(in srgb, var(--bbt-bad) 50%, transparent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .contro .k {
   color: var(--bbt-muted);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .contro .v {
   color: var(--bbt-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .contro .v b {
   color: var(--bbt-bad-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .contro .v em {
   color: var(--bbt-good-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pettine {
   border-bottom-color: var(--ops-ctl);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .dente .st {
   background: linear-gradient(180deg, var(--bbt-accent), color-mix(in srgb, var(--bbt-accent) 35%, var(--bbt-surface)));
   border-color: var(--bbt-accent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .dente.vuoto .st {
   background: transparent;
   border-color: var(--bbt-bad);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .dente.mano .st {
   background: linear-gradient(180deg, #8493b3, #4a5878);
   border-color: #8493b3;
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .dente.oggi .st {
   background: linear-gradient(180deg, var(--bbt-warn), color-mix(in srgb, var(--bbt-warn) 40%, var(--bbt-surface)));
   border-color: var(--bbt-warn);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .dente .gg {
   color: var(--bbt-muted);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .dente .tip {
   background: var(--bbt-tooltip-bg);
   border-color: var(--bbt-tooltip-line);
   color: var(--bbt-tooltip-text);
   box-shadow: 0 6px 20px rgba(0, 0, 0, .5);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .dente .tip i {
   color: var(--bbt-muted);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .dente .tip b.ko,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .legenda b.ko,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .nota b.ko,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .kv .v.ko {
   color: var(--bbt-bad-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .legenda span {
   color: var(--bbt-text-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .legenda b {
   color: var(--bbt-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .legenda .sw.notte {
   background: var(--bbt-accent);
   border-color: var(--bbt-accent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .legenda .sw.mano {
   background: #8493b3;
   border-color: #8493b3;
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .legenda .sw.vuoto {
   border-color: var(--bbt-bad);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .reg td.af,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .reg td.no b {
   color: var(--bbt-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .reg td.no,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .reg td.no code {
   color: var(--bbt-text-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .reg td.no code {
   background: var(--bbt-surface-3);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .kv {
   border-bottom-color: var(--bbt-line);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .kv .v a.lnk {
   color: var(--bbt-accent-text);
   border-bottom-color: color-mix(in srgb, var(--bbt-accent) 55%, transparent);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .kv .v a.lnk:hover {
   border-bottom-color: var(--bbt-accent-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .nota b {
   color: var(--bbt-text-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .bl {
   border-bottom-color: var(--bbt-line);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .bl:hover {
   background: var(--bbt-hover);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .bl .fn,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .bl .dt {
   color: var(--bbt-text-2);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .bl .mb {
   color: var(--bbt-warn-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .bl .rm button {
   color: var(--bbt-muted);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .bl .rm button:hover {
   color: var(--bbt-bad-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .esito.ok {
   border-color: var(--bbt-good);
   background: var(--bbt-good-soft);
   color: var(--bbt-good-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .esito.ko {
   border-color: var(--bbt-bad);
   background: var(--bbt-bad-soft);
   color: var(--bbt-bad-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .buco {
   border-color: color-mix(in srgb, var(--bbt-bad) 55%, transparent);
   background: var(--bbt-bad-soft);
   color: var(--bbt-bad-text);
 }
-
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pbody button:focus-visible,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v input:focus-visible,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v select:focus-visible {
   outline: 2px solid var(--bbt-focus);
   outline-offset: 1px;
 }
-
 /* Disabled controls: dim by colour and border, not by opacity, so the label
    stays readable (>= 4.5:1) and still clearly reads as unavailable. */
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .fil button:disabled,
 :root[data-bb-theme="dark"] .bb-page-modern[data-page="movements"] .f14m .agg:disabled,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-toolbar button:disabled,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-actions button:disabled,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-choice button:disabled,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-switches button:disabled,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="mandato"] .mandato-preview button:disabled,
-:root[data-bb-theme="dark"] .bb-page-modern[data-page="journal"] .journal-page button:disabled,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .btn:disabled,
 :root[data-bb-theme="dark"] .bb-page-modern.bb-page-settings[data-page="settings"] .f11v .pbody button:disabled {
   opacity: 1;

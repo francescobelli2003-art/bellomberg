@@ -12,6 +12,7 @@ import { Journal, JournalError, journalChanged, journalDraft,
   type JournalRevision, type JournalStatus, type JournalSummary } from '@/lib/journal';
 import './journal.css';
 import './operations-modern.css';
+import { Archive, Check, ChevronLeft, ChevronRight, Globe, History, Lock, Plus, Search, X } from 'lucide-react';
 
 
 const BODY_LIMIT = 30000;
@@ -129,6 +130,8 @@ const ACTION = { create: tr('journal.created'), update: tr('journal.updated'), a
     }).finally(() => { if (active) setBusy(false); });
     return () => { active = false; };
   }, []);
+  // Aggiunto con la Nuova (in coda: i test SSR indicizzano gli hook per posizione).
+  const [storia, setStoria] = useState(false);
   const navigate = async (to: Destination, discard = false) => {
     if (busy) return;
     if (dirty && !discard) { setPending(to); return; }
@@ -186,63 +189,79 @@ const ACTION = { create: tr('journal.created'), update: tr('journal.updated'), a
     finally { if (stillCurrent()) setVersionsBusy(false); }
   };
 
+  const icona = (entry: { kind: JournalKind; ticker?: string | null }) => entry.kind === 'macro' || !entry.ticker
+    ? <span className="jr-ico is-macro" aria-hidden="true"><Globe /></span>
+    : <span className="jr-ico" aria-hidden="true" style={{ background: tinta(entry.ticker) }}>{entry.ticker.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase()}</span>;
   return <ModernPage page="journal" render={() => <JournalViewBoundary render={() => (
   <section className="journal-page" data-layout="worktable" aria-label={tr('journal.aria')}>
-    <header className="journal-head">
-      <div><h1>{tr('journal.title')}</h1><p>{tr('journal.subtitle')}</p></div>
-      <div className="journal-private"><span aria-hidden="true">◇</span><div>{tr('journal.private')}<small>{tr('journal.privacy')}</small></div></div>
-    </header>
     <div className="journal-layout">
-      <aside className="journal-library" aria-label={tr('journal.library_aria')}>
-        <div className="journal-library-head"><h2>{tr('journal.your_notes')}</h2><button className="journal-primary" disabled={busy} onClick={() => navigate('new')}>{tr('journal.new_note')}</button></div>
-        <label className="journal-search">{tr('journal.search')}<input type="search" placeholder={tr('journal.search_hint')} value={query} maxLength={200} onChange={e => setQuery(e.target.value)} /></label>
+      <aside className="journal-library bbn-card" aria-label={tr('journal.library_aria')}>
+        <div className="journal-library-head"><h2>{tr('journal.your_notes')}</h2>{entries && <span className="jr-count">{number(entries.total)}</span>}<span className="jr-grow" /><button className="journal-primary bbn-btn is-primary" disabled={busy} onClick={() => navigate('new')}><Plus aria-hidden="true" />{tr('journal.new_note')}</button></div>
+        <label className="journal-search"><Search aria-hidden="true" /><span className="jr-sr">{tr('journal.search')}</span><input type="search" placeholder={tr('journal.search_hint')} value={query} maxLength={200} onChange={e => setQuery(e.target.value)} /></label>
         <div className="journal-filters">
-          <label>{tr('journal.show')}<select value={status} onChange={e => { setStatus(e.target.value as JournalStatus); setOffset(0); }}><option value="active">{tr('journal.active_notes')}</option><option value="archived">{tr('journal.archived_notes')}</option><option value="all">{tr('journal.all_notes')}</option></select></label>
-          <label>{tr('journal.type')}<select value={kind} onChange={e => { setKind(e.target.value as JournalKind | ''); setOffset(0); }}><option value="">{tr('journal.all_types')}</option><option value="thesis">{tr('journal.thesis_short')}</option><option value="macro">{tr('journal.macro_short')}</option></select></label>
+          <div className="bbn-seg" role="group" aria-label={tr('journal.show')}>{([['active', 'journal.active_notes'], ['archived', 'journal.archived_notes'], ['all', 'journal.all_notes']] as const).map(([v, k]) => <button key={v} type="button" aria-pressed={status === v} className={status === v ? 'is-on' : ''} onClick={() => { setStatus(v); setOffset(0); }}>{tr(k)}</button>)}</div>
+          <div className="bbn-seg" role="group" aria-label={tr('journal.type')}>{([['', 'journal.all_types'], ['thesis', 'journal.thesis_short'], ['macro', 'journal.macro_short']] as const).map(([v, k]) => <button key={v || 'all'} type="button" aria-pressed={kind === v} className={kind === v ? 'is-on' : ''} onClick={() => { setKind(v as JournalKind | ''); setOffset(0); }}>{tr(k)}</button>)}</div>
         </div>
         {loading && <p className="journal-muted" role="status">{tr('journal.loading')}</p>}
-        {listError && <div className="journal-error" role="alert">{showNotice(listError,language)}<button onClick={() => setRefresh(x => x + 1)}>{tr('journal.retry')}</button></div>}
+        {listError && <div className="journal-error" role="alert">{showNotice(listError,language)}<button className="bbn-link" onClick={() => setRefresh(x => x + 1)}>{tr('journal.retry')}</button></div>}
         {!loading && entries?.total === 0 && <p className="journal-empty">{query || kind || status !== 'active' ? tr('journal.empty_filtered') : tr('journal.empty')}</p>}
         <div className="journal-notes" aria-busy={loading}>{entries?.items.map(entry => <button key={entry.id} disabled={busy || loading} onClick={() => navigate({ id: entry.id })} className={'journal-note ' + (current?.id === entry.id ? 'selected' : '')} aria-current={current?.id === entry.id ? 'true' : undefined}>
-          <span className="journal-note-kind">{entry.ticker || (entry.kind === 'macro' ? tr('journal.macro_short') : tr('journal.thesis_short'))}<small>{entry.archived_at ? tr('journal.archived') : `v${entry.version}`}</small></span>
-          <strong>{entry.title}</strong><span className="journal-excerpt">{entry.excerpt}</span><time dateTime={entry.updated_at}>{WHEN(entry.updated_at)}</time>
+          {icona(entry)}
+          <span className="jr-note-text"><strong>{entry.title}</strong><span className="journal-excerpt">{entry.excerpt}</span><span className="journal-note-kind">{entry.ticker || (entry.kind === 'macro' ? tr('journal.macro_short') : tr('journal.thesis_short'))} · <time dateTime={entry.updated_at}>{WHEN(entry.updated_at)}</time></span></span>
+          <small className="jr-version">{entry.archived_at ? tr('journal.archived') : `v${entry.version}`}</small>
         </button>)}</div>
-        {entries && entries.total > 0 && <footer className="journal-pagination"><span>{tr('journal.range',{a:number(offset+1),b:number(Math.min(offset+entries.items.length,entries.total)),c:number(entries.total)})}</span><button disabled={!offset || loading} onClick={() => setOffset(Math.max(0, offset - 30))} aria-label={tr('journal.previous')}>‹</button><button disabled={offset + entries.items.length >= entries.total || loading} onClick={() => setOffset(offset + 30)} aria-label={tr('journal.next')}>›</button></footer>}
+        {entries && entries.total > 0 && <footer className="journal-pagination"><span>{tr('journal.range',{a:number(offset+1),b:number(Math.min(offset+entries.items.length,entries.total)),c:number(entries.total)})}</span><span className="jr-grow" /><button className="bbn-icon-btn" disabled={!offset || loading} onClick={() => setOffset(Math.max(0, offset - 30))} aria-label={tr('journal.previous')}><ChevronLeft aria-hidden="true" /></button><button className="bbn-icon-btn" disabled={offset + entries.items.length >= entries.total || loading} onClick={() => setOffset(offset + 30)} aria-label={tr('journal.next')}><ChevronRight aria-hidden="true" /></button></footer>}
       </aside>
-      <article className="journal-editor" aria-label={tr('journal.editor')}>
-        <div className="journal-editor-top"><span>{dirty && <span className="journal-session-draft">{tr('journal.session_draft')} · </span>}{current ? tr('journal.identity', {a: current.id, b: current.version}) : tr('journal.new_note')}{archived ? tr('journal.archived_suffix') : ''}</span><span className={dirty ? 'journal-dirty' : ''}>{dirty ? tr('journal.unsaved') : current ? tr('journal.saved') : tr('journal.draft')}</span></div>
-        {pending && <div className="journal-warning" role="alert"><b>{tr('journal.pending_title')}</b><p>{tr('journal.pending_text')}</p><div><button onClick={() => setPending(null)}>{tr('journal.keep_writing')}</button><button onClick={() => navigate(pending, true)}>{tr('journal.discard_continue')}</button></div></div>}
+      <article className="journal-editor bbn-card" aria-label={tr('journal.editor')}>
+        <div className="journal-editor-top">{current ? icona(current) : icona({ kind: draft.kind, ticker: draft.ticker })}
+          <span className="jr-identity">{dirty && <span className="journal-session-draft">{tr('journal.session_draft')} · </span>}{current ? tr('journal.identity', {a: current.id, b: current.version}) : tr('journal.new_note')}{archived ? tr('journal.archived_suffix') : ''}{current && <> · {WHEN(current.updated_at)}</>}</span>
+          <span className={'jr-state ' + (dirty ? 'journal-dirty is-dirty' : current ? 'is-saved' : '')}>{dirty ? tr('journal.unsaved') : current ? <><Check aria-hidden="true" />{tr('journal.saved')}</> : tr('journal.draft')}</span>
+          <span className="jr-grow" />
+          <button type="button" className="bbn-btn jr-history-btn" aria-expanded={storia} aria-controls="journal-history" disabled={!current} onClick={() => setStoria(true)}><History aria-hidden="true" />{tr('journal.history_open')}{versionsTotal > 0 && <span className="jr-badge">{number(versionsTotal)}</span>}</button></div>
+        {pending && <div className="journal-warning" role="alert"><b>{tr('journal.pending_title')}</b><p>{tr('journal.pending_text')}</p><div><button className="bbn-btn" onClick={() => setPending(null)}>{tr('journal.keep_writing')}</button><button className="bbn-btn" onClick={() => navigate(pending, true)}>{tr('journal.discard_continue')}</button></div></div>}
         {error && <div className="journal-error" role="alert">{showNotice(error,language)}</div>}
         {message && <div className="journal-message" role="status">{showNotice(message,language)}</div>}
-        {conflict && <div className="journal-warning"><p>{tr('journal.conflict')}</p><button disabled={busy} onClick={compare}>{tr('journal.compare')}</button>
+        {conflict && <div className="journal-warning"><p>{tr('journal.conflict')}</p><button className="bbn-btn" disabled={busy} onClick={compare}>{tr('journal.compare')}</button>
           {remote && <div className="journal-conflict"><h3>{tr('journal.saved_at',{a:number(remote.version),b:WHEN(remote.updated_at)})}</h3><strong>{remote.title}</strong><p>{KIND[remote.kind]}{remote.ticker ? ` · ${remote.ticker}` : ''}</p><pre>{remote.body}</pre>
-            {!remote.archived_at && <button disabled={busy} onClick={() => { setCurrent(remote); setConflict(false); setRemote(null); setError(''); setMessage({ key: 'journal.kept_on_current' }); }}>{tr('journal.keep_on_current')}</button>}
-            {remote.archived_at && <button disabled={busy} onClick={() => { setCurrent(null); selectedId.current = null; setConflict(false); setRemote(null); setError(''); setMessage({ key: 'journal.original_archived' }); }}>{tr('journal.continue_new')}</button>}
-            <button disabled={busy} onClick={() => accept(remote)}>{tr('journal.discard_use_current')}</button></div>}
+            <div className="jr-conflict-actions">{!remote.archived_at && <button className="bbn-btn" disabled={busy} onClick={() => { setCurrent(remote); setConflict(false); setRemote(null); setError(''); setMessage({ key: 'journal.kept_on_current' }); }}>{tr('journal.keep_on_current')}</button>}
+            {remote.archived_at && <button className="bbn-btn" disabled={busy} onClick={() => { setCurrent(null); selectedId.current = null; setConflict(false); setRemote(null); setError(''); setMessage({ key: 'journal.original_archived' }); }}>{tr('journal.continue_new')}</button>}
+            <button className="bbn-btn" disabled={busy} onClick={() => accept(remote)}>{tr('journal.discard_use_current')}</button></div></div>}
         </div>}
         {archived && <div className="journal-warning">{tr('journal.archived_warning')}</div>}
         <fieldset disabled={busy || archived} className="journal-fields">
-          <div className="journal-metadata"><label>{tr('journal.note_type')}<select value={draft.kind} onChange={e => change('kind', e.target.value as JournalKind)}><option value="thesis">{tr('journal.thesis')}</option><option value="macro">{tr('journal.macro')}</option></select></label>
-            <label>{tr('journal.ticker')} <small>{tr('journal.optional')}</small><input list="journal-tickers" value={draft.ticker || ''} maxLength={32} autoCapitalize="characters" autoComplete="off" placeholder={tr('journal.ticker_hint')} onChange={e => change('ticker', e.target.value || null)} /><datalist id="journal-tickers">{tickers.map(t => <option key={t.ticker} value={t.ticker}>{t.nome}</option>)}</datalist></label></div>
+          <div className="journal-metadata">
+            <div className="jr-meta-field"><span className="jr-label" id="journal-kind-label">{tr('journal.note_type')}</span><div className="bbn-seg" role="group" aria-labelledby="journal-kind-label">{(['thesis', 'macro'] as const).map(k => <button key={k} type="button" aria-pressed={draft.kind === k} className={draft.kind === k ? 'is-on' : ''} onClick={() => change('kind', k)}>{KIND[k]}</button>)}</div></div>
+            <label className="jr-meta-field jr-ticker"><span className="jr-label">{tr('journal.ticker')} <small>{tr('journal.optional')}</small></span><span className="jr-input"><input list="journal-tickers" value={draft.ticker || ''} maxLength={32} autoCapitalize="characters" autoComplete="off" placeholder={tr('journal.ticker_hint')} onChange={e => change('ticker', e.target.value || null)} />{draft.ticker && tickers.find(x => x.ticker === draft.ticker?.toUpperCase()) && <small>{tickers.find(x => x.ticker === draft.ticker?.toUpperCase())?.nome}</small>}</span><datalist id="journal-tickers">{tickers.map(t => <option key={t.ticker} value={t.ticker}>{t.nome}</option>)}</datalist></label>
+          </div>
           {tickerError && <p className="journal-muted">{tr('journal.ticker_unavailable')}</p>}
-          <label className="journal-title-label">{tr('journal.note_title')}<small className="journal-title-count">{tr('journal.chars',{a:number(draft.title.length),b:number(160)})}</small><input className="journal-title-input" value={draft.title} maxLength={160} placeholder={draft.kind === 'macro' ? tr('journal.title_macro') : tr('journal.title_thesis')} onChange={e => change('title', e.target.value)} /></label>
-          <div className="journal-writing-guide"><span>{tr('journal.idea')}</span><i aria-hidden="true">→</i><span>{tr('journal.evidence')}</span><i aria-hidden="true">→</i><span>{tr('journal.risks')}</span><i aria-hidden="true">→</i><span>{tr('journal.change_mind')}</span></div>
-          <label className="journal-body-label">{tr('journal.body')}<textarea aria-label={tr('journal.body')} value={draft.body} maxLength={BODY_LIMIT} rows={18} spellCheck placeholder={tr('journal.body_hint')} onChange={e => change('body', e.target.value)} /></label>
+          <label className="journal-title-label"><span className="jr-sr">{tr('journal.note_title')}</span><input className="journal-title-input" value={draft.title} maxLength={160} placeholder={draft.kind === 'macro' ? tr('journal.title_macro') : tr('journal.title_thesis')} onChange={e => change('title', e.target.value)} /><small className="journal-title-count">{tr('journal.chars',{a:number(draft.title.length),b:number(160)})}</small></label>
+          <div className="journal-writing-guide"><span className="jr-label">{tr('journal.outline')}</span><span><i>1</i>{tr('journal.idea')}</span><i aria-hidden="true">→</i><span><i>2</i>{tr('journal.evidence')}</span><i aria-hidden="true">→</i><span><i>3</i>{tr('journal.risks')}</span><i aria-hidden="true">→</i><span><i>4</i>{tr('journal.change_mind')}</span></div>
+          <label className="journal-body-label"><span className="jr-sr">{tr('journal.body')}</span><textarea aria-label={tr('journal.body')} value={draft.body} maxLength={BODY_LIMIT} rows={18} spellCheck placeholder={tr('journal.body_hint')} onChange={e => change('body', e.target.value)} /></label>
         </fieldset>
-        <div className="journal-writing-foot"><span>{tr('journal.chars',{a:number(draft.body.length),b:number(BODY_LIMIT)})}</span><span>{tr('journal.origin')}</span></div>
-        <footer className="journal-editor-actions"><span>{tr('journal.footer')}</span><div><button className="journal-primary" onClick={save} disabled={busy || archived || conflict || !dirty || !draft.title.trim() || !draft.body.trim()}>{busy ? tr('journal.wait') : current ? tr('journal.save_version') : tr('journal.save_note')}</button>
-          <button disabled={busy || !dirty} onClick={() => { setDraft(journalDraft(current)); setPending(null); setError(''); setMessage({ key: 'journal.discarded' }); }}>{tr('journal.discard')}</button></div>
-          {current && <button disabled={busy || dirty} onClick={archive}>{archived ? tr('journal.restore') : tr('journal.archive')}</button>}</footer>
-        {current && <p className="journal-origin">{tr('journal.created_note',{a:WHEN(current.created_at)})}</p>}
+        <footer className="journal-editor-actions"><span className="jr-foot-info"><span>{tr('journal.chars',{a:number(draft.body.length),b:number(BODY_LIMIT)})}</span><span><Lock aria-hidden="true" />{tr('journal.origin')}</span>{current && <span className="journal-origin">{tr('journal.created_note',{a:WHEN(current.created_at)})}</span>}</span>
+          <div><button className="bbn-btn" disabled={busy || !dirty} onClick={() => { setDraft(journalDraft(current)); setPending(null); setError(''); setMessage({ key: 'journal.discarded' }); }}>{tr('journal.discard')}</button>
+            <button className="journal-primary bbn-btn is-primary" onClick={save} disabled={busy || archived || conflict || !dirty || !draft.title.trim() || !draft.body.trim()}>{busy ? tr('journal.wait') : current ? tr('journal.save_version') : tr('journal.save_note')}</button></div>
+          {current && <button className="bbn-btn" disabled={busy || dirty} onClick={archive}><Archive aria-hidden="true" />{archived ? tr('journal.restore') : tr('journal.archive')}</button>}</footer>
       </article>
-      <aside className="journal-history" aria-label={tr('journal.history_aria')}><h2>{tr('journal.history_title')}</h2><p>{tr('journal.history_hint')}</p>
+    </div>
+    <div className={'jr-drawer-root' + (storia ? ' is-open' : '')}>
+      {storia && <div className="jr-scrim" onClick={() => setStoria(false)} />}
+      <aside id="journal-history" className="journal-history jr-drawer" aria-label={tr('journal.history_aria')} role={storia ? 'dialog' : undefined} aria-modal={storia || undefined} onKeyDown={e => { if (e.key === 'Escape') setStoria(false); }}>
+        <div className="jr-drawer-head"><h2>{tr('journal.history_title')}</h2><span className="jr-grow" /><button type="button" className="bbn-icon-btn" aria-label={tr('journal.close')} onClick={() => setStoria(false)}><X aria-hidden="true" /></button></div>
+        <p>{tr('journal.history_hint')}</p>
         {!current && <div className="journal-empty">{tr('journal.history_empty')}</div>}
-        {versionsError && <div className="journal-error" role="alert">{showNotice(versionsError,language)}<button onClick={() => setRefresh(x => x + 1)}>{tr('journal.retry')}</button></div>}
-        <ol>{versions.map(version => <li key={version.version}><details><summary><span className="journal-version">v{version.version}</span><span>{ACTION[version.action]}<time dateTime={version.saved_at}>{WHEN(version.saved_at)}</time></span></summary><div className="journal-version-body"><strong>{version.title}</strong><span>{KIND[version.kind]}{version.ticker ? ` · ${version.ticker}` : ''}</span><pre>{version.body}</pre><small>{tr('journal.origin_user')} · {version.archived_at ? tr('journal.archived_version') : tr('journal.active_version')}</small><button disabled={busy || archived || dirty || conflict || version.version === current?.version} onClick={() => { setDraft(journalDraft(version)); setMessage({ key: 'journal.version_draft', params: {a: version.version} }); }}>{tr('journal.use_version')}</button></div></details></li>)}</ol>
+        {versionsError && <div className="journal-error" role="alert">{showNotice(versionsError,language)}<button className="bbn-link" onClick={() => setRefresh(x => x + 1)}>{tr('journal.retry')}</button></div>}
+        <ol>{versions.map(version => <li key={version.version}><details><summary><span className="journal-version">v{version.version}</span><span className="jr-version-text"><b>{ACTION[version.action]}</b><time dateTime={version.saved_at}>{WHEN(version.saved_at)}</time></span><ChevronRight aria-hidden="true" className="jr-chev" /></summary><div className="journal-version-body"><strong>{version.title}</strong><span>{KIND[version.kind]}{version.ticker ? ` · ${version.ticker}` : ''}</span><pre>{version.body}</pre><small>{tr('journal.origin_user')} · {version.archived_at ? tr('journal.archived_version') : tr('journal.active_version')}</small><button className="bbn-btn" disabled={busy || archived || dirty || conflict || version.version === current?.version} onClick={() => { setDraft(journalDraft(version)); setStoria(false); setMessage({ key: 'journal.version_draft', params: {a: version.version} }); }}>{tr('journal.use_version')}</button></div></details></li>)}</ol>
         {versionsBusy && <p role="status">{tr('journal.history_loading')}</p>}
-        {versions.length < versionsTotal && <button disabled={versionsBusy} onClick={moreVersions}>{tr('journal.history_more')}</button>}
+        {versions.length < versionsTotal && <button className="bbn-btn" disabled={versionsBusy} onClick={moreVersions}>{tr('journal.history_more')}</button>}
       </aside>
     </div>
   </section>
   )} />} />;
+}
+
+// Colore stabile per il ticker: lo stesso titolo ha sempre lo stesso cerchio.
+function tinta(ticker: string) {
+  let h = 0; for (const c of ticker.toUpperCase()) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return `hsl(${h} 55% 42%)`;
 }
