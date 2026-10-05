@@ -614,7 +614,10 @@ const { app, BrowserWindow } = require('electron');
       reveal: getComputedStyle(document.querySelector('.bbn-chart-svg')).animationName }));
     assert.deepEqual(chartMotion, { dash: 'none', reveal: 'bbn-draw' },
       'the line is revealed by a clip, never by a dash pattern (dashes break under non-scaling-stroke)');
-    // The net worth counts up once on first paint (750 ms): read it when it lands.
+    // The hero opens on NAV (unit value); Cash shows the euro net worth.
+    assert.equal(await js(() => document.querySelector('.bbn-hero-vista button[aria-pressed="true"]')?.textContent.trim()), 'NAV', 'NAV is the default hero view');
+    await click('.bbn-hero-vista button:nth-child(2)');
+    // The figure counts up once on first paint (750 ms): read it when it lands.
     await wait(() => /146,913\.56/.test(document.querySelector('.bbn-hero-value')?.textContent || ''), 'net worth count-up settles', 5000);
     await settle();
     const snapshot = await js(() => ({
@@ -697,13 +700,13 @@ const { app, BrowserWindow } = require('electron');
     // 1D: the fixture's previous close is 25/09 and the snapshot 29/09, so the pill
     // declares the multi-session window instead of saying "today".
     for (const [index, pattern] of [[0, /25\/09→29\/09/], [1, /week/], [4, /inception/], [2, /month/]]) {
-      await click(`.bbn-hero .bbn-seg button:nth-child(${index + 1})`);
+      await click(`.bbn-hero-row .bbn-seg button:nth-child(${index + 1})`);
       await wait(re => new RegExp(re).test(document.querySelector('.bbn-hero .bbn-pill')?.textContent || ''), `hero period ${pattern}`, 5000, pattern.source);
     }
     // A period change remounts the chart SVG and replays the 700 ms reveal: capture it mid-way.
-    await click('.bbn-hero .bbn-seg button:nth-child(4)');
+    await click('.bbn-hero-row .bbn-seg button:nth-child(4)');
     await capture('dashboard-light-chart-mid-reveal.png'); captures.push('dashboard-light-chart-mid-reveal.png');
-    await click('.bbn-hero .bbn-seg button:nth-child(3)');
+    await click('.bbn-hero-row .bbn-seg button:nth-child(3)');
     assert.equal(await js(() => !!document.querySelector('.bbn-chart-spy')), false, 'SPY is off by default');
     await click('.bbn-hero .bbn-toggle-chip');
     await wait(() => !!document.querySelector('.bbn-chart-spy') && document.querySelector('.bbn-hero .bbn-toggle-chip')?.getAttribute('aria-pressed') === 'true', 'SPY line on');

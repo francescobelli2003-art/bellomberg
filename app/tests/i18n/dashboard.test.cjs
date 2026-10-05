@@ -532,6 +532,27 @@ test('Dashboard hero chart: no preserveAspectRatio="none", viewBox from the box,
   assert.ok(nodes.some(n => n.props?.className === 'bbn-chart' && typeof n.props.onMouseMove === 'function'), 'crosshair handler');
 });
 
+// 2026-10-05: the hero figure has two views. NAV (default) = unit value; Cash = euro of holdings + cash.
+test('Dashboard hero: NAV (unit value) is the default view, Cash shows the euro total', () => {
+  const carica = creaCaricatore();
+  carica('i18n/lingua.ts').impostaLinguaCorrente('it');
+  const Hero = carica('pages/dashboard/HeroPatrimonio.tsx').default;
+  const base = { patrimonio: 1234.5, quota: { valore: 105, base: 100, dal: '2026-01-15' }, spy: null, dettagli: [], avvisi: [],
+    periodo: 'Tutto', onPeriodo() {}, spyAcceso: false, onSpy() {},
+    curva: { stato: 'viva', date: ['2026-01-15', '2026-02-16'], valori: [100, 105], euro: [1000, 1234.5] },
+    giorno: { eur: null, pct: null, multiDay: false, windowLabel: null, parziale: false } };
+  const valore = html => html.match(/class="bbn-hero-value num"[^>]*>(.*?)<\/div>/)[1].replace(/<[^>]+>/g, '');
+  const nav = renderToStaticMarkup(React.createElement(Hero, base));
+  assert.match(nav, /<button[^>]*aria-pressed="true"[^>]*>NAV</);
+  assert.match(valore(nav), /^105,00valore quota · base 100 dal 15 gen 2026$/);
+  assert.match(nav, /title="Cash: 1\.234,50\s€/);
+  const cash = renderToStaticMarkup(React.createElement(Hero, { ...base, vista: 'cash' }));
+  assert.match(cash, /<button[^>]*aria-pressed="true"[^>]*>Cash</);
+  assert.match(valore(cash), /^1\.234,50\s€titoli \+ liquidità$/);
+  const senzaQuota = renderToStaticMarkup(React.createElement(Hero, { ...base, quota: null }));
+  assert.doesNotMatch(valore(senzaQuota), /€/, 'NAV view never falls back to the euro figure');
+});
+
 // Revisione G9b: ripieghi preesistenti chiusi (Performance snapshot e Sharpe, flussi senza importo).
 test('Performance: a failed portfolio read is declared, never the old snapshot shown as current', async () => {
   let n = 0;

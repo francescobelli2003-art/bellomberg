@@ -9,16 +9,18 @@ import { Segmenti } from '@/components/nuova/Card';
 import { parole } from './parole';
 
 export type Periodo = '1G' | '1S' | '1M' | '1A' | 'Tutto';
+/** Cifra grande: NAV = valore quota (TWR), Cash = euro di titoli + liquidità. */
+export type VistaHero = 'nav' | 'cash';
 /** Punti della serie giornaliera per periodo (giorni di borsa). 1G = ieri → adesso. */
 const PUNTI: Record<Periodo, number> = { '1G': 2, '1S': 6, '1M': 22, '1A': 253, Tutto: Number.POSITIVE_INFINITY };
 
 const finito = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 const riduciMovimento = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-/** Patrimonio con le cifre raggruppate anche a quattro cifre (6.576,18 €). */
-function partiEuro(value: number) {
+/** Cifra con le cifre raggruppate anche a quattro cifre (6.576,18 €); senza valuta per la quota. */
+function partiCifra(value: number, euro: boolean) {
   const testo = new Intl.NumberFormat(localeDi(linguaCorrente()), {
-    style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2,
+    ...(euro ? { style: 'currency', currency: 'EUR' } : {}), minimumFractionDigits: 2, maximumFractionDigits: 2,
     useGrouping: 'always' as unknown as boolean,
   }).formatToParts(value);
   const cut = testo.findIndex(part => part.type === 'decimal');
@@ -59,8 +61,12 @@ function percorso(punti: Array<[number, number]>) {
 
 export interface DettaglioPatrimonio { etichetta: string; valore: string }
 
-export default function HeroPatrimonio({ patrimonio, curva, spy, giorno, dettagli, avvisi, periodo, onPeriodo, spyAcceso, onSpy }: {
+export default function HeroPatrimonio({ patrimonio, quota = null, vista = 'nav', onVista = () => {}, curva, spy, giorno, dettagli, avvisi, periodo, onPeriodo, spyAcceso, onSpy }: {
   patrimonio: number | null;
+  /** valore quota corrente (ultimo punto TWR) con base e data d'inizio; null se la quota non c'è */
+  quota?: { valore: number; base: number; dal: string } | null;
+  vista?: VistaHero;
+  onVista?: (vista: VistaHero) => void;
   curva: EsitoCurva;
   spy: BenchmarkPayload | null;
   giorno: { eur: number | null; pct: number | null; multiDay: boolean; windowLabel: string | null; parziale: boolean };
@@ -73,7 +79,9 @@ export default function HeroPatrimonio({ patrimonio, curva, spy, giorno, dettagl
 }) {
   const w = parole();
   const idGradiente = useId().replace(/:/g, '');
-  const mostrato = useConteggioIniziale(finito(patrimonio) ? patrimonio : null);
+  const nav = vista === 'nav';
+  const cifraVista = nav ? (quota && finito(quota.valore) ? quota.valore : null) : (finito(patrimonio) ? patrimonio : null);
+  const mostrato = useConteggioIniziale(cifraVista);
   const viva = curva.stato === 'viva' ? curva : null;
 
   const serie = useMemo(() => {
@@ -144,7 +152,13 @@ export default function HeroPatrimonio({ patrimonio, curva, spy, giorno, dettagl
       title: `${w.chartHint}${spyCh != null ? ` · SPY ${fmtPct(spyCh)}` : ''}` };
   }
 
-  const cifra = finito(mostrato) ? partiEuro(mostrato) : null;
+  const cifra = finito(mostrato) ? partiCifra(mostrato, !nav) : null;
+  const sotto = nav
+    ? (quota ? w.heroNavSub(fmtNum(quota.base, 0), new Date(quota.dal + 'T12:00:00').toLocaleDateString(localeDi(linguaCorrente()), { day: 'numeric', month: 'short', year: 'numeric' })) : null)
+    : w.heroCashSub;
+  // Nel tooltip «i» c'è sempre anche la cifra dell'altra vista.
+  const righeInfo = nav ? [{ etichetta: w.heroCash, valore: fmtEUR(patrimonio) }, ...dettagli] : dettagli;
+  const viste = [{ id: 'nav' as const, testo: w.heroNav, title: w.heroNavHint }, { id: 'cash' as const, testo: w.heroCash, title: w.heroCashHint }];
   const etichettePeriodo: Record<Periodo, string> = { '1G': w.period_1G, '1S': w.period_1S, '1M': w.period_1M, '1A': w.period_1A, Tutto: w.periodAll };
   const periodi = (['1G', '1S', '1M', '1A', 'Tutto'] as const).map(id => ({ id, testo: etichettePeriodo[id] }));
 
@@ -152,12 +166,14 @@ export default function HeroPatrimonio({ patrimonio, curva, spy, giorno, dettagl
   return (
     <section className="bbn-card bbn-hero" aria-label={w.wealth}>
       <div className="bbn-hero-label">
-        <span>{w.wealth}</span>
+        <span>{nav ? w.heroNav : w.heroCash}</span>
         <span className="bbn-info" tabIndex={0} role="img" aria-label={w.wealthInfo}
-          title={dettagli.map(d => `${d.etichetta}: ${d.valore}`).join('\n')}>i</span>
+          title={righeInfo.map(d => `${d.etichetta}: ${d.valore}`).join('\n')}>i</span>
+        <Segmenti etichetta={w.heroView} valore={vista} onChange={onVista} opzioni={viste} className="bbn-hero-vista" />
       </div>
       <div className="bbn-hero-value num" aria-live="off">
-        {cifra ? <>{cifra.intero}<span className="bbn-hero-cents">{cifra.resto}</span></> : fmtEUR(null)}
+        {cifra ? <>{cifra.intero}<span className="bbn-hero-cents">{cifra.resto}</span></> : nav ? fmtNum(null) : fmtEUR(null)}
+        {sotto && <span className="bbn-hero-sub">{sotto}</span>}
       </div>
       <div className="bbn-hero-row">
         <PastigliaVariazione valore={pill.valore} grande title={pill.title}>{pill.testo}</PastigliaVariazione>
@@ -184,8 +200,8 @@ export default function HeroPatrimonio({ patrimonio, curva, spy, giorno, dettagl
             <div className="bbn-chart-cross" style={{ left: `${(hp / (serie.valori.length - 1)) * 100}%` }} />
             <div className="bbn-chart-dot" style={{ left: `${(hp / (serie.valori.length - 1)) * 100}%`, top: `${(geometria.Y(serie.valori[hp]) / geometria.H) * 100}%` }} />
             <div className="bbn-chart-tip" style={{ left: `clamp(80px, ${(hp / (serie.valori.length - 1)) * 100}%, calc(100% - 80px))` }}>
-              <b className="num">{fmtEUR(serie.euro[hp])}</b>
-              <span>{fmtData(serie.date[hp])} · {w.unitValue.toLowerCase()} {fmtNum(serie.valori[hp], 2)}
+              <b className="num">{nav ? fmtNum(serie.valori[hp], 2) : fmtEUR(serie.euro[hp])}</b>
+              <span>{fmtData(serie.date[hp])} · {nav ? fmtEUR(serie.euro[hp]) : `${w.unitValue.toLowerCase()} ${fmtNum(serie.valori[hp], 2)}`}
                 {spyAcceso && serie.bench && finito(serie.bench.valori[hp]) && serie.bench.valori[serie.bench.da] > 0
                   ? ` · SPY ${fmtPct((serie.bench.valori[hp] / serie.bench.valori[serie.bench.da] - 1) * 100)}` : ''}</span>
             </div>

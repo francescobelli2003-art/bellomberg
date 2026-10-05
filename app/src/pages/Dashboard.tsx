@@ -19,7 +19,7 @@ import RunConfirmDialog from '@/components/RunConfirmDialog';
 import DettaglioTitolo from '@/components/nuova/DettaglioTitolo';
 import PastigliaVariazione from '@/components/nuova/PastigliaVariazione';
 import HeroPatrimonio from './dashboard/HeroPatrimonio';
-import type { Periodo } from './dashboard/HeroPatrimonio';
+import type { Periodo, VistaHero } from './dashboard/HeroPatrimonio';
 import ListaPosizioni, { nomeTitolo } from './dashboard/ListaPosizioni';
 import type { Metrica } from './dashboard/ListaPosizioni';
 import CardNotizie from './dashboard/CardNotizie';
@@ -123,6 +123,7 @@ export default function Dashboard() {
 
   // Preferenze di vista della pagina.
   const [periodo, setPeriodo] = usePreferenza<Periodo>('bb.dashboard.period', ['1G', '1S', '1M', '1A', 'Tutto'], '1M');
+  const [vistaHero, setVistaHero] = usePreferenza<VistaHero>('bb.dashboard.hero', ['nav', 'cash'], 'nav');
   const [spyAcceso, setSpyAcceso] = useState(false);
   const [metrica, setMetrica] = usePreferenza<Metrica>('bb.dashboard.change', ['oggi', 'totale'], 'oggi');
   const [vistaAlloc, setVistaAlloc] = usePreferenza<VistaAllocazione>('bb.dashboard.allocation', ['titoli', 'regioni', 'heatmap'], 'titoli');
@@ -308,7 +309,8 @@ export default function Dashboard() {
       ))}</div>}
 
       <div className="bbn-grid">
-        <HeroPatrimonio patrimonio={navTotal} curva={curva} spy={spySerie} periodo={periodo} onPeriodo={setPeriodo}
+        <HeroPatrimonio patrimonio={navTotal} vista={vistaHero} onVista={setVistaHero}
+          quota={quota.stato === 'viva' ? { valore: quota.valore, base: quota.base, dal: quota.dal } : null} curva={curva} spy={spySerie} periodo={periodo} onPeriodo={setPeriodo}
           spyAcceso={spyAcceso} onSpy={setSpyAcceso} dettagli={dettagli} avvisi={avvisi}
           giorno={{ eur: finito(dayTot) ? dayTot : null, pct: finito(dayTotPct) ? dayTotPct : null, multiDay, windowLabel, parziale: dayPartial }} />
         <CardAllocazione posizioni={positions} patrimonio={navTotal} liquidita={values.cash} motivoNd={values.note} vista={vistaAlloc} onVista={setVistaAlloc}

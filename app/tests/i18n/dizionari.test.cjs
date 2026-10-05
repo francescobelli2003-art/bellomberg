@@ -14,7 +14,8 @@ const { en } = carica('i18n/en/index.ts');
 const NEUTRE_PER_CHIAVE = { 'trade.opening_ticker': 'Ticker', 'voldeck.chain': 'Chain',
   'voldeck.spot': 'Spot', 'voldeck.expected_move': 'Expected move 1σ',
   'newsdesk.blipCountOne': '{a} BLIP', 'progress.callsCountOne': '{a} call',
-  'movements.bothCounts': '{a} + {b}' };
+  'movements.bothCounts': '{a} + {b}',
+  'dashboardPage.heroNav': 'NAV', 'dashboardPage.heroCash': 'Cash' };
 // Nuova pages: shared domain terms, tickers, metric names and pure layouts of placeholders.
 Object.assign(NEUTRE_PER_CHIAVE, {
   'agentsPage.descDone_desk_one': '1 desk', 'agentsPage.descDone_round_one': '1 round', 'agentsPage.runSpan': '{giorno} · {da} → {a}',

@@ -96,6 +96,9 @@
 .bbn-info:focus-visible { outline: 2px solid var(--bbn-accent); outline-offset: 2px; }
 .bbn-hero-value { margin: 2px 0 10px; font-size: clamp(44px, 3.2cqi, 56px); font-weight: 800; line-height: 1.08; letter-spacing: -.035em; }
 .bbn-hero-cents { color: var(--bbn-muted); }
+.bbn-hero-sub { margin-left: 12px; font-size: 13px; font-weight: 600; letter-spacing: 0; color: var(--bbn-muted); white-space: nowrap; }
+.bbn-hero-vista { margin-left: 4px; padding: 2px; }
+.bbn-hero-vista button { padding: 3px 10px; font-size: 12px; }
 .bbn-hero-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .bbn-chart { position: relative; height: 300px; margin: 14px -8px 0; }
 /* The line is revealed left→right with a clip, not with pathLength + dasharray:
