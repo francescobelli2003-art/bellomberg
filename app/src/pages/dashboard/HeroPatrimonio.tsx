@@ -9,7 +9,7 @@ import { Segmenti } from '@/components/nuova/Card';
 import { parole } from './parole';
 
 export type Periodo = '1G' | '1S' | '1M' | '1A' | 'Tutto';
-/** Cifra grande: NAV = valore quota (TWR), Cash = euro di titoli + liquidità. */
+/** Cifra grande: NAV = valore quota (TWR), Valore = euro di titoli + liquidità (id 'cash': preferenza salvata). */
 export type VistaHero = 'nav' | 'cash';
 /** Punti della serie giornaliera per periodo (giorni di borsa). 1G = ieri → adesso. */
 const PUNTI: Record<Periodo, number> = { '1G': 2, '1S': 6, '1M': 22, '1A': 253, Tutto: Number.POSITIVE_INFINITY };

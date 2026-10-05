@@ -532,8 +532,9 @@ test('Dashboard hero chart: no preserveAspectRatio="none", viewBox from the box,
   assert.ok(nodes.some(n => n.props?.className === 'bbn-chart' && typeof n.props.onMouseMove === 'function'), 'crosshair handler');
 });
 
-// 2026-10-05: the hero figure has two views. NAV (default) = unit value; Cash = euro of holdings + cash.
-test('Dashboard hero: NAV (unit value) is the default view, Cash shows the euro total', () => {
+// 2026-10-05: the hero figure has two views. NAV (default) = unit value; Valore/Value = euro of holdings + cash
+// (not «Cash», which in the English app means liquidity).
+test('Dashboard hero: NAV (unit value) is the default view, Valore shows the euro total', () => {
   const carica = creaCaricatore();
   carica('i18n/lingua.ts').impostaLinguaCorrente('it');
   const Hero = carica('pages/dashboard/HeroPatrimonio.tsx').default;
@@ -545,9 +546,9 @@ test('Dashboard hero: NAV (unit value) is the default view, Cash shows the euro 
   const nav = renderToStaticMarkup(React.createElement(Hero, base));
   assert.match(nav, /<button[^>]*aria-pressed="true"[^>]*>NAV</);
   assert.match(valore(nav), /^105,00valore quota · base 100 dal 15 gen 2026$/);
-  assert.match(nav, /title="Cash: 1\.234,50\s€/);
+  assert.match(nav, /title="Valore: 1\.234,50\s€/);
   const cash = renderToStaticMarkup(React.createElement(Hero, { ...base, vista: 'cash' }));
-  assert.match(cash, /<button[^>]*aria-pressed="true"[^>]*>Cash</);
+  assert.match(cash, /<button[^>]*aria-pressed="true"[^>]*>Valore</);
   assert.match(valore(cash), /^1\.234,50\s€titoli \+ liquidità$/);
   const senzaQuota = renderToStaticMarkup(React.createElement(Hero, { ...base, quota: null }));
   assert.doesNotMatch(valore(senzaQuota), /€/, 'NAV view never falls back to the euro figure');

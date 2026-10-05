@@ -619,7 +619,7 @@ const { app, BrowserWindow } = require('electron');
       reveal: getComputedStyle(document.querySelector('.bbn-chart-svg')).animationName }));
     assert.deepEqual(chartMotion, { dash: 'none', reveal: 'bbn-draw' },
       'the line is revealed by a clip, never by a dash pattern (dashes break under non-scaling-stroke)');
-    // The hero opens on NAV (unit value); Cash shows the euro net worth.
+    // The hero opens on NAV (unit value); Value shows the euro net worth.
     assert.equal(await js(() => document.querySelector('.bbn-hero-vista button[aria-pressed="true"]')?.textContent.trim()), 'NAV', 'NAV is the default hero view');
     await click('.bbn-hero-vista button:nth-child(2)');
     // The figure counts up once on first paint (750 ms): read it when it lands.
