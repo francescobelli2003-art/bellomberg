@@ -2,9 +2,37 @@ import { linguaCorrente, type Lingua } from '@/i18n/lingua';
 import { traduci, type Chiave, type Parametri } from '@/i18n/t';
 
 
+
 // I testi stanno nel catalogo (i18n/it|en/agentsPage.ts): qui solo la forma che le viste usano.
 function costruisci(l: Lingua) {
   const tr = (k: Chiave, p?: Record<string, string | number | null | undefined>) => traduci(l, k, p as Parametri | undefined);
+  /* strumento → [frase senza ticker, frase con ticker] */
+  const frasi: Record<string, [string, ((tk: string) => string) | null]> = {
+      ask_specialist: [tr('agentsPage.do_ask_specialist'), null],
+      build_dcf_model: [tr('agentsPage.do_build_dcf_model'), (tk: string) => tr('agentsPage.do_build_dcf_model_tk', { t: tk })],
+      compare_assets: [tr('agentsPage.do_compare_assets'), null],
+      get_13f_filing: [tr('agentsPage.do_get_13f_filing'), null],
+      get_congress_trades: [tr('agentsPage.do_get_congress_trades'), null],
+      get_filing_changes: [tr('agentsPage.do_get_filing_changes'), (tk: string) => tr('agentsPage.do_get_filing_changes_tk', { t: tk })],
+      get_fundamentals: [tr('agentsPage.do_get_fundamentals'), (tk: string) => tr('agentsPage.do_get_fundamentals_tk', { t: tk })],
+      get_gov_contracts: [tr('agentsPage.do_get_gov_contracts'), null],
+      get_hyperliquid_intel: [tr('agentsPage.do_get_hyperliquid_intel'), null],
+      get_insider_trades: [tr('agentsPage.do_get_insider_trades'), (tk: string) => tr('agentsPage.do_get_insider_trades_tk', { t: tk })],
+      get_lobbying: [tr('agentsPage.do_get_lobbying'), null],
+      get_macro_dashboard: [tr('agentsPage.do_get_macro_dashboard'), null],
+      get_macro_indicator: [tr('agentsPage.do_get_macro_indicator'), null],
+      get_market_data: [tr('agentsPage.do_get_market_data'), (tk: string) => tr('agentsPage.do_get_market_data_tk', { t: tk })],
+      get_options_data: [tr('agentsPage.do_get_options_data'), (tk: string) => tr('agentsPage.do_get_options_data_tk', { t: tk })],
+      get_polymarket_events: [tr('agentsPage.do_get_polymarket_events'), null],
+      get_portfolio_live: [tr('agentsPage.do_get_portfolio_live'), null],
+      get_portfolio_state: [tr('agentsPage.do_get_portfolio_state'), null],
+      get_yield_curves: [tr('agentsPage.do_get_yield_curves'), null],
+      quant_compute: [tr('agentsPage.do_quant_compute'), (tk: string) => tr('agentsPage.do_quant_compute_tk', { t: tk })],
+      read_blackboard: [tr('agentsPage.do_read_blackboard'), null],
+      read_recent_briefings: [tr('agentsPage.do_read_recent_briefings'), null],
+      search_news: [tr('agentsPage.do_search_news'), (tk: string) => tr('agentsPage.do_search_news_tk', { t: tk })],
+      tavily_search: [tr('agentsPage.do_tavily_search'), null],
+  };
   return {
     titleLive: tr('agentsPage.titleLive'),
     titleSynthesis: tr('agentsPage.titleSynthesis'),
@@ -193,6 +221,57 @@ function costruisci(l: Lingua) {
     filingStarted: tr('agentsPage.filingStarted'),
     filingRefreshing: tr('agentsPage.filingRefreshing'),
     filingRetry: tr('agentsPage.filingRetry'),
+    // redesign «tavolo + corsie» (05/10/2026)
+    tableLabel: tr('agentsPage.tableLabel'),
+    nowTitle: tr('agentsPage.nowTitle'),
+    nowIdle: tr('agentsPage.nowIdle'),
+    nowDoneMemo: tr('agentsPage.nowDoneMemo'),
+    lensTitle: tr('agentsPage.lensTitle'),
+    lensEmpty: tr('agentsPage.lensEmpty'),
+    lensCount: (n: number) => n === 1 ? tr('agentsPage.lensCount_one') : tr('agentsPage.lensCount_other', { n }),
+    lensMore: (n: number) => tr('agentsPage.lensMore', { n }),
+    costTitle: tr('agentsPage.costTitle'),
+    figuresTitle: tr('agentsPage.figuresTitle'),
+    costDetails: tr('agentsPage.costDetails'),
+    costByDesk: tr('agentsPage.costByDesk'),
+    elapsed: tr('agentsPage.elapsed'),
+    usualLength: tr('agentsPage.usualLength'),
+    reportsOf: (n: number, tot: number) => tr('agentsPage.reportsOf', { n, tot }),
+    reportsN: (n: number) => n === 1 ? tr('agentsPage.reportsN_one') : tr('agentsPage.reportsN_other', { n }),
+    runEnded: tr('agentsPage.runEnded'),
+    legendTitle: tr('agentsPage.legendTitle'),
+    legWorking: tr('agentsPage.legWorking'),
+    legWaiting: tr('agentsPage.legWaiting'),
+    legDone: tr('agentsPage.legDone'),
+    legIdle: tr('agentsPage.legIdle'),
+    legIssue: tr('agentsPage.legIssue'),
+    capoReady: tr('agentsPage.capoReady'),
+    conclTitle: tr('agentsPage.conclTitle'),
+    conclHint: tr('agentsPage.conclHint'),
+    conclEmpty: tr('agentsPage.conclEmpty'),
+    lanesTitle: tr('agentsPage.lanesTitle'),
+    lanesHint: tr('agentsPage.lanesHint'),
+    lanesEmpty: tr('agentsPage.lanesEmpty'),
+    lanesPartial: tr('agentsPage.lanesPartial'),
+    lanesCapo: tr('agentsPage.lanesCapo'),
+    lanesReport: tr('agentsPage.lanesReport'),
+    lanesMemo: tr('agentsPage.lanesMemo'),
+    detailsOpen: tr('agentsPage.detailsOpen'),
+    detailsSub: tr('agentsPage.detailsSub'),
+    tabCosts: tr('agentsPage.tabCosts'),
+    tabRecovery: tr('agentsPage.tabRecovery'),
+    close: tr('agentsPage.close'),
+    reportPreview: tr('agentsPage.reportPreview'),
+    reportWaiting: (r: number, nome: string) => tr('agentsPage.reportWaiting', { r, nome }),
+    reportNone: tr('agentsPage.reportNone'),
+    reportTickers: tr('agentsPage.reportTickers'),
+    /** Lo strumento detto in parole («Legge i bilanci di ACME»); null = strumento senza frase:
+     *  la vista mostra il nome tecnico, mai una frase inventata. */
+    faccio: (tool: string, tk: string | null): string | null => {
+      const f = frasi[tool];
+      if (!f) return null;
+      return tk && f[1] ? f[1](tk) : f[0];
+    },
   };
 }
 

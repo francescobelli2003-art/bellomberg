@@ -23,7 +23,7 @@ Object.assign(NEUTRE_PER_CHIAVE, {
   'agentsPage.sTickers_one': '1 ticker', 'agentsPage.memo': 'Memo #{id}', 'agentsPage.stepRound': 'Round {r}', 'agentsPage.stepMemo': 'Memo',
   'agentsPage.rounds_one': '1 round', 'agentsPage.capo': 'Capo', 'agentsPage.stageRedTeam': 'Red team',
   'agentsPage.lookedCount': '{tools} · {tickers}', 'agentsPage.lookedCount_ticker_one': '1 ticker', 'agentsPage.allN': '{n}',
-  'agentsPage.fx': 'FX USD/EUR', 'agentsPage.filingCount': '{con}/{tot}',
+  'agentsPage.fx': 'FX USD/EUR', 'agentsPage.lanesReport': 'Report', 'agentsPage.reportsN_one': '1 report', 'agentsPage.lanesMemo': 'Memo', 'agentsPage.filingCount': '{con}/{tot}',
   'chatPage.you': 'PM',
   'dashboardPage.title': 'Dashboard', 'dashboardPage.regime': 'Regime', 'dashboardPage.dayPnlWindow': 'P&L {finestra}',
   'dashboardPage.spy': 'SPY', 'dashboardPage.colPlEur': 'P&L €', 'dashboardPage.colPlPct': 'P&L %', 'dashboardPage.heatmap': 'Heatmap',

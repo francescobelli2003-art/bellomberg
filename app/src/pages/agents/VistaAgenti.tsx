@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { AlertCircle, Brain, Check, CircleAlert, CirclePause, FileText, Hourglass, ListChecks, RefreshCw, ShieldAlert, Wrench } from 'lucide-react';
+import { AlertCircle, Check } from 'lucide-react';
 import IconaDesk, { coloreDesk } from '../chat/IconaDesk';
 
 /* Presentazione della pagina Agenti in diretta (palette --bbn-*). Solo vernice:
@@ -62,70 +62,15 @@ export function Tappe({ tappe, etichetta }: { tappe: Tappa[]; etichetta: string 
 export interface VistaDesk {
   id: string; nome: string; ruolo: string; colore: string; stato: StatoDesk;
   pastiglia: string; titolo: string;
-  fare: { icona: 'tool' | 'think' | 'file' | 'ko' | 'wait' | 'pause'; testo: string; codice: boolean; sotto: string };
+  fare: { icona: 'tool' | 'think' | 'file' | 'ko' | 'wait' | 'pause'; testo: string; codice: boolean; sotto: string; tk?: string | null };
   round: StatoRound[]; dur: string; chiamate: string; costo: string; costoNd: boolean; dettaglio: string;
   esito: string;
-}
-
-const ICONA_FARE = { tool: Wrench, think: Brain, file: FileText, ko: CircleAlert, wait: Hourglass, pause: CirclePause };
-const PASTIGLIA: Record<StatoDesk, string> = {
-  run: 'is-acc', think: 'is-acc', ok: 'is-su', ko: 'is-giu', nd: 'is-warn', wait: 'is-piatto', stale: 'is-warn',
-};
-
-export function CardDesk({ d }: { d: VistaDesk }) {
-  const Icona = ICONA_FARE[d.fare.icona];
-  return (
-    <article className={'bbn-card ag-desk is-' + d.stato} data-agente={d.id} data-esito={d.esito} title={d.titolo}>
-      <div className="ag-desk-h">
-        <AnelloDesk id={d.id} colore={d.colore} stato={d.stato} />
-        <span className="nm"><b>{d.nome}</b><span>{d.ruolo}</span></span>
-        <span className={'bbn-pill ' + PASTIGLIA[d.stato]}>
-          {(d.stato === 'run' || d.stato === 'think') && <i className="ag-pulse" />}{d.pastiglia}
-        </span>
-      </div>
-      <div className={'ag-doing' + (d.stato === 'ko' ? ' is-ko' : '')}>
-        <span className="a"><Icona size={15} />{d.fare.codice ? <code>{d.fare.testo}</code> : <span>{d.fare.testo}</span>}</span>
-        <span className="b">{d.fare.sotto}</span>
-      </div>
-      <div className="ag-desk-f" title={d.dettaglio}>
-        <span className="ag-rds">{d.round.map((r, i) => <i key={i} className={r ? 'is-' + r : undefined}>R{i}</i>)}</span>
-        <b className="num">{d.dur}</b>
-        <span>{d.chiamate}</span>
-        <span className={'c num' + (d.costoNd ? ' is-nd' : '')}>{d.costo}</span>
-      </div>
-    </article>
-  );
 }
 
 export interface VistaCapo {
   stato: StatoDesk; titolo: string; sotto: string; pastiglia: string; colore: string | null;
   stadi: { id: string; nome: string; stato: 'ok' | 'on' | 'wait'; nota: string }[];
   azioni?: ReactNode;
-}
-
-const ICONA_STADIO: Record<string, typeof ShieldAlert> = { _red_team: ShieldAlert, _reflection: RefreshCw, _action_table: ListChecks };
-
-export function CardCapo({ c, nome }: { c: VistaCapo; nome: string }) {
-  return (
-    <article className={'bbn-card ag-capo is-' + c.stato} data-agente="capo" data-stato={c.stato}>
-      <div className="ag-capo-top">
-        <AnelloDesk id="capo" colore={c.colore} stato={c.stato} />
-        <span className="nm"><b>{nome} · {c.titolo}</b><span>{c.sotto}</span></span>
-        <span className={'bbn-pill ' + PASTIGLIA[c.stato]}>{c.stato === 'run' && <i className="ag-pulse" />}{c.pastiglia}</span>
-        {c.azioni}
-      </div>
-      <div className="ag-stages">
-        {c.stadi.map(s => {
-          const Icona = s.stato === 'ok' ? Check : ICONA_STADIO[s.id] || ListChecks;
-          return (
-            <div key={s.id} className={'ag-stage is-' + s.stato} data-stadio={s.id}>
-              <Icona size={16} /><span>{s.nome}</span><em>{s.nota}</em>
-            </div>
-          );
-        })}
-      </div>
-    </article>
-  );
 }
 
 export interface Riga { k: string; v: number | null; label: string; colore: string }

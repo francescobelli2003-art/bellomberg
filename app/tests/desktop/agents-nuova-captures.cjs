@@ -77,6 +77,17 @@ function heartbeat(kind) {
       in: 239200, out: 114800, cache_read: 2225000, cache_write: 755300, fx_source: kind === 'errore' ? 'fallback' : 'live',
       error_agents: kind === 'errore' || closed ? ['fundamentals'] : [], unpriced_agents: kind === 'errore' ? ['crypto'] : [] },
   };
+  /* report sintetici (05/10/2026, redesign tavolo + corsie): i round chiusi, piu' i desk che
+     hanno gia' consegnato quello in corso; testi inventati, nessun dato reale */
+  const testo = (d, r) => `## Tesi ${d} R${r}\nLa posizione sintetica ZZTEST resta coerente con il mandato: il desk ${d} non vede motivi per cambiarla nel round ${r}. Seconda frase di contesto sul titolo ACME.\n\n- Punto sintetico uno\n- Punto sintetico due`;
+  const reports = {};
+  for (const d of DESKS) for (let r = 0; r <= round; r++) {
+    if (r === 2 && !r2.includes(d)) continue;
+    if (!closed && kind !== 'sintesi' && r === round && status[d] !== 'done') continue;
+    (reports[d] ||= {})[String(r)] = testo(d, r);
+  }
+  body.reports_by_specialist = reports;
+  body.expected_reports = 15;
   if (kind === 'sintesi') {
     body.specialist_status.capo = 'running'; body.updated_at = new Date(now - 130000).toISOString();
     body.usage_by_specialist._red_team = usage('_red_team');
@@ -101,6 +112,10 @@ async function run() {
     if (route === '/__agents') { let raw = ''; for await (const c of req) raw += c; fx.kind = JSON.parse(raw || '{}').kind || fx.kind; return send({ ok: true }); }
     if (req.method === 'GET' && route === '/preferences') return send({ language: 'it', selected: true, source: 'preferences' });
     if (req.method === 'GET' && route === '/agents/list') return send({ agents: ROSTER, engines: { committee_r0: 'claude-sonnet-fixture', committee_r1_r2: 'claude-opus-fixture', capo: 'claude-opus-fixture' } });
+    /* copertura filing sintetica: senza, la riga Filing della run non ha dati da leggere */
+    if (req.method === 'GET' && route === '/filings') return send({ titoli: [],
+      copertura: { totale: 12, con_confronto: 7, aggiornati: 5, non_aggiornati: 2, senza_confronto: 0, senza_profilo: 5, esclusi: 0 },
+      contesto: { caratteri: 9000, budget: 14000, omessi_totali: 0 }, aggiornamento: null });
     if (req.method === 'GET' && route === '/agents/live') {
       if (fx.kind === 'giu') return send({ detail: 'connect ECONNREFUSED 127.0.0.1:8000' }, 503);
       return send(heartbeat(fx.kind));

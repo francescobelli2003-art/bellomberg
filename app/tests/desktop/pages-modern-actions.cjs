@@ -627,7 +627,7 @@ async function renderer(config) {
       for (const viewport of viewports) {
         const [width, height] = viewport.split('x').map(Number);
         const captureScrollSelector = options.scrollSelector || (options.verifyAgentsDial
-          ? 'main [data-page="agents"] .ag-desks' : null);
+          ? 'main [data-page="agents"] .ag-tavolo' : null);
         // This BrowserWindow uses useContentSize:true, so set the renderer's
         // requested viewport directly instead of treating it as outer bounds.
         window.setContentSize(width, height);
@@ -800,16 +800,16 @@ async function renderer(config) {
         }, options.verifyVolChainContrast === true) : null;
         if (options.verifyVolWorkbenchContrast) assert.ok(volWorkbenchContrast?.ok,
           `capture ${safeName} has low contrast or dark residual Vol UI at ${viewport}: ${JSON.stringify(volWorkbenchContrast)}`);
-        // 02/10/2026: the orbital dial became desk cards. Same guarantees on the new surface:
-        // every synthetic desk is named in full, nothing overlaps, text stays readable (≥ 11px, ≥ 4.5:1).
+        // 05/10/2026: the desks sit around the committee table. Same guarantees on the new surface:
+        // every synthetic desk is named in full, no label or node overlaps another, text stays readable (≥ 11px, ≥ 4.5:1).
         const agentsDial = options.verifyAgentsDial ? await js(requiredDeskMarkers => {
           const root = document.querySelector('main [data-page="agents"] .bbn-agents');
           if (!root) return { ok: false, error: 'agents page not found' };
           const visible = el => { const r = el.getBoundingClientRect(), s = getComputedStyle(el);
             return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden'; };
-          const cards = [...root.querySelectorAll('.ag-desk')].filter(visible);
-          const sections = [root.querySelector('.ag-run'), root.querySelector('.ag-capo'), root.querySelector('.ag-panel'),
-            root.querySelector('.ag-calls-wide'), ...root.querySelectorAll('.ag-wide > .bbn-card'), ...cards].filter(el => el && visible(el));
+          const cards = [...root.querySelectorAll('.ag-desk .ag-lbl')].filter(visible);
+          const sections = [root.querySelector('.ag-run'), root.querySelector('.ag-tavolo'), root.querySelector('.ag-corsie'), root.querySelector('.ag-capo-c'),
+            ...root.querySelectorAll('.ag-side > .bbn-card'), ...root.querySelectorAll('.ag-desk .ag-nodo'), ...cards].filter(el => el && visible(el));
           const box = el => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, right: r.right, bottom: r.bottom }; };
           const overlapArea = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.y, b.y));
           const overlaps = [];
@@ -824,7 +824,7 @@ async function renderer(config) {
             .reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i], 0);
           const ground = el => { const stack = []; for (let n = el; n; n = n.parentElement) { const bg = rgba(getComputedStyle(n).backgroundColor); if (bg[3] > 0) stack.push(bg); if (bg[3] >= 1) break; }
             return stack.reverse().reduce((under, top) => over(top, under), [255, 255, 255]); };
-          const texts = cards.flatMap(card => [...card.querySelectorAll('.nm b, .nm span, .bbn-pill, .ag-doing .a, .ag-doing .b, .ag-desk-f b, .ag-desk-f span, .ag-rds i')]).filter(visible).map(el => {
+          const texts = cards.flatMap(card => [...card.querySelectorAll('.nm b, .bbn-pill, .ag-doing')]).filter(visible).map(el => {
             const st = getComputedStyle(el), fg = rgba(st.color), bg = ground(el), color = over(fg, bg);
             const L1 = lum(color), L2 = lum(bg);
             return { text: (el.textContent || '').trim().slice(0, 60), size: Number.parseFloat(st.fontSize),
@@ -1474,7 +1474,7 @@ const selectors = {
   fundamentals: ['main [data-page="fundamentals"] tbody tr', 'main [data-page="fundamentals"] input[aria-label]'],
   factors: ['main [data-page="factors"] [data-strato="calibro"] [role="radio"]'], backtest: ['main [data-page="montecarlo"] select'],
   vol: ['main [data-page="vol"] #va-ticker'], edge: ['main [data-page="edge"] [data-zona="comandi"] button:nth-of-type(2)'],
-  agents: ['main [data-page="agents"] .ag-panel .bbn-seg button:nth-of-type(3)'], 'agent-progress': ['main [data-page="agent-progress"] #ap-tab-action'],
+  agents: ['main [data-page="agents"] .ag-dettagli .bbn-seg button:nth-of-type(3)'], 'agent-progress': ['main [data-page="agent-progress"] #ap-tab-action'],
   memos: ['main [data-page="memos"] .mr'], decisions: ['main [data-page="decisions"] button'],
   trades: ['main [data-page="trades"] #f7-tk'], movements: ['main [data-page="movements"] .vst button:nth-of-type(2)'],
   mandato: ['main [data-page="mandato"] #tab-diario'],
@@ -1662,11 +1662,16 @@ async function preparePageState(q, id) {
     return;
   }
   if (id === 'agents') {
-    // the dial's pin is gone: the page's own choice is now the details tab; Tools is never the default tab
-    const selector = 'main [data-page="agents"] .ag-panel .bbn-seg button:nth-of-type(3)';
+    // the page's own choice is the tab of the «Run details» drawer (05/10/2026); Tools is never the default tab
+    const selector = 'main [data-page="agents"] .ag-dettagli .bbn-seg button:nth-of-type(3)';
+    await q.click('main [data-page="agents"] button[data-dettagli="1"]');
+    await q.waitFor(() => document.querySelector('main [data-page="agents"] .ag-dettagli')?.dataset.aperto === '1', 'Agents details drawer', 5000);
+    await q.pause(450);
     await q.click(selector);
     await q.waitFor(sel => document.querySelector(sel)?.getAttribute('aria-pressed') === 'true',
       'Agents details tab', 5000, selector);
+    await q.click('main [data-page="agents"] .ag-dettagli button.ag-cass-x');
+    await q.waitFor(() => document.querySelector('main [data-page="agents"] .ag-dettagli')?.dataset.aperto === '0', 'Agents details drawer closed', 5000);
     return;
   }
   if (id === 'news') {

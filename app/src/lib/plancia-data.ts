@@ -288,15 +288,7 @@ export function derivePlancia(
      Oggi la pagina rende `input` troncato in una cella di tabella e questo
      non si legge da nessuna parte. Si estrae solo cio' che e' esplicito. */
   const tk = new Map<string, number>();
-  for (const c of calls) {
-    for (const key of ["'ticker': '", "'market': '", '"ticker": "', '"market": "']) {
-      const i = c.input.indexOf(key);
-      if (i < 0) continue;
-      const rest = c.input.slice(i + key.length);
-      const v = rest.slice(0, rest.search(/['"]/));
-      if (v) tk.set(v, (tk.get(v) || 0) + 1);
-    }
-  }
+  for (const c of calls) for (const v of tickerDiInput(c.input)) tk.set(v, (tk.get(v) || 0) + 1);
   const tickers = [...tk.entries()].map(([k, n]) => ({ k, n })).sort((a, b) => b.n - a.n);
 
   /* ── la scala del quadrante ────────────────────────────────────────────
@@ -331,6 +323,20 @@ export function derivePlancia(
       ? st.n_tool_calls : null,
     logTappato: st.tool_log_tappato === true,
   };
+}
+
+/** I ticker scritti ESPLICITAMENTE nell'input di una chiamata (chiavi `ticker`/`market`):
+ *  nient'altro si deduce. Condiviso fra i ticker della run e la frase del desk. */
+export function tickerDiInput(input: string): string[] {
+  const out: string[] = [];
+  for (const key of ["'ticker': '", "'market': '", '"ticker": "', '"market": "']) {
+    const i = input.indexOf(key);
+    if (i < 0) continue;
+    const rest = input.slice(i + key.length);
+    const v = rest.slice(0, rest.search(/['"]/));
+    if (v) out.push(v);
+  }
+  return out;
 }
 
 /** mm'ss" — la lettura naturale di una run da qualche decina di minuti */

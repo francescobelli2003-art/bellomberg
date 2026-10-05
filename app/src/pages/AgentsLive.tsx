@@ -2,18 +2,18 @@ import type { CSSProperties, ReactNode } from 'react';
 import { t as tr } from '@/i18n/t';
 import { linguaCorrente, localeDi } from '@/i18n/lingua';
 /* ============================================================
-   F4 AGENTI IN DIRETTA — la run del consigliere (redesign Nuova, 02/10/2026)
+   F4 AGENTI IN DIRETTA — la run del consigliere (redesign «tavolo + corsie», 05/10/2026)
 
-   Stesso impianto della Dashboard e della Chat agenti (palette --bbn-*):
-     · box della run in alto: stato, durata, costo (n.d. dichiarato, «~» se
-       parziale), chiamate, avvio/stop, e le tappe Avvio → R0 → R1 → R2 →
-       Sintesi → Memo con la frase del presente;
-     · una card per desk (icona della Chat con l'anello di stato) che dice cosa
-       fa adesso, e la card del Capo con red team, riflessione e tabella azioni;
-     · a destra un pannello a schede: chiamate, costi, strumenti, ticker.
-   Il quadrante orbitale e il cielo animato non ci sono piu': i dati che
-   portavano (finestre, fasi, tool_log, cache, durate) stanno nelle tappe,
-   nelle card e nel pannello.
+   Stesso impianto della Dashboard (palette --bbn-*):
+     · box della run in alto: stato, tappe Avvio → R0 → R1 → R2 → Sintesi → Memo,
+       riga Filing, Trade Idea, dettagli, avvio/stop;
+     · il tavolo: il Capo al centro con l'anello dei report consegnati, i desk in
+       cerchio con la frase di cosa fanno; un impulso per ogni chiamata nuova, un'onda
+       per ogni report nuovo; sotto, le ultime conclusioni (prima frase dei report);
+     · a destra Adesso, Sotto la lente (ticker) e La run in cifre;
+     · le corsie: una riga per desk, una barra per finestra misurata di ogni round;
+     · due cassetti: il report di un desk e i dettagli (costi, chiamate, strumenti,
+       filing, recupero delle run).
 
    La logica della run non cambia: avvio con RunConfirmDialog, polling di
    /agents/live ogni 1,5 s, stop con cancel + reset + rilettura, heartbeat
@@ -25,24 +25,38 @@ import { useT } from '@/i18n/provider';
 import ModernPage from '@/components/ModernPage';
 import { leggiDetail } from '@/lib/quota';
 import { useNavigate } from 'react-router-dom';
-import { Bellomberg, AgentInfo, AgentsLiveState, EnginesInfo, FilingActivateMissing, FilingOverview, UsageBySpecialist, UsageTotal } from '@/lib/api';
+import { Bellomberg, AgentInfo, AgentsLiveState, EnginesInfo, FilingActivateMissing, FilingOverview, ToolLogEntry, UsageBySpecialist, UsageTotal } from '@/lib/api';
 import RunConfirmDialog from '@/components/RunConfirmDialog';
 import WeeklyRecoveryPanel from '@/components/WeeklyRecoveryPanel';
 import { useInterfaceTheme } from '@/components/InterfaceThemeProvider';
 import { useBox } from '@/lib/useBox';
-import { derivePlancia, engineShort, fmtDurShort, type Desk } from '@/lib/plancia-data';
+import { derivePlancia, engineShort, fmtDurShort, tickerDiInput, type Desk } from '@/lib/plancia-data';
 import { conservaDettaglioRun, dettaglioLeggibile, statusHttp } from '@/lib/mandato';
 import { frase } from '@/lib/frase';
 import { Segmenti } from '@/components/nuova/Card';
-import { ArrowUpRight, Check, CircleAlert, FileText, Lightbulb, Play, Square, TriangleAlert, WifiOff } from 'lucide-react';
-import IconaDesk, { coloreDesk } from './chat/IconaDesk';
-import { AnelloDesk, Barra, CardCapo, CardDesk, Kpi, Tappe, type StatoDesk, type StatoRound, type Tappa, type VistaCapo, type VistaDesk } from './agents/VistaAgenti';
+import { ArrowUpRight, Check, CircleAlert, FileText, Lightbulb, PanelRight, Play, Square, TriangleAlert, WifiOff } from 'lucide-react';
+import IconaDesk, { coloreDesk, tintaDesk } from './chat/IconaDesk';
+import { AnelloDesk, Barra, Kpi, Tappe, type StatoDesk, type StatoRound, type Tappa, type VistaCapo, type VistaDesk } from './agents/VistaAgenti';
+import Tavolo, { type DatiTavolo } from './agents/Tavolo';
+import Corsie, { type DatiCorsie } from './agents/Corsie';
+import Cassetto from './agents/Cassetto';
 import { parole } from './agents/parole';
 import CoperturaFiling, { mancantiFiling, type ErroreFiling } from './agents/CoperturaFiling';
 import { aggiornamentoInCorso, pollFiling } from '@/lib/filing-poll';
 import './agents-nuova.css';
 
-type SchedaPannello = 'chiamate' | 'strumenti' | 'ticker' | 'filing';
+type SchedaPannello = 'costi' | 'chiamate' | 'strumenti' | 'filing' | 'recupero';
+/** nome neutro della scheda per i test desktop (il markup inglese non porta parole italiane) */
+const PANE: Record<SchedaPannello, string> = { costi: 'costs', chiamate: 'calls', strumenti: 'tools', filing: 'filing', recupero: 'recovery' };
+
+/** La prima frase di un report (senza titoli e segni markdown): la «conclusione» del tavolo. */
+function primaFrase(testo: string): string {
+  const righe = testo.split('\n').map(r => r.trim()).filter(r => r && !/^#{1,6}\s/.test(r) && !/^[-=*_]{3,}$/.test(r));
+  const piano = righe.join(' ').replace(/\*\*|__|`/g, '').replace(/^[-*•]\s+/, '').replace(/\s+/g, ' ').trim();
+  const m = piano.match(/^.{20,220}?[.!?](?=\s|$)/);
+  const f = m ? m[0] : piano.slice(0, 200);
+  return f.length < piano.length && !m ? f.replace(/\s+\S*$/, '') + '…' : f;
+}
 /** iniziale maiuscola per le voci di catalogo scritte in minuscolo (frase() tocca solo il MAIUSCOLO) */
 const maiuscola = (s: string) => s ? s.charAt(0).toLocaleUpperCase() + s.slice(1) : s;
 
@@ -316,7 +330,7 @@ export default function AgentsLive() {
   /* ── presentazione (redesign 02/10/2026): quello che c'era sul quadrante sta
      ora nelle tappe, nelle card dei desk e nel pannello a schede. Hook nuovi in
      coda: i test i18n impostano lo stato per indice di useState. */
-  const [scheda, setScheda] = useState<SchedaPannello>('chiamate');
+  const [scheda, setScheda] = useState<SchedaPannello>('costi');
   const [finitaQui, setFinitaQui] = useState(false);
   const eraViva = useRef<boolean | null>(null);
   useEffect(() => {
@@ -335,6 +349,9 @@ export default function AgentsLive() {
   const [filingErr, setFilingErr] = useState<ErroreFiling | null>(null);
   const [filingBusy, setFilingBusy] = useState(false);
   const [filingEsito, setFilingEsito] = useState<FilingActivateMissing | null>(null);
+  /* redesign 05/10/2026: cassetti del report di un desk e dei dettagli (stato in coda) */
+  const [repDesk, setRepDesk] = useState<{ id: string; r: number | null; aperto: boolean } | null>(null);
+  const [dettagliAperti, setDettagliAperti] = useState(false);
   const montata = useRef(true);
   useEffect(() => { montata.current = true; return () => { montata.current = false; }; }, []);
   const caricaFiling = async () => {
@@ -391,7 +408,7 @@ export default function AgentsLive() {
   const giorno = (iso?: string) => iso ? new Date(iso).toLocaleDateString(localeDi(linguaCorrente()),
     { day: 'numeric', month: 'short' }) : tr('activity.unavailable');
 
-  /* ── i desk del comitato: in ordine di roster, cosi' le card non saltano ── */
+  /* ── i desk del comitato: in ordine di roster, cosi' il tavolo non ruota ── */
   const isStage = (id: string) => id === 'capo' || id.startsWith('_');
   const byId = (id: string) => tutti.find(x => x.id === id);
   const ordine = new Map(agents.map((a, i) => [a.id, i]));
@@ -406,6 +423,52 @@ export default function AgentsLive() {
   const nDesk = deskElenco.length;
   const r2 = state?.r2_specialists;
   const pulisci = (input: string) => input === '{}' ? '' : input.replace(/[{}']/g, '').trim();
+
+  /* ── redesign 05/10/2026: il tavolo e le corsie ─────────────────────────
+     A run viva l'heartbeat porta solo le ULTIME 50 chiamate (tool_log_tappato): per le
+     corsie si tengono quelle viste da quando la pagina e' aperta, dichiarandolo. Le
+     cifre e i conteggi della pagina restano quelli del payload (P), non questa somma. */
+  const visteRef = useRef<{ start: string | null; mappa: Map<string, ToolLogEntry> }>({ start: null, mappa: new Map() });
+  const logVisto = useMemo(() => {
+    const v = visteRef.current, start = state?.start_time ?? null;
+    if (v.start !== start) { v.start = start; v.mappa = new Map(); }
+    for (const e of state?.tool_log || []) v.mappa.set(`${e.specialist}|${e.round}|${e.time}|${e.tool}|${e.input}`, e);
+    return [...v.mappa.values()];
+  }, [state]);
+  const PC = useMemo(() => state && P.logTappato && logVisto.length > (state.tool_log?.length || 0)
+    ? derivePlancia({ ...state, tool_log: logVisto }, agents, engines, now) : P, [P, logVisto, state, agents, engines, now]);
+
+  /* i report consegnati (reports_by_specialist: i primi 500 caratteri di ogni round).
+     L'ora si scrive solo se l'arrivo e' stato VISTO qui; quelli gia' presenti
+     all'apertura si ordinano sulla fine della finestra del desk, senza ora. */
+  const arriviRef = useRef<{ start: string | null; prima: boolean; mappa: Map<string, { ms: number; visto: boolean }> }>({ start: null, prima: true, mappa: new Map() });
+  const consegne = useMemo(() => {
+    const a = arriviRef.current, start = state?.start_time ?? null;
+    if (a.start !== start) { a.start = start; a.prima = true; a.mappa = new Map(); }
+    const startMs = start ? new Date(start).getTime() : NaN;
+    const out: { id: string; r: number; testo: string; key: string; ms: number; visto: boolean }[] = [];
+    for (const [id, giri] of Object.entries(state?.reports_by_specialist || {})) {
+      if (isStage(id)) continue;
+      for (const [rk, testo] of Object.entries(giri || {})) {
+        const r = Number.parseInt(String(rk).replace(/\D/g, ''), 10);
+        if (!Number.isFinite(r) || typeof testo !== 'string') continue;
+        const key = `${id}#${r}`;
+        if (!a.mappa.has(key)) {
+          const w = PC.windows.find(x => x.a === id && x.r === r);
+          a.mappa.set(key, a.prima ? { ms: (isFinite(startMs) ? startMs : 0) + (w ? w.t1 : r * 1e6) * 1000, visto: false } : { ms: Date.now(), visto: true });
+        }
+        const arr = a.mappa.get(key)!;
+        out.push({ id, r, testo, key, ms: arr.ms, visto: arr.visto });
+      }
+    }
+    if (state) a.prima = false;
+    return out.sort((x, y) => x.ms - y.ms || x.r - y.r);
+  }, [state, PC.windows]);
+
+  const apriReport = (id: string, r?: number) => { setDettagliAperti(false); setRepDesk({ id, r: r ?? null, aperto: true }); };
+  const chiudiReport = () => setRepDesk(prev => prev ? { ...prev, aperto: false } : prev);
+  const apriDettagli = (s?: SchedaPannello) => { if (s) setScheda(s); setRepDesk(prev => prev ? { ...prev, aperto: false } : prev); setDettagliAperti(true); };
+  const chiudiDettagli = () => setDettagliAperti(false);
 
   return (
     <>
@@ -427,8 +490,13 @@ export default function AgentsLive() {
           : 'wait';
         const giri = [d.rounds.length ? w.rounds(d.rounds.length) : null, nonInR2(d.id) ? w.notInR2 : null,
           ultima ? w.at(ultima.hhmm.slice(0, 5)) : null].filter(Boolean).join(' · ');
+        /* lo strumento detto in parole; se non ha una frase resta il suo nome tecnico */
+        const tkUltima = ultima ? tickerDiInput(ultima.input)[0] ?? null : null;
+        const inParole = ultima ? w.faccio(ultima.tool, tkUltima) : null;
         const fare: VistaDesk['fare'] =
-          stato === 'run' && ultima ? { icona: 'tool', codice: true, testo: ultima.tool, sotto: w.doingAgo(pulisci(ultima.input), fmtDurShort(fa)) }
+          stato === 'run' && ultima ? (inParole
+              ? { icona: 'tool', codice: false, testo: inParole, tk: tkUltima, sotto: w.doingAgo(pulisci(ultima.input), fmtDurShort(fa)) }
+              : { icona: 'tool', codice: true, testo: ultima.tool, sotto: w.doingAgo(pulisci(ultima.input), fmtDurShort(fa)) })
           : stato === 'think' ? (ultima && (P.round == null || ultima.r === P.round)
               ? { icona: 'think', codice: false, testo: w.thinkingSince(fmtDurShort(fa)), sotto: w.lastTool(ultima.tool) + (pulisci(ultima.input) ? ' · ' + pulisci(ultima.input) : '') }
               : { icona: 'think', codice: false, testo: w.noCallYet, sotto: w.noCallYetSub })
@@ -467,14 +535,8 @@ export default function AgentsLive() {
         : chiusaConRun && (memoId != null || P.capo === 'done') ? 'ok'
         : 'wait';
       const vaiDecisioni = () => navigate('/decisions');
-      /* la riga della run porta alla scheda Filing; sul 49" la card sta nella colonna delle chiamate */
-      const apriFiling = () => {
-        setScheda('filing');
-        requestAnimationFrame(() => {
-          const dove = [...document.querySelectorAll<HTMLElement>('.bbn-agents :is(.ag-panel, .ag-filing-wide)')].find(el => el.offsetParent !== null);
-          dove?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        });
-      };
+      /* il chip Filing apre i dettagli della run sulla scheda Filing */
+      const apriFiling = () => apriDettagli('filing');
       const capo: VistaCapo = {
         stato: capoStato, colore: coloreDi('capo'),
         titolo: capoStato === 'ko' ? w.koTitle
@@ -543,7 +605,7 @@ export default function AgentsLive() {
         : !P.calls.length ? [w.nowStarting]
         : P.round != null ? [w.nowRound(P.round), w.nowWorking(P.running.length, nDesk, consegnati)] : null;
 
-      /* ── cifre del box ─────────────────────────────────────────────── */
+      /* ── cifre ─────────────────────────────────────────────────────── */
       const chiamateTot = P.logTappato && P.nCallsTot == null ? null : (P.nCallsTot ?? P.calls.length);
       const costoTesto = (partial ? '~' : '') + fmtEur(total?.cost_eur);
       const costoTono = !hasTotal || partial || notes.length ? 'warn' as const : undefined;
@@ -588,14 +650,6 @@ export default function AgentsLive() {
           ? <><button type="button" className="bbn-btn is-primary" onClick={vaiDecisioni}><FileText size={16} />{w.openDecisions}</button>
               <button type="button" className="bbn-btn ag-launch" onClick={() => setAskRun(true)}><Play size={15} />{w.newRun}</button></>
           : <button type="button" className="bbn-btn is-primary ag-launch" onClick={() => setAskRun(true)}><Play size={15} />{w.launch}</button>;
-      const ultimaRun = vista === 'riposo' && state?.start_time
-        ? <div className="ag-last">
-            <span className="t">{w.lastRun} <span>· {w.runSpan(giorno(state.start_time), ora(state.start_time), state.completed_at ? ora(state.completed_at) : tr('activity.unavailable'))}{lingua ? ' · ' + lingua : ''}</span></span>
-            <span className="bbn-grow" />
-            <div className="ag-kpis">{kDurata}{kCosto}{kChiamate}{kQuarta}{kEsito}</div>
-            {memoId != null && <button type="button" className="bbn-link ag-memo-link" onClick={vaiDecisioni}>{w.memo(memoId)} <ArrowUpRight size={14} /></button>}
-          </div>
-        : null;
 
       /* ── avvisi: i buchi in vetrina, non nei tooltip (regola PM 14/07) ── */
       const avvisi: { k: string; tono: 'bad' | 'warn' | 'good' | 'info'; icona: ReactNode; testo: ReactNode; azione?: ReactNode }[] = [];
@@ -632,10 +686,10 @@ export default function AgentsLive() {
       if (rosterErr) avvisi.push({ k: 'roster', tono: 'bad', icona: <CircleAlert size={18} />,
         testo: <><b>{frase(tr('activity.rosterMissing'))}.</b> {tr('activity.rosterErrorPrefix')}{rosterErr}{tr('activity.rosterErrorSuffix')}</> });
 
-      /* ── pannello: chiamate, strumenti, ticker (i costi stanno sotto i desk) ── */
+      /* ── dettagli della run (cassetto): costi, chiamate, strumenti, filing, recupero ── */
       const conteggioChiamate = P.logTappato ? w.last50Of(P.calls.length, P.nCallsTot) : w.allN(P.calls.length);
       const corpoChiamate = P.calls.length === 0 ? <p className="bbn-empty">{w.noCalls}</p> : (
-        <div className="bbn-scroll ag-tape">
+        <div className="ag-tape">
           <div className="ag-day">{isRunning ? w.callsNow : w.callsNewestFirst}</div>
           {[...P.calls].reverse().map((c, i) => (
             <div key={i} className={'ag-call' + (isRunning && P.runSec - c.t < 20 ? ' is-hot' : '')} title={tr('activity.wallClock', { a: c.hhmm, b: c.input })}>
@@ -674,7 +728,7 @@ export default function AgentsLive() {
             ))}</div>
             <p className="ag-foot">{total.cache_read && total.in ? w.cacheNote(fmtN(total.cache_read / total.in, 1)) : tr('activity.cacheMissingSentence')}</p></div>
           {agentiCosto.length > 0 && <div className="ag-cost-agt"><div className="ag-sub">{w.costPerAgent}</div>
-            <div className="ag-bars" style={{ '--ag-righe': Math.ceil(agentiCosto.length / 2) } as CSSProperties}>{agentiCosto.map(a => {
+            <div className="ag-bars">{agentiCosto.map(a => {
               const ko = koIds.includes(a.id);
               const valore = a.cost != null ? (a.partial ? '~' : '') + fmtEur(a.cost) : a.id === 'capo' && P.capo === 'running' ? w.inProgressCost : tr('activity.unavailable');
               return <div className="ag-agc" key={a.id} title={tr('activity.agentTokenBreakdown', { a: nomeDi(a), b: fmtTok(a.tin), c: fmtTok(a.tout), d: fmtTok(a.cacheR), e: fmtTok(a.cacheW), f: [a.tin, a.tout, a.cacheR, a.cacheW].every(v => v != null) ? '' : tr('activity.partialTokens') })}>
@@ -687,7 +741,7 @@ export default function AgentsLive() {
       const deskDiStrumento = (id: string) => deskElenco.find(d => d.id === id);
       const mxTool = P.tools[0]?.n || 1;
       const corpoStrumenti = P.tools.length === 0 ? <p className="bbn-empty">{tr('activity.theLog')} <b>tool_log</b> {tr('activity.heartbeatLogEmpty')}</p> : (
-        <div className="bbn-scroll ag-tools">
+        <div className="ag-tools">
           <div className="ag-legend">{deskElenco.filter(d => d.nCalls > 0).map(d => <span key={d.id}><i style={{ background: coloreDesk(coloreDi(d.id) || d.color) }} />{nomeDi(d)}</span>)}</div>
           {P.tools.map(t => (
             <div className="ag-tool" key={t.tool} title={Object.entries(t.by).map(([a, n]) => `${a} ${n}`).join(' · ')}>
@@ -700,57 +754,114 @@ export default function AgentsLive() {
         </div>
       );
       const corpoTicker = P.tickers.length === 0 ? <p className="bbn-empty">{w.noTickers}</p> : (
-        <div className="bbn-scroll ag-tickers">{P.tickers.map(x => <span key={x.k} className="ag-tk">{x.k}<b className="num">{x.n}</b></span>)}</div>
+        <div className="ag-tickers">{P.tickers.map(x => <span key={x.k} className="ag-tk">{x.k}<b className="num">{x.n}</b></span>)}</div>
       );
-      const filingVista = (conTitolo: boolean) => <CoperturaFiling dati={filing} errore={filingErr} occupato={filingBusy} bloccato={isRunning}
-        esito={filingEsito} onAttiva={attivaFiling} onRiprova={caricaFiling} fmt={n => fmtN(n)} conTitolo={conTitolo}
-        onApri={t => navigate(t ? `/filing?t=${encodeURIComponent(t)}` : '/filing')} />;
-      const corpoFiling = <div className="bbn-scroll ag-filing-tab">{filingVista(true)}</div>;
-      const corpi: Record<SchedaPannello, ReactNode> = { chiamate: corpoChiamate, strumenti: corpoStrumenti, ticker: corpoTicker, filing: corpoFiling };
+      const corpoFiling = <div className="ag-filing-tab"><CoperturaFiling dati={filing} errore={filingErr} occupato={filingBusy} bloccato={isRunning}
+        esito={filingEsito} onAttiva={attivaFiling} onRiprova={caricaFiling} fmt={n => fmtN(n)} conTitolo
+        onApri={t => navigate(t ? `/filing?t=${encodeURIComponent(t)}` : '/filing')} /></div>;
+      const corpoRecupero = <WeeklyRecoveryPanel disabled={isRunning} onStarted={tid => {
+        try { localStorage.setItem(ACTIVE_RUN_KEY, tid); } catch {}
+        setActiveTaskId(tid); setTriggerMsg({ kind: 'active', id: tid }); setStopNotice(null); setDettagliAperti(false);
+        setState(prev => ({ ...(prev || {}), running: true, start_time: new Date().toISOString(),
+          message: tr('tradeidea.recoveryBusy') } as AgentsLiveState));
+      }} />;
+      const corpi: Record<SchedaPannello, ReactNode> = { costi: corpoCosti, chiamate: corpoChiamate,
+        strumenti: <>{corpoStrumenti}<div className="ag-sub ag-sub-tk">{w.tabTickers}</div>{corpoTicker}</>, filing: corpoFiling, recupero: corpoRecupero };
       const conteggi: Record<SchedaPannello, string> = {
-        chiamate: conteggioChiamate, strumenti: P.logTappato ? w.last50Of(P.calls.length, P.nCallsTot) : w.allN(P.nToolsDistinct),
-        ticker: w.allN(P.tickers.length),
-        filing: filing ? w.filingCount(filing.copertura.con_confronto, filing.copertura.totale) : '',
+        costi: '', chiamate: conteggioChiamate, strumenti: w.lookedCount(P.nToolsDistinct, P.tickers.length),
+        filing: filing ? w.filingCount(filing.copertura.con_confronto, filing.copertura.totale) : '', recupero: '',
       };
+
+      /* ── il tavolo ─────────────────────────────────────────────────── */
+      const tintaDi = (id: string) => tintaDesk(coloreDi(id) || byId(id)?.color);
+      const nomeId = (id: string) => nomeDi({ id, name: byId(id)?.name || id });
+      const attesi = typeof state?.expected_reports === 'number' && state.expected_reports > 0 ? state.expected_reports : null;
+      const conta = (...stati: StatoDesk[]) => desks.filter(d => stati.includes(d.stato)).length;
+      const problemi = conta('ko', 'nd');
+      const datiTavolo: DatiTavolo = {
+        vivo,
+        nodi: desks.map(d => ({ id: d.id, nome: d.nome, colore: d.colore, tinta: tintaDesk(d.colore), stato: d.stato,
+          pastiglia: d.pastiglia, titolo: d.titolo, esito: d.esito, round: d.round,
+          fare: { testo: d.fare.testo, tk: d.fare.tk ?? null, codice: d.fare.codice, sotto: d.fare.sotto } })),
+        capo: { stato: capoStato, colore: coloreDi('capo'), segmenti: consegne.map(c => tintaDi(c.id)), attesi,
+          testo: !state?.start_time ? w.capoReady : attesi != null ? w.reportsOf(consegne.length, attesi) : w.reportsN(consegne.length) },
+        chiamate: PC.calls.map(c => ({ key: `${c.a}|${c.r}|${c.hhmm}|${c.tool}|${c.input}`, a: c.a })),
+        report: consegne.map(c => ({ key: c.key, a: c.id })),
+        angoli: vista === 'viva' || vista === 'finita' ? {
+          crono: fmtDurShort(isRunning ? (elapsed || P.runSec) : P.runSec),
+          sotto: vista === 'finita' ? w.runEnded : attesi != null ? `${w.reportsOf(consegne.length, attesi)} · ${w.usualLength}` : w.usualLength,
+          avanz: vista === 'finita' ? 1 : attesi != null ? consegne.length / attesi : null,
+          legenda: [{ k: 'lav', testo: w.legWorking, n: conta('run', 'think', 'stale') }, { k: 'att', testo: w.legWaiting, n: conta('wait') },
+            { k: 'ok', testo: w.legDone, n: conta('ok') }, ...(problemi ? [{ k: 'ko', testo: w.legIssue, n: problemi }] : [])],
+        } : null,
+        conclusioni: consegne.slice(-4).reverse().map(c => ({ key: c.key, id: c.id, nome: nomeId(c.id), tinta: tintaDi(c.id), round: c.r,
+          ora: c.visto ? ora(new Date(c.ms).toISOString()) : '', frase: primaFrase(c.testo) })),
+      };
+
+      /* ── le corsie ─────────────────────────────────────────────────── */
+      const sint = PC.phases.find(p => p.k === 'SINTESI');
+      const capoBarre = capoScrive && P.capoT != null ? [{ t0: P.capoT, t1: P.runSec, aperta: true, etichetta: w.stepSynthesis }]
+        : sint ? [{ t0: sint.t0, t1: sint.t1, aperta: !!sint.open, etichetta: w.stepSynthesis }] : [];
+      const capoCosto = capoD?.cost != null ? (capoD.partial ? '~' : '') + fmtEur(capoD.cost) : P.capo === 'running' ? w.inProgressCost : tr('activity.unavailable');
+      const datiCorsie: DatiCorsie = {
+        T: Math.max(vivo ? 1800 : 60, PC.runSec * 1.03), ora: vivo ? PC.runSec : null,
+        vuota: PC.windows.length === 0 && capoBarre.length === 0, parziale: P.logTappato,
+        fasi: PC.phases.filter(p => p.k !== 'FRA ROUND').map(p => ({ k: p.k, t0: p.t0, etichetta: p.k === 'SINTESI' ? w.stepSynthesis : w.stepRound(Number(p.k.slice(1))) })),
+        righe: desks.map(v => ({ id: v.id, nome: v.nome, ruolo: v.ruolo, tinta: tintaDesk(v.colore), esito: v.esito, dettaglio: v.dettaglio,
+          chiamate: v.chiamate, costo: v.costo, costoNd: v.costoNd, report: consegne.some(c => c.id === v.id),
+          barre: PC.windows.filter(x => x.a === v.id).map(x => ({ r: x.r, t0: x.t0, t1: x.t1, aperta: !!x.open,
+            tacche: PC.calls.filter(c => c.a === v.id && c.r === x.r).map(c => c.t) })) })),
+        capo: { nome: w.capo, sotto: w.lanesCapo, barre: capoBarre, costo: capoCosto, costoNd: capoD?.cost == null && P.capo !== 'running', memo: memoId != null },
+      };
+
+      /* ── sotto la lente: i ticker scritti negli input, con chi li ha guardati ── */
+      const lente = new Map<string, { n: number; desks: Set<string> }>();
+      for (const c of PC.calls) for (const k of tickerDiInput(c.input)) {
+        const x = lente.get(k) || { n: 0, desks: new Set<string>() }; x.n++; x.desks.add(c.a); lente.set(k, x);
+      }
+      const lenteTop = [...lente.entries()].sort((a, b) => b[1].n - a[1].n);
+      const quotaCosti = agentiCosto.filter(a => a.cost != null && a.cost > 0);
+      const sommaQuote = quotaCosti.reduce((s, a) => s + (a.cost || 0), 0);
+
+      /* ── report del desk scelto ─────────────────────────────────────── */
+      const sel = repDesk ? desks.find(d => d.id === repDesk.id) || null : null;
+      const giriSel = sel ? state?.reports_by_specialist?.[sel.id] || {} : {};
+      const testoGiro = (r: number) => Object.entries(giriSel).find(([k]) => Number.parseInt(String(k).replace(/\D/g, ''), 10) === r)?.[1] ?? null;
+      const roundSel = sel ? [0, 1, 2].filter(r => r < 2 || !r2 || r2.includes(sel.id) || testoGiro(r) != null) : [];
+      const consegnatiSel = roundSel.filter(r => testoGiro(r) != null);
+      const rSel = repDesk?.r ?? (consegnatiSel.length ? consegnatiSel[consegnatiSel.length - 1] : 0);
+      const testoSel = sel ? testoGiro(rSel) : null;
+      const tkSel = sel ? [...new Set(PC.calls.filter(c => c.a === sel.id).flatMap(c => tickerDiInput(c.input)))] : [];
+
+      const faseOra = tappe.find(t => t.stato === 'now');
+      const titoloAdesso = vista === 'cieco' ? w.titleUnreadable : vista === 'viva' ? (faseOra?.nome ?? w.pillRunning)
+        : vista === 'finita' ? (memoId != null ? w.pillDone : w.pillEnded) : w.pillIdle;
+      const lavorano = desks.filter(d => d.stato === 'run' || d.stato === 'think');
 
       return (
         <div className="bbn-agents bbn-font" data-vista={vista} data-heartbeat={P.stale ? 'fermo' : 'ok'}>
-          {/* ── box della run ── */}
+          {/* ── la run: stato, tappe, comandi ── */}
           <section className="bbn-card ag-run" aria-live="polite">
-            <div className="ag-run-top">
-              <div className="ag-run-id">
-                <AnelloDesk id="capo" colore={coloreDi('capo')} grande
-                  stato={vista === 'viva' ? (fermoDa != null ? 'stale' : 'run') : vista === 'finita' && memoId != null ? 'ok' : 'wait'} />
-                <div className="ag-run-copy">
-                  <span className="k">{pillola}{meta && <span className="meta">{meta}</span>}</span>
-                  <h1>{titolo}</h1>
-                  <p>{descrizione}</p>
-                  <p className="ag-filing-line" data-filing-line={filingErr ? 'errore' : filing ? (mancantiFiling(filing) ? 'mancanti' : 'completa') : 'caricamento'}>
-                    <FileText size={14} />
-                    <span>{filingErr ? w.filingLineDown : filing ? w.filingLine(filing.copertura.con_confronto, filing.copertura.totale, mancantiFiling(filing)) : w.filingLineLoading}</span>
-                    <button type="button" className="bbn-link" data-filing-open="1" onClick={apriFiling}>{w.filingOpen} <ArrowUpRight size={14} /></button>
-                  </p>
-                </div>
-              </div>
-              {vista !== 'riposo' && <div className="ag-kpis">
-                {vista === 'cieco' && !state ? null : <>{kDurata}{kCosto}{kChiamate}{kQuarta}</>}
-              </div>}
-              <div className="ag-run-act">
-                <button type="button" className="bbn-btn" onClick={() => navigate('/agents/trade-idea')}><Lightbulb size={15} />{tr('tradeidea.openTradeIdea')}</button>
-                {bottone}
+            <div className="ag-run-id">
+              <AnelloDesk id="capo" colore={coloreDi('capo')} grande
+                stato={vista === 'viva' ? (fermoDa != null ? 'stale' : 'run') : vista === 'finita' && memoId != null ? 'ok' : 'wait'} />
+              <div className="ag-run-copy">
+                <span className="k">{pillola}{meta && <span className="meta">{meta}</span>}</span>
+                <h1>{titolo}</h1>
+                <p>{descrizione}</p>
               </div>
             </div>
-            {ultimaRun}
             <Tappe tappe={tappe} etichetta={w.steps} />
-            {adesso && <div className="ag-now"><span><b>{adesso[0]}</b>{adesso[1] ? ' · ' + adesso[1] : ''}</span>
-              {capoScrive && fermoDa == null && <span className="muted">· {w.nowCapoNote}</span>}</div>}
-            {/* ── recupero delle run settimanali (Trade Idea): stesso stato della run qui sopra ── */}
-            <WeeklyRecoveryPanel disabled={isRunning} onStarted={tid => {
-              try { localStorage.setItem(ACTIVE_RUN_KEY, tid); } catch {}
-              setActiveTaskId(tid); setTriggerMsg({ kind: 'active', id: tid }); setStopNotice(null);
-              setState(prev => ({ ...(prev || {}), running: true, start_time: new Date().toISOString(),
-                message: tr('tradeidea.recoveryBusy') } as AgentsLiveState));
-            }} />
+            <div className="ag-run-act">
+              <p className="ag-filing-line" data-filing-line={filingErr ? 'errore' : filing ? (mancantiFiling(filing) ? 'mancanti' : 'completa') : 'caricamento'}>
+                <FileText size={14} />
+                <span>{filingErr ? w.filingLineDown : filing ? w.filingLine(filing.copertura.con_confronto, filing.copertura.totale, mancantiFiling(filing)) : w.filingLineLoading}</span>
+                <button type="button" className="bbn-link" data-filing-open="1" onClick={apriFiling}>{w.filingOpen} <ArrowUpRight size={14} /></button>
+              </p>
+              <button type="button" className="bbn-btn" onClick={() => navigate('/agents/trade-idea')}><Lightbulb size={15} />{tr('tradeidea.openTradeIdea')}</button>
+              <button type="button" className="bbn-btn ag-dett" data-dettagli="1" onClick={() => apriDettagli()} aria-label={w.detailsOpen} title={w.detailsOpen}><PanelRight size={16} /></button>
+              {bottone}
+            </div>
           </section>
 
           {avvisi.length > 0 && <div className="ag-bans">
@@ -758,40 +869,95 @@ export default function AgentsLive() {
               {a.icona}<span>{a.testo}</span>{a.azione && <span className="act">{a.azione}</span>}</div>)}
           </div>}
 
-          {/* ── desk, Capo, costi (e sul 49" dove ha guardato) ── */}
-          <div className="ag-desks" ref={dialRef} aria-label={w.desks}>
-            <div className="ag-dgrid">{desks.map(d => <CardDesk key={d.id} d={d} />)}</div>
-            <CardCapo c={capo} nome={w.capo} />
-            <div className="ag-wide">
-              <section className="bbn-card ag-panel-card ag-cost-card"><header className="bbn-card-head"><h2>{w.costsTitle}</h2></header>{corpoCosti}</section>
-              <section className="bbn-card ag-panel-card ag-looked-card"><header className="bbn-card-head"><h2>{w.lookedTitle}</h2>
-                <span className="bbn-card-count">{w.lookedCount(P.nToolsDistinct, P.tickers.length)}</span></header>
-                <div className="ag-looked">{corpoStrumenti}{corpoTicker}</div></section>
-            </div>
+          {/* ── il tavolo ── */}
+          <section className="bbn-card ag-tavolo" aria-label={w.desks}>
+            <Tavolo dati={datiTavolo} box={dialBox} areaRef={dialRef} onApri={apriReport}
+              testi={{ etichetta: w.tableLabel, elapsed: w.elapsed, legenda: w.legendTitle, conclTitolo: w.conclTitle,
+                conclHint: w.conclHint, conclVuoto: w.conclEmpty, roundBreve: r => w.stepRound(r) }} />
+          </section>
+
+          {/* ── adesso, sotto la lente, in cifre ── */}
+          <div className="ag-side">
+            <section className="bbn-card ag-adesso">
+              <header className="bbn-card-head"><h2>{w.nowTitle}</h2><span className="bbn-grow" />
+                {lavorano.length > 0 && <span className="ag-chi">{lavorano.map(d => <IconaDesk key={d.id} id={d.id} colore={d.colore} dimensione="xs" />)}</span>}</header>
+              <div className="ag-adesso-b">
+                <b className="ag-fase">{titoloAdesso}</b>
+                {adesso ? <p className="ag-now"><span><b>{adesso[0]}</b>{adesso[1] ? ' · ' + adesso[1] : ''}</span>
+                    {capoScrive && fermoDa == null && <span className="muted">{w.nowCapoNote}</span>}</p>
+                  : <p className="ag-now-p">{vista === 'finita' ? (memoId != null ? w.nowDoneMemo : w.descDoneNoMemo) : vista === 'cieco' ? descrizione : w.nowIdle}</p>}
+                {(capoScrive || vista === 'finita') && <div className="ag-stadi">{capo.stadi.map(s => (
+                  <span key={s.id} className={'ag-stadio is-' + s.stato} data-stadio={s.id}>{s.stato === 'ok' ? <Check size={13} /> : <i />}{s.nome}<em>{s.nota}</em></span>
+                ))}</div>}
+                {vista === 'riposo' && state?.start_time && <div className="ag-last">
+                  <span className="t">{w.lastRun} <span>· {w.runSpan(giorno(state.start_time), ora(state.start_time), state.completed_at ? ora(state.completed_at) : tr('activity.unavailable'))}{lingua ? ' · ' + lingua : ''}</span></span>
+                  {memoId != null && <button type="button" className="bbn-link ag-memo-link" onClick={vaiDecisioni}>{w.memo(memoId)} <ArrowUpRight size={14} /></button>}
+                </div>}
+                {capo.azioni && <div className="ag-adesso-act">{capo.azioni}</div>}
+              </div>
+            </section>
+            <section className="bbn-card ag-lente">
+              <header className="bbn-card-head"><h2>{w.lensTitle}</h2><span className="bbn-grow" />
+                {lenteTop.length > 0 && <span className="bbn-card-count">{w.lensCount(lenteTop.length)}</span>}</header>
+              {lenteTop.length === 0 ? <p className="bbn-empty">{w.lensEmpty}</p> : <div className="ag-lente-l">
+                {lenteTop.slice(0, 16).map(([k, x]) => (
+                  <span key={k} className="ag-lt"><b>{k}</b>
+                    <em aria-hidden="true">{[...x.desks].slice(0, 4).map(id => <i key={id} style={{ background: tintaDi(id) }} title={nomeId(id)} />)}</em>
+                    <small className="num">{x.n}</small></span>
+                ))}
+                {lenteTop.length > 16 && <span className="ag-lt-more">{w.lensMore(lenteTop.length - 16)}</span>}
+              </div>}
+            </section>
+            <section className="bbn-card ag-cifre">
+              <header className="bbn-card-head"><h2>{w.figuresTitle}</h2><span className="bbn-grow" />
+                <button type="button" className="bbn-link" data-dettagli-costi="1" onClick={() => apriDettagli('costi')}>{w.costDetails} <ArrowUpRight size={14} /></button></header>
+              {cieco && !state ? <p className="bbn-empty">{w.descUnreadable(null)}</p> : <div className="ag-cifre-b">
+                <div className="ag-cifre-costo">{kCosto}</div>
+                {sommaQuote > 0 && <span className="ag-quota" title={w.costByDesk}>{quotaCosti.map(a => (
+                  <u key={a.id} style={{ width: `${(a.cost || 0) / sommaQuote * 100}%`, background: tintaDi(a.id) }} title={`${nomeDi(a)} ${fmtEur(a.cost)}`} />
+                ))}</span>}
+                <div className="ag-kpis">{kDurata}{kChiamate}{kQuarta}{(vista === 'finita' || vista === 'riposo') && state?.start_time ? kEsito : null}</div>
+              </div>}
+            </section>
           </div>
 
-          {/* ── pannello a schede (a destra); sul 49" solo Chiamate ── */}
-          <section className="bbn-card ag-panel" aria-label={w.panel}>
-            <header className="bbn-card-head">
-              <Segmenti<SchedaPannello> valore={scheda} etichetta={w.panel} onChange={setScheda} opzioni={[
-                { id: 'chiamate', testo: w.tabCalls },
-                { id: 'strumenti', testo: w.tabTools }, { id: 'ticker', testo: w.tabTickers },
-                { id: 'filing', testo: w.tabFiling },
-              ]} />
-              <span className="bbn-grow" />
-              {conteggi[scheda] && <span className="bbn-card-note">{conteggi[scheda]}</span>}
-            </header>
-            {corpi[scheda]}
-          </section>
-          <section className="bbn-card ag-calls-wide" aria-label={w.callsTitle}>
-            <header className="bbn-card-head"><h2>{w.callsTitle}</h2><span className="bbn-card-count">{conteggioChiamate}</span></header>
-            {corpoChiamate}
-          </section>
-          <section className="bbn-card ag-filing-wide" aria-label={w.filingTitle}>
-            <header className="bbn-card-head"><h2>{w.filingTitle}</h2>
-              {filing && <span className="bbn-card-count">{w.filingCount(filing.copertura.con_confronto, filing.copertura.totale)}</span>}</header>
-            {filingVista(false)}
-          </section>
+          {/* ── le corsie ── */}
+          <Corsie dati={datiCorsie} onReport={id => apriReport(id)} onMemo={vaiDecisioni}
+            testi={{ titolo: w.lanesTitle, hint: w.lanesHint, vuoto: w.lanesEmpty, parziale: w.lanesPartial, report: w.lanesReport, memo: w.lanesMemo }} />
+
+          {/* ── cassetti: dettagli della run, report di un desk ── */}
+          <Cassetto aperto={dettagliAperti} onChiudi={chiudiDettagli} etichetta={w.detailsOpen} chiudi={w.close} classe="ag-dettagli"
+            testa={<div className="ag-cass-t"><b>{w.detailsOpen}</b><span>{w.detailsSub}</span></div>}
+            schede={<><Segmenti<SchedaPannello> valore={scheda} etichetta={w.panel} onChange={setScheda} opzioni={[
+                { id: 'costi', testo: w.tabCosts }, { id: 'chiamate', testo: w.tabCalls }, { id: 'strumenti', testo: w.tabTools },
+                { id: 'filing', testo: w.tabFiling }, { id: 'recupero', testo: w.tabRecovery },
+              ]} /><span className="bbn-grow" />{conteggi[scheda] && <span className="bbn-card-note">{conteggi[scheda]}</span>}</>}>
+            {(Object.keys(corpi) as SchedaPannello[]).map(k => (
+              <div key={k} className="ag-pane" data-pane={PANE[k]} hidden={scheda !== k}>
+                {k === 'costi' && <h2 className="ag-pane-t">{w.costsTitle}</h2>}{corpi[k]}</div>
+            ))}
+          </Cassetto>
+          <Cassetto aperto={!!repDesk?.aperto && !!sel} onChiudi={chiudiReport} etichetta={sel?.nome || w.desks} chiudi={w.close} classe="ag-report"
+            testa={sel && <div className="ag-cass-t is-desk"><IconaDesk id={sel.id} colore={sel.colore} dimensione="md" />
+              <span><b>{sel.nome}</b><span>{sel.ruolo}</span></span>
+              <span className={'bbn-pill ' + ({ run: 'is-acc', think: 'is-acc', ok: 'is-su', ko: 'is-giu', nd: 'is-warn', wait: 'is-piatto', stale: 'is-warn' } as const)[sel.stato]}>{sel.pastiglia}</span></div>}
+            schede={sel && <Segmenti<string> valore={String(rSel)} etichetta={w.steps}
+              onChange={v => setRepDesk({ id: sel.id, r: Number(v), aperto: true })}
+              opzioni={roundSel.map(r => ({ id: String(r), testo: w.stepRound(r) }))} />}>
+            {sel && <div className="ag-rep-b">
+              <div className="ag-rep-meta">
+                <span className="ag-tk">{sel.chiamate}</span><span className="ag-tk">{sel.dur}</span>
+                <span className={'ag-tk' + (sel.costoNd ? ' is-nd' : '')}>{sel.costo}</span>
+                <span className="ag-tk is-muted" title={sel.dettaglio}>{sel.dettaglio}</span>
+              </div>
+              {tkSel.length > 0 && <div className="ag-rep-tk"><span className="ag-sub">{w.reportTickers}</span>
+                <div className="ag-tickers">{tkSel.map(t => <span key={t} className="ag-tk">{t}</span>)}</div></div>}
+              {testoSel != null ? <>
+                <div className="ag-rep-testo">{testoSel}</div>
+                <p className="ag-foot">{w.reportPreview}</p>
+              </> : <p className="bbn-empty">{state?.start_time ? w.reportWaiting(rSel, sel.nome) : w.reportNone}</p>}
+            </div>}
+          </Cassetto>
         </div>
       );
     }} />

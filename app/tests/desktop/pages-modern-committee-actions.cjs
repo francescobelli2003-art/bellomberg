@@ -53,17 +53,17 @@ async function verifyAgentsScrollReachability(q) {
   const evidence = [];
   for (const [width, height] of [[1920,1080],[2560,1440],[3440,1440],[5120,1440],[1440,1000],[1280,900],[900,700]]) {
     await q.withViewport(width, height, async () => {
-      // 02/10/2026: desk cards replace the orbital plates; every card head, the Capo, the run box
-      // and the visible details panel must be reachable without header/footer clipping.
+      // 05/10/2026: the desks sit around the committee table; every desk label, the Capo, the run box
+      // and the lanes card must be reachable without header/footer clipping.
       const targets = await q.js(() => {
         const root = document.querySelector('main [data-page="agents"]');
         root.querySelectorAll('[data-qa-reach-card],[data-qa-last-plate],[data-qa-reach-panel]').forEach(el =>
           ['data-qa-reach-card', 'data-qa-last-plate', 'data-qa-reach-panel'].forEach(name => el.removeAttribute(name)));
         const visible = el => { const r = el.getBoundingClientRect(), s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.display !== 'none'; };
-        const heads = [...root.querySelectorAll('.ag-desk .ag-desk-h')].filter(visible);
+        const heads = [...root.querySelectorAll('.ag-desk .ag-lbl .nm')].filter(visible);
         heads.forEach((el, i) => el.setAttribute('data-qa-reach-card', String(i)));
-        const capo = root.querySelector('.ag-capo .ag-capo-top'); capo.setAttribute('data-qa-last-plate', 'true');
-        const panel = [...root.querySelectorAll('.ag-panel > .bbn-card-head, .ag-calls-wide > .bbn-card-head')].find(visible);
+        const capo = root.querySelector('.ag-capo-c'); capo.setAttribute('data-qa-last-plate', 'true');
+        const panel = [...root.querySelectorAll('.ag-corsie > .bbn-card-head')].find(visible);
         panel.setAttribute('data-qa-reach-panel', 'true');
         return heads.map((_, i) => `[data-qa-reach-card="${i}"]`).concat('[data-qa-last-plate="true"]', '[data-qa-reach-panel="true"]',
           'main [data-page="agents"] .ag-run h1');
@@ -223,9 +223,10 @@ async function run(q) {
 
     await q.toggle('modern');
     assert.equal((await q.pageState()).id, beforeSwitch.id, 'Modern toggle remounted the six-desk page controller');
-    const tabSelector = 'main [data-page="agents"] .ag-panel .bbn-seg button';
+    // 05/10/2026: the detail tabs live in the «Run details» drawer, opened from the run box
+    const tabSelector = 'main [data-page="agents"] .ag-dettagli .bbn-seg button';
     const readState = async () => q.js((sel, cards) => ({
-      tab: [...document.querySelectorAll(sel)].find(b => b.getAttribute('aria-pressed') === 'true')?.innerText.trim() || '',
+      tab: [...document.querySelectorAll(sel)].find(b => b.getAttribute('aria-pressed') === 'true')?.textContent.trim() || '',
       markers: [...document.querySelectorAll(cards)].map(card => (card.querySelector('.nm b')?.textContent || '').trim()).join(' '),
     }), tabSelector, cardsSelector);
 
@@ -242,8 +243,13 @@ async function run(q) {
     }
 
     const beforeTab = await readState();
+    await q.click('main [data-page="agents"] button[data-dettagli="1"]');
+    await q.waitFor(() => document.querySelector('main [data-page="agents"] .ag-dettagli')?.dataset.aperto === '1', 'details drawer open', 3000);
+    await q.pause(450);
     await q.click(`${tabSelector}:nth-of-type(3)`);
     await q.waitFor(sel => document.querySelectorAll(sel)[2]?.getAttribute('aria-pressed') === 'true', 'details tab selected', 3000, tabSelector);
+    await q.click('main [data-page="agents"] .ag-dettagli button.ag-cass-x');
+    await q.waitFor(() => document.querySelector('main [data-page="agents"] .ag-dettagli')?.dataset.aperto === '0', 'details drawer closed', 3000);
     const chosen = await readState();
     assert.notEqual(chosen.tab, beforeTab.tab, 'a trusted click on a details tab should select it');
     const beforeModeCounts = await q.counts();
