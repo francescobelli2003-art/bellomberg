@@ -156,5 +156,9 @@ export const movementsPage = {
   "diaryUnavailableDetail": "No archive was read: the comments are unknown. Try again with Refresh.",
   "diaryEmpty": "No comments",
   "diaryEmptyDetail": "None of the {n} movements read has a PM comment or a cash reason.",
-  "diaryEmptyPartial": "No comments among the movements read"
+  "diaryEmptyPartial": "No comments among the movements read",
+  "diaryEntryAria": "{d} · {t} · {v} · comment",
+  "diaryEntryAriaCash": "{d} · {t} · {v} · cash reason",
+  "statusRegister": "Register: {s}",
+  "statusDiary": "Diary: {s}"
 };

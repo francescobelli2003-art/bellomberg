@@ -101,15 +101,23 @@ function Carta({ icona, titolo, nota, azioni, className = '', children, ...rest 
 }
 
 /** Pillola del verbo: blu entra, viola esce, giallo dividendo, grigio cassa. Verde e rosso restano al P&L. */
+/** la parola della pillola, anche per i nomi accessibili: una fonte sola, la pillola e l'etichetta non divergono */
+function verboDi(r: RigaRegistro, w: Parole): string {
+  if (r.specie === 'cassa') {
+    const v = versoDi(r.m.type);
+    return v === 'dentro' ? w.t('movementsPage.verbDeposit') : v === 'fuori' ? w.t('movementsPage.verbWithdraw') : w.t('movementsPage.verbCashNd');
+  }
+  return r.t.action === 'DIVIDEND' ? w.t('movementsPage.verbDividend') : r.t.action;
+}
+
 function Verbo({ r, w }: { r: RigaRegistro; w: Parole }) {
   if (r.specie === 'cassa') {
     const v = versoDi(r.m.type);
-    return <span className="mv-vb is-cash" title={v === 'ignoto' ? String(r.m.type) : undefined}>
-      {v === 'dentro' ? w.t('movementsPage.verbDeposit') : v === 'fuori' ? w.t('movementsPage.verbWithdraw') : w.t('movementsPage.verbCashNd')}</span>;
+    return <span className="mv-vb is-cash" title={v === 'ignoto' ? String(r.m.type) : undefined}>{verboDi(r, w)}</span>;
   }
   const a = r.t.action;
   const tono = a === 'DIVIDEND' ? 'is-dv' : esce(a) ? 'is-out' : entra(a) ? 'is-in' : 'is-cash';
-  return <span className={`mv-vb ${tono}`} data-mov-verbo={a}>{a === 'DIVIDEND' ? w.t('movementsPage.verbDividend') : a}</span>;
+  return <span className={`mv-vb ${tono}`} data-mov-verbo={a}>{verboDi(r, w)}</span>;
 }
 
 /** Il realizzato di un'uscita: col cancello chiuso o il dato assente è un buco dichiarato, mai uno zero. */
@@ -354,6 +362,9 @@ function CardRegistro({ d, a, w }: { d: DatiMovimenti; a: AzioniMovimenti; w: Pa
     d.oreFinte > 0 && w.t('movementsPage.conventional', { a: d.oreFinte, b: d.trades.length }),
   ].filter(Boolean) as string[];
   const vuotoArchivio = !d.loading && d.lettoT && d.lettoC && !d.err && !d.errCassa && d.tutte.length === 0;
+  const annuncio = !qualcosa ? '' : d.loading ? w.t('movementsPage.loading')
+    : vuotoArchivio ? w.t('movementsPage.empty')
+    : d.tutte.length > 0 && d.righe.length === 0 ? w.t('movementsPage.emptyFilter') : nota ?? '';
   let corrente: string | null = null;
   return (
     <Carta icona={<List size={16} />} titolo={w.t('movementsPage.register')} nota={<>{w.t('movementsPage.registerNote')}{nota && <> · {nota}</>}</>} className="mv-registro">
@@ -376,7 +387,8 @@ function CardRegistro({ d, a, w }: { d: DatiMovimenti; a: AzioniMovimenti; w: Pa
         </label>
       </div>
       {piedi.length > 0 && <p className="mv-foot mv-foot-reg" data-mov-note="registro">{piedi.join(' ')}</p>}
-      <div className="mv-list" role="status" aria-live="polite">
+      <Annuncio testo={annuncio && w.t('movementsPage.statusRegister', { s: annuncio })} dove="registro" />
+      <div className="mv-list">
         {vuotoArchivio && <div className="mv-empty-box" data-mov-stato="vuoto"><b>{w.t('movementsPage.empty')}</b>{w.t('movementsPage.emptyDetail')}</div>}
         {d.tutte.length > 0 && d.righe.length === 0 && <div className="mv-empty-box" data-mov-stato="filtro-vuoto">
           <b>{w.t('movementsPage.emptyFilter')}</b>{w.t('movementsPage.emptyFilterDetail', { n: d.nMov })}
@@ -398,12 +410,26 @@ function CardRegistro({ d, a, w }: { d: DatiMovimenti; a: AzioniMovimenti; w: Pa
   );
 }
 
+// ── annunci per il lettore di schermo ──────────────────────────
+/* Review 06/10/2026 (accessibilità): la live region stava sulla LISTA intera, e il lettore di schermo rileggeva ogni
+   riga (nel Diario ogni commento pieno) a ogni filtro o aggiornamento. Ora annuncia solo questa riga breve, nascosta
+   alla vista perché il conteggio si legge già nella nota della card. Senza archivi letti tace: caricamento ed
+   errore li dice già l'avviso in alto (role status/alert), e due annunci uguali sarebbero rumore. */
+function Annuncio({ testo, dove }: { testo: string; dove: string }) {
+  return <p className="mv-sr" role="status" aria-live="polite" aria-atomic="true" data-mov-annuncio={dove}>{testo}</p>;
+}
+
+/** id stabile del testo di una voce del Diario, per aria-describedby (la chiave della riga contiene «:») */
+const idTesto = (k: string, parte: 'motivo' | 'nota' | 'causale') => `mv-diario-${k.replace(/[^\w-]/g, '-')}-${parte}`;
+
 // ── diario ─────────────────────────────────────────────────────
 /* «Le parole del PM» in fila (06/10/2026): torna la vista Diario di prima del restyling (components/movimenti/
    Diario.tsx, tolta il 05/10 con il commit di Movimenti in stile Nuova), con gli stessi dati — `pm_rationale` e
    `note` dei trade, la causale della cassa — e nessuna lettura nuova. Il testo è PIENO, mai troncato: è la
    differenza con la riga del registro, che ne mostra una riga sola.
-   Gli stati sono quelli del registro e non si confondono: un archivio non letto non è «0 commenti». */
+   Gli stati sono quelli del registro e non si confondono: un archivio non letto non è «0 commenti».
+   Nome accessibile BREVE (review 06/10/2026): senza aria-label il nome del pulsante era il commento intero; ora è
+   «data · titolo o Cassa · verbo · commento», e il testo pieno resta contenuto visibile, legato con aria-describedby. */
 function VoceDiario({ v, d, a, w }: { v: RigaVista; d: DatiMovimenti; a: AzioniMovimenti; w: Parole }) {
   const { r, k } = v;
   const corrente = d.sel?.k === k;
@@ -412,7 +438,9 @@ function VoceDiario({ v, d, a, w }: { v: RigaVista; d: DatiMovimenti; a: AzioniM
     const leggibile = typeof val === 'number' && isFinite(val);
     return (
       <button type="button" className={'mv-voce' + (corrente ? ' is-on' : '')} data-mov-diario={k} data-specie="cassa"
-        aria-current={corrente || undefined} onClick={() => a.scegli(k)}>
+        aria-current={corrente || undefined} onClick={() => a.scegli(k)}
+        aria-label={w.t('movementsPage.diaryEntryAriaCash', { d: ggmmaa(m.date), t: w.t('movementsPage.cash'), v: verboDi(r, w) })}
+        aria-describedby={idTesto(k, 'causale')}>
         <span className="mv-voce-h">
           <span className="bbn-ico is-sm mv-ico-cash" aria-hidden="true"><Wallet size={15} /></span>
           <b>{w.t('movementsPage.cash')}</b><Verbo r={r} w={w} />
@@ -422,7 +450,7 @@ function VoceDiario({ v, d, a, w }: { v: RigaVista; d: DatiMovimenti; a: AzioniM
         </span>
         {/* ⚠️ etichettata «Causale» e mai «Commento del PM»: la causale può averla scritta chi ha importato la
             riga (la stessa avvertenza del Diario di prima) */}
-        <span className="mv-voce-tx"><span className="et">{w.t('movementsPage.cashReason')}</span>{testiDiRiga(r).nota}</span>
+        <span className="mv-voce-tx" id={idTesto(k, 'causale')}><span className="et">{w.t('movementsPage.cashReason')}</span>{testiDiRiga(r).nota}</span>
       </button>
     );
   }
@@ -430,9 +458,12 @@ function VoceDiario({ v, d, a, w }: { v: RigaVista; d: DatiMovimenti; a: AzioniM
   const { rationale, nota } = testiDi(t);
   // le etichette compaiono solo quando i testi sono due: su uno solo sarebbero rumore, su due dicono quale è quale
   const due = !!rationale && !!nota;
+  const descritto = [rationale && idTesto(k, 'motivo'), nota && idTesto(k, 'nota')].filter(Boolean).join(' ');
   return (
     <button type="button" className={'mv-voce' + (corrente ? ' is-on' : '')} data-mov-diario={k} data-specie="titolo"
-      aria-current={corrente || undefined} onClick={() => a.scegli(k)}>
+      aria-current={corrente || undefined} onClick={() => a.scegli(k)}
+      aria-label={w.t('movementsPage.diaryEntryAria', { d: ggmmaa(t.data), t: t.ticker, v: verboDi(r, w) })}
+      aria-describedby={descritto || undefined}>
       <span className="mv-voce-h">
         <IconaTitolo ticker={t.ticker} dimensione="sm" />
         <b>{t.ticker}</b><Verbo r={r} w={w} />
@@ -443,8 +474,8 @@ function VoceDiario({ v, d, a, w }: { v: RigaVista; d: DatiMovimenti; a: AzioniM
         <span className="bbn-grow" />
         <span className="mv-ctv num">{importo(controvalore(t), t.valuta, w.t('movementsPage.nd'))}</span>
       </span>
-      {rationale && <span className="mv-voce-tx">{due && <span className="et">{w.t('movementsPage.reason')}</span>}{rationale}</span>}
-      {nota && <span className="mv-voce-tx">{due && <span className="et">{w.t('movementsPage.note')}</span>}{nota}</span>}
+      {rationale && <span className="mv-voce-tx" id={idTesto(k, 'motivo')}>{due && <span className="et">{w.t('movementsPage.reason')}</span>}{rationale}</span>}
+      {nota && <span className="mv-voce-tx" id={idTesto(k, 'nota')}>{due && <span className="et">{w.t('movementsPage.note')}</span>}{nota}</span>}
     </button>
   );
 }
@@ -465,6 +496,9 @@ function CardDiario({ d, a, w }: { d: DatiMovimenti; a: AzioniMovimenti; w: Paro
     d.finestra && w.t('movementsPage.tradeWindow', { n: d.limite }),
     d.finestraCassa && w.t('movementsPage.cashWindow', { n: d.limiteCassa }),
   ].filter(Boolean) as string[];
+  // l'annuncio: lo stato in una riga, mai i testi (la voce del Diario è lunga per costruzione)
+  const annuncio = !qualcosa ? '' : d.loading ? w.t('movementsPage.loading')
+    : n === 0 ? `${completo ? w.t('movementsPage.diaryEmpty') : w.t('movementsPage.diaryEmptyPartial')} · ${nota}` : nota;
   let stato: ReactNode = null;
   if (!qualcosa) {
     stato = d.loading && !d.err && !d.errCassa
@@ -481,7 +515,8 @@ function CardDiario({ d, a, w }: { d: DatiMovimenti; a: AzioniMovimenti; w: Paro
   return (
     <Carta icona={<BookOpen size={16} />} titolo={w.t('movementsPage.diary')} nota={<>{w.t('movementsPage.diaryNote')} · {nota}</>} className="mv-registro mv-diario">
       {piedi.length > 0 && <p className="mv-foot mv-foot-reg" data-mov-note="diario">{piedi.join(' ')}</p>}
-      <div className="mv-list" role="status" aria-live="polite">
+      <Annuncio testo={annuncio && w.t('movementsPage.statusDiary', { s: annuncio })} dove="diario" />
+      <div className="mv-list">
         {stato}
         {d.diario.map(v => <VoceDiario key={v.k} v={v} d={d} a={a} w={w} />)}
       </div>

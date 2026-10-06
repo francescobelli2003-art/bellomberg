@@ -277,3 +277,56 @@ test('a saturated read window makes the diary count a minimum and never an empty
   assert.doesNotMatch(empty, /data-mov-stato="diario-vuoto"|>No comments</); assert.match(empty, /at least 0 comments/);
   assert.match(empty, /No comments among the movements read/); assert.match(empty, /None of the 100 movements read/);
 });
+
+// Review 06/10/2026 (accessibilità): la live region stava sulle liste intere e il nome di ogni voce del Diario era il
+// commento pieno. Ora le liste tacciono, annuncia una riga breve di stato, e la voce ha un nome corto.
+const liveOn = ui => ui.nodes.filter(n => n.props && 'aria-live' in n.props);
+const listNodes = ui => ui.nodes.filter(n => n.type === 'div' && /\bmv-list\b/.test(n.props.className || ''));
+
+test('only a short status line is live, never the register or diary list, in IT and EN', async () => {
+  const ui = retained(); const it = await ui.ready('it');
+  for (const [lang, html] of [['it', it], ['en', ui.render('en')]]) {
+    assert.equal(listNodes(ui).length, 1, lang);
+    assert.ok(listNodes(ui).every(n => !('aria-live' in n.props) && !('role' in n.props)), `${lang}: the list is not a live region`);
+    const live = liveOn(ui);
+    assert.equal(live.length, 1, `${lang}: one live region`); assert.equal(live[0].props['data-mov-annuncio'], 'registro');
+    assert.equal(live[0].props.role, 'status');
+    assert.match(html, lang === 'it' ? /data-mov-annuncio="registro"[^>]*>Registro: 2 di 2 mostrati</ : /data-mov-annuncio="registro"[^>]*>Register: 2 of 2 shown</);
+  }
+  const it2 = ui.press('it', 'data-mov-vista', 'diario'), en2 = ui.render('en');
+  assert.ok(listNodes(ui).every(n => !('aria-live' in n.props)));
+  assert.equal(liveOn(ui).length, 1); assert.equal(liveOn(ui)[0].props['data-mov-annuncio'], 'diario');
+  assert.match(it2, /data-mov-annuncio="diario"[^>]*>Diario: 2 commenti</); assert.match(en2, /data-mov-annuncio="diario"[^>]*>Diary: 2 comments</);
+  // il commento pieno non entra nell'annuncio
+  assert.doesNotMatch(it2, /data-mov-annuncio="diario"[^>]*>[^<]*Motivo originale/);
+});
+
+test('the status line says loading during a refresh and stays silent before any archive is read', async () => {
+  const pending = new Promise(() => {});
+  const first = retained({ tradePayload: pending, cashPayload: pending });
+  const html = first.render('it');
+  assert.match(html, /data-mov-annuncio="registro"[^>]*><\/p>/, 'the top notice already announces the first load');
+  const ui = retained(); await ui.ready('it'); ui.options.tradePayload = pending; ui.options.cashPayload = pending;
+  ui.press('it', 'data-mov-azione', 'aggiorna');
+  assert.match(ui.render('it'), /data-mov-annuncio="registro"[^>]*>Registro: Caricamento dei movimenti</);
+  assert.match(ui.render('en'), /data-mov-annuncio="registro"[^>]*>Register: Loading movements</);
+});
+
+test('each diary entry has a short accessible name and the full comment as its description, in IT and EN', async () => {
+  const rows = [trade({ id: 51, ticker: 'NAME.X', data: '2026-09-25T12:00:00', prezzo: 20, valuta: 'EUR', action: 'TRIM', realized_eur: 5,
+    pm_rationale: 'Motivo lungo che non deve diventare il nome', note: 'Nota lunga' })];
+  const cashRows = [{ id: 52, date: '2026-08-14', type: 'DEPOSIT', amount_eur: 500, note: 'Causale lunga' }];
+  const ui = retained({ trades: rows, cash: cashRows }); await ui.ready('it');
+  ui.press('it', 'data-mov-vista', 'diario');
+  const entries = () => ui.nodes.filter(n => n.type === 'button' && 'data-mov-diario' in n.props);
+  const ids = () => new Map(ui.nodes.filter(n => n.props?.id).map(n => [n.props.id, words(n.props.children)]));
+  assert.deepEqual(entries().map(n => n.props['aria-label']), ['25/09/26 · NAME.X · TRIM · commento', '14/08/26 · Cassa · Versamento · causale']);
+  const [tr, ca] = entries(); let byId = ids();
+  assert.deepEqual(tr.props['aria-describedby'].split(' ').map(i => byId.get(i)), ['Motivo Motivo lungo che non deve diventare il nome', 'Nota Nota lunga']);
+  assert.equal(byId.get(ca.props['aria-describedby']), 'Causale Causale lunga');
+  assert.ok(entries().every(n => !/Motivo lungo|Causale lunga/.test(n.props['aria-label'])));
+  ui.render('en'); byId = ids();
+  assert.deepEqual(entries().map(n => n.props['aria-label']), ['09/25/26 · NAME.X · TRIM · comment', '08/14/26 · Cash · Deposit · cash reason']);
+  assert.ok(entries().every(n => n.props['aria-describedby'].split(' ').every(i => byId.has(i))), 'every description points at a rendered text');
+  assert.equal(new Set(ui.nodes.filter(n => n.props?.id).map(n => n.props.id)).size, ui.nodes.filter(n => n.props?.id).length, 'ids are unique');
+});

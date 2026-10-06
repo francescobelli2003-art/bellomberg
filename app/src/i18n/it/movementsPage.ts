@@ -156,5 +156,9 @@ export const movementsPage = {
   "diaryUnavailableDetail": "Nessun archivio è stato letto: i commenti non sono noti. Riprova con Aggiorna.",
   "diaryEmpty": "Nessun commento",
   "diaryEmptyDetail": "Nessuno dei {n} movimenti letti ha un commento del PM o una causale.",
-  "diaryEmptyPartial": "Nessun commento fra i movimenti letti"
+  "diaryEmptyPartial": "Nessun commento fra i movimenti letti",
+  "diaryEntryAria": "{d} · {t} · {v} · commento",
+  "diaryEntryAriaCash": "{d} · {t} · {v} · causale",
+  "statusRegister": "Registro: {s}",
+  "statusDiary": "Diario: {s}"
 };
