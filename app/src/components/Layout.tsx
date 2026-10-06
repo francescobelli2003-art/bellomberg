@@ -14,7 +14,7 @@ import { fmtDataBreve, fmtOra, fmtNum } from '@/lib/format';
 import { startGlobalPriceRefresh } from '../lib/price-refresh';
 
 import BadgeFiling from './BadgeFiling';
-import BadgeDecisioni from './BadgeDecisioni';
+import BadgeDecisioni, { type Lettura as LetturaDecisioni } from './BadgeDecisioni';
 import { FornitoreBarra } from './BarraPagina';
 import { PAGE_DESTINATIONS, SETTINGS_DESTINATION, localizeDestination } from '../lib/navigation';
 import AppearanceMenu from './AppearanceMenu';
@@ -313,6 +313,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('bb:settings', onOpen as EventListener);
   }, []);
 
+  /* Contatori del menu riferiti dai badge (review PR #14, terza tornata): servono all'intestazione
+     di un gruppo chiuso, che altrimenti non darebbe segno di decisioni da prendere o filing nuovi.
+     Le letture le fanno solo i badge (restano montati anche nei gruppi chiusi, v. is-collapsed):
+     qui arriva l'esito, nessuna richiesta in più. Hook in coda: i test SSR contano gli hook per
+     posizione. Uguale a prima = stesso oggetto, niente nuovo render dell'intera shell. */
+  const [segnali, setSegnali] = useState<{ decisions?: LetturaDecisioni; filing?: number }>({});
+  const segnalaDecisioni = (lettura: LetturaDecisioni) => setSegnali(prima =>
+    JSON.stringify(prima.decisions) === JSON.stringify(lettura) ? prima : { ...prima, decisions: lettura });
+  const segnalaFiling = (n: number) => setSegnali(prima => prima.filing === n ? prima : { ...prima, filing: n });
+
   /* Col pannello aperto tutto cio' che sta DIETRO e' inerte: non si legge
      (c'e' il velo sopra) e non si deve poter navigare col tab.
      Il marcatore serve anche al cancello (qa_app.py), che altrimenti
@@ -349,6 +359,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     else gruppi.push({ id: voce.base, label: voce.group, voci: [voce] });
   }
   const agentiAlLavoro = tel.running === true;
+  const fraseDecisioni = (n: number) => n === 1 ? t('shell.decisions_pending_one') : t('shell.decisions_pending_other', { n });
+  const fraseFiling = (n: number) => n === 1 ? t('shell.filing_new_one') : t('shell.filing_new_other', { n });
+  /* Segno sull'intestazione di un gruppo chiuso per le voci nascoste con qualcosa da guardare:
+     il numero (o N.D. se il conteggio delle decisioni non si legge, mai un vuoto) e, per i lettori
+     di schermo, la stessa frase del badge nel nome del pulsante: «Comitato, 3 decisioni da prendere». */
+  const segniGruppo = (nascoste: typeof nav) => nascoste.flatMap(({ id }) => {
+    const d = segnali.decisions, f = segnali.filing;
+    if (id === 'decisions' && d?.stato === 'ignota') return [{ id, testo: t('shell.unavailable'), frase: t('shell.decisions_unknown'), tono: ' is-unknown' }];
+    if (id === 'decisions' && d?.stato === 'ok' && d.n > 0) return [{ id, testo: String(d.n), frase: fraseDecisioni(d.n), tono: '' }];
+    if (id === 'filing' && typeof f === 'number' && f > 0) return [{ id, testo: String(f), frase: fraseFiling(f), tono: ' is-filing' }];
+    return [];
+  });
 
   return (
     <div className="bb-layout-frame" data-mode="modern">
@@ -370,12 +392,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 // i pulsanti dei gruppi, e lì devono tornare raggiungibili (review PR #14).
                 const aperte = (v: typeof nav[number]) => !chiuso || location.pathname.startsWith(v.to);
                 const nascoste = gruppo.voci.filter(v => !aperte(v));
+                const segni = chiuso ? segniGruppo(nascoste) : [];
                 return (
                   <div key={gruppo.id} className={'bb-nav-group' + (chiuso ? ' is-closed' : '')}
                     role="group" aria-label={gruppo.label}>
                     <button type="button" className="bb-modern-nav-group" aria-expanded={!chiuso}
                       title={t('shell.group_toggle', { g: gruppo.label })} onClick={() => alternaGruppo(gruppo.id)}>
                       <ChevronDown size={14} aria-hidden="true" className="bb-nav-chevron" />{gruppo.label}
+                      {segni.map(s => <b key={s.id} className={'bb-nav-count bb-nav-group-count' + s.tono} data-group-badge={s.id} title={s.frase} aria-hidden="true">{s.testo}</b>)}
+                      {segni.length > 0 && <small className="sr-only">{`, ${segni.map(s => s.frase).join(', ')}`}</small>}
                       {chiuso && nascoste.some(v => v.id === 'agents') && agentiAlLavoro && <i className="bb-nav-dot is-live" aria-hidden="true" />}
                     </button>
                     {gruppo.voci.map(voce => {
@@ -393,10 +418,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                         >
                           <Icon size={16} aria-hidden="true" />
                           <span>{label}</span>
-                          {id === 'filing' && <BadgeFiling etichetta={n => n === 1 ? t('shell.filing_new_one') : t('shell.filing_new_other', { n })} />}
-                          {id === 'decisions' && <BadgeDecisioni percorso={location.pathname}
-                            etichetta={n => n === 1 ? t('shell.decisions_pending_one') : t('shell.decisions_pending_other', { n })}
-                            ignota={t('shell.decisions_unknown')} nd={t('shell.unavailable')} />}
+                          {id === 'filing' && <BadgeFiling etichetta={fraseFiling} segnala={segnalaFiling} />}
+                          {id === 'decisions' && <BadgeDecisioni percorso={location.pathname} etichetta={fraseDecisioni}
+                            ignota={t('shell.decisions_unknown')} nd={t('shell.unavailable')} segnala={segnalaDecisioni} />}
                           {id === 'agents' && agentiAlLavoro && <>
                             <em className="bb-nav-live" title={lavoro} aria-hidden="true">
                               <i />{tel.done ?? '—'}/{tel.total ?? '—'}

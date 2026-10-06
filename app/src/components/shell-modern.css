@@ -250,6 +250,11 @@
 .bb-modern-nav-link span.bb-nav-badge { background: var(--bbn-warn-soft); color: var(--bbn-warn); }
 .bb-nav-count { background: var(--bbn-accent-soft); color: var(--bbn-accent); }
 .bb-nav-count.is-unknown { background: var(--bbn-warn-soft); color: var(--bbn-warn); }
+/* gruppo chiuso: il contatore della voce nascosta sale sull'intestazione (Filing col suo giallo),
+   a destra; il pallino degli agenti, se c'è, gli sta subito accanto */
+.bb-nav-count.is-filing { background: var(--bbn-warn-soft); color: var(--bbn-warn); }
+.bb-modern-nav-group > .bb-nav-group-count { margin-left: auto; }
+.bb-modern-nav-group > .bb-nav-group-count ~ .bb-nav-dot { margin-left: 0; }
 .bb-nav-live {
   display: inline-flex; flex: none; align-items: center; gap: 5px; padding: 0 7px 0 6px; border-radius: 999px;
   background: var(--bbn-good-soft); color: var(--bbn-good); font-size: 11px; font-style: normal; font-weight: 800; line-height: 18px;
@@ -421,7 +426,7 @@ html[data-platform="darwin"] .bb-modern-sidebar-brand { padding-left: 76px; -web
   .bb-modern-shell { grid-template-columns: 56px minmax(0, 1fr); }
   .bb-modern-sidebar { padding-inline: 6px; }
   .bb-modern-sidebar-brand { justify-content: center; padding: 0; }
-  .bb-modern-sidebar-brand strong, .bb-modern-nav-group, .bb-modern-nav-link > :not(svg, span:first-of-type, .sr-only), .bb-modern-config > :not(svg) { display: none; }
+  .bb-modern-sidebar-brand strong, .bb-modern-nav-group, .bb-modern-nav-link > :not(svg, span:first-of-type, .sr-only, .bb-nav-count, .bb-nav-badge), .bb-modern-config > :not(svg) { display: none; }
   /* menu a sole icone: senza i pulsanti dei gruppi ogni voce deve restare raggiungibile, anche
      quelle dei gruppi chiusi (review PR #14). L'etichetta si nasconde alla vista ma non ai lettori
      di schermo: con display:none il link resterebbe senza nome e il contatore senza contesto. */
@@ -431,6 +436,19 @@ html[data-platform="darwin"] .bb-modern-sidebar-brand { padding-left: 76px; -web
     clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
   }
   .bb-modern-nav-link, .bb-modern-config { justify-content: center; padding: 0; }
+  /* contatori Decisioni (N.D. compreso) e Filing sull'angolo dell'icona (review PR #14, terza
+     tornata): senza etichette sarebbero l'unico segno perso. Tinta del badge largo su fondo pieno,
+     così l'icona sotto non traspare; il bordo del fondo lo stacca dal disegno. */
+  .bb-modern-nav-link { position: relative; }
+  .bb-modern-nav-link > .bb-nav-count, .bb-modern-nav-link > span.bb-nav-badge {
+    position: absolute; top: 1px; right: 1px; min-width: 16px; padding: 0 3px; border-radius: 999px;
+    font-size: 9px; line-height: 14px; pointer-events: none;
+    background: linear-gradient(var(--bbn-accent-soft), var(--bbn-accent-soft)), var(--bbn-bg);
+    box-shadow: 0 0 0 2px var(--bbn-bg);
+  }
+  .bb-modern-nav-link > .bb-nav-count.is-unknown, .bb-modern-nav-link > span.bb-nav-badge {
+    background: linear-gradient(var(--bbn-warn-soft), var(--bbn-warn-soft)), var(--bbn-bg);
+  }
   .bb-modern-header { padding-left: 12px; }
   .bb-modern-footer-brand, .bb-modern-footer-workspace { display: none; }
   html[data-platform="darwin"] .bb-modern-sidebar-brand { flex-basis: 96px; align-items: flex-end; padding: 0 0 12px; }

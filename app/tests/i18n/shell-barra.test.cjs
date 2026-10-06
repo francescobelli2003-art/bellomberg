@@ -13,7 +13,7 @@ const { renderToStaticMarkup } = require('react-dom/server');
 const { MemoryRouter } = require('react-router-dom');
 const { creaCaricatore, ambienteBrowser, apiFinta, SRC } = require('./_carica.cjs');
 
-function shellWithDecisions(decisions, { closedGroups = [], path: startPath = '/dashboard' } = {}) {
+function shellWithDecisions(decisions, { closedGroups = [], path: startPath = '/dashboard', filing = null } = {}) {
   ambienteBrowser();
   if (closedGroups.length) localStorage.setItem('bb.nav.gruppiChiusi', JSON.stringify(closedGroups));
   const oldWindow = global.window;
@@ -41,7 +41,8 @@ function shellWithDecisions(decisions, { closedGroups = [], path: startPath = '/
     },
   };
   const api = apiFinta();
-  const Bellomberg = new Proxy({}, { get: (_t, name) => (name === 'decisions' ? decisions : api.Bellomberg[name]) });
+  const Bellomberg = new Proxy({}, { get: (_t, name) => (name === 'decisions' ? decisions
+    : name === 'filingNovita' && filing ? filing : api.Bellomberg[name]) });
   const load = creaCaricatore({ stub: { react: hooks, '@/lib/api': { ...api, Bellomberg },
     './SettingsPanel': { default: () => null, __esModule: true } } });
   const language = load('i18n/lingua.ts'), Layout = load('components/Layout.tsx').default;
@@ -182,8 +183,8 @@ test('items of closed groups stay reachable in the icon-only menu below 900 px',
   const narrow = css.match(/@media \(max-width: 900px\) \{([\s\S]*?)\n\}/);
   assert.ok(narrow, 'the 900 px rule is still the one under test');
   assert.match(narrow[1], /\.bb-modern-nav-link\.is-collapsed\s*\{\s*display:\s*flex;\s*\}/, 'narrow menu: collapsed items shown');
-  assert.match(narrow[1], /\.bb-modern-nav-link > :not\(svg, span:first-of-type, \.sr-only\)[^{]*\{\s*display:\s*none/,
-    'narrow menu: the label and the screen-reader sentences are not display:none');
+  assert.match(narrow[1], /\.bb-modern-nav-link > :not\(svg, span:first-of-type, \.sr-only, \.bb-nav-count, \.bb-nav-badge\)[^{]*\{\s*display:\s*none/,
+    'narrow menu: the label, the screen-reader sentences and the counters are not display:none');
   assert.match(narrow[1], /\.bb-modern-nav-link > span:first-of-type\s*\{[^}]*position:\s*absolute[^}]*clip:/,
     'narrow menu: the label is visually hidden but still names the link');
 });
@@ -255,4 +256,144 @@ test('the pause between two Decisions reads ignores wall-clock jumps', async () 
     await shell.flush(); await shell.flush();
     assert.equal(reads, 2, 'a second later no new read, even if the wall clock jumped forward');
   } finally { Date.now = realNow; performance.now = realPerf; global.document.hidden = false; shell.close(); }
+});
+
+// Third review round of PR #14 (Opus 5.5).
+// 6) Below 900 px the counters are the only sign left on the icon-only menu: the Decisions counter
+//    (N.D. included) and the Filing badge sit on the icon corner instead of disappearing.
+test('below 900 px the Decisions counter, N.D. included, and the Filing badge sit on the icon', () => {
+  const css = fs.readFileSync(path.join(SRC, 'components/shell-modern.css'), 'utf8');
+  const narrow = css.match(/@media \(max-width: 900px\) \{([\s\S]*?)\n\}/);
+  assert.ok(narrow, 'the 900 px rule is still the one under test');
+  const rules = [...narrow[1].replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^}]*)\}/g)].map(m => ({ sel: m[1].trim(), body: m[2] }));
+  // no narrow rule hides a counter: the catch-all spares them and nothing else names them with display:none
+  for (const r of rules.filter(r => /display:\s*none/.test(r.body))) {
+    for (const part of r.sel.split(/,(?![^(]*\))/).map(x => x.trim()).filter(x => x.startsWith('.bb-modern-nav-link'))) {
+      assert.doesNotMatch(part.replace(/:not\([^)]*\)/g, ''), /bb-nav-count|bb-nav-badge|is-unknown/, `a counter is hidden at narrow width: ${part}`);
+      if (/:not\(/.test(part)) assert.match(part, /\.bb-nav-count/, `catch-all spares the Decisions counter: ${part}`);
+      if (/:not\(/.test(part)) assert.match(part, /\.bb-nav-badge/, `catch-all spares the Filing badge: ${part}`);
+    }
+  }
+  const corner = rules.find(r => /\.bb-modern-nav-link > \.bb-nav-count\b/.test(r.sel) && /position:\s*absolute/.test(r.body));
+  assert.ok(corner, 'the counter is positioned on the icon corner');
+  assert.match(corner.sel, /span\.bb-nav-badge/, 'the Filing badge shares the corner rule');
+  assert.match(corner.body, /top:\s*\d+px/); assert.match(corner.body, /right:\s*\d+px/);
+  assert.ok(rules.some(r => r.sel === '.bb-modern-nav-link' && /position:\s*relative/.test(r.body)),
+    'the link is the positioning box of its counter');
+  assert.ok(rules.some(r => /\.bb-nav-count\.is-unknown/.test(r.sel) && /--bbn-warn/.test(r.body)), 'N.D. keeps its warning tint on the icon');
+});
+
+test('below 900 px a failed read still marks the icon with N.D. and keeps the link name', async () => {
+  const shell = shellWithDecisions(() => Promise.reject(new Error('synthetic decisions failure')), { closedGroups: ['Comitato'] });
+  try {
+    shell.render('it');
+    shell.runEffects();
+    await shell.flush(); await shell.flush();
+    const a = link(shell.render('it'), '/decisions');
+    assert.match(a, /class="bb-modern-nav-link is-collapsed"/, 'the collapsed item is the one shown as an icon');
+    assert.match(a, /<b class="bb-nav-count is-unknown"[^>]*aria-hidden="true"[^>]*>N\.D\.<\/b>/, a);
+    assert.ok(accessibleName(a).startsWith('Decisioni , Decisioni da prendere: conteggio non leggibile'), accessibleName(a));
+  } finally { shell.close(); }
+});
+
+// 7) Above 900 px a closed group shows what its hidden items hold: the count (or N.D.) on the
+//    group header and the same sentence in the name of the toggle button. The counters are read
+//    once by the badges and handed up: closing a group or resizing never reads again.
+const groupButton = (html, label) =>
+  (html.match(new RegExp(`<button [^>]*class="bb-modern-nav-group"[^>]*>(?:(?!</button>).)*?${label}(?:(?!</button>).)*?</button>`)) || [''])[0];
+
+test('a closed group shows the pending decisions on its header, with an accessible sentence', async () => {
+  for (const [list, it, en] of [
+    [[{ id: 1 }, { id: 2 }, { id: 3 }], 'Comitato , 3 decisioni da prendere', 'Committee , 3 decisions to make'],
+    [[{ id: 1 }], 'Comitato , 1 decisione da prendere', 'Committee , 1 decision to make'],
+  ]) {
+    const shell = shellWithDecisions(() => Promise.resolve({ decisions: list }), { closedGroups: ['Comitato'] });
+    try {
+      shell.render('en');
+      shell.runEffects();
+      await shell.flush(); await shell.flush();
+      for (const [lang, label, name] of [['it', 'Comitato', it], ['en', 'Committee', en]]) {
+        const b = groupButton(shell.render(lang), label);
+        assert.ok(b, `${lang}: group button rendered`);
+        assert.match(b, new RegExp(`<b class="bb-nav-count bb-nav-group-count" data-group-badge="decisions"[^>]*aria-hidden="true">${list.length}</b>`), b);
+        assert.equal(accessibleName(b), name, `${lang}: ${b}`);
+      }
+    } finally { shell.close(); }
+  }
+});
+
+test('a closed group declares an unreadable decisions count as N.D. on its header', async () => {
+  const shell = shellWithDecisions(() => Promise.resolve({ error: 'synthetic' }), { closedGroups: ['Comitato'] });
+  try {
+    shell.render('it');
+    shell.runEffects();
+    await shell.flush(); await shell.flush();
+    for (const [lang, label, nd, name] of [
+      ['it', 'Comitato', 'N.D.', 'Comitato , Decisioni da prendere: conteggio non leggibile'],
+      ['en', 'Committee', 'N/A', 'Committee , Decisions to make: count unavailable'],
+    ]) {
+      const b = groupButton(shell.render(lang), label);
+      assert.match(b, new RegExp(`<b class="bb-nav-count bb-nav-group-count is-unknown" data-group-badge="decisions"[^>]*>${nd}</b>`), b);
+      assert.equal(accessibleName(b), name);
+    }
+  } finally { shell.close(); }
+});
+
+test('no group marker when the group is open, when nothing is pending, or when the item is the open page', async () => {
+  const cases = [
+    [{ closedGroups: [] }, [{ id: 1 }], 'open group: the counter is on the item'],
+    [{ closedGroups: ['Comitato'] }, [], 'nothing pending: nothing on the header'],
+    [{ closedGroups: ['Comitato'], path: '/decisions' }, [{ id: 1 }], 'the open page stays visible with its own counter'],
+  ];
+  for (const [options, list, why] of cases) {
+    const shell = shellWithDecisions(() => Promise.resolve({ decisions: list }), options);
+    try {
+      shell.render('it');
+      shell.runEffects();
+      await shell.flush(); await shell.flush();
+      const b = groupButton(shell.render('it'), 'Comitato');
+      assert.doesNotMatch(b, /data-group-badge|sr-only/, `${why}: ${b}`);
+      assert.equal(accessibleName(b), 'Comitato', why);
+    } finally { shell.close(); }
+  }
+});
+
+test('a closed Research group shows the Filing news on its header', async () => {
+  const shell = shellWithDecisions(() => new Promise(() => {}), { closedGroups: ['Ricerca'], filing: () => Promise.resolve({ n: 2 }) });
+  try {
+    shell.render('it');
+    shell.runEffects();
+    await shell.flush(); await shell.flush();
+    for (const [lang, label, name] of [
+      ['it', 'Ricerca', 'Ricerca , 2 titoli con novità nei filing'],
+      ['en', 'Research', 'Research , 2 holdings with new filing changes'],
+    ]) {
+      const b = groupButton(shell.render(lang), label);
+      assert.match(b, /<b class="bb-nav-count bb-nav-group-count is-filing" data-group-badge="filing"[^>]*>2<\/b>/, b);
+      assert.equal(accessibleName(b), name);
+    }
+  } finally { shell.close(); }
+});
+
+test('the group marker reuses the badges reads: no extra request, none on resize or re-render', async () => {
+  let decisionReads = 0, filingReads = 0;
+  const shell = shellWithDecisions(() => { decisionReads++; return Promise.resolve({ decisions: [{ id: 1 }, { id: 2 }] }); },
+    { closedGroups: ['Comitato', 'Ricerca'], filing: () => { filingReads++; return Promise.resolve({ n: 1 }); } });
+  try {
+    shell.render('it');
+    shell.runEffects();
+    await shell.flush(); await shell.flush();
+    assert.equal(decisionReads, 1, 'one decisions read on mount, shared by the item and the group header');
+    assert.equal(filingReads, 1, 'one filing read on mount, shared by the item and the group header');
+    for (let i = 0; i < 3; i++) {
+      shell.fire('window', 'resize');
+      const html = shell.render(i % 2 ? 'en' : 'it');
+      shell.runEffects();
+      await shell.flush();
+      assert.match(html, /data-group-badge="decisions"[^>]*>2</);
+      assert.match(html, /data-group-badge="filing"[^>]*>1</);
+    }
+    assert.equal(decisionReads, 1, 'resizing and re-rendering the header never read the decisions again');
+    assert.equal(filingReads, 1, 'resizing and re-rendering the header never read the filings again');
+  } finally { shell.close(); }
 });

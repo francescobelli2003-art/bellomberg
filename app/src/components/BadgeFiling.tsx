@@ -3,19 +3,25 @@
    esterna), all'avvio, ogni 10 minuti e dopo le azioni della pagina Filing. Componente a parte:
    i suoi hook non toccano l'ordine di quelli di Layout.
    Review PR #14: il numero visibile è aria-hidden e la frase per i lettori di schermo è un
-   testo fratello, così entra nel nome accessibile del link (v. BadgeDecisioni). */
+   testo fratello, così entra nel nome accessibile del link (v. BadgeDecisioni).
+   Terza tornata: il numero letto si riferisce anche a Layout (`segnala`) per l'intestazione del
+   gruppo chiuso; la lettura resta solo qui. */
 import { useEffect, useState } from 'react';
 import { Bellomberg } from '@/lib/api';
 
 export const FILING_EVENTO = 'bb:filing-changed';
 const OGNI_MS = 10 * 60 * 1000;
 
-export default function BadgeFiling({ etichetta }: { etichetta: (n: number) => string }) {
+export default function BadgeFiling({ etichetta, segnala }: {
+  etichetta: (n: number) => string;
+  // solo cose stabili (un setState): l'effetto la cattura una volta, al montaggio
+  segnala: (n: number) => void;
+}) {
   const [n, setN] = useState(0);
   useEffect(() => {
     let vivo = true;
     // Promise.resolve: anche un client senza il metodo (stub, backend vecchio) resta un badge assente
-    const leggi = () => { Promise.resolve().then(() => Bellomberg.filingNovita()).then(r => { if (vivo) setN(r.n); }).catch(() => { /* badge assente, mai un errore nel menu */ }); };
+    const leggi = () => { Promise.resolve().then(() => Bellomberg.filingNovita()).then(r => { if (vivo) { setN(r.n); segnala(r.n); } }).catch(() => { /* badge assente, mai un errore nel menu */ }); };
     leggi();
     const id = setInterval(leggi, OGNI_MS);
     window.addEventListener(FILING_EVENTO, leggi);

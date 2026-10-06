@@ -14,17 +14,23 @@
 
    Il contatore visibile è aria-hidden; la frase completa sta in un testo per lettori di
    schermo FRATELLO del badge, così entra nel nome accessibile del link (un aria-label sul
-   link lo sostituirebbe e il contatore sparirebbe; uno sul <b> non è affidabile). */
+   link lo sostituirebbe e il contatore sparirebbe; uno sul <b> non è affidabile).
+
+   Review PR #14, terza tornata: ogni lettura arrivata (numero o N.D.) si riferisce anche a Layout
+   con `segnala`, che la mostra sull'intestazione del gruppo quando il gruppo è chiuso. Il badge
+   resta l'unico a leggere: nessuna richiesta in più, e nessuna al ridimensionamento. */
 import { useEffect, useState } from 'react';
 import { Bellomberg } from '@/lib/api';
 
 const OGNI_MS = 5 * 60 * 1000;
 const PAUSA_MIN_MS = 15 * 1000;
 
-type Lettura = { stato: 'attesa' } | { stato: 'ok'; n: number } | { stato: 'ignota' };
+export type Lettura = { stato: 'attesa' } | { stato: 'ok'; n: number } | { stato: 'ignota' };
 
-export default function BadgeDecisioni({ percorso, etichetta, ignota, nd }: {
+export default function BadgeDecisioni({ percorso, etichetta, ignota, nd, segnala }: {
   percorso: string; etichetta: (n: number) => string; ignota: string; nd: string;
+  // deve usare solo cose stabili (un setState): l'effetto la cattura e si rifà solo al cambio pagina
+  segnala: (lettura: Lettura) => void;
 }) {
   const [lettura, setLettura] = useState<Lettura>({ stato: 'attesa' });
   useEffect(() => {
@@ -34,8 +40,9 @@ export default function BadgeDecisioni({ percorso, etichetta, ignota, nd }: {
       if (inVolo) return;
       inVolo = true; ultima = performance.now();
       Promise.resolve().then(() => Bellomberg.decisions('PENDING', -1))
-        .then(r => { if (vivo) setLettura(Array.isArray(r?.decisions) ? { stato: 'ok', n: r.decisions.length } : { stato: 'ignota' }); })
-        .catch(() => { if (vivo) setLettura({ stato: 'ignota' }); })
+        .then(r => Array.isArray(r?.decisions) ? { stato: 'ok', n: r.decisions.length } as const : { stato: 'ignota' } as const,
+          () => ({ stato: 'ignota' }) as const)
+        .then(esito => { if (vivo) { setLettura(esito); segnala(esito); } })
         .finally(() => { inVolo = false; });
     };
     // ritorno in primo piano: rilegge solo se visibile e se l'ultima lettura non è di un attimo fa
