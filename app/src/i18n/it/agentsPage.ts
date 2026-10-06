@@ -308,5 +308,5 @@ export const agentsPage = {
   "do_read_blackboard": "Legge i report degli altri desk",
   // RUN-ANDREA (Opus 5.5, 05/10): il filing mancante non e' un cancello della run
   "filingNotBlocking": "I filing mancanti non bloccano la run: parte comunque e il comitato riceve, titolo per titolo, che il confronto manca.",
-  "filingSecNotConfigured": "SEC non configurata: imposta SEC_CONTACT_EMAIL nel .env e riavvia il backend. I bilanci europei (ESEF) usano lo stesso contatto.",
+  "filingSecNotConfigured": "SEC non configurata: imposta SEC_CONTACT_EMAIL nel .env e riavvia il backend. I bilanci europei (ESEF) restano attivi anche senza.",
 };

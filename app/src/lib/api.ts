@@ -228,7 +228,7 @@ export interface FilingActivateMissing {
   aggiornamento?: string;
   /** motivo di ogni esito non in errore, per ticker (RUN-ANDREA, 05/10); assente sui backend precedenti */
   motivi?: Record<string, string | null>;
-  /** non null se manca SEC_CONTACT_EMAIL (SEC ed ESEF non configurate): la card lo dice tradotto */
+  /** non null se manca SEC_CONTACT_EMAIL (solo SEC non configurata: ESEF attivo): la card lo dice tradotto */
   avviso_configurazione?: string | null;
 }
 /** `GET /filings/{t}/context-preview`: la riga che il Consigliere riceve per quel titolo. */

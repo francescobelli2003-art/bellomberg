@@ -308,5 +308,5 @@ export const agentsPage = {
   "do_read_blackboard": "Reads the other desks' reports",
   // RUN-ANDREA (Opus 5.5, 05/10): a missing filing is not a run gate
   "filingNotBlocking": "Missing filings never block the run: it starts anyway and the committee is told, holding by holding, that the comparison is missing.",
-  "filingSecNotConfigured": "SEC not configured: set SEC_CONTACT_EMAIL in .env and restart the backend. European reports (ESEF) use the same contact.",
+  "filingSecNotConfigured": "SEC not configured: set SEC_CONTACT_EMAIL in .env and restart the backend. European reports (ESEF) stay active without it.",
 };
