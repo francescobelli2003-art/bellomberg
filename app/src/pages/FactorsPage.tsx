@@ -18,7 +18,7 @@ import type { Ordine } from './fattori/calcoli';
 import MetodoFonti from './fattori/MetodoFonti';
 import type { SezioneMetodo } from './fattori/MetodoFonti';
 import { parole } from './fattori/parole';
-import VistaBeta, { nomeFonte, viaLibera } from './fattori/VistaBeta';
+import VistaBeta, { nomeFonte, titoloEsito, viaLibera } from './fattori/VistaBeta';
 import VistaFattori from './fattori/VistaFattori';
 import VistaTitoli from './fattori/VistaTitoli';
 import './fattori-nuova.css';
@@ -225,7 +225,7 @@ export default function FactorsPage() {
     { titolo: w.mDefs, testo: [w.mDefsNote],
       voci: cal.lancette.map(l => [nomeFonte(l, w, periodo), l.definizione || perche(l.definizioneMuta)] as [string, string]) },
     ...(cal.verdetto || cal.nota ? [{ titolo: w.mGuard, avviso: (cal.verdetto !== null && !libero) || esclusioni,
-      testo: [cal.verdetto ? w.verdictTitle(cal.verdetto) : '', cal.nota || '',
+      testo: [cal.verdetto ? titoloEsito(cal.verdetto, w, cal.perDecisioni) : '', cal.nota || '',
         cal.minObs !== null ? w.minObsLine(cifra(cal.minObs, 0)) : ''].filter(Boolean) }] : []),
     ...(fac ? [{ titolo: w.mQuality, voci: [
       [w.qSig, `${rumore.significative} / ${rumore.celle}`],

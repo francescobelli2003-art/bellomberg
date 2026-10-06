@@ -208,6 +208,11 @@ function costruisci(l: Lingua) {
     gqNoRiskSource: tr('factorsPage.gqNoRiskSource'),
     gqUnknown: (c: string | number) => tr('factorsPage.gqUnknown', { c }),
     gqMissing: tr('factorsPage.gqMissing'),
+    // revisione del 06/10: osservazioni non verificabili, esito e fonte non riconosciuti
+    radioExcludedUnverifiable: tr('factorsPage.radioExcludedUnverifiable'),
+    verdictUnknown: tr('factorsPage.verdictUnknown'),
+    verdictUnknownCode: (v: string | number) => tr('factorsPage.verdictUnknownCode', { v }),
+    srcUnknown: (k: string | number) => tr('factorsPage.srcUnknown', { k }),
   };
 }
 

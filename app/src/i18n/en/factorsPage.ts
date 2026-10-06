@@ -201,5 +201,9 @@ export const factorsPage = {
   "gqNoClearance": "Quant score: beta excluded, because the check is reconciled but without clearance for decisions.",
   "gqNoRiskSource": "Quant score: beta excluded, because the reconciliation does not include the risk-beta source (book vs SPY).",
   "gqUnknown": "Quant score: guardrail n/a (unrecognised code {c}), beta excluded.",
-  "gqMissing": "Quant score: guardrail n/a (code missing), beta excluded."
+  "gqMissing": "Quant score: guardrail n/a (code missing), beta excluded.",
+  "radioExcludedUnverifiable": "excluded from the consensus: observations not verifiable",
+  "verdictUnknown": "Result n/a",
+  "verdictUnknownCode": "result n/a (unrecognised code {v})",
+  "srcUnknown": "unrecognised source ({k})"
 };

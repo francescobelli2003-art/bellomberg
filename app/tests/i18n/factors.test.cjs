@@ -316,3 +316,109 @@ test('a region without weight and a missing holdings count are declared n.d., no
     assert.ok(html.includes(na));
   }
 });
+
+// Revisione del 06/10 sul guardrail beta: osservazioni non verificabili, nomi delle fonti negli
+// avvisi, esito sconosciuto senza banda e suggerimenti tradotti. Numeri inventati, interi.
+test('an excluded source with undeclared observations says they are not verifiable, not insufficient', async () => {
+  const data = contratto06();
+  data.rec.betas = { factor_model_mkt: 1, advanced_metrics_twr: 1 };
+  data.rec.sources_insufficient = { portfolio_risk_spy: { beta: 2, n_obs: null, min_obs: 60, reason: 'Original observations not declared' } };
+  const { render } = retained(data);
+  render('it'); await render.effects();
+  const expected = {
+    it: { yes: 'esclusa dal consenso: osservazioni non verificabili', no: 'esclusa dal consenso per osservazioni insufficienti' },
+    en: { yes: 'excluded from the consensus: observations not verifiable', no: 'excluded from the consensus for insufficient observations' },
+  };
+  for (const lang of ['it', 'en']) {
+    const html = render(lang); await render.effects();
+    const marker = html.match(/role="radio"[^>]*aria-label="([^"]*Original book definition[^"]*)"/);
+    assert.ok(marker, `${lang}: excluded marker rendered`);
+    assert.ok(marker[1].includes(expected[lang].yes), `${lang}: marker says the observations are not verifiable`);
+    assert.ok(!html.includes(expected[lang].no), `${lang}: never called insufficient without a count`);
+  }
+  // con n_obs dichiarato resta «insufficienti»
+  const declared = retained(contratto06());
+  declared.render('it'); await declared.render.effects();
+  const html = declared.render('it'); await declared.render.effects();
+  assert.ok(html.includes(expected.it.no) && !html.includes(expected.it.yes), 'declared count keeps the insufficient wording');
+});
+
+test('excluded and failed source warnings use the source names, never the technical keys', async () => {
+  const data = contratto06();
+  data.rec.sources_insufficient = { advanced_metrics_twr: { beta: null, n_obs: 30, min_obs: 60, reason: 'Original only 30 common dates' },
+    new_engine: { beta: null, n_obs: 10, min_obs: 60, reason: 'Original new engine reason' } };
+  data.rec.sources_failed = { portfolio_risk_spy: 'Original risk failure' };
+  data.rec.betas = { factor_model_mkt: 1, advanced_metrics_twr: 1 };
+  const { render } = retained(data);
+  render('it'); await render.effects();
+  const expected = {
+    it: { twr: 'TWR contro benchmark (Original only 30 common dates)', unknown: 'fonte non riconosciuta (new_engine) (Original new engine reason)', spy: /Fonti non interrogate: [^<]*\(Original risk failure\)/ },
+    en: { twr: 'TWR vs benchmark (Original only 30 common dates)', unknown: 'unrecognised source (new_engine) (Original new engine reason)', spy: /Sources not queried: [^<]*\(Original risk failure\)/ },
+  };
+  for (const lang of ['it', 'en']) {
+    const html = render(lang); await render.effects();
+    const notes = (html.match(/<div class="fat-note is-warn"><span class="txt">[^<]*<\/span><\/div>/g) || []).join('\n');
+    assert.ok(notes.includes(expected[lang].twr), `${lang}: excluded source named`);
+    assert.ok(notes.includes(expected[lang].unknown), `${lang}: unknown source declared, key only in parentheses`);
+    assert.match(notes, expected[lang].spy, `${lang}: failed source warning present`);
+    assert.doesNotMatch(notes, /advanced_metrics_twr|portfolio_risk_spy/, `${lang}: no technical key in the warnings`);
+  }
+});
+
+test('an unknown verdict draws no consensus band and is declared not recognised, with a translated tooltip', async () => {
+  const data = contratto06();
+  data.rec = { verdict: 'NEW_VERDICT', betas: { portfolio_risk_spy: 1, factor_model_mkt: 2 },
+    n_obs: { portfolio_risk_spy: 200, factor_model_mkt: 300 }, min_obs: 60, threshold: 1, max_spread: 1, beta_consensus: 1 };
+  const { render } = retained(data);
+  render('it'); await render.effects();
+  const expected = {
+    it: { pill: 'Esito n.d.', title: 'Esito del controllo: esito n.d. (codice NEW_VERDICT non riconosciuto)', text: /Esito del controllo non riconosciuto \(NEW_VERDICT\)/, band: 'distanza tra le stime riconciliate' },
+    en: { pill: 'Result n/a', title: 'Check result: result n/a (unrecognised code NEW_VERDICT)', text: /Unrecognised check result \(NEW_VERDICT\)/, band: 'spread of the reconciled estimates' },
+  };
+  for (const lang of ['it', 'en']) {
+    const html = render(lang); await render.effects();
+    const e = expected[lang];
+    assert.doesNotMatch(html, /class="fat-band/, `${lang}: no band at all`);
+    assert.ok(!html.includes(e.band), `${lang}: no consensus band in the key`);
+    const pill = html.match(/<span class="fat-pill ([^"]*)" title="([^"]*)" data-verdetto="NEW_VERDICT"><i class="fat-dot"><\/i>([^<]*)<\/span>/);
+    assert.ok(pill, `${lang}: verdict pill rendered`);
+    assert.equal(pill[1], 'is-warn', `${lang}: never red as diverging`);
+    assert.equal(pill[2], e.title, `${lang}: tooltip translated, code only in parentheses`);
+    assert.equal(pill[3], e.pill, `${lang}: pill declares n.d.`);
+    assert.match(html, e.text, `${lang}: the verdict is declared not recognised`);
+  }
+});
+
+test('known verdicts get translated tooltips, never the raw code', async () => {
+  const cases = [
+    [contratto06(), { it: 'Esito del controllo: Riconciliato', en: 'Check result: Reconciled' }],
+    [contratto06(), { it: 'Esito del controllo: Fonti discordanti', en: 'Check result: Sources disagree' }, 'UNRELIABLE'],
+    [contratto06(), { it: 'Esito del controllo: Fonti insufficienti', en: 'Check result: Not enough sources' }, 'INSUFFICIENT_SOURCES'],
+  ];
+  for (const [data, titles, verdict] of cases) {
+    if (verdict) { data.rec.verdict = verdict; data.rec.beta_per_decisioni = false; }
+    const { render } = retained(data);
+    render('it'); await render.effects();
+    for (const lang of ['it', 'en']) {
+      const html = render(lang); await render.effects();
+      const title = html.match(/title="([^"]*)" data-verdetto=/);
+      assert.ok(title, `${lang}: verdict pill rendered`);
+      assert.equal(title[1], titles[lang], `${lang}: ${verdict || 'RECONCILED'} tooltip translated`);
+      assert.doesNotMatch(title[1], /RECONCILED|UNRELIABLE|INSUFFICIENT_SOURCES/);
+    }
+  }
+});
+
+test('the not-for-decisions label sits in its own row above the ruler, not over the markers', async () => {
+  const data = contratto06();
+  data.rec = { verdict: 'UNRELIABLE', betas: { portfolio_risk_spy: 1, factor_model_mkt: 3 },
+    n_obs: { portfolio_risk_spy: 200, factor_model_mkt: 300 }, min_obs: 60, threshold: 1, max_spread: 2, beta_per_decisioni: false,
+    indicative: { range: [1, 3], median: 2 } };
+  const { render } = retained(data);
+  render('it'); await render.effects();
+  const html = render('it'); await render.effects();
+  const row = html.indexOf('class="fat-band-row"'), ruler = html.indexOf('class="calibro fat-ruler"');
+  assert.ok(row > 0 && row < ruler, 'label row comes before the ruler');
+  assert.match(html, /class="fat-band-row"[^>]*><span class="fat-band-lbl" style="left:[\d.]+%">non per decisioni<\/span><\/div>/);
+  assert.match(html, /class="fat-band is-indicativa"[^>]*><\/span>/, 'the band itself carries no label');
+});

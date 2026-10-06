@@ -115,9 +115,11 @@
 .fat-band { position: absolute; bottom: 22px; height: 18px; border-radius: 6px; background: var(--bbn-bad-soft); }
 .fat-band.is-ok { background: var(--bbn-accent-soft); }
 /* UNRELIABLE: l'intervallo indicativo del backend NON e' una banda di consenso: tratteggio neutro
-   ed etichetta fissa «non per decisioni» dentro la banda */
+   ed etichetta fissa «non per decisioni» in una riga propria SOPRA il righello (.fat-band-row),
+   con gli stessi margini laterali del righello cosi' le percentuali cadono nello stesso punto */
 .fat-band.is-indicativa { background: repeating-linear-gradient(135deg, var(--bbn-line) 0 5px, transparent 5px 10px); box-shadow: inset 0 0 0 1px var(--bbn-muted); }
-.fat-band-lbl { position: absolute; left: 50%; bottom: calc(100% + 2px); transform: translateX(-50%); white-space: nowrap; color: var(--bbn-muted); font-size: 11px; font-weight: 700; }
+.fat-band-row { position: relative; flex: 0 0 auto; height: 16px; margin: 0 18px 0 6px; }
+.fat-band-lbl { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; line-height: 16px; color: var(--bbn-muted); font-size: 11px; font-weight: 700; }
 .fat-soglia { position: absolute; bottom: 18px; height: 26px; border-radius: 8px; box-shadow: inset 0 0 0 1.5px var(--bbn-good); background: var(--bbn-good-soft); }
 .bb-page.bb-page-modern[data-page] .bbn-fattori button.fat-mk { position: absolute; bottom: 25px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; z-index: 1; }
 .fat-mk .v { font-size: 15px; font-weight: 800; padding: 3px 9px; border-radius: 999px; background: var(--bbn-raised); white-space: nowrap; transition: background .15s, color .15s; }

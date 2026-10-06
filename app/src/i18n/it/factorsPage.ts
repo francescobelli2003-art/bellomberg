@@ -201,5 +201,9 @@ export const factorsPage = {
   "gqNoClearance": "Punteggio quantitativo: beta esclusa, perché il controllo è riconciliato ma senza via libera all’uso decisionale.",
   "gqNoRiskSource": "Punteggio quantitativo: beta esclusa, perché la riconciliazione non comprende la fonte della beta di rischio (book contro SPY).",
   "gqUnknown": "Punteggio quantitativo: guardrail n.d. (codice {c} non riconosciuto), beta esclusa.",
-  "gqMissing": "Punteggio quantitativo: guardrail n.d. (codice assente), beta esclusa."
+  "gqMissing": "Punteggio quantitativo: guardrail n.d. (codice assente), beta esclusa.",
+  "radioExcludedUnverifiable": "esclusa dal consenso: osservazioni non verificabili",
+  "verdictUnknown": "Esito n.d.",
+  "verdictUnknownCode": "esito n.d. (codice {v} non riconosciuto)",
+  "srcUnknown": "fonte non riconosciuta ({k})"
 };
