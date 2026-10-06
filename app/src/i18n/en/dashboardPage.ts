@@ -187,4 +187,8 @@ export const dashboardPage = {
   "dt_reco_underperform": "Underperform",
   "dt_reco_sell": "Sell",
   "dt_reco_strong_sell": "Strong sell",
+  "dt_thesis": "Position thesis",
+  "dt_thesisHint": "This is your view on the stock that the advisor reads on every run. Update it from the Journal with «Use as position thesis».",
+  "dt_noThesis": "No thesis: the advisor receives no view from you on this stock. You can write it in the Journal (Mandate › Journal) and use it as the position thesis.",
+  "dt_thesisCut": "The advisor receives the first {letti} of {scritti} characters: the rest is reported to it as cut."
 };

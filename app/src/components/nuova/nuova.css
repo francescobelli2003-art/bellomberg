@@ -163,6 +163,7 @@
 .bbn-drawer-wide :is(.bbn-drawer-note, .bbn-kv) .is-up { color: var(--bbn-good); }
 .bbn-drawer-wide :is(.bbn-drawer-note, .bbn-kv) .is-down { color: var(--bbn-bad); }
 .bbn-stats.bbn-stats-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.bbn-tesi-testo { max-height: 240px; margin: 0 0 8px; overflow: auto; color: var(--bbn-text); font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .bbn-drawer-foot { display: flex; align-items: center; gap: 16px; color: var(--bbn-muted); font-size: 12px; }
 .bbn-drawer-foot .bbn-drawer-link { align-self: center; }
 @container (max-width: 860px) {

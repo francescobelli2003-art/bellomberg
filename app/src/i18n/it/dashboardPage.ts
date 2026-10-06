@@ -187,4 +187,8 @@ export const dashboardPage = {
   "dt_reco_underperform": "Sottopesare",
   "dt_reco_sell": "Vendita",
   "dt_reco_strong_sell": "Vendita forte",
+  "dt_thesis": "Tesi della posizione",
+  "dt_thesisHint": "È la tua view su questo titolo che il consigliere legge a ogni run. Si aggiorna dal Diario, con «Usa come tesi della posizione».",
+  "dt_noThesis": "Nessuna tesi: il consigliere non riceve una tua view su questo titolo. Puoi scriverla nel Diario (Mandato › Diario) e usarla come tesi della posizione.",
+  "dt_thesisCut": "Il consigliere ne riceve i primi {letti} caratteri su {scritti}: il resto gli arriva segnalato come tagliato."
 };

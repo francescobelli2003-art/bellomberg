@@ -31,6 +31,7 @@ function fixtureData() {
       pl_eur: n * 10 - 80, pl_pct: n - 8, peso_pct: weights[i],
       prev_close: prezzoLive - 1, prev_close_ts: '2026-09-25T16:30:00Z',
       prev_close_source: 'position_prices', fx_to_eur: 1,
+      ...(n === 1 ? { tesi: 'Synthetic thesis for the detail panel.\n\nSecond paragraph, fixture only.' } : {}),
     };
   });
   const invested = Math.round(positions.reduce((sum, p) => sum + p.valore_mercato, 0) * 100) / 100;
@@ -742,9 +743,11 @@ const { app, BrowserWindow } = require('electron');
     await waitRequestCount('/market/ohlc', ohlcBefore);
     const detail = await js(() => ({ title: document.querySelector('[data-testid="stock-detail"] .bbn-drawer-title')?.innerText || '',
       stats: document.querySelectorAll('[data-testid="stock-detail"] .bbn-stats div').length,
+      thesis: document.querySelector('[data-testid="stock-detail-thesis"] .bbn-tesi-testo')?.innerText || '',
       focusInside: document.querySelector('[data-testid="stock-detail"]').contains(document.activeElement) }));
     assert.match(detail.title, /Synthetic holding 1[\s\S]*SYN01/);
     assert.equal(detail.stats, 4);
+    assert.match(detail.thesis, /^Synthetic thesis for the detail panel\.\n\nSecond paragraph/, 'the panel shows the position thesis the advisor reads, line breaks kept');
     assert.ok(detail.focusInside, 'focus moves into the detail panel');
     const chartRequest = (await fixtureControl()).requests.filter(r => r.route === '/market/ohlc').at(-1);
     assert.equal(chartRequest?.query.ticker, 'SYN01', 'the panel fetched the selected ticker’s candles');

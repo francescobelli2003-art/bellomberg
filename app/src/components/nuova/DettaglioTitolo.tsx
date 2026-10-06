@@ -8,6 +8,8 @@ import TvChartPanel from '@/components/TvChartPanel';
 import IconaTitolo from './IconaTitolo';
 import PastigliaVariazione from './PastigliaVariazione';
 
+// Quanto di una tesi arriva al consigliere: specchio di current_facts.MAX_CHAR_TESI.
+const LIMITE_TESI = 10000;
 const finito = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 const compatto = (value: number | null | undefined, decimali = 2) => finito(value)
   ? Intl.NumberFormat(localeDi(linguaCorrente()), { notation: 'compact', maximumFractionDigits: decimali }).format(value) : fmtNum(null);
@@ -19,6 +21,7 @@ export interface TestiDettaglio {
   range52: string; fromHigh: (pct: string) => string; analysts: string; target: string; upside: string;
   noAnalysts: string; prevClose: string; volume: string; avgVolume: string; avgPrice: string;
   quoteLoading: string; quoteError: (motivo: string) => string; source: (valuta: string) => string; reco: (chiave: string) => string;
+  thesis: string; thesisHint: string; noThesis: string; thesisCut: (letti: string, scritti: string) => string;
 }
 
 /** Dati chiave da /market/quote: `quote` null finché la lettura è in corso, `errore` se è fallita. */
@@ -47,6 +50,7 @@ export default function DettaglioTitolo({ posizione, nome, quote, testi, onChiud
   const dp = dayPct(p), de = dayEur(p);
   const valuta = p.valuta === 'EUR' ? '€' : p.valuta;
   const nd = fmtNum(null);
+  const tesi = (p.tesi || '').trim();
 
   // Dati di mercato: tutti nella valuta di quotazione di Yahoo (q.currency), mai convertiti.
   const q = quote?.quote || null;
@@ -139,6 +143,14 @@ export default function DettaglioTitolo({ posizione, nome, quote, testi, onChiud
             {finito(p.quantita) ? fmtNum(p.quantita, p.quantita % 1 ? 4 : 0) : fmtNum(null)}
             {' · '}{finito(p.prezzo_medio) ? `${fmtNum(p.prezzo_medio, 2)} ${valuta}` : fmtNum(null)}</dd></div>
         </dl>
+        {/* la view del PM che il consigliere riceve (positions.tesi): qui si legge, si scrive dal Diario */}
+        <section className="bbn-drawer-card bbn-drawer-tesi" data-testid="stock-detail-thesis">
+          <h3>{testi.thesis}</h3>
+          {tesi ? <>
+            <p className="bbn-tesi-testo">{tesi}</p>
+            <p className="bbn-drawer-note">{tesi.length > LIMITE_TESI ? testi.thesisCut(fmtNum(LIMITE_TESI, 0), fmtNum(tesi.length, 0)) : testi.thesisHint}</p>
+          </> : <p className="bbn-drawer-note">{testi.noThesis}</p>}
+        </section>
         <footer className="bbn-drawer-foot">
           {q && <span>{testi.source(q.currency || nd)}</span>}
           <span className="bbn-grow" />

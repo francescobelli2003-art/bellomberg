@@ -147,6 +147,8 @@ function costruisci(l: Lingua) {
       avgVolume: tr('dashboardPage.dt_avgVolume'), avgPrice: tr('dashboardPage.dt_avgPrice'), quoteLoading: tr('dashboardPage.dt_quoteLoading'),
       quoteError: (motivo: string) => tr('dashboardPage.dt_quoteError', { motivo }),
       source: (valuta: string) => tr('dashboardPage.dt_source', { valuta }),
+      thesis: tr('dashboardPage.dt_thesis'), thesisHint: tr('dashboardPage.dt_thesisHint'), noThesis: tr('dashboardPage.dt_noThesis'),
+      thesisCut: (letti: string, scritti: string) => tr('dashboardPage.dt_thesisCut', { letti, scritti }),
       // consenso di Yahoo (recommendationKey): le chiavi note tradotte, le altre restano come arrivano
       reco: (k: string) => {
         const note: Record<string, Chiave> = {
