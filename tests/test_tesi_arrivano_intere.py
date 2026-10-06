@@ -54,11 +54,7 @@ def db_finto(tmp_path, monkeypatch):
     # legge memory_db.SQLITE_PATH, la fonte unica; si reindirizza QUELLA
     from bellomberg.storage import memory_db
     monkeypatch.setattr(memory_db, "SQLITE_PATH", path)
-    current_facts._TESI_CACHE["text"] = None      # la cache non deve mascherare il test
-    current_facts._TESI_CACHE["ts"] = 0
     yield path
-    current_facts._TESI_CACHE["text"] = None
-    current_facts._TESI_CACHE["ts"] = 0
 
 
 def test_la_tesi_lunga_arriva_INTERA(db_finto):
@@ -76,8 +72,6 @@ def test_se_taglia_lo_DICHIARA_coi_numeri(db_finto, monkeypatch):
     """Un limite puo' esistere, ma dev'essere una misura dichiarata: tre puntini
     non dicono quanto manca ne' dove trovarlo."""
     monkeypatch.setattr(current_facts, "MAX_CHAR_TESI", 120)
-    current_facts._TESI_CACHE["text"] = None
-    current_facts._TESI_CACHE["ts"] = 0
     b = current_facts.pm_theses_block()
     assert "TRONCATA" in b or "troncata" in b
     assert str(len(TESI_LUNGA)) in b, (
@@ -91,3 +85,27 @@ def test_il_limite_e_una_costante_esplicita():
     assert current_facts.MAX_CHAR_TESI >= 900, (
         "sotto i 900 caratteri una tesi con addendum (tesi iniziale del PM piu' "
         "l'aggiornamento della trimestrale in coda) torna mozza")
+
+
+def test_una_tesi_appena_salvata_arriva_alla_chiamata_dopo(db_finto):
+    """Niente cache fra una chiamata e l'altra (PM 06/10): la tesi salvata dall'app
+    o dal Diario deve arrivare alla run lanciata subito dopo, non 10 minuti piu' tardi."""
+    assert "[addendum 03/03/2030" in current_facts.pm_theses_block()
+    con = sqlite3.connect(db_finto)
+    con.execute("UPDATE positions SET tesi=? WHERE ticker='IOTA.L'", ("Tesi riscritta dal Diario.",))
+    con.commit()
+    con.close()
+    b = current_facts.pm_theses_block()
+    assert "Tesi riscritta dal Diario." in b
+    assert "[addendum 03/03/2030" not in b, "il blocco e' ancora quello di prima del salvataggio"
+
+
+def test_una_tesi_da_diario_di_10000_caratteri_arriva_intera(db_finto):
+    """Il limite e' 10000 (PM 06/10): una nota del Diario lunga quanto il limite non si taglia."""
+    lunga = ("Ipotesi, prove, rischi e cosa mi farebbe cambiare idea. " * 200)[:10000]
+    con = sqlite3.connect(db_finto)
+    con.execute("UPDATE positions SET tesi=? WHERE ticker='IOTA.L'", (lunga,))
+    con.commit()
+    con.close()
+    b = current_facts.pm_theses_block()
+    assert lunga.strip() in b and "TRONCATA" not in b

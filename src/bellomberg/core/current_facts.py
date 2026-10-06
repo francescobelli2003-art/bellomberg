@@ -262,19 +262,18 @@ def favorites_block() -> str:
     return text
 
 
-_TESI_CACHE = {"text": None, "ts": 0.0}
-
 # Quanto di ogni tesi arriva agli agenti. POLICY, non un numero sepolto.
 # 20/08: era 260 cablato, e MISURATO sul DB vero dopo gli addendum delle
 # trimestrali tagliava il 37% di quello che il PM aveva scritto — l'addendum di
 # una tesi spariva del tutto oltre il limite, quella della prima posizione arrivava per
 # 26 caratteri su 635. Cioe' il canale nato il 16/07 per NON troncare le tesi le
 # troncava, e proprio nella coda, dove sta la parte NUOVA.
-# 2000 copre con margine la piu' lunga di oggi (894). Il costo e' irrisorio: il
-# blocco intero passa da ~8.200 a ~11.000 caratteri e viaggia in un prefisso
-# CACHATO (misura 20/08: 92,4% degli input serviti dalla cache, +50.000 caratteri
-# su 11 agenti = 0,13 EUR su una run da 11,23 EUR).
-MAX_CHAR_TESI = 2000
+# 2000 copriva con margine la piu' lunga di allora (894), e il blocco viaggia in
+# un prefisso CACHATO (misura 20/08: 92,4% degli input serviti dalla cache).
+# 06/10 (PM): 10000. Le tesi ora si scrivono anche dal Diario, dove una nota con
+# ipotesi, prove, rischi e condizioni di smentita supera facilmente i 2000; il
+# taglio resta dichiarato coi numeri. Vale anche per l'ultimo commento sul trade.
+MAX_CHAR_TESI = 10000
 
 
 def _tesi_tagliata(s: str) -> str:
@@ -294,8 +293,8 @@ def _tesi_tagliata(s: str) -> str:
 def _con_profilo(text: str) -> str:
     """05/09 (criterio 5, audit F02): «Il PM investe LONG-TERM e accetta concentrazione» era una
     frase cablata che attribuiva a chiunque il profilo del creatore. Ora le regole 2 e 3 del
-    blocco vengono dal MANDATO (mandato_pm), letto dal disco a OGNI chiamata e FUORI dalla
-    cache delle tesi (600 s): il testo cachato porta il segnaposto, il profilo si compone qui.
+    blocco vengono dal MANDATO (mandato_pm), letto dal disco a OGNI chiamata: il testo delle
+    tesi porta il segnaposto, il profilo si compone qui.
     Mandato assente = dichiarato nel prompt stesso, mai il profilo di ieri (regola 14/07)."""
     if not text or "{MANDATO:profilo_tesi}" not in text:
         return text
@@ -323,13 +322,12 @@ def pm_theses_block() -> str:
       - tesi presenti  -> blocco con le tesi + elenco dichiarato dei nomi SENZA tesi;
       - DB leggibile ma zero tesi -> "" (vuoto LEGITTIMO: i chiamanti possono skippare);
       - errore di lettura -> blocco che DICHIARA il buco nel prompt stesso (n.d.),
-        NON cachato (al giro dopo si riprova). "" da errore era un proxy zitto:
+        al giro dopo si riprova. "" da errore era un proxy zitto:
         il Capo avrebbe stampato 'nessuna tesi nel DB' su un DB lockato.
-    Cache 600s (solo esiti sani): dentro il round il blocco e' comunque congelato
-    nel primo messaggio user; tra round successivi un edit del PM viene raccolto."""
-    import time as _t
-    if _TESI_CACHE["text"] is not None and (_t.time() - _TESI_CACHE["ts"]) < 600:
-        return _con_profilo(_TESI_CACHE["text"])
+    Niente cache (06/10, PM): era di 600 s e una tesi salvata dall'app o dal Diario
+    poteva non arrivare alla run lanciata subito dopo. Il DB si rilegge a ogni chiamata
+    (una SELECT in sola lettura); dentro il round il blocco resta congelato nel primo
+    messaggio user, quindi il prompt non cambia a meta' conversazione."""
     try:
         import os
         import sqlite3
@@ -364,7 +362,7 @@ def pm_theses_block() -> str:
         senza = [tk for tk in attive if tk not in tesi_db and tk not in rationali]
     except Exception as e:
         # BUCO DICHIARATO NEL PROMPT (non solo su stdout): chi legge deve sapere che
-        # le tesi POSSONO esistere ma non sono arrivate. Non cachato: si riprova.
+        # le tesi POSSONO esistere ma non sono arrivate. Al giro dopo si riprova.
         return ("\n\n=== TESI DEL PM PER POSIZIONE ===\n"
                 "TESI PM: n.d. — errore di lettura dal DB (" + type(e).__name__ + ": "
                 + str(e)[:80] + "). NON dedurre che il PM non abbia tesi: il dato "
@@ -391,14 +389,12 @@ def pm_theses_block() -> str:
                 "sostieni coi numeri o la sfidi coi numeri [src:], MAI ignorarla.\n"
                 # 05/09 (criterio 5, audit F02): le regole 2 e 3 (LONG-TERM e concentrazione,
                 # «vuole essere sfidato») erano cablate: ora vengono dal MANDATO, e il segnaposto
-                # resta nel testo CACHATO — il profilo si compone in _con_profilo a ogni chiamata.
+                # resta nel testo — il profilo si compone in _con_profilo a ogni chiamata.
                 "{MANDATO:profilo_tesi}"
                 + "\n".join(righe)
                 + (("\nLe altre %d posizioni attive NON hanno view dichiarata (%s): "
                     "su queste non c'e' una view del PM da ingaggiare."
                     % (len(senza), ", ".join(senza))) if senza else ""))
-    _TESI_CACHE["text"] = text
-    _TESI_CACHE["ts"] = _t.time()
     return _con_profilo(text)
 
 

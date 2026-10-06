@@ -622,21 +622,17 @@ def db_tesi(tmp_path, monkeypatch):
     con.commit()
     con.close()
     monkeypatch.setattr(memory_db, "SQLITE_PATH", path)
-    current_facts._TESI_CACHE["text"] = None
-    current_facts._TESI_CACHE["ts"] = 0
     yield path
-    current_facts._TESI_CACHE["text"] = None
-    current_facts._TESI_CACHE["ts"] = 0
 
 
-def test_le_tesi_portano_il_profilo_del_mandato_e_lo_rileggono_anche_a_cache_calda(db_tesi, file_prova, prova):
+def test_le_tesi_portano_il_profilo_del_mandato_e_lo_rileggono_a_ogni_chiamata(db_tesi, file_prova, prova):
     from bellomberg.core import current_facts
     b1 = current_facts.pm_theses_block()
     assert "tesi inventata di prova" in b1
     assert "2. Il PM investe LONG-TERM e accetta concentrazione sulle conviction" in b1
     _scrivi(file_prova, _aggiorna(prova, profilo={"tipo_investimento": "medio_termine", "stile": "diversificato"}))
-    b2 = current_facts.pm_theses_block()          # la cache delle tesi (600 s) e' ancora calda
-    assert "a MEDIO TERMINE" in b2 and "LONG-TERM" not in b2, "il profilo era finito nella cache"
+    b2 = current_facts.pm_theses_block()
+    assert "a MEDIO TERMINE" in b2 and "LONG-TERM" not in b2, "il profilo non e' stato riletto"
     assert "tesi inventata di prova" in b2
 
 
