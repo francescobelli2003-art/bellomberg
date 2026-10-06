@@ -1547,6 +1547,13 @@ export interface MovimentoCassa {
  *  e' valorizzata: movimento a registro, cassa NON aggiornata
  *  (bellomberg_api.py:1806-1826). I due campi si leggono insieme o non si
  *  legge niente. */
+/** PUT /positions/{ticker}/tesi (memory_db.update_tesi). `invariata`: testo identico, zero scritture. */
+export interface RispostaTesiPosizione {
+  ok: true; ticker: string; invariata?: boolean; scritture: number;
+  caratteri?: number; caratteri_precedenti?: number; versione_storico?: number | null;
+  last_updated?: string; nota?: string; avviso_encoding?: string;
+}
+
 export interface RispostaMovimentoCassa {
   ok?: boolean;
   movement_id?: number | string | null;
@@ -1660,6 +1667,11 @@ export const Bellomberg = {
   // il difetto che F7 esiste per chiudere sarebbe tornato in silenzio.
   previewTrade: (body: TradeRequest) =>
     api.post<TradePreview>('/trade/preview', body).then(r => r.data),
+  // La tesi della posizione e' il testo che il consigliere riceve come view del PM
+  // (current_facts.pm_theses_block). Le due guardie del backend (svuotare, accorciare
+  // sotto meta') tornano 422 con `code`; si scavalcano solo rimandando `conferma`.
+  savePositionThesis: (ticker: string, body: { tesi: string; conferma?: boolean; autore?: string }) =>
+    api.put<RispostaTesiPosizione>(`/positions/${encodeURIComponent(ticker)}/tesi`, body).then(r => r.data),
   openingPositions: () => api.get('/positions/opening').then(r => r.data),
   openingPosition: (ticker: string) => api.get(`/positions/opening/${encodeURIComponent(ticker)}`).then(r => r.data),
   previewOpeningPosition: (body: OpeningRequest) =>

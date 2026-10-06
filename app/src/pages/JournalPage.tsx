@@ -17,6 +17,8 @@ import { Archive, Check, ChevronLeft, ChevronRight, Globe, History, Lock, Plus, 
 
 
 const BODY_LIMIT = 30000;
+// Quanto di una tesi arriva al consigliere: specchio di current_facts.MAX_CHAR_TESI.
+const THESIS_LIMIT = 10000;
 type Destination = { id: number } | 'new';
 
 function DeferredJournalView({ render }: { render: () => ReactNode }) {
@@ -63,7 +65,7 @@ const ACTION = { create: tr('journal.created'), update: tr('journal.updated'), a
   const [versionsError, setVersionsError] = useState<Notice>('');
   const [conflict, setConflict] = useState(false);
   const [remote, setRemote] = useState<JournalEntry | null>(null);
-  const [tickers, setTickers] = useState<{ ticker: string; nome: string }[]>([]);
+  const [tickers, setTickers] = useState<{ ticker: string; nome: string; tesi: string }[]>([]);
   const [tickerError, setTickerError] = useState(false);
   const operation = useRef(0);
   const selectedId = useRef<number | null>(current?.id ?? null);
@@ -89,7 +91,7 @@ const ACTION = { create: tr('journal.created'), update: tr('journal.updated'), a
   }, [status, kind, search, offset, refresh]);
   useEffect(() => {
     let alive = true;
-    Bellomberg.portfolio().then(p => { if (alive) setTickers(p.positions.map(x => ({ ticker: x.ticker, nome: x.nome }))); })
+    Bellomberg.portfolio().then(p => { if (alive) setTickers(p.positions.map(x => ({ ticker: x.ticker, nome: x.nome, tesi: x.tesi ?? '' }))); })
       .catch(() => { if (alive) setTickerError(true); });
     return () => { alive = false; };
   }, []);
@@ -134,6 +136,31 @@ const ACTION = { create: tr('journal.created'), update: tr('journal.updated'), a
   // Aggiunto con la Nuova (in coda: i test SSR indicizzano gli hook per posizione).
   const [storia, setStoria] = useState(false);
   const fuocoStoria = usaFocusPannello<HTMLElement>(storia, () => setStoria(false));
+  // Promozione a tesi della posizione (06/10, anche questa in coda per lo stesso motivo).
+  const [promozione, setPromozione] = useState<{ guardia?: Notice } | null>(null);
+  const [promoBusy, setPromoBusy] = useState(false);
+  useEffect(() => { setPromozione(null); }, [current?.id, current?.version, dirty]);
+  const posizione = current?.kind === 'thesis' && current.ticker
+    ? tickers.find(x => x.ticker === current.ticker!.toUpperCase()) : undefined;
+  const testoNota = current?.body.trim() ?? '';
+  const giaTesi = !!posizione && posizione.tesi.trim() === testoNota;
+  const promuovi = async (conferma: boolean) => {
+    if (!current || !posizione || busy || promoBusy) return;
+    const ticker = posizione.ticker;
+    setPromoBusy(true); setError(''); setMessage('');
+    try {
+      const r = await Bellomberg.savePositionThesis(ticker, { tesi: current.body, conferma, autore: 'diario' });
+      setTickers(xs => xs.map(x => x.ticker === ticker ? { ...x, tesi: testoNota } : x));
+      setPromozione(null);
+      setMessage({ key: r.invariata ? 'journal.thesis_unchanged' : 'journal.thesis_promoted', params: { a: ticker } });
+      if (r.avviso_encoding) setError(r.avviso_encoding);
+    } catch (e) {
+      // le due guardie del backend (svuotare, accorciare sotto meta') si scavalcano solo con un secondo «sì»
+      const code = (e as any)?.response?.data?.code;
+      if (!conferma && (code === 'thesis_shortening_confirmation' || code === 'thesis_empty_confirmation')) setPromozione({ guardia: { error: e } });
+      else { setPromozione(null); setError({ error: e }); }
+    } finally { setPromoBusy(false); }
+  };
   const navigate = async (to: Destination, discard = false) => {
     if (busy) return;
     if (dirty && !discard) { setPending(to); return; }
@@ -240,6 +267,21 @@ const ACTION = { create: tr('journal.created'), update: tr('journal.updated'), a
           <div className="journal-writing-guide"><span className="jr-label">{tr('journal.outline')}</span><span><i>1</i>{tr('journal.idea')}</span><i aria-hidden="true">→</i><span><i>2</i>{tr('journal.evidence')}</span><i aria-hidden="true">→</i><span><i>3</i>{tr('journal.risks')}</span><i aria-hidden="true">→</i><span><i>4</i>{tr('journal.change_mind')}</span></div>
           <label className="journal-body-label"><span className="jr-sr">{tr('journal.body')}</span><textarea aria-label={tr('journal.body')} value={draft.body} maxLength={BODY_LIMIT} rows={18} spellCheck placeholder={tr('journal.body_hint')} onChange={e => change('body', e.target.value)} /></label>
         </fieldset>
+        {posizione && !dirty && !archived && !conflict && <section className={'jr-promote' + (giaTesi ? ' is-same' : '')} aria-label={tr('journal.thesis_position_title', { a: posizione.ticker })}>
+          {giaTesi
+            ? <p className="jr-promote-same"><Check aria-hidden="true" />{tr('journal.thesis_is_position', { a: posizione.ticker })}</p>
+            : <div className="jr-promote-row"><span className="jr-promote-text"><b>{tr('journal.thesis_position_title', { a: posizione.ticker })}</b>
+                <span>{posizione.tesi.trim() ? tr('journal.thesis_position_differs', { a: number(posizione.tesi.trim().length) }) : tr('journal.thesis_position_none')}</span></span>
+              {!promozione && <button type="button" className="bbn-btn" disabled={busy || promoBusy} onClick={() => setPromozione({})}>{tr('journal.thesis_promote')}</button>}</div>}
+          {testoNota.length > THESIS_LIMIT && <p className="jr-promote-note">{tr('journal.thesis_truncated', { a: number(THESIS_LIMIT), b: number(testoNota.length) })}</p>}
+          {promozione && <div className="journal-warning" role="alert">
+            <p>{promozione.guardia ? showNotice(promozione.guardia, language)
+              : posizione.tesi.trim() ? tr('journal.thesis_confirm_replace', { a: posizione.ticker, b: number(posizione.tesi.trim().length), c: number(testoNota.length) })
+              : tr('journal.thesis_confirm_new', { a: number(testoNota.length), b: posizione.ticker })}</p>
+            <div><button type="button" className="bbn-btn" disabled={promoBusy} onClick={() => setPromozione(null)}>{tr('journal.thesis_cancel')}</button>
+              <button type="button" className="bbn-btn is-primary" disabled={promoBusy} onClick={() => promuovi(!!promozione.guardia)}>{promoBusy ? tr('journal.wait') : promozione.guardia ? tr('journal.thesis_replace_anyway') : posizione.tesi.trim() ? tr('journal.thesis_replace') : tr('journal.thesis_set')}</button></div>
+          </div>}
+        </section>}
         <footer className="journal-editor-actions"><span className="jr-foot-info"><span>{tr('journal.chars',{a:number(draft.body.length),b:number(BODY_LIMIT)})}</span><span><Lock aria-hidden="true" />{tr('journal.origin')}</span>{current && <span className="journal-origin">{tr('journal.created_note',{a:WHEN(current.created_at)})}</span>}</span>
           <div><button className="bbn-btn" disabled={busy || !dirty} onClick={() => { setDraft(journalDraft(current)); setPending(null); setError(''); setMessage({ key: 'journal.discarded' }); }}>{tr('journal.discard')}</button>
             <button className="journal-primary bbn-btn is-primary" onClick={save} disabled={busy || archived || conflict || !dirty || !draft.title.trim() || !draft.body.trim()}>{busy ? tr('journal.wait') : current ? tr('journal.save_version') : tr('journal.save_note')}</button></div>

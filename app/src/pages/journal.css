@@ -76,6 +76,16 @@
 .journal-body-label { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
 .bb-page.bb-page-modern[data-page] .mandato-workspace.mandato-workspace .journal-body-label textarea { flex: 1 1 auto; width: 100%; min-height: 320px; padding: 18px 20px; border-radius: 16px; background: var(--bbn-raised); font-size: 15px; font-weight: 500; line-height: 1.7; resize: none; outline: none; }
 .bb-page.bb-page-modern[data-page] .mandato-workspace.mandato-workspace .journal-body-label textarea:focus { box-shadow: inset 0 0 0 1.5px var(--bbn-accent); }
+/* promozione a tesi della posizione (quella che legge il consigliere) */
+.jr-promote { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-radius: 14px; background: var(--bbn-accent-soft); }
+.jr-promote.is-same { background: var(--bbn-good-soft); }
+.jr-promote-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.jr-promote-text { display: flex; flex: 1 1 260px; flex-direction: column; gap: 2px; font-size: 13px; }
+.jr-promote-text b { font-weight: 700; }
+.jr-promote-text span { color: var(--bbn-muted); font-weight: 600; }
+.jr-promote-same { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--bbn-good); font-size: 13px; font-weight: 700; }
+.jr-promote-same svg { width: 14px; height: 14px; flex: none; }
+.jr-promote-note { margin: 0; color: var(--bbn-warn); font-size: 12px; font-weight: 600; }
 .journal-editor-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .journal-editor-actions > div { display: flex; gap: 10px; }
 .jr-foot-info { display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: 4px 14px; color: var(--bbn-muted); font-size: 12px; font-weight: 600; }

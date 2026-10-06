@@ -373,6 +373,7 @@ async function run(q) {
   await mandateReadStates(q);
   await journalActions(q);
   await journalListStates(q);
+  await journalPromoteThesis(q);
   await settingsActions(q);
   await settingsReadStates(q);
 }
@@ -1275,6 +1276,48 @@ async function journalActions(q) {
       create: createRequest.input, update: updatesStarted[0].input, archive: archiveRequest.input,
       archiveRestore: archiveWrites.map(item => item.input), conflict: conflictWrite.input, conflictText, pendingControlVisual, modernCaptures,
       fixtureVsReal: { allJournalWritesSynthetic: true, externalLLM: false, backendStarted: false } };
+  });
+}
+
+async function journalPromoteThesis(q) {
+  await executeFixtureScenario(q, 'journal', 'promote-thesis-note-to-position-thesis-through-the-backend-guard', async () => {
+    // own list and note: the previous scenario leaves the library on its pagination fixture
+    const note = journalEntry();
+    const { body: noteBody, ...summary } = note;
+    await q.toggle('classic');
+    await q.visit('/dashboard');
+    await q.fixture({ clearAll: true, setRead: {
+      '/journal': { body: { items: [{ ...summary, excerpt: 'Synthetic evidence.' }], total: 1, limit: 30, offset: 0 } },
+      '/journal/910': { body: note },
+      '/journal/910/history': { body: { items: [], total: 0, limit: 30, offset: 0 } } } });
+    await reloadCurrentApp(q, 'fresh app renderer before Journal thesis promotion', '#/dashboard');
+    await openJournal(q);
+    await q.waitFor(() => /durable margins/i.test(document.querySelector('#panel-diario .journal-notes')?.innerText || ''), 'Journal library rows');
+    await clickText(q, '#panel-diario .journal-notes', 'Synthetic thesis: durable margins');
+    await q.waitFor(() => !!document.querySelector('#panel-diario .jr-promote'), 'promotion band for a thesis note on a held ticker');
+    assert.match(await text(q, '#panel-diario .jr-promote'), /SYN1/, 'the band names the position whose thesis the advisor reads');
+    const body = await q.js(() => document.querySelector('#panel-diario .journal-body-label textarea')?.value || '');
+
+    await q.fixture({ setWrite: { '/positions/SYN1/tesi': { status: 422,
+      body: { detail: 'Synthetic thesis guard: the new text is shorter than half.', code: 'thesis_shortening_confirmation' } } } });
+    await clickText(q, '#panel-diario .jr-promote', 'use as position thesis|usa come tesi della posizione');
+    await q.waitFor(() => !!document.querySelector('#panel-diario .jr-promote .journal-warning'), 'promotion confirmation step');
+    assert.equal((await routeWrites(q, 'PUT', '/positions/SYN1/tesi')).length, 0, 'opening the confirmation writes nothing');
+    await clickText(q, '#panel-diario .jr-promote .journal-warning', '^(set as thesis|imposta come tesi|replace|sostituisci)$');
+    await q.waitFor(() => /Synthetic thesis guard/.test(document.querySelector('#panel-diario .jr-promote .journal-warning')?.innerText || ''),
+      'backend guard shown verbatim');
+    const first = await routeWrites(q, 'PUT', '/positions/SYN1/tesi');
+    assert.equal(first.length, 1, 'the first confirmation sends exactly one write');
+    assert.deepEqual(first[0].input, { tesi: body, conferma: false, autore: 'diario' }, 'the note body is sent without overriding the guard');
+
+    await q.fixture({ setWrite: { '/positions/SYN1/tesi': { body: { ok: true, ticker: 'SYN1', scritture: 1, versione_storico: 1 } } } });
+    await clickText(q, '#panel-diario .jr-promote .journal-warning', 'replace anyway|sostituisci comunque');
+    await q.waitFor(() => !!document.querySelector('#panel-diario .jr-promote.is-same'), 'note recognised as the position thesis');
+    const writes = await routeWrites(q, 'PUT', '/positions/SYN1/tesi');
+    assert.equal(writes.length, 2, 'the override sends one more write');
+    assert.equal(writes[1].input.conferma, true, 'only the second, explicit yes overrides the guard');
+    assert.match(await text(q, '#panel-diario .journal-message'), /SYN1/, 'the outcome names the updated position');
+    await capture(q, 'operations/journal-thesis-promoted');
   });
 }
 
