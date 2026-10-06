@@ -1,5 +1,5 @@
-/* Ricerca opportunità (F13 Edge Scanner, palette consumer --bbn-*), dal mockup approvato il 05/10/2026
-   (outputs/ricerca-opportunita-nuova/mockup.html). Grammatica di Notizie, Movimenti e Decisioni: card senza
+/* Ricerca opportunità (F13 Edge Scanner, palette consumer --bbn-*), dal mockup approvato dal PM il 05/10/2026
+   (non versionato nel repo). Grammatica di Notizie, Movimenti e Decisioni: card senza
    righe divisorie, nota accanto al titolo, riquadri numerici, righe a pillola.
    Layout per larghezza dell'area contenuti (container `bellomberg-content`):
      < 1180 px   una colonna: testata, Mappa, Copertura, Segnali (alti 620 px), Dettaglio; la pagina scorre;
