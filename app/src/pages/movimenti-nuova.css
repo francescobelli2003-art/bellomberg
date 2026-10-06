@@ -73,6 +73,13 @@
 .bbn-movimenti .mv-dot.is-warn { background: var(--bbn-warn); }
 .bbn-movimenti .mv-dot.is-live { background: var(--bbn-accent); animation: mv-live 1.6s ease-out infinite; }
 
+/* interruttore Elenco | Diario: il reset dei bottoni sopra cancella .bbn-seg button, qui lo si riveste */
+.bb-page.bb-page-modern[data-page] .bbn-movimenti .mv-seg button {
+  padding: 6px 12px; border-radius: 999px; color: var(--bbn-muted); font-weight: 700; font-size: 13px; line-height: 1.2;
+  white-space: nowrap; cursor: pointer;
+}
+.bb-page.bb-page-modern[data-page] .bbn-movimenti .mv-seg button.is-on { background: var(--bbn-seg-on); color: var(--bbn-text); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+
 /* ── note ── */
 .bbn-movimenti .mv-note { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 10px 14px; border-radius: 14px; background: var(--bbn-raised); color: var(--bbn-muted); font-size: 13px; font-weight: 600; line-height: 1.5; }
 .bbn-movimenti .mv-note > svg { flex: 0 0 auto; margin-top: 2px; }
@@ -184,6 +191,17 @@
 .bbn-movimenti .mv-row-end { display: grid; justify-items: end; gap: 3px; }
 .bbn-movimenti .mv-ctv { font-size: 14px; font-weight: 800; white-space: nowrap; }
 .bbn-movimenti .mv-row-end small { color: var(--bbn-muted); font-size: 11px; font-weight: 700; white-space: nowrap; }
+
+/* diario: una voce per movimento commentato, il testo pieno sotto la testata (mai troncato) */
+.bb-page.bb-page-modern[data-page] .bbn-movimenti button.mv-voce {
+  display: grid; gap: 6px; width: 100%; margin: 2px 0; padding: 10px 12px; border-radius: 14px; cursor: pointer;
+}
+.bb-page.bb-page-modern[data-page] .bbn-movimenti button.mv-voce:hover { background: var(--bbn-raised); }
+.bb-page.bb-page-modern[data-page] .bbn-movimenti button.mv-voce.is-on { background: var(--bbn-accent-soft); }
+.bbn-movimenti .mv-voce-h { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bbn-movimenti .mv-voce-h b { font-size: 14px; font-weight: 700; white-space: nowrap; }
+.bbn-movimenti .mv-voce-tx { display: grid; gap: 2px; padding-left: 40px; color: var(--bbn-text); font-size: 13px; font-weight: 500; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
+.bbn-movimenti .mv-voce-tx .et { color: var(--bbn-muted); font-size: 11px; font-weight: 800; }
 
 /* dettaglio: una sola card */
 .bbn-movimenti .mv-det { display: flex; flex-direction: column; min-width: 0; min-height: 0; }

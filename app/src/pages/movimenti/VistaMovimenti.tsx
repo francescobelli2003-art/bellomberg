@@ -1,9 +1,9 @@
 /* Viste della pagina Movimenti (mockup approvato il 05/10/2026, variante A «dettaglio fisso»):
-   intestazione a pillole, Attività per mese | Realizzato, Registro | Dettaglio.
+   intestazione a pillole, Attività per mese | Realizzato, Registro (o Diario) | Dettaglio.
    Grammatica di Notizie e Filing: card bbn-card, nota accanto al titolo, riquadri numerici,
    righe a pillola, intestazioni di mese fisse. Solo presentazione: dati e azioni da MovementsPage. */
 import type { ReactNode } from 'react';
-import { BarChart3, Coins, ExternalLink, List, Loader2, RefreshCw, Search, TriangleAlert, Wallet, X } from 'lucide-react';
+import { BarChart3, BookOpen, Coins, ExternalLink, List, Loader2, RefreshCw, Search, TriangleAlert, Wallet, X } from 'lucide-react';
 import IconaTitolo from '@/components/nuova/IconaTitolo';
 import PastigliaVariazione from '@/components/nuova/PastigliaVariazione';
 import { localeDi } from '@/i18n/lingua';
@@ -14,7 +14,7 @@ import {
   chiaveMese, controvalore, entra, esce, ggmmaa, legameMovimento, oraTrade, testiDi, testiDiRiga, versoDi,
   type Arco, type Corsia, type Flussi, type Mese, type Realizzato, type RigaRegistro, type StatoCancello, type Trade,
 } from '@/lib/movimenti';
-import { FILTRI, fraseMese, type Attivita, type Contributo, type FiltroMov } from './calcoli';
+import { FILTRI, fraseMese, type Attivita, type Contributo, type FiltroMov, type VistaMov } from './calcoli';
 import { parole, type ChiavePagina, type Parole } from './parole';
 
 export interface RigaVista { r: RigaRegistro; k: string }
@@ -39,6 +39,10 @@ export interface DatiMovimenti {
   titolo: string | null;
   q: string;
   sel: RigaVista | null;
+  /** la card di sinistra: Registro o Diario */
+  vista: VistaMov;
+  /** le righe del Diario: tutte quelle lette con un testo, dalla più recente (filtri esclusi) */
+  diario: RigaVista[];
   nMov: number;
   nTitoli: number;
   finestra: boolean;
@@ -64,6 +68,7 @@ export interface AzioniMovimenti {
   mese: (k: string | null) => void;
   titolo: (t: string | null) => void;
   cerca: (q: string) => void;
+  vista: (v: VistaMov) => void;
   scegli: (k: string) => void;
   azzera: () => void;
 }
@@ -129,6 +134,14 @@ function Intestazione({ d, a, w }: { d: DatiMovimenti; a: AzioniMovimenti; w: Pa
   return (
     <div className="mv-top">
       <h1>{w.t('movementsPage.title')}</h1>
+      {/* Elenco | Diario: lo stesso interruttore a segmenti di Diario e Mandato. data-mov-vista è l'identità
+          stabile per i test, in entrambe le lingue. */}
+      <div className="bbn-seg mv-seg" role="group" aria-label={w.t('movementsPage.viewLabel')}>
+        {(['elenco', 'diario'] as const).map(v => (
+          <button key={v} type="button" data-mov-vista={v} aria-pressed={d.vista === v} className={d.vista === v ? 'is-on' : undefined}
+            onClick={() => a.vista(v)}>{v === 'elenco' ? w.t('movementsPage.viewList') : w.t('movementsPage.viewDiary')}</button>
+        ))}
+      </div>
       <span className="bbn-chip" data-mov-chip="movimenti" title={composizione}>
         <b>{qualcosa ? d.nMov : w.t('movementsPage.nd')}</b> {qualcosa ? w.n('movementsPage.chipMoves_one', 'movementsPage.chipMoves_other', d.nMov) : w.n('movementsPage.chipMoves_one', 'movementsPage.chipMoves_other', 2)}
         {' · '}<b>{d.lettoT ? d.nTitoli : w.t('movementsPage.nd')}</b> {w.n('movementsPage.chipSecurities_one', 'movementsPage.chipSecurities_other', d.lettoT ? d.nTitoli : 2)}
@@ -385,6 +398,92 @@ function CardRegistro({ d, a, w }: { d: DatiMovimenti; a: AzioniMovimenti; w: Pa
   );
 }
 
+// ── diario ─────────────────────────────────────────────────────
+/* «Le parole del PM» in fila (06/10/2026): torna la vista Diario di prima del restyling (components/movimenti/
+   Diario.tsx, tolta il 05/10 con il commit di Movimenti in stile Nuova), con gli stessi dati — `pm_rationale` e
+   `note` dei trade, la causale della cassa — e nessuna lettura nuova. Il testo è PIENO, mai troncato: è la
+   differenza con la riga del registro, che ne mostra una riga sola.
+   Gli stati sono quelli del registro e non si confondono: un archivio non letto non è «0 commenti». */
+function VoceDiario({ v, d, a, w }: { v: RigaVista; d: DatiMovimenti; a: AzioniMovimenti; w: Parole }) {
+  const { r, k } = v;
+  const corrente = d.sel?.k === k;
+  if (r.specie === 'cassa') {
+    const m = r.m, verso = versoDi(m.type), val = m.amount_eur;
+    const leggibile = typeof val === 'number' && isFinite(val);
+    return (
+      <button type="button" className={'mv-voce' + (corrente ? ' is-on' : '')} data-mov-diario={k} data-specie="cassa"
+        aria-current={corrente || undefined} onClick={() => a.scegli(k)}>
+        <span className="mv-voce-h">
+          <span className="bbn-ico is-sm mv-ico-cash" aria-hidden="true"><Wallet size={15} /></span>
+          <b>{w.t('movementsPage.cash')}</b><Verbo r={r} w={w} />
+          <span className="mv-meta num">{ggmmaa(m.date)}</span>
+          <span className="bbn-grow" />
+          <span className="mv-ctv num">{leggibile ? (verso === 'dentro' ? '+' : verso === 'fuori' ? '−' : '') + importo(Math.abs(val as number), 'EUR', w.t('movementsPage.nd')) : w.t('movementsPage.amountNd')}</span>
+        </span>
+        {/* ⚠️ etichettata «Causale» e mai «Commento del PM»: la causale può averla scritta chi ha importato la
+            riga (la stessa avvertenza del Diario di prima) */}
+        <span className="mv-voce-tx"><span className="et">{w.t('movementsPage.cashReason')}</span>{testiDiRiga(r).nota}</span>
+      </button>
+    );
+  }
+  const t = r.t;
+  const { rationale, nota } = testiDi(t);
+  // le etichette compaiono solo quando i testi sono due: su uno solo sarebbero rumore, su due dicono quale è quale
+  const due = !!rationale && !!nota;
+  return (
+    <button type="button" className={'mv-voce' + (corrente ? ' is-on' : '')} data-mov-diario={k} data-specie="titolo"
+      aria-current={corrente || undefined} onClick={() => a.scegli(k)}>
+      <span className="mv-voce-h">
+        <IconaTitolo ticker={t.ticker} dimensione="sm" />
+        <b>{t.ticker}</b><Verbo r={r} w={w} />
+        <span className="mv-meta num">
+          {t.action !== 'DIVIDEND' && <>{t.quantita == null ? w.t('movementsPage.nd') : fmtNum(t.quantita, 0)} × {importo(t.prezzo, t.valuta, w.t('movementsPage.nd'))} · </>}
+          {ggmmaa(t.data)} {oraTrade(t)}
+        </span>
+        <span className="bbn-grow" />
+        <span className="mv-ctv num">{importo(controvalore(t), t.valuta, w.t('movementsPage.nd'))}</span>
+      </span>
+      {rationale && <span className="mv-voce-tx">{due && <span className="et">{w.t('movementsPage.reason')}</span>}{rationale}</span>}
+      {nota && <span className="mv-voce-tx">{due && <span className="et">{w.t('movementsPage.note')}</span>}{nota}</span>}
+    </button>
+  );
+}
+
+function CardDiario({ d, a, w }: { d: DatiMovimenti; a: AzioniMovimenti; w: Parole }) {
+  const qualcosa = d.lettoT || d.lettoC;
+  const n = d.diario.length;
+  /* il conteggio si dice solo su ciò che è stato letto: senza archivi letti è n.d., mai zero; con un archivio
+     solo è un minimo («almeno»), perché i testi dell'altro archivio non sono noti */
+  const nota = !qualcosa ? w.t('movementsPage.diaryNoteNd')
+    : d.lettoT && d.lettoC ? w.n('movementsPage.diaryCount_one', 'movementsPage.diaryCount_other', n)
+    : w.n('movementsPage.diaryCountAtLeast_one', 'movementsPage.diaryCountAtLeast_other', n);
+  const piedi = [
+    qualcosa && !(d.lettoT && d.lettoC) && (d.lettoT ? w.t('movementsPage.onlyTrades') : w.t('movementsPage.onlyCash')),
+    d.finestra && w.t('movementsPage.tradeWindow', { n: d.limite }),
+    d.finestraCassa && w.t('movementsPage.cashWindow', { n: d.limiteCassa }),
+  ].filter(Boolean) as string[];
+  let stato: ReactNode = null;
+  if (!qualcosa) {
+    stato = d.loading && !d.err && !d.errCassa
+      ? <div className="mv-empty-box" data-mov-stato="diario-caricamento"><Loader2 size={16} className="mv-spin" aria-hidden="true" /><b>{w.t('movementsPage.loading')}</b></div>
+      : <div className="mv-empty-box" data-mov-stato="diario-ko"><b>{w.t('movementsPage.diaryUnavailable')}</b>{w.t('movementsPage.diaryUnavailableDetail')}</div>;
+  } else if (n === 0 && !d.loading) {
+    // vuoto vero solo con ENTRAMBI gli archivi letti; con uno solo il vuoto vale per quello e lo si dice
+    stato = d.lettoT && d.lettoC
+      ? <div className="mv-empty-box" data-mov-stato="diario-vuoto"><b>{w.t('movementsPage.diaryEmpty')}</b>{w.t('movementsPage.diaryEmptyDetail', { n: d.nMov })}</div>
+      : <div className="mv-empty-box" data-mov-stato="diario-parziale"><b>{w.t('movementsPage.diaryEmptyPartial')}</b>{w.t('movementsPage.diaryEmptyPartialDetail')}</div>;
+  }
+  return (
+    <Carta icona={<BookOpen size={16} />} titolo={w.t('movementsPage.diary')} nota={<>{w.t('movementsPage.diaryNote')} · {nota}</>} className="mv-registro mv-diario">
+      {piedi.length > 0 && <p className="mv-foot mv-foot-reg" data-mov-note="diario">{piedi.join(' ')}</p>}
+      <div className="mv-list" role="status" aria-live="polite">
+        {stato}
+        {d.diario.map(v => <VoceDiario key={v.k} v={v} d={d} a={a} w={w} />)}
+      </div>
+    </Carta>
+  );
+}
+
 // ── dettaglio ──────────────────────────────────────────────────
 function Tessera({ k, v, s, tono }: { k: ReactNode; v: ReactNode; s?: ReactNode; tono?: string }) {
   return <div className="mv-tile"><span className="k">{k}</span><span className={'v num' + (tono ? ' ' + tono : '')}>{v}</span>{s != null && <span className="s">{s}</span>}</div>;
@@ -530,7 +629,7 @@ export default function VistaMovimenti({ d, a }: { d: DatiMovimenti; a: AzioniMo
         <CardRealizzato d={d} a={a} w={w} />
       </div>
       <div className="mv-body">
-        <CardRegistro d={d} a={a} w={w} />
+        {d.vista === 'diario' ? <CardDiario d={d} a={a} w={w} /> : <CardRegistro d={d} a={a} w={w} />}
         <Dettaglio d={d} a={a} w={w} />
       </div>
     </div>

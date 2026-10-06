@@ -1,7 +1,8 @@
 // F14 MOVIMENTI · stile Nuova (05/10/2026): mockup approvato `outputs/movimenti-nuova/mockup.html`,
 // variante A «dettaglio fisso». Le tre viste di prima (Registro | Scie | Diario) diventano una pagina sola:
 // Attività per mese | Realizzato in alto, Registro | Dettaglio sotto. Le Scie restano come «Storia del
-// titolo» nel dettaglio, il Diario come commento completo del movimento scelto.
+// titolo» nel dettaglio, il Diario come commento completo del movimento scelto. Dal 06/10/2026 il Diario torna
+// anche come vista: interruttore Elenco | Diario nell'intestazione, i soli movimenti commentati in fila.
 //
 // DUE FETCH, DUE ARCHIVI, invariati: `GET /trades` e `GET /cash/movements` falliscono in modo
 // indipendente e ogni buco si dichiara (regola 14/07). Filtri, mese, titolo e ricerca non chiamano
@@ -24,7 +25,7 @@ import {
   statoCancello, contaRealizzato, contaOreSegnaposto,
   fondiRegistro, tickerDiRiga, contaFlussi,
 } from '@/lib/movimenti';
-import { attivitaMensile, chiaveRiga, contributi as contaContributi, FILTRI, passaFiltro, passaRicerca, type FiltroMov } from './movimenti/calcoli';
+import { attivitaMensile, chiaveRiga, contributi as contaContributi, FILTRI, passaFiltro, passaRicerca, righeDiario, type FiltroMov, type VistaMov } from './movimenti/calcoli';
 import VistaMovimenti, { type AzioniMovimenti, type DatiMovimenti, type RigaVista } from './movimenti/VistaMovimenti';
 import '@/components/nuova/nuova.css';
 import './movimenti-nuova.css';
@@ -198,7 +199,14 @@ export default function MovementsPage() {
   const righe = useMemo(() => ristrette.filter(v => passaFiltro(v.r, filtro)), [ristrette, filtro]);
   // I mesi si contano sulle righe RESE: un separatore che dice «23 movimenti» sopra nove righe mente.
   const mesi = useMemo(() => raggruppaPerMese(righe.map(v => v.r)), [righe, tr]);
-  const sel = righe.find(v => v.k === selK) ?? righe[0] ?? null;
+  /* IL DIARIO (06/10/2026): torna la vista di prima del restyling, «le parole del PM» in fila. Stessi dati, nessuna
+     lettura in più: sono le righe di `tutte` che hanno un testo, nell'ordine del registro (dalla più recente).
+     ⚠️ Hook in CODA al componente: i test SSR ricostruiscono stato e memo PER INDICE. */
+  const [vista, setVista] = useState<VistaMov>('elenco');
+  const diario = useMemo(() => righeDiario(tutte), [tutte]);
+  // il dettaglio segue la lista che si vede: nel Diario una riga nascosta dai filtri resta sceglibile
+  const lista = vista === 'diario' ? diario : righe;
+  const sel = lista.find(v => v.k === selK) ?? lista[0] ?? null;
 
   /** quante righe ci sono in archivio: si sommano solo gli archivi LETTI */
   const nMov = (lettoT ? trades.length : 0) + (lettoC ? cassa.length : 0);
@@ -209,7 +217,7 @@ export default function MovementsPage() {
 
   const dati: DatiMovimenti = {
     loading, err, errCassa, lettoT, lettoC, lettoAlle, trades, cassa, tutte, righe, mesi, conteggi,
-    filtro, mese, titolo, q, sel, nMov, nTitoli, finestra, finestraCassa, limite: LIMITE, limiteCassa: LIMITE_CASSA,
+    filtro, mese, titolo, q, sel, vista, diario, nMov, nTitoli, finestra, finestraCassa, limite: LIMITE, limiteCassa: LIMITE_CASSA,
     flussi, realizzato, cancello,
     /* LA CURA §2.3: le affermazioni sulla FORMA del payload dei trade vogliono almeno una riga osservata */
     osservabileT: lettoT && trades.length > 0,
@@ -220,11 +228,14 @@ export default function MovementsPage() {
     aggiorna: carica,
     // ⚠️ CASSA ∩ un titolo = ∅ per costruzione: scegliere Cassa toglie il titolo, e viceversa
     filtro: f => { setFiltro(f); if (f === 'CASSA') setTitolo(null); },
-    mese: k => setMese(k),
-    titolo: t => { setTitolo(t); if (t && filtro === 'CASSA') setFiltro('TUTTI'); },
+    // mese e titolo restringono il REGISTRO: sceglierli dal Diario riporta all'elenco, dove il filtro si vede
+    mese: k => { setMese(k); if (k) setVista('elenco'); },
+    titolo: t => { setTitolo(t); if (t && filtro === 'CASSA') setFiltro('TUTTI'); if (t) setVista('elenco'); },
+    vista: setVista,
     cerca: setQ,
     scegli: k => {
-      // dalla storia del titolo si puo' scegliere un movimento che i filtri nascondono: li si toglie
+      // dalla storia del titolo e dal Diario si puo' scegliere un movimento che i filtri nascondono: li si toglie,
+      // cosi' tornando all'elenco la riga scelta c'e' ancora (e i filtri tolti si vedono, tutti su «Tutti»)
       if (!righe.some(v => v.k === k)) {
         const v = tutte.find(x => x.k === k);
         setFiltro('TUTTI'); setMese(null); setQ('');

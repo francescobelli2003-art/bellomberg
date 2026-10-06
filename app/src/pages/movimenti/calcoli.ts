@@ -8,6 +8,9 @@ import {
 export type FiltroMov = 'TUTTI' | 'BUY' | 'ADD' | 'USCITE' | 'DIVIDEND' | 'CASSA' | 'COMMENTO';
 export const FILTRI: FiltroMov[] = ['TUTTI', 'BUY', 'ADD', 'USCITE', 'DIVIDEND', 'CASSA', 'COMMENTO'];
 
+/** Le due viste della card di sinistra: il Registro (elenco filtrabile) o il Diario (i soli commenti, in fila). */
+export type VistaMov = 'elenco' | 'diario';
+
 /** Il filtro per verbo o per specie. «Uscite» tiene insieme TRIM e SELL, come `esce`. */
 export function passaFiltro(r: RigaRegistro, f: FiltroMov): boolean {
   if (f === 'TUTTI') return true;
@@ -17,6 +20,14 @@ export function passaFiltro(r: RigaRegistro, f: FiltroMov): boolean {
   if (f === 'USCITE') return esce(r.t.action);
   return r.t.action === f;
 }
+
+/** Le righe del Diario: ogni movimento letto che porta un testo (motivo, nota o causale), in ordine di data
+ *  dal più recente. L'ordine è quello di `fondiRegistro` (data vera, poi specie, poi id; le date illeggibili in
+ *  fondo): qui NON si riordina, così Diario e Registro non possono mai dire due cronologie diverse.
+ *  ⚠️ Lavora su TUTTE le righe lette, non su quelle filtrate: i filtri stanno nella card del Registro e nel
+ *  Diario non si vedono, quindi non devono stringerlo di nascosto. */
+export const righeDiario = <V extends { r: RigaRegistro }>(tutte: V[]): V[] =>
+  tutte.filter(v => passaFiltro(v.r, 'COMMENTO'));
 
 /** Ricerca libera su ticker, motivo, nota e causale; maiuscole e minuscole indifferenti. */
 export function passaRicerca(r: RigaRegistro, q: string): boolean {

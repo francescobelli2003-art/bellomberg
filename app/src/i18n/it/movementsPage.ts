@@ -140,5 +140,21 @@ export const movementsPage = {
   "emptyDetail": "Il backend ha risposto correttamente con una lista vuota: è un archivio vuoto, non un errore.",
   "emptyFilter": "Nessun movimento con questi filtri",
   "emptyFilterDetail": "Dei {n} movimenti letti nessuno corrisponde. È il filtro, non un guasto.",
-  "showAll": "Mostra tutti"
+  "showAll": "Mostra tutti",
+  "viewLabel": "Vista dei movimenti",
+  "viewList": "Elenco",
+  "viewDiary": "Diario",
+  "diary": "Diario",
+  "diaryNote": "i commenti del PM in fila, dal più recente · filtri del registro esclusi",
+  "diaryNoteNd": "commenti n.d.",
+  "diaryCount_one": "{n} commento",
+  "diaryCount_other": "{n} commenti",
+  "diaryCountAtLeast_one": "almeno {n} commento",
+  "diaryCountAtLeast_other": "almeno {n} commenti",
+  "diaryEmptyPartialDetail": "Un archivio non è stato letto: i suoi commenti non sono noti, quindi questo non è un diario vuoto.",
+  "diaryUnavailable": "Diario non disponibile",
+  "diaryUnavailableDetail": "Nessun archivio è stato letto: i commenti non sono noti. Riprova con Aggiorna.",
+  "diaryEmpty": "Nessun commento",
+  "diaryEmptyDetail": "Nessuno dei {n} movimenti letti ha un commento del PM o una causale.",
+  "diaryEmptyPartial": "Nessun commento fra i movimenti letti"
 };

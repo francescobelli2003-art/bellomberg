@@ -140,5 +140,21 @@ export const movementsPage = {
   "emptyDetail": "The backend correctly replied with an empty list: this is an empty archive, not an error.",
   "emptyFilter": "No movements match these filters",
   "emptyFilterDetail": "None of the {n} movements read matches. It is the filter, not a fault.",
-  "showAll": "Show all"
+  "showAll": "Show all",
+  "viewLabel": "Movements view",
+  "viewList": "List",
+  "viewDiary": "Diary",
+  "diary": "Diary",
+  "diaryNote": "the PM's comments in a row, newest first · register filters excluded",
+  "diaryNoteNd": "comments n/a",
+  "diaryCount_one": "{n} comment",
+  "diaryCount_other": "{n} comments",
+  "diaryCountAtLeast_one": "at least {n} comment",
+  "diaryCountAtLeast_other": "at least {n} comments",
+  "diaryEmptyPartialDetail": "One archive was not read: its comments are unknown, so this is not an empty diary.",
+  "diaryUnavailable": "Diary unavailable",
+  "diaryUnavailableDetail": "No archive was read: the comments are unknown. Try again with Refresh.",
+  "diaryEmpty": "No comments",
+  "diaryEmptyDetail": "None of the {n} movements read has a PM comment or a cash reason.",
+  "diaryEmptyPartial": "No comments among the movements read"
 };

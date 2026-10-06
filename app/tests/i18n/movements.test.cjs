@@ -176,3 +176,89 @@ test('an obsolete response cannot overwrite newer successful archive reads or st
   const fresh = ui.render('en'); assert.match(fresh, /SYNTH.X/); assert.doesNotMatch(fresh, /Loading movements|OBSOLETE.X/);
   assert.equal(ui.calls.length, 4);
 });
+
+// 06/10/2026 (Claude Opus 5.5): torna il Diario, i soli movimenti commentati in fila. Stessi dati del registro
+// (motivo, nota, causale), nessuna lettura in più; un archivio non letto non diventa «0 commenti».
+const diaryKeys = ui => ui.nodes.filter(n => n.type === 'button' && 'data-mov-diario' in n.props).map(n => n.props['data-mov-diario']);
+const diaryText = (ui, k) => words(ui.nodes.find(n => n.type === 'button' && n.props['data-mov-diario'] === k).props.children);
+
+test('the diary lists only commented movements, newest first, with the full text, and picks the detail', async () => {
+  const rows = [
+    trade({ id: 11, ticker: 'OLD.X', data: '2026-07-03T12:00:00', prezzo: 40, valuta: 'EUR', pm_rationale: 'Motivo di luglio', note: '' }),
+    trade({ id: 12, ticker: 'MUTE.X', data: '2026-09-20T12:00:00', prezzo: 30, valuta: 'EUR', pm_rationale: '', note: '' }),
+    trade({ id: 13, ticker: 'NEW.X', data: '2026-09-25T12:00:00', prezzo: 20, valuta: 'EUR', action: 'TRIM', realized_eur: 5,
+      pm_rationale: 'Motivo di settembre', note: 'Nota lunga di settembre che il registro taglia su una riga sola' }),
+  ];
+  const cashRows = [{ id: 21, date: '2026-08-14', type: 'DEPOSIT', amount_eur: 500, note: 'Causale di agosto' },
+    { id: 22, date: '2026-09-01', type: 'WITHDRAW', amount_eur: 300, note: '' }];
+  const ui = retained({ trades: rows, cash: cashRows }); await ui.ready('it');
+  assert.equal(ui.pressed('data-mov-vista', 'elenco'), true);
+  const it = ui.press('it', 'data-mov-vista', 'diario');
+  assert.equal(ui.pressed('data-mov-vista', 'diario'), true);
+  assert.match(it, /Diario/); assert.match(it, /3 commenti/); assert.doesNotMatch(it, /data-mov-filtro/);
+  const keys = diaryKeys(ui);
+  assert.equal(keys.length, 3, 'uncommented trade and cash rows stay out');
+  assert.deepEqual(keys.map(k => diaryText(ui, k).match(/NEW\.X|OLD\.X|Causale di agosto/)[0]), ['NEW.X', 'Causale di agosto', 'OLD.X']);
+  assert.ok(!keys.some(k => /MUTE\.X/.test(diaryText(ui, k))), 'the uncommented trade is not a diary entry');
+  // testo pieno, con le etichette solo dove i testi sono due; la causale porta sempre la sua
+  assert.match(diaryText(ui, keys[0]), /Motivo Motivo di settembre.*Nota Nota lunga di settembre che il registro taglia su una riga sola/);
+  assert.match(diaryText(ui, keys[1]), /Causale Causale di agosto/);
+  assert.doesNotMatch(diaryText(ui, keys[2]), /Motivo Motivo di luglio/);
+  // il primo è scelto di default; un clic sceglie quello nel dettaglio
+  assert.match(it, new RegExp(`data-mov-dettaglio="${keys[0]}"`));
+  const picked = ui.press('en', 'data-mov-diario', keys[2]);
+  assert.match(picked, new RegExp(`data-mov-dettaglio="${keys[2]}"`)); assert.match(picked, /Diary/); assert.match(picked, /3 comments/);
+  assert.match(picked, /Motivo di luglio/);
+  // tornando all'elenco la scelta resta
+  const list = ui.press('en', 'data-mov-vista', 'elenco');
+  assert.match(list, new RegExp(`data-mov-dettaglio="${keys[2]}"`)); assert.match(list, /data-mov-filtro="COMMENTO"/);
+  assert.equal(ui.calls.length, 2, 'no extra read');
+});
+
+test('the diary ignores hidden register filters and a month picked from the activity chart returns to the list', async () => {
+  const rows = [trade({ id: 31, ticker: 'AUG.X', data: '2026-08-10T12:00:00', prezzo: 10, valuta: 'EUR', pm_rationale: 'Motivo agosto', note: '' }),
+    trade({ id: 32, ticker: 'SEP.X', data: '2026-09-10T12:00:00', prezzo: 10, valuta: 'EUR', pm_rationale: 'Motivo settembre', note: '' })];
+  const ui = retained({ trades: rows, cash: [] }); await ui.ready('it');
+  ui.press('it', 'data-mov-filtro', 'CASSA');
+  const diary = ui.press('it', 'data-mov-vista', 'diario');
+  assert.equal(diaryKeys(ui).length, 2); assert.match(diary, /Motivo agosto/); assert.match(diary, /Motivo settembre/);
+  const back = ui.press('it', 'data-mov-mese', '2026-08');
+  assert.equal(ui.pressed('data-mov-vista', 'elenco'), true); assert.match(back, /data-mov-togli="mese"/);
+  assert.equal(diaryKeys(ui).length, 0);
+});
+
+test('a diary with no comment says so in both languages after a complete read', async () => {
+  const ui = retained({ trades: [trade({ pm_rationale: '', note: '', prezzo: 10 })], cash: [{ id: 41, date: '2026-09-11', type: 'DEPOSIT', amount_eur: 100, note: '  ' }] });
+  await ui.ready('it');
+  const it = ui.press('it', 'data-mov-vista', 'diario'), en = ui.render('en');
+  assert.match(it, /data-mov-stato="diario-vuoto"/); assert.match(it, /Nessun commento/); assert.match(it, /Nessuno dei 2 movimenti letti/); assert.match(it, /0 commenti/);
+  assert.match(en, /No comments/); assert.match(en, /None of the 2 movements read/);
+  assert.equal(diaryKeys(ui).length, 0);
+});
+
+test('a read failure is never shown as an empty diary', async () => {
+  const ui = retained({ tradeError: new Error('Synthetic trades failure'), cashError: new Error('Synthetic cash failure') });
+  await ui.ready('it');
+  const it = ui.press('it', 'data-mov-vista', 'diario'), en = ui.render('en');
+  for (const html of [it, en]) {
+    assert.match(html, /data-mov-stato="diario-ko"/); assert.doesNotMatch(html, /diario-vuoto|diario-caricamento/);
+    assert.doesNotMatch(html, /\b0 commenti\b|\b0 comments\b|Nessun commento<|No comments</);
+  }
+  assert.match(it, /Diario non disponibile/); assert.match(it, /commenti n\.d\./);
+  assert.match(en, /Diary unavailable/); assert.match(en, /comments n\/a/);
+  // un archivio solo letto: il vuoto vale per quello e lo si dice, non è il vuoto dell'archivio intero
+  const half = retained({ trades: [trade({ pm_rationale: '', note: '', prezzo: 10 })], cashError: new Error('Synthetic cash failure') });
+  await half.ready('en');
+  const partial = half.press('en', 'data-mov-vista', 'diario');
+  assert.match(partial, /data-mov-stato="diario-parziale"/); assert.doesNotMatch(partial, /diario-vuoto/);
+  assert.match(partial, /No comments among the movements read/); assert.match(partial, /Securities only: cash was not read/);
+  assert.match(partial, /at least 0 comments/); assert.doesNotMatch(partial, /· 0 comments/);
+});
+
+test('while the first read is in flight the diary shows loading, not an empty list', async () => {
+  const pending = new Promise(() => {});
+  const ui = retained({ tradePayload: pending, cashPayload: pending });
+  ui.render('it');
+  const it = ui.press('it', 'data-mov-vista', 'diario');
+  assert.match(it, /data-mov-stato="diario-caricamento"/); assert.doesNotMatch(it, /diario-vuoto|diario-ko|0 commenti/);
+});
