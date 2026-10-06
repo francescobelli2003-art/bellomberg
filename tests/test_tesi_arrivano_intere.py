@@ -100,9 +100,9 @@ def test_una_tesi_appena_salvata_arriva_alla_chiamata_dopo(db_finto):
     assert "[addendum 03/03/2030" not in b, "il blocco e' ancora quello di prima del salvataggio"
 
 
-def test_una_tesi_da_diario_di_10000_caratteri_arriva_intera(db_finto):
-    """Il limite e' 10000 (PM 06/10): una nota del Diario lunga quanto il limite non si taglia."""
-    lunga = ("Ipotesi, prove, rischi e cosa mi farebbe cambiare idea. " * 200)[:10000]
+def test_una_tesi_da_diario_di_4000_caratteri_arriva_intera(db_finto):
+    """Il limite e' 4000 (PM 06/10): una nota del Diario lunga quanto il limite non si taglia."""
+    lunga = ("Ipotesi, prove, rischi e cosa mi farebbe cambiare idea. " * 80)[:4000]
     con = sqlite3.connect(db_finto)
     con.execute("UPDATE positions SET tesi=? WHERE ticker='IOTA.L'", (lunga,))
     con.commit()

@@ -270,10 +270,12 @@ def favorites_block() -> str:
 # troncava, e proprio nella coda, dove sta la parte NUOVA.
 # 2000 copriva con margine la piu' lunga di allora (894), e il blocco viaggia in
 # un prefisso CACHATO (misura 20/08: 92,4% degli input serviti dalla cache).
-# 06/10 (PM): 10000. Le tesi ora si scrivono anche dal Diario, dove una nota con
-# ipotesi, prove, rischi e condizioni di smentita supera facilmente i 2000; il
-# taglio resta dichiarato coi numeri. Vale anche per l'ultimo commento sul trade.
-MAX_CHAR_TESI = 10000
+# 06/10 (PM): 4000. Le tesi ora si scrivono anche dal Diario, dove una nota con
+# ipotesi, prove, rischi e condizioni di smentita supera facilmente i 2000. Misura
+# per un book da 20 titoli: 20 x (tesi + commento) pieni ~ 160 mila caratteri, uso
+# normale molto meno; nessun tetto sul blocco intero (scelta PM). Il taglio resta
+# dichiarato coi numeri. Vale anche per l'ultimo commento sul trade.
+MAX_CHAR_TESI = 4000
 
 
 def _tesi_tagliata(s: str) -> str:
