@@ -447,3 +447,86 @@ test('the what-if tabs are real tabs connected to their panels, with arrow keys'
   const without = []; press({ ...banco.props, result: fixture(), onTab: t => without.push(t) }, 'ArrowRight');
   assert.deepEqual(without, ['mod']);
 });
+
+// ── review del maintainer sullo scenario deterministico (06/10) ──
+// Numeri inventati interi: guadagno del replay +12% / +150 €, perdita −40% / −400 €.
+const bottoneSoglie = html => { const m = html.match(/<button[^>]*>(Soglie VaR ed ES|VaR and ES thresholds)<\/button>/); assert.ok(m, 'tails toggle'); return m[0]; };
+
+test('with a deterministic scenario the terminal distribution card declares that no distribution exists', async () => {
+  const html = await settled(deterministicFixture());
+  const expected = {
+    it: 'Nessuna distribuzione: scenario deterministico, una sola traiettoria. Il valore a scadenza è l’esito dello scenario, nel riquadro in alto.',
+    en: 'No distribution: deterministic scenario, a single path. The terminal value is the scenario outcome, in the box above.',
+  };
+  for (const language of ['it', 'en']) {
+    const dist = sezione(html[language], 'mc-dist');
+    assert.ok(dist.includes(expected[language]), `${language}: declared empty state`);
+    assert.match(dist, /data-dist-det/);
+    // né barre dell'istogramma né conteggio degli intervalli: non c'è una distribuzione da leggere
+    assert.doesNotMatch(dist, /mc-bin|<svg/);
+    assert.doesNotMatch(dist, /intervalli|bins/);
+  }
+  // senza scenario deterministico l'istogramma resta
+  const base = await settled(fixture());
+  assert.match(sezione(base.it, 'mc-dist'), /mc-bin/); assert.doesNotMatch(base.it, /data-dist-det/);
+});
+
+test('with a deterministic scenario the tails toggle is disabled and says why', async () => {
+  const html = await settled(deterministicFixture());
+  const why = { it: 'Soglie VaR ed ES spente: con lo scenario deterministico VaR ed ES non si applicano, non c’è niente da disegnare.',
+    en: 'VaR and ES thresholds off: with a deterministic scenario VaR and ES do not apply, there is nothing to draw.' };
+  for (const language of ['it', 'en']) {
+    const button = bottoneSoglie(html[language]);
+    assert.match(button, / disabled=""/); assert.match(button, /aria-pressed="false"/);
+    assert.ok(button.includes(`title="${why[language]}"`), `${language}: title`);
+    assert.match(button, /aria-describedby="mc-tails-off"/);
+    assert.ok(html[language].includes(`<span id="mc-tails-off" class="sr-only">${why[language]}</span>`), `${language}: description`);
+    assert.doesNotMatch(sezione(html[language], 'mc-cone'), /data-tail=/);
+  }
+  // simulazione normale: il tasto è acceso e disegna le soglie
+  const base = await settled(fixture());
+  assert.doesNotMatch(bottoneSoglie(base.it), /disabled|aria-describedby/);
+  assert.match(sezione(base.it, 'mc-cone'), /data-tail="VaR 95%"/);
+});
+
+test('a missing stress nature label is replaced by a sentence of the page, never by silence', async () => {
+  // deterministico col blocco dello scenario, senza la frase del motore
+  const det = deterministicFixture(); delete det.stress_nature_label;
+  det._presentation_v1.texts = det._presentation_v1.texts.filter(x => x.path[0] !== 'stress_nature_label');
+  const a = await settled(det);
+  assert.ok(sezione(a.it, 'mc-det').includes('<p class="mc-det-lead">Scenario deterministico: il replay storico copre tutto l’orizzonte ed è identico in ogni simulazione.</p>'));
+  assert.ok(sezione(a.en, 'mc-det').includes('<p class="mc-det-lead">Deterministic scenario: the historical replay covers the whole horizon and is identical in every simulation.</p>'));
+  // natura deterministica dichiarata ma blocco assente: la nota resta, con la frase della pagina
+  const solo = { ...deterministicFixture(), deterministic_scenario: null }; delete solo.stress_nature_label;
+  solo._presentation_v1.texts = solo._presentation_v1.texts.filter(x => !['stress_nature_label', 'deterministic_scenario'].includes(x.path[0]));
+  const b = await settled(solo);
+  assert.ok(plain(b.it).includes('|Scenario deterministico: il replay storico copre tutto l’orizzonte ed è identico in ogni simulazione.|'));
+  assert.match(b.it, /data-stress-nature="deterministic"/);
+  // fisso-poi-simulato senza frase
+  const fixed = { ...fixture(), stress_scenario: 'shock_3sigma', stress_nature: 'fixed_then_simulated', deterministic_scenario: null };
+  const c = await settled(fixed);
+  assert.ok(plain(c.it).includes('|Stress fisso, poi simulazione: le metriche sono condizionate allo scenario applicato.|'));
+  assert.ok(plain(c.en).includes('|Fixed stress, then simulation: metrics are conditional on the applied scenario.|'));
+  assert.match(c.it, /data-stress-nature="fixed_then_simulated"/);
+  // nessuno stress: nessuna nota
+  assert.doesNotMatch((await settled(fixture())).it, /data-stress-nature/);
+});
+
+test('the replay outcome is written with its sign: + for a gain, - for a loss', async () => {
+  const notes = html => { const from = html.indexOf('<section class="bbn-card mc-notes">'); return plain(html.slice(from, html.indexOf('</section>', from))); };
+  // finestra di replay chiusa in guadagno (stress fisso poi simulato)
+  const gain = await settled({ ...fixture(), stress_scenario: 'covid_2020', stress_nature: 'fixed_then_simulated',
+    stress_meta: { applied: 'covid_2020', replaced_days: 21, window_loss_pct: 12, window_loss_eur: 150 } });
+  assert.ok(notes(gain.it).includes('Finestra di replay.|+12,00% su 21 giorni (+150 €)'), notes(gain.it));
+  assert.ok(notes(gain.en).includes('Replay window.|+12.00% over 21 days (+€150)'), notes(gain.en));
+  // perdita: il meno resta
+  const loss = await settled(deterministicFixture());
+  assert.ok(notes(loss.it).includes('Finestra di replay.|-40,00% su 252 giorni (-400 €)'), notes(loss.it));
+  // esito dello scenario deterministico in guadagno: segno e colore del guadagno
+  const det = deterministicFixture();
+  Object.assign(det.deterministic_scenario, { scenario_loss_pct: 12, scenario_loss_eur: 150 });
+  const up = await settled(det);
+  const box = sezione(up.it, 'mc-det');
+  assert.match(box, /class="num mc-up">\+12,00%</); assert.match(box, /class="num mc-up">\+150\s€</);
+  assert.doesNotMatch(box, /mc-down/);
+});

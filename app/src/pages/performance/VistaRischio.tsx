@@ -314,9 +314,16 @@ function Scenario({ id, s, onRiprova }: { id: IdScenario; s: Stato<MonteCarloRes
           if (replay) {
             if (meta?.fallback) return <span className="bbn-warn-pill" title={meta.fallback_reason}>{w.replayFallback}</span>;
             const proxied = Object.keys(meta?.proxied || {});
+            // window_loss_* è un rendimento CON SEGNO (negativo = perdita): un replay può anche
+            // chiudere in guadagno. Rosso solo per la perdita, verde per il guadagno, nessun
+            // colore se manca; l'etichetta segue il segno dell'euro (o della % se l'euro manca).
+            const esito = finito(meta?.window_loss_eur) ? meta!.window_loss_eur : finito(meta?.window_loss_pct) ? meta!.window_loss_pct : null;
+            const tono = esito == null || esito === 0 ? '' : esito < 0 ? 'down-t' : 'up-t';
             return (
               <>
-                <div className="perf-sc-v is-big"><span>{w.replayLoss}</span><b className="down-t">{euro(meta?.window_loss_eur, 0)}</b><small>{pct(meta?.window_loss_pct)}</small></div>
+                <div className="perf-sc-v is-big" data-replay-sign={esito == null ? 'na' : esito < 0 ? 'loss' : esito > 0 ? 'gain' : 'flat'}>
+                  <span>{esito != null && esito > 0 ? w.replayGain : esito != null && esito < 0 ? w.replayLoss : w.replayOutcome}</span>
+                  <b className={tono || undefined}>{euro(meta?.window_loss_eur, 0, true)}</b><small>{pct(meta?.window_loss_pct)}</small></div>
                 <div className="perf-sc-note">{w.replayNote}</div>
                 {proxied.length > 0 && <div className="perf-sc-f">{w.proxied(proxied.join(', '))}</div>}
               </>

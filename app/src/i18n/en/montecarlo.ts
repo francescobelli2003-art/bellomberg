@@ -25,6 +25,11 @@ export const montecarlo = {
   "detDaysValue": "{a} of {b}",
   "detPath": "Path",
   "detBands": "deterministic scenario: a single path, the bands coincide (they are not percentiles)",
+  // page sentences when the engine sends none (stress_nature_label missing)
+  "natureDetFallback": "Deterministic scenario: the historical replay covers the whole horizon and is identical in every simulation.",
+  "natureFixedFallback": "Fixed stress, then simulation: metrics are conditional on the applied scenario.",
+  "distDet": "No distribution: deterministic scenario, a single path. The terminal value is the scenario outcome, in the box above.",
+  "tailsDetOff": "VaR and ES thresholds off: with a deterministic scenario VaR and ES do not apply, there is nothing to draw.",
   "unlabelledId": "{id} (engine id without a label)",
   "fanBandsName": "percentile bands",
   "terminalHistName": "terminal value histogram",

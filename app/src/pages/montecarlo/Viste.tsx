@@ -150,7 +150,7 @@ export function ScenarioDeterministico({ r }: { r: MonteCarloResult }) {
   return <section className="bbn-card mc-det" data-deterministic>
     <Testa titolo={`${ds.label} · ${etichettaMotore('stress', ds.scenario || r.stress_scenario)}`} aiuto={tr('montecarlo.detHelp')}
       nota={tr('montecarlo.detNote')} />
-    {r.stress_nature_label && <p className="mc-det-lead">{r.stress_nature_label}</p>}
+    <p className="mc-det-lead">{r.stress_nature_label || tr('montecarlo.natureDetFallback')}</p>
     <div className="mc-det-row">
       <div className="mc-tile" data-det="return"><span>{tr('montecarlo.detReturn')} <Aiuto testo={tr('montecarlo.detReturnHelp')} /></span>
         <b className={'num ' + tono(ds.scenario_loss_pct)}>{fmtPctS(ds.scenario_loss_pct)}</b>
@@ -184,8 +184,10 @@ export function NoteMotore({ r, drift, stress }: { r: MonteCarloResult; drift?: 
   if (meta?.window_loss_pct != null) {
     const proxy = meta.proxied && Object.keys(meta.proxied).length > 0
       ? tr('montecarlo.noteProxies', { list: Object.entries(meta.proxied).map(([t, p]) => `${t} (${p})`).join('; ') }) : '';
+    // window_loss_* è un rendimento CON SEGNO (negativo = perdita): il «+» del guadagno si
+    // scrive, altrimenti un replay chiuso in positivo si leggerebbe come una perdita
     righe.push({ testa: tr('montecarlo.noteReplay'),
-      corpo: tr('montecarlo.noteReplayBody', { loss: fmtPct(meta.window_loss_pct), days: meta.replaced_days ?? tr('montecarlo.na'), eur: fmtEUR(meta.window_loss_eur) }) + proxy });
+      corpo: tr('montecarlo.noteReplayBody', { loss: fmtPctS(meta.window_loss_pct), days: meta.replaced_days ?? tr('montecarlo.na'), eur: fmtEURS(meta.window_loss_eur) }) + proxy });
   } else if (!r.stress_fallback && (r.stress_scenario || stress) === 'none') {
     righe.push({ testa: tr('montecarlo.noteReplay'), corpo: tr('montecarlo.noteNoStress') });
   }

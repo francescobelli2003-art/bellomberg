@@ -82,3 +82,27 @@ test('R5: liquidity volume zero on an unmeasured row is n/a, missing counters ar
   assert.doesNotMatch(html, /undefined/);
   assert.match(html, /n\.d\. verde/);
 });
+
+// Review del maintainer (06/10): l'esito del replay ha il SEGNO (window_loss_*: negativo =
+// perdita). Rosso solo la perdita, verde il guadagno, nessun colore se manca. Numeri inventati interi.
+test('Rischio: replay colorato e firmato secondo il segno, etichetta coerente', () => {
+  const replay = meta => ({ stato: 'ok', dati: { stress_meta: { applied: 'gfc_2008', replaced_days: 21, ...meta } } });
+  const scheda = (html, id) => { const from = html.indexOf(`data-scenario="${id}"`); assert.ok(from > 0, id);
+    const to = html.indexOf('data-qa="perf-scenario"', from + 1); return html.slice(from, to > 0 ? to : undefined); };
+  const html = render('it', { scenari: { ...scenari,
+    gfc_2008: replay({ window_loss_pct: -40, window_loss_eur: -400 }),
+    covid_2020: replay({ window_loss_pct: 12, window_loss_eur: 150 }) } });
+  const perdita = scheda(html, 'gfc_2008'), guadagno = scheda(html, 'covid_2020');
+  assert.match(perdita, /data-replay-sign="loss"/); assert.match(perdita, /Perdita se si ripetesse/);
+  assert.match(perdita, /<b class="down-t">−400 €<\/b><small>−40,00%<\/small>/);
+  assert.match(guadagno, /data-replay-sign="gain"/); assert.match(guadagno, /Guadagno se si ripetesse/);
+  assert.match(guadagno, /<b class="up-t">\+150 €<\/b><small>\+12,00%<\/small>/);
+  assert.doesNotMatch(guadagno, /down-t/);
+  // esito assente: nessun colore, segnaposto della pagina, etichetta neutra
+  const vuoto = scheda(render('it', { scenari: { ...scenari, gfc_2008: replay({}) } }), 'gfc_2008');
+  assert.match(vuoto, /data-replay-sign="na"/); assert.match(vuoto, /Esito se si ripetesse/);
+  assert.match(vuoto, /<b>—<\/b><small>—<\/small>/); assert.doesNotMatch(vuoto, /down-t|up-t/);
+  const en = scheda(render('en', { scenari: { ...scenari, covid_2020: replay({ window_loss_pct: 12, window_loss_eur: 150 }) } }), 'covid_2020');
+  assert.match(en, /Gain if it happened again/);
+  language.impostaLinguaCorrente('it');
+});

@@ -230,6 +230,8 @@ export const performancePage = {
   "probLoss10": "Chance of losing more than 10%",
   "es95": "95% expected shortfall: {v}",
   "replayLoss": "Loss if it happened again",
+  "replayGain": "Gain if it happened again",
+  "replayOutcome": "Outcome if it happened again",
   "replayNote": "Deterministic replay of the first 21 sessions: one outcome, no distribution.",
   "replayFallback": "Replay not applied",
   "proxied": "Proxied with SPY: {t}",

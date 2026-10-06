@@ -25,6 +25,11 @@ export const montecarlo = {
   "detDaysValue": "{a} su {b}",
   "detPath": "Traiettoria",
   "detBands": "scenario deterministico: una sola traiettoria, le bande coincidono (non sono percentili)",
+  // frasi della pagina quando il motore non manda la sua (stress_nature_label assente)
+  "natureDetFallback": "Scenario deterministico: il replay storico copre tutto l’orizzonte ed è identico in ogni simulazione.",
+  "natureFixedFallback": "Stress fisso, poi simulazione: le metriche sono condizionate allo scenario applicato.",
+  "distDet": "Nessuna distribuzione: scenario deterministico, una sola traiettoria. Il valore a scadenza è l’esito dello scenario, nel riquadro in alto.",
+  "tailsDetOff": "Soglie VaR ed ES spente: con lo scenario deterministico VaR ed ES non si applicano, non c’è niente da disegnare.",
   "unlabelledId": "{id} (id del motore senza etichetta)",
   "fanBandsName": "le bande dei percentili",
   "terminalHistName": "l’istogramma dei valori a scadenza",

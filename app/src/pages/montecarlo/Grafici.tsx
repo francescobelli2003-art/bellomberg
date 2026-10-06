@@ -54,7 +54,11 @@ export function Cono({ r, view, tracce, soglie, onTracce, onSoglie }: {
   return <section className="bbn-card mc-cone" data-deterministic={det || undefined}>
     <div className="bbn-card-head"><h2>{tr('montecarlo.coneTitle')}</h2><Aiuto testo={tr('montecarlo.coneHelp')} /><span className="bbn-grow" />
       <button type="button" className="mc-toggle" aria-pressed={tracce} onClick={onTracce}>{tr('montecarlo.togglePaths')}</button>
-      <button type="button" className="mc-toggle" aria-pressed={soglie} onClick={onSoglie}>{tr('montecarlo.toggleTails')}</button>
+      {/* scenario deterministico: VaR ed ES sono null per costruzione e le soglie non
+          disegnerebbero niente; il tasto resta visibile ma spento, e dice perché */}
+      <button type="button" className="mc-toggle" aria-pressed={det ? false : soglie} onClick={onSoglie} disabled={det}
+              title={det ? tr('montecarlo.tailsDetOff') : undefined} aria-describedby={det ? 'mc-tails-off' : undefined}>{tr('montecarlo.toggleTails')}</button>
+      {det && <span id="mc-tails-off" className="sr-only">{tr('montecarlo.tailsDetOff')}</span>}
     </div>
     <div className="mc-legend">
       {det
@@ -70,7 +74,7 @@ export function Cono({ r, view, tracce, soglie, onTracce, onSoglie }: {
     {!fb || !fb.days?.length || !view
       ? <div className="mc-missing" role="note">{tr('montecarlo.coneMissingA')} <b>{tr('montecarlo.fanBandsName')}</b>{tr('montecarlo.coneMissingB', { field: 'fan_bands' })}</div>
       : <div className="mc-chart" ref={ref}>
-          <ConoSvg r={r} view={view} w={box.w} h={box.h} tracce={tracce ? disegnate : 0} soglie={soglie} det={det}
+          <ConoSvg r={r} view={view} w={box.w} h={box.h} tracce={tracce ? disegnate : 0} soglie={soglie && !det} det={det}
             idx={hover ?? pin} pinned={pin != null} onHover={setHover} onPick={i => setPin(p => (p != null ? null : i))} />
         </div>}
   </section>;
@@ -188,10 +192,16 @@ export function Distribuzione({ r, view, fuori }: { r: MonteCarloResult; view: F
   const th = r.terminal_hist;
   const tot = th ? th.counts.reduce((a, b) => a + b, 0) : 0;
   const pctFuori = fuori && fuori.tot > 0 ? (fuori.out / fuori.tot) * 100 : null;
-  return <section className="bbn-card mc-dist">
+  // scenario deterministico: il motore manda comunque l'istogramma, ma è una sola colonna
+  // (tutte le traiettorie sono la stessa) e disegnarlo farebbe credere a una distribuzione.
+  // Stato vuoto DICHIARATO al posto del grafico.
+  const det = unaTraiettoria(r);
+  return <section className="bbn-card mc-dist" data-deterministic={det || undefined}>
     <div className="bbn-card-head"><h2>{tr('montecarlo.distTitle')}</h2><Aiuto testo={tr('montecarlo.distHelp')} /><span className="bbn-grow" />
-      <span className="bbn-card-note">{th ? tr('montecarlo.bins', { a: th.counts.length }) : tr('montecarlo.na')}</span></div>
-    {!th || !th.counts?.length || !view
+      <span className="bbn-card-note">{det ? tr('montecarlo.detNote') : th ? tr('montecarlo.bins', { a: th.counts.length }) : tr('montecarlo.na')}</span></div>
+    {det
+      ? <div className="mc-missing is-det" role="note" data-dist-det>{tr('montecarlo.distDet')}</div>
+      : !th || !th.counts?.length || !view
       ? <div className="mc-missing" role="note">{tr('montecarlo.distMissingA')} <b>{tr('montecarlo.terminalHistName')}</b>{tr('montecarlo.distMissingB', { field: 'terminal_hist' })}</div>
       : <>
         <div className="mc-chart" ref={ref}><DistribuzioneSvg r={r} view={view} w={box.w} h={box.h} hover={hover} onHover={setHover} /></div>

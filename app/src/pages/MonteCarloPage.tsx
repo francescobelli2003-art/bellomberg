@@ -283,11 +283,13 @@ export default function MonteCarloPage() {
         {result.stress_fallback && <div className="mc-note is-warn"><AlertCircle aria-hidden="true" />
           <span>{tr('montecarlo.fallbackBanner', { req: etichettaMotore('stress', result.stress_requested) })}</span></div>}
         {/* natura dello stress (sync 2a72bf8): deterministico = blocco dello scenario con
-            l'esito da leggere; fisso-poi-simulato = metriche CONDIZIONATE, lo si dice sopra */}
+            l'esito da leggere; fisso-poi-simulato = metriche CONDIZIONATE, lo si dice sopra.
+            Senza la frase del motore parla quella della pagina: la natura non resta muta. */}
         {result.deterministic_scenario
           ? <ScenarioDeterministico r={result} />
-          : result.stress_nature === 'fixed_then_simulated' && result.stress_nature_label
-            && <div className="mc-note is-warn" data-stress-nature><AlertCircle aria-hidden="true" /><span>{result.stress_nature_label}</span></div>}
+          : (result.stress_nature === 'fixed_then_simulated' || result.stress_nature === 'deterministic')
+            && <div className="mc-note is-warn" data-stress-nature={result.stress_nature}><AlertCircle aria-hidden="true" />
+              <span>{result.stress_nature_label || tr(result.stress_nature === 'deterministic' ? 'montecarlo.natureDetFallback' : 'montecarlo.natureFixedFallback')}</span></div>}
         <div className={'mc-plancia' + (running ? ' is-loading' : '')} aria-busy={running}>
           <div className="mc-upper">
             <div className="mc-col is-left"><Esito r={result} /><Probabilita r={result} /></div>

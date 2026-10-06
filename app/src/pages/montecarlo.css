@@ -120,6 +120,8 @@
 .mc-det-bands { color: var(--bbn-warn); font-weight: 700; }
 .bb-page.bb-page-modern[data-page] .bbn-mc.bbn-mc .is-na { color: var(--bbn-muted); font-size: 12px; font-weight: 700; letter-spacing: 0; line-height: 1.25; white-space: normal; }
 .mc-missing { margin: 8px 20px 18px; padding: 12px 14px; border-radius: 14px; background: var(--bbn-bad-soft); color: var(--bbn-bad); font-size: 13px; font-weight: 600; }
+/* distribuzione assente per costruzione (scenario deterministico): non è un errore, è un fatto */
+.mc-missing.is-det { background: var(--bbn-warn-soft); color: var(--bbn-warn); }
 .bbn-mc .mc-empty { flex: 1 1 auto; display: grid; place-items: center; min-height: 260px; padding: 48px 24px; text-align: center; color: var(--bbn-muted); font-size: 14px; }
 .mc-empty b { display: block; margin-bottom: 6px; color: var(--bbn-text); font-size: 18px; }
 .mc-empty svg { width: 22px; height: 22px; margin-bottom: 10px; color: var(--bbn-accent); }
@@ -191,6 +193,7 @@
 .mc-sw.is-start { height: 3px; border-radius: 2px; vertical-align: 2px; background: repeating-linear-gradient(90deg, var(--bbn-muted) 0 4px, transparent 4px 7px); }
 .bb-page.bb-page-modern[data-page] .bbn-mc.bbn-mc button.mc-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border: 1.5px solid var(--bbn-line); border-radius: 999px; color: var(--bbn-muted); font-weight: 700; font-size: 12px; cursor: pointer; }
 .bb-page.bb-page-modern[data-page] .bbn-mc.bbn-mc button.mc-toggle[aria-pressed="true"] { border-color: var(--bbn-accent); color: var(--bbn-accent); background: var(--bbn-accent-soft); }
+.bb-page.bb-page-modern[data-page] .bbn-mc.bbn-mc button.mc-toggle:disabled { opacity: .5; cursor: default; }
 .mc-chart text { font-family: inherit; }
 .mc-ax { fill: var(--bbn-muted); font-size: 11px; font-weight: 600; }
 .mc-grid { stroke: var(--bbn-line); stroke-width: 1; }

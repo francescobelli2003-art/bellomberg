@@ -230,6 +230,8 @@ export const performancePage = {
   "probLoss10": "Probabilità di perdere più del 10%",
   "es95": "Expected shortfall 95%: {v}",
   "replayLoss": "Perdita se si ripetesse",
+  "replayGain": "Guadagno se si ripetesse",
+  "replayOutcome": "Esito se si ripetesse",
   "replayNote": "Replay deterministico delle prime 21 sedute: un solo esito, senza distribuzione.",
   "replayFallback": "Replay non applicato",
   "proxied": "Approssimati con SPY: {t}",

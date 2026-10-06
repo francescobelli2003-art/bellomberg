@@ -212,6 +212,8 @@ function costruisci(l: Lingua) {
     probLoss10: tr('performancePage.probLoss10'),
     es95: (v: string) => tr('performancePage.es95', { v }),
     replayLoss: tr('performancePage.replayLoss'),
+    replayGain: tr('performancePage.replayGain'),
+    replayOutcome: tr('performancePage.replayOutcome'),
     replayNote: tr('performancePage.replayNote'),
     replayFallback: tr('performancePage.replayFallback'),
     proxied: (t: string) => tr('performancePage.proxied', { t }),
