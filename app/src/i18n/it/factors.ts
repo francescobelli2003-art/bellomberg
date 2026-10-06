@@ -19,5 +19,6 @@ export const factors = {
   "f107": "loading Mkt-RF composito FF regionale, finestra ",
   "f108": " — stima resa in questa pagina, non inclusa nella riconciliazione del guardrail",
   "f109": "cambio mancante su {a}: {b}",
-  "f110": "prezzo fermo su {a}: {b}"
+  "f110": "prezzo fermo su {a}: {b}",
+  "f111": "motivo dell’esclusione non fornito dal backend"
 };

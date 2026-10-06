@@ -140,11 +140,21 @@ export default function VistaFattori(p: PropsFattori) {
               <div key={r.chiave} className="fat-rrow">
                 <div>
                   <b>{r.etichetta}</b>
-                  <small>{w.regRowSub(cifra(r.nHolding, 0), cifra(r.nObs, 0), r.ultimaData ? dataIt(r.ultimaData) : w.na)}</small>
+                  <small>{w.regRowSub(r.nHolding === null ? w.na : cifra(r.nHolding, 0), r.nObs === null ? w.na : cifra(r.nObs, 0), r.ultimaData ? dataIt(r.ultimaData) : w.na)}</small>
                   {r.errore && <small className="fat-bad">{r.errore}</small>}
                 </div>
-                <div className="fat-wbar"><i style={{ width: p2(Math.max(0, Math.min(100, r.peso ?? 0))) }} /></div>
-                <span className="r num">{pct(r.peso, 1)}</span>
+                {/* peso assente = n.d. dichiarato, non una barra larga zero che si legge come misura */}
+                {r.peso === null ? (
+                  <>
+                    <div className="fat-wbar is-empty" role="img" aria-label={w.regWeightMissing} title={w.regWeightMissing} />
+                    <span className="r num fat-muted" title={w.regWeightMissing}>{w.na}</span>
+                  </>
+                ) : (
+                  <>
+                    <div className="fat-wbar"><i style={{ width: p2(Math.max(0, Math.min(100, r.peso))) }} /></div>
+                    <span className="r num">{pct(r.peso, 1)}</span>
+                  </>
+                )}
               </div>
             ))}
           </div>

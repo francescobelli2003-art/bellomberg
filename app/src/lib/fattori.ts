@@ -1,5 +1,6 @@
 import { t as tr } from '@/i18n/t';
 import { linguaCorrente, localeDi } from '@/i18n/lingua';
+import type { BetaFonteInsufficiente, BetaReconcile } from '@/lib/api';
 // ============================================================================
 // F6 FACTOR LAB — "RICONCILIAZIONE" · le derivazioni, FUORI dai componenti
 // (Opus 5, 27/07. Spec: docs/superpowers/specs/2026-07-27-f6-factor-lab-riconciliazione-design.md)
@@ -152,19 +153,12 @@ export interface PayloadFattori {
   error?: string;
 }
 
-export interface PayloadRiconciliazione {
-  betas?: Record<string, number>;
-  definitions?: Record<string, string>;
-  sources_failed?: Record<string, string>;
-  threshold?: number;
-  max_spread?: number;
-  verdict?: string;
-  beta_consensus?: number;
-  /** ⚠ il guardrail manda anche una NOTA in prosa (es. il monito a non usare il
-   *  beta come argomento decisionale quando le fonti divergono). La prima
-   *  stesura non la dichiarava nemmeno nel tipo, quindi la buttava. */
-  note?: string;
-}
+/** ⚠ il guardrail manda anche una NOTA in prosa (es. il monito a non usare il
+ *  beta come argomento decisionale quando le fonti divergono). La prima
+ *  stesura non la dichiarava nemmeno nel tipo, quindi la buttava.
+ *  Dal 06/10 il contratto (osservazioni minime, fonti insufficienti, `indicative`)
+ *  sta in un solo posto: `BetaReconcile` in lib/api.ts. */
+export type PayloadRiconciliazione = BetaReconcile;
 
 // ── PERCHE' UN NUMERO NON C'E' ──────────────────────────────────────────────
 
@@ -264,6 +258,11 @@ export interface Lancetta {
   definizioneMuta: Muto;
   /** false = non partecipa alla riconciliazione del guardrail */
   riconciliato: boolean;
+  /** osservazioni dichiarate dal guardrail per questa fonte; null = non dichiarate */
+  nObs: number | null;
+  /** valorizzato SOLO per le fonti che il guardrail ha escluso per osservazioni insufficienti
+   *  (`sources_insufficient`): il motivo e' quello del backend, VERBATIM */
+  esclusa: { nObs: number | null; minObs: number | null; motivo: string } | null;
 }
 
 const ETICHETTA_BETA: Record<string, string> = {
@@ -275,15 +274,25 @@ const ETICHETTA_BETA: Record<string, string> = {
 
 export interface Calibro {
   lancette: Lancetta[];
-  /** gli estremi delle sole riconciliate: e' la banda del consenso */
+  /** gli estremi delle sole riconciliate. E' la banda del consenso SOLO se il verdetto non e'
+   *  UNRELIABLE: con fonti discordanti un consenso non esiste (vedi `indicativo`). */
   consensoMin: number | null;
   consensoMax: number | null;
+  /** con UNRELIABLE il backend manda intervallo e mediana DESCRITTIVI, «non per decisioni»:
+   *  null se non li manda o se sono malformati (mai ricostruiti qui) */
+  indicativo: { min: number; max: number; mediana: number | null } | null;
+  /** la soglia di osservazioni sotto cui una fonte e' esclusa (`min_obs`) */
+  minObs: number | null;
+  /** `beta_per_decisioni`: null se il backend non lo dichiara (contratto anteriore al 06/10) */
+  perDecisioni: boolean | null;
   soglia: number | null;
   spreadMax: number | null;
   consenso: number | null;
   verdetto: string | null;
   /** le fonti che il guardrail non e' riuscito a interrogare, VERBATIM */
   fontiCadute: [string, string][];
+  /** fonti escluse per osservazioni insufficienti SENZA un beta disegnabile: [chiave, motivo] */
+  esclusaSenzaBeta: [string, string][];
   /** la nota in prosa del guardrail, VERBATIM. Null se non la manda. */
   nota: string | null;
   muto: Muto;
@@ -307,6 +316,37 @@ export function calibro(
         definizione: typeof d === 'string' && d.trim() ? d.trim() : null,
         definizioneMuta: typeof d === 'string' && d.trim() ? null : 'non-fornita',
         riconciliato: true,
+        nObs: num(rec.n_obs ? rec.n_obs[k] : null),
+        esclusa: null,
+      });
+    }
+  }
+
+  // ⚠ 06/10: `betas` porta SOLO le riconciliate. Una fonte sotto `min_obs` sta in
+  //   `sources_insufficient` col suo beta e il motivo: resta sul righello, FUORI dal consenso,
+  //   e dice perche'. Ignorarla sarebbe farla sparire in silenzio.
+  const senzaBeta: [string, string][] = [];
+  if (rec && rec.sources_insufficient) {
+    for (const k of Object.keys(rec.sources_insufficient)) {
+      const x: Partial<BetaFonteInsufficiente> = rec.sources_insufficient[k] || {};
+      const motivo = typeof x.reason === 'string' && x.reason.trim() ? x.reason.trim() : tr('factors.f111');
+      const v = num(x.beta);
+      // senza un beta finito la lancetta non si disegna, ma l'esclusione si DICHIARA lo stesso
+      if (v === null) { senzaBeta.push([k, motivo]); continue; }
+      const d = rec.definitions ? rec.definitions[k] : undefined;
+      lancette.push({
+        chiave: k,
+        etichetta: ETICHETTA_BETA[k] || k,
+        valore: v,
+        definizione: typeof d === 'string' && d.trim() ? d.trim() : null,
+        definizioneMuta: typeof d === 'string' && d.trim() ? null : 'non-fornita',
+        riconciliato: false,
+        nObs: num(x.n_obs),
+        esclusa: {
+          nObs: num(x.n_obs),
+          minObs: num(x.min_obs) ?? num(rec.min_obs),
+          motivo,
+        },
       });
     }
   }
@@ -322,6 +362,8 @@ export function calibro(
         tr('factors.f108'),
       definizioneMuta: null,
       riconciliato: false,
+      nObs: null,
+      esclusa: null,
     });
   }
 
@@ -335,15 +377,24 @@ export function calibro(
     }
   }
 
+  // l'intervallo indicativo si prende com'e' SOLO se ben formato: due estremi finiti e ordinati
+  const ind = rec && rec.indicative && Array.isArray(rec.indicative.range) ? rec.indicative : null;
+  const iMin = ind ? num(ind.range[0]) : null, iMax = ind ? num(ind.range[1]) : null;
+
   return {
     lancette,
     consensoMin: ric.length > 1 ? Math.min.apply(null, ric) : null,
     consensoMax: ric.length > 1 ? Math.max.apply(null, ric) : null,
+    indicativo: ind && iMin !== null && iMax !== null && iMin <= iMax
+      ? { min: iMin, max: iMax, mediana: num(ind.median) } : null,
+    minObs: num(rec ? rec.min_obs : null),
+    perDecisioni: rec && typeof rec.beta_per_decisioni === 'boolean' ? rec.beta_per_decisioni : null,
     soglia: num(rec ? rec.threshold : null),
     spreadMax: num(rec ? rec.max_spread : null),
     consenso: num(rec ? rec.beta_consensus : null),
     verdetto: rec && typeof rec.verdict === 'string' ? rec.verdict : null,
     fontiCadute: cadute,
+    esclusaSenzaBeta: senzaBeta,
     nota: rec && typeof rec.note === 'string' && rec.note.trim() ? rec.note.trim() : null,
     muto: rec ? null : 'riconciliazione-assente',
   };

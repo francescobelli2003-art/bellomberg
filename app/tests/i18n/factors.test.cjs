@@ -16,6 +16,7 @@ function fixtures() {
       skipped_detail: [{ ticker: 'OMIT.X', weight_pct: 20, reason: 'Original missing history' }] },
     rec: { betas: { portfolio_risk_spy: 0.8, factor_model_mkt: 0.75, advanced_metrics_twr: 0.9 },
       definitions: { portfolio_risk_spy: 'Definizione dichiarata', factor_model_mkt: 'Original unmarked definition', advanced_metrics_twr: 'Original benchmark definition' },
+      n_obs: { portfolio_risk_spy: 200, factor_model_mkt: 300, advanced_metrics_twr: 250 }, min_obs: 60, beta_per_decisioni: true,
       note: 'Nota dichiarata', verdict: 'RECONCILED', threshold: 0.25, max_spread: 0.15, beta_consensus: 0.82,
       _presentation_v1: { version: 1, texts: [
         { path: ['definitions', 'portfolio_risk_spy'], it: 'Definizione dichiarata', en: 'Declared definition' },
@@ -197,5 +198,121 @@ test('an alpha without t-statistic declares the missing interval instead of an e
     assert.ok(cell, 'alpha whisker cell rendered');
     assert.match(cell[1], /n\.d\.|n\/a/, `${lang}: the missing interval is declared`);
     assert.match(cell[1], /aria-label="[^"]+"/, `${lang}: the reason is reachable`);
+  }
+});
+
+// Contratto del guardrail beta del 06/10 (advanced_metrics.reconcile_betas): `betas` porta SOLO le
+// riconciliate, le fonti sotto min_obs stanno in sources_insufficient, la nota c'e' anche con
+// RECONCILED, e con UNRELIABLE arriva un intervallo «non per decisioni». Numeri inventati, interi.
+function contratto06() {
+  const data = fixtures();
+  data.rec = { verdict: 'RECONCILED', betas: { portfolio_risk_spy: 1, factor_model_mkt: 1 },
+    definitions: { portfolio_risk_spy: 'Original book definition', factor_model_mkt: 'Original factor definition', advanced_metrics_twr: 'Original twr definition' },
+    n_obs: { advanced_metrics_twr: 30, portfolio_risk_spy: 200, factor_model_mkt: 300 }, min_obs: 60,
+    sources_insufficient: { advanced_metrics_twr: { beta: 2, n_obs: 30, min_obs: 60, reason: 'Original only 30 common dates' } },
+    sources_failed: {}, beta_consensus: 1, beta_per_decisioni: true,
+    note: 'Original reconciled 2 of 3 — excluded advanced_metrics_twr (30/60)' };
+  return data;
+}
+
+test('RECONCILED with a source excluded for insufficient observations shows the exclusion, its reason and the note', async () => {
+  const { render } = retained(contratto06());
+  render('it'); await render.effects();
+  const expected = {
+    it: { pill: 'esclusa · 30/60 osservazioni', radio: 'esclusa dal consenso per osservazioni insufficienti', ok: /Riconciliato/ },
+    en: { pill: 'excluded · 30/60 observations', radio: 'excluded from the consensus for insufficient observations', ok: /Reconciled/ },
+  };
+  for (const lang of ['it', 'en']) {
+    const html = render(lang); await render.effects();
+    const e = expected[lang];
+    assert.ok(html.includes(e.pill), `${lang}: excluded pill`);
+    assert.ok(html.includes(e.radio), `${lang}: the ruler marker says why it is outside`);
+    assert.match(html, /Original only 30 common dates/, `${lang}: backend reason verbatim`);
+    assert.match(html, /Original reconciled 2 of 3/, `${lang}: note shown even with RECONCILED`);
+    assert.match(html, e.ok);
+    assert.doesNotMatch(html, /senza via libera|without clearance/);
+    // la nota con esclusioni non e' «liscia»: si segnala come da leggere
+    assert.match(html, /fat-note is-warn[^>]*>.*?Original reconciled 2 of 3/);
+    // la banda del consenso copre SOLO le riconciliate (1 e 1): l'esclusa a 2 non la allarga
+    const band = html.match(/class="fat-band is-ok" style="left:([\d.]+)%;width:([\d.]+)%"/);
+    assert.ok(band, `${lang}: consensus band drawn`);
+    assert.equal(Number(band[2]), 0, `${lang}: band spans only the reconciled estimates`);
+    // il codice grezzo del guardrail non compare mai
+    assert.doesNotMatch(html, /RECONCILED_SENZA|NON_DISPONIBILE|NON_CALCOLATO/);
+  }
+});
+
+test('UNRELIABLE draws the indicative range labelled not-for-decisions, never as a consensus band', async () => {
+  const data = contratto06();
+  data.rec = { verdict: 'UNRELIABLE', betas: { portfolio_risk_spy: 1, factor_model_mkt: 3, advanced_metrics_twr: 2 },
+    n_obs: { portfolio_risk_spy: 200, factor_model_mkt: 300, advanced_metrics_twr: 250 }, min_obs: 60,
+    sources_insufficient: {}, sources_failed: {}, threshold: 1, max_spread: 2, beta_per_decisioni: false,
+    indicative: { range: [1, 3], median: 2, basis: ['advanced_metrics_twr', 'factor_model_mkt', 'portfolio_risk_spy'], uso: 'non_per_decisioni', note: 'Original descriptive only' },
+    note: 'Original diverging note' };
+  const { render } = retained(data);
+  render('it'); await render.effects();
+  const expected = {
+    it: { label: 'non per decisioni', band: 'distanza tra le stime riconciliate', median: 'mediana indicativa 2,00' },
+    en: { label: 'not for decisions', band: 'spread of the reconciled estimates', median: 'indicative median 2.00' },
+  };
+  for (const lang of ['it', 'en']) {
+    const html = render(lang); await render.effects();
+    const e = expected[lang];
+    assert.match(html, /class="fat-band is-indicativa" data-uso="non_per_decisioni"/, `${lang}: indicative band`);
+    assert.doesNotMatch(html, /class="fat-band( is-ok)?"/, `${lang}: no consensus band`);
+    assert.ok(!html.includes(e.band), `${lang}: the key does not call it the reconciled spread`);
+    assert.ok(html.split(e.label).length - 1 >= 3, `${lang}: fixed label on band, key and median`);
+    assert.ok(html.includes(e.median), `${lang}: median declared as indicative`);
+    assert.match(html, /<span class="fat-big num"><span class="fat-muted">n[./][da]\.?<\/span>/, `${lang}: no consensus value, declared n.d.`);
+  }
+});
+
+test('beta_guardrail codes become sentences in both languages; unknown and missing codes are declared n.d.', () => {
+  const load = creaCaricatore(), language = load('i18n/lingua.ts');
+  const { fraseGuardrailBeta } = load('pages/fattori/VistaBeta.tsx'), { parole } = load('pages/fattori/parole.ts');
+  const codes = ['RECONCILED', 'UNRELIABLE', 'INSUFFICIENT_SOURCES', 'NON_CALCOLATO', 'NON_DISPONIBILE', 'RECONCILED_SENZA_VIA_LIBERA', 'RECONCILED_SENZA_FONTE_RISCHIO'];
+  for (const lang of ['it', 'en']) {
+    language.impostaLinguaCorrente(lang);
+    const w = parole(), seen = new Set();
+    for (const code of codes) {
+      const sentence = fraseGuardrailBeta(code, w);
+      assert.ok(!sentence.includes(code), `${lang}: ${code} is never shown raw`);
+      assert.match(sentence, lang === 'it' ? /^Punteggio quantitativo: / : /^Quant score: /);
+      seen.add(sentence);
+    }
+    assert.equal(seen.size, codes.length, `${lang}: one distinct sentence per code`);
+    assert.match(fraseGuardrailBeta('NEW_VERDICT', w), lang === 'it' ? /guardrail n\.d\. \(codice NEW_VERDICT non riconosciuto\)/ : /guardrail n\/a \(unrecognised code NEW_VERDICT\)/);
+    for (const missing of [null, undefined, '']) assert.match(fraseGuardrailBeta(missing, w), lang === 'it' ? /guardrail n\.d\./ : /guardrail n\/a/);
+  }
+});
+
+test('RECONCILED without the risk-beta source declares its undeclared observations as n.d., never a raw code', async () => {
+  const data = contratto06();
+  data.rec.betas = { factor_model_mkt: 1, advanced_metrics_twr: 1 };
+  data.rec.sources_insufficient = { portfolio_risk_spy: { beta: 2, n_obs: null, min_obs: 60, reason: 'Original observations not declared' } };
+  const { render } = retained(data);
+  render('it'); await render.effects();
+  for (const lang of ['it', 'en']) {
+    const html = render(lang); await render.effects();
+    assert.ok(html.includes(lang === 'it' ? 'esclusa · n.d./60 osservazioni' : 'excluded · n/a/60 observations'), `${lang}: undeclared observations are n.d., not zero`);
+    assert.doesNotMatch(html, /RECONCILED_SENZA_FONTE_RISCHIO/);
+  }
+});
+
+test('a region without weight and a missing holdings count are declared n.d., not drawn as zero', async () => {
+  const data = fixtures();
+  delete data.fac.regions.synthetic.weight_pct;
+  delete data.fac.n_holdings_analyzed;
+  const { render } = retained(data);
+  render('it'); await render.effects();
+  for (const lang of ['it', 'en']) {
+    const html = render(lang); await render.effects();
+    const na = lang === 'it' ? 'n.d.' : 'n/a';
+    assert.match(html, /class="fat-wbar is-empty"/, `${lang}: empty bar, declared`);
+    assert.doesNotMatch(html, /fat-wbar"><i style="width:0\.00%"/, `${lang}: no zero-width bar presented as measured`);
+    assert.ok(html.includes(lang === 'it' ? 'Peso della regione non fornito dal backend' : 'Region weight not provided by the backend'));
+    assert.ok(html.includes(lang === 'it' ? 'titoli analizzati n.d.' : 'securities analysed n/a'), `${lang}: holdings chip declares n.d.`);
+    assert.doesNotMatch(html, /— (titoli|securities)/, `${lang}: no em-dash posing as a count`);
+    assert.ok(html.includes(na));
   }
 });

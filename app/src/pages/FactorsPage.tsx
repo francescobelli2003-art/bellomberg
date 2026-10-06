@@ -18,7 +18,7 @@ import type { Ordine } from './fattori/calcoli';
 import MetodoFonti from './fattori/MetodoFonti';
 import type { SezioneMetodo } from './fattori/MetodoFonti';
 import { parole } from './fattori/parole';
-import VistaBeta, { nomeFonte, RICONCILIATO } from './fattori/VistaBeta';
+import VistaBeta, { nomeFonte, viaLibera } from './fattori/VistaBeta';
 import VistaFattori from './fattori/VistaFattori';
 import VistaTitoli from './fattori/VistaTitoli';
 import './fattori-nuova.css';
@@ -187,6 +187,12 @@ export default function FactorsPage() {
   const notaSharpe = risk && typeof (risk as { sharpe_note?: string }).sharpe_note === 'string'
     ? (risk as { sharpe_note?: string }).sharpe_note! : null;
   const nSigAlfa = alfa.filter(r => r.ic && r.ic.sig).length;
+  // il guardrail beta: via libera ed esclusioni per osservazioni. Il codice del punteggio quant
+  // (`metrics.beta_guardrail`) oggi non arriva da nessuna rotta: non lo si ricostruisce qui
+  // (sarebbe una seconda copia della regola di specialist_scores); `fraseGuardrailBeta` e' pronta.
+  const libero = viaLibera(cal);
+  const esclusioni = cal.lancette.some(l => l.esclusa !== null) || cal.esclusaSenzaBeta.length > 0;
+  const nTitoli = num(fac?.n_holdings_analyzed);
 
   // ── il righello: navigazione da tastiera ──────────────────────────────────
   // Le lancette sono ordinate per valore da `calibro()`: l'indice E' la posizione, quindi ←/→
@@ -218,8 +224,9 @@ export default function FactorsPage() {
   const sezioni: SezioneMetodo[] = [
     { titolo: w.mDefs, testo: [w.mDefsNote],
       voci: cal.lancette.map(l => [nomeFonte(l, w, periodo), l.definizione || perche(l.definizioneMuta)] as [string, string]) },
-    ...(cal.verdetto || cal.nota ? [{ titolo: w.mGuard, avviso: cal.verdetto !== null && cal.verdetto !== RICONCILIATO,
-      testo: [cal.verdetto ? w.verdictTitle(cal.verdetto) : '', cal.nota || ''].filter(Boolean) }] : []),
+    ...(cal.verdetto || cal.nota ? [{ titolo: w.mGuard, avviso: (cal.verdetto !== null && !libero) || esclusioni,
+      testo: [cal.verdetto ? w.verdictTitle(cal.verdetto) : '', cal.nota || '',
+        cal.minObs !== null ? w.minObsLine(cifra(cal.minObs, 0)) : ''].filter(Boolean) }] : []),
     ...(fac ? [{ titolo: w.mQuality, voci: [
       [w.qSig, `${rumore.significative} / ${rumore.celle}`],
       [w.qAlpha, `${cifra(num(fac.n_alpha_significant_5pct), 0)} / ${cifra(num(fac.n_holdings_analyzed), 0)}`],
@@ -236,7 +243,7 @@ export default function FactorsPage() {
     ] },
   ];
   const daLeggere = riscaldaErr !== null || cal.fontiCadute.length > 0 || cop.avvisi.length > 0
-    || (cal.verdetto !== null && cal.verdetto !== RICONCILIATO);
+    || (cal.verdetto !== null && !libero) || esclusioni;
 
   return (
     <ModernPage page="factors" render={() => (
@@ -245,7 +252,8 @@ export default function FactorsPage() {
           <h1>{w.title}</h1>
           {fac && (
             <span className="fat-chip" title={[w.modelHint, fac.model, fac.version].filter(Boolean).join(' · ')}>
-              <b>{w.window(periodo)}</b> · {num(fac.n_holdings_analyzed) === 1 ? w.holdingsOne : w.holdings(cifra(num(fac.n_holdings_analyzed), 0))}
+              <b>{w.window(periodo)}</b> · {nTitoli === null ? <span className="fat-muted">{w.holdingsMissing}</span>
+                : nTitoli === 1 ? w.holdingsOne : w.holdings(cifra(nTitoli, 0))}
             </span>
           )}
           {/* DECISIONE PM 27/07: il ritardo dei fattori si dichiara sempre in testata. */}
@@ -294,7 +302,7 @@ export default function FactorsPage() {
           <div hidden={vista !== 'fattori'} className="fat-slot">
             <VistaFattori w={w} conf={conf} scala={scala} etichetta1={periodo} etichetta3={w.years3}
               stato3={fac3 ? 'ok' : fac3Err !== null ? 'errore' : 'attesa'} err3={fac3Err}
-              nAnalizzati={num(fac?.n_holdings_analyzed)} cop={cop} snapErr={snapErr} reg={reg} fuori={fuori}
+              nAnalizzati={nTitoli} cop={cop} snapErr={snapErr} reg={reg} fuori={fuori}
               ultimoDato={fac?.ff_data_last_date || null} ritardo={ritardo}
               storico={obs.length ? [Math.min(...obs), Math.max(...obs)] : null} />
           </div>

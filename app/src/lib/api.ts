@@ -787,6 +787,46 @@ export interface AgentsLiveState {
   usage_total?: UsageTotal;
 }
 
+// ── GUARDRAIL BETA (advanced_metrics.reconcile_betas, contratto del 06/10) ──────
+/** Fonte esclusa per osservazioni insufficienti: il suo beta resta visibile ma NON entra nello
+ *  scarto né nel consenso. `n_obs` null = osservazioni non dichiarate o non verificabili. */
+export interface BetaFonteInsufficiente { beta: number; n_obs: number | null; min_obs: number; reason: string }
+/** Solo con UNRELIABLE: intervallo e mediana DESCRITTIVI. `uso` vale "non_per_decisioni":
+ *  non è una banda di consenso e non va mai presentata come tale. */
+export interface BetaIndicativo { range: [number, number]; median: number; basis?: string[]; uso: string; note?: string }
+export interface BetaReconcile {
+  /** SOLO le fonti riconciliate (osservazioni ≥ min_obs) */
+  betas?: Record<string, number>;
+  definitions?: Record<string, string>;
+  /** osservazioni per fonte; null = non dichiarate dal motore */
+  n_obs?: Record<string, number | null>;
+  min_obs?: number;
+  sources_insufficient?: Record<string, BetaFonteInsufficiente>;
+  sources_failed?: Record<string, string>;
+  threshold?: number; max_spread?: number;
+  verdict?: string; beta_consensus?: number;
+  /** unico interruttore per chi decide: true SOLO con RECONCILED */
+  beta_per_decisioni?: boolean;
+  /** sempre presente se qualche fonte è stata esclusa, anche con RECONCILED */
+  note?: string;
+  indicative?: BetaIndicativo;
+  error?: string;
+}
+/** `metrics.beta_guardrail` del punteggio quant (specialist_scores.quant_score): codice STABILE,
+ *  uguale in ogni lingua. Non si mostra mai grezzo: lo traduce `fraseGuardrailBeta`. */
+export type CodiceGuardrailBeta =
+  | 'RECONCILED' | 'UNRELIABLE' | 'INSUFFICIENT_SOURCES' | 'NON_CALCOLATO' | 'NON_DISPONIBILE'
+  | 'RECONCILED_SENZA_VIA_LIBERA' | 'RECONCILED_SENZA_FONTE_RISCHIO';
+export interface QuantScoreMetrics {
+  vol_annual_pct?: number | null; sharpe?: number | null;
+  /** null quando il guardrail esclude la beta dal punteggio */
+  beta_vs_spy?: number | null;
+  /** un codice sconosciuto resta possibile (verdetto nuovo del backend): `string` lo ammette */
+  beta_guardrail?: CodiceGuardrailBeta | string | null;
+  var_95_1d_pct?: number | null; max_dd_1y_pct?: number | null;
+  top_position_pct?: number | null; hhi?: number | null;
+}
+
 export interface RiskAlert { level: 'high'|'med'|'low'; metric: string; message: string; }
 export interface AssetRisk { vol_annual_pct: number; sharpe: number; var_95_1d_pct: number; max_dd_pct: number; weight_pct: number; }
 export interface PortfolioRisk {
@@ -1608,13 +1648,7 @@ export const Bellomberg = {
   // F6 (F23): il guardrail che riconcilia i beta del book da tre motori diversi.
   // ⚠ Chiede al modulo la finestra 3y, quindi SPOSTA la cache di cui sopra.
   betaReconcile: () =>
-    api.get<{
-      betas?: Record<string, number>;
-      definitions?: Record<string, string>;
-      sources_failed?: Record<string, string>;
-      threshold?: number; max_spread?: number;
-      verdict?: string; beta_consensus?: number;
-    }>('/portfolio/metrics/beta_reconcile', { timeout: 120000 }).then(r => r.data),
+    api.get<BetaReconcile>('/portfolio/metrics/beta_reconcile', { timeout: 120000 }).then(r => r.data),
   portfolioMonteCarlo: (params: {
     horizon_days?: number; n_sims?: number; lookback_years?: number;
     method?: 'parametric_t'|'fhs'|'block_bootstrap';

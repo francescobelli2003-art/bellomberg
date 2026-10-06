@@ -36,11 +36,30 @@ export const RICONCILIATO = 'RECONCILED';
  *  con INSUFFICIENT_SOURCES nessun confronto è avvenuto, e un esito sconosciuto si scrive com'è. */
 export const DIVERGENTE = 'UNRELIABLE';
 export const INSUFFICIENTE = 'INSUFFICIENT_SOURCES';
-export function testoEsito(v: string, w: Parole): { pill: string; frase: string } {
-  if (v === RICONCILIATO) return { pill: w.verdictOk, frase: w.okText };
+/** Via libera all'uso decisionale: dal 06/10 il backend la dichiara con `beta_per_decisioni`, e
+ *  RECONCILED senza quel `true` è un payload incoerente che non autorizza niente. */
+export const viaLibera = (cal: Calibro) => cal.verdetto === RICONCILIATO && cal.perDecisioni === true;
+export function testoEsito(v: string, w: Parole, perDecisioni: boolean | null): { pill: string; frase: string } {
+  if (v === RICONCILIATO) return perDecisioni === true
+    ? { pill: w.verdictOk, frase: w.okText } : { pill: w.verdictNoClearance, frase: w.noClearanceText };
   if (v === DIVERGENTE) return { pill: w.verdictKo, frase: w.koText };
   if (v === INSUFFICIENTE) return { pill: w.verdictInsufficient, frase: w.insufficientText };
   return { pill: w.verdictTitle(v), frase: w.unknownText(v) };
+}
+
+/** `metrics.beta_guardrail` del punteggio quant in una frase: il codice non si mostra mai grezzo,
+ *  e uno sconosciuto (o assente) si dichiara «guardrail n.d.» col codice fra parentesi. */
+export function fraseGuardrailBeta(codice: string | null | undefined, w: Parole): string {
+  switch (codice) {
+    case 'RECONCILED': return w.gqReconciled;
+    case 'UNRELIABLE': return w.gqUnreliable;
+    case 'INSUFFICIENT_SOURCES': return w.gqInsufficient;
+    case 'NON_CALCOLATO': return w.gqNotComputed;
+    case 'NON_DISPONIBILE': return w.gqUnavailable;
+    case 'RECONCILED_SENZA_VIA_LIBERA': return w.gqNoClearance;
+    case 'RECONCILED_SENZA_FONTE_RISCHIO': return w.gqNoRiskSource;
+    default: return codice ? w.gqUnknown(codice) : w.gqMissing;
+  }
 }
 
 export function nomeFonte(l: Lancetta, w: Parole, periodo: string): string {
@@ -60,10 +79,10 @@ function glossaFonte(l: Lancetta, w: Parole): string {
 
 export function Esito({ cal, recAtt, w }: { cal: Calibro; recAtt: boolean; w: Parole }) {
   if (cal.verdetto) {
-    const ok = cal.verdetto === RICONCILIATO;
+    const ok = viaLibera(cal);
     return (
       <span className={'fat-pill ' + (ok ? 'is-good' : cal.verdetto === DIVERGENTE ? 'is-bad' : 'is-warn')} title={w.verdictTitle(cal.verdetto)} data-verdetto={cal.verdetto}>
-        <i className="fat-dot" />{testoEsito(cal.verdetto, w).pill}
+        <i className="fat-dot" />{testoEsito(cal.verdetto, w, cal.perDecisioni).pill}
       </span>
     );
   }
@@ -73,17 +92,25 @@ export function Esito({ cal, recAtt, w }: { cal: Calibro; recAtt: boolean; w: Pa
 
 export default function VistaBeta(p: PropsBeta) {
   const { w, cal } = p;
-  const ok = cal.verdetto === RICONCILIATO;
+  const ok = viaLibera(cal);
   const giudicato = cal.verdetto !== null;
-  const esito = cal.verdetto !== null ? testoEsito(cal.verdetto, w) : null;
+  const esito = cal.verdetto !== null ? testoEsito(cal.verdetto, w, cal.perDecisioni) : null;
   const divergente = cal.verdetto === DIVERGENTE;
+  // fonti escluse per osservazioni insufficienti: anche con RECONCILED la nota va letta
+  const conEsclusioni = cal.lancette.some(l => l.esclusa !== null) || cal.esclusaSenzaBeta.length > 0;
+  // ⚠ Con fonti discordanti NON esiste una banda del consenso: gli estremi del backend
+  //   (`indicative.range`) si disegnano come intervallo indicativo, con l'etichetta fissa
+  //   «non per decisioni». Senza `indicative` non si disegna niente (mai ricostruito qui).
+  const banda = divergente
+    ? (cal.indicativo ? { min: cal.indicativo.min, max: cal.indicativo.max, indicativa: true } : null)
+    : (cal.consensoMin !== null && cal.consensoMax !== null ? { min: cal.consensoMin, max: cal.consensoMax, indicativa: false } : null);
   const nRic = cal.lancette.filter(l => l.riconciliato).length;
   // La finestra della soglia si centra sul PUNTO MEDIO delle riconciliate, non sulla mediana:
   // il controllo giudica max − min ≤ soglia, e «tutte dentro la finestra» equivale al criterio
   // solo con questo centro (audit/24 B.8).
   const centro = cal.consensoMin !== null && cal.consensoMax !== null ? (cal.consensoMin + cal.consensoMax) / 2 : cal.consenso;
   const soglia = cal.soglia !== null && centro !== null ? [centro - cal.soglia / 2, centro + cal.soglia / 2] : null;
-  const r = righello(cal.lancette, soglia || []);
+  const r = righello(cal.lancette, (soglia || []).concat(banda ? [banda.min, banda.max] : []));
   // Al primo caricamento c'è solo la stima della pagina: finché il controllo non risponde si
   // mostra l'attesa, non un righello con una lancetta e un consenso vuoto.
   const attesaControllo = p.recAtt && !cal.lancette.some(l => l.riconciliato);
@@ -115,11 +142,15 @@ export default function VistaBeta(p: PropsBeta) {
               <div className="fat-beta-top">
                 <div className="fat-cons">
                   <span className="fat-lbl">{w.consensus} <Info testo={w.consensusInfo} /></span>
-                  <span className="fat-big num">{cifra(cal.consenso, 2)}</span>
+                  <span className="fat-big num">{cal.consenso === null ? <span className="fat-muted">{w.na}</span> : cifra(cal.consenso, 2)}</span>
                   <div className="fat-row">
                     {cal.spreadMax !== null && <span className={'fat-pill ' + (giudicato ? (ok ? 'is-good' : divergente ? 'is-bad' : 'is-warn') : 'is-flat')}>{w.spreadPill(cifra(cal.spreadMax, 2))}</span>}
                     {cal.soglia !== null && <span className="fat-pill is-flat">{w.thresholdPill(cifra(cal.soglia, 2))}</span>}
                   </div>
+                  {divergente && cal.consenso === null && <small>{w.consensusNone}</small>}
+                  {divergente && cal.indicativo && cal.indicativo.mediana !== null && (
+                    <small className="fat-indicativa" data-uso="non_per_decisioni">{w.indicativeMedian(cifra(cal.indicativo.mediana, 2))} · <b>{w.notForDecisions}</b></small>
+                  )}
                   {esito && <small>{esito.frase}</small>}
                   {!giudicato && !p.recAtt && <small className="fat-muted">{p.recErr ? w.verdictMissing(p.recErr) : w.verdictMissing(w.errorMissing)}</small>}
                 </div>
@@ -134,10 +165,15 @@ export default function VistaBeta(p: PropsBeta) {
                         <span className="fat-tlab num" style={{ left: p2(r.pc(t)) }}>{cifra(t, 1)}</span>
                       </span>
                     ))}
-                    {cal.consensoMin !== null && cal.consensoMax !== null && (
+                    {banda && (banda.indicativa ? (
+                      <span className="fat-band is-indicativa" data-uso="non_per_decisioni" title={`${w.indicativeRange} · ${w.notForDecisions}`}
+                        style={{ left: p2(r.pc(banda.min)), width: p2(r.pc(banda.max) - r.pc(banda.min)) }}>
+                        <span className="fat-band-lbl">{w.notForDecisions}</span>
+                      </span>
+                    ) : (
                       <span className={'fat-band' + (ok ? ' is-ok' : '')}
-                        style={{ left: p2(r.pc(cal.consensoMin)), width: p2(r.pc(cal.consensoMax) - r.pc(cal.consensoMin)) }} />
-                    )}
+                        style={{ left: p2(r.pc(banda.min)), width: p2(r.pc(banda.max) - r.pc(banda.min)) }} />
+                    ))}
                     {soglia && <span className="fat-soglia" style={{ left: p2(r.pc(soglia[0])), width: p2(r.pc(soglia[1]) - r.pc(soglia[0])) }} />}
                     {/* Sul righello resta solo il numero: con due stime a pochi millesimi i nomi si
                         sovrapponevano. Il nome sta nella scheda qui sotto, nello stesso ordine. */}
@@ -146,7 +182,7 @@ export default function VistaBeta(p: PropsBeta) {
                       return (
                         <button key={l.chiave} ref={el => p.bottone(i, el)} type="button" role="radio"
                           aria-checked={i === p.scelta} tabIndex={i === p.scelta ? 0 : -1}
-                          aria-label={`${nome}: ${cifra(l.valore, 3)}. ${l.riconciliato ? w.radioReconciled : w.radioOutside}. ${l.definizione || perche(l.definizioneMuta)}`}
+                          aria-label={`${nome}: ${cifra(l.valore, 3)}. ${l.riconciliato ? w.radioReconciled : l.esclusa ? w.radioExcluded : w.radioOutside}. ${l.definizione || perche(l.definizioneMuta)}`}
                           className={'fat-mk' + (l.riconciliato ? '' : ' is-out')}
                           style={{ left: p2(r.pc(l.valore)), top: QUOTE[i % QUOTE.length] + '%' }}
                           onFocus={() => p.onScelta(i)} onMouseEnter={() => p.onScelta(i)} onClick={() => p.onScelta(i)}>
@@ -158,7 +194,9 @@ export default function VistaBeta(p: PropsBeta) {
                   <div className="fat-rkey">
                     <span><i className="k-r" />{w.keyReconciled}</span>
                     {cal.lancette.some(l => !l.riconciliato) && <span><i className="k-o" />{w.keyOutside}</span>}
-                    {cal.consensoMin !== null && <span><i className={'k-b' + (ok ? ' is-ok' : '')} />{w.keyBand}</span>}
+                    {banda && (banda.indicativa
+                      ? <span><i className="k-b is-indicativa" />{w.indicativeRange} · <b>{w.notForDecisions}</b></span>
+                      : <span><i className={'k-b' + (ok ? ' is-ok' : '')} />{w.keyBand}</span>)}
                     {cal.soglia !== null && <span><i className="k-s" />{w.keyThreshold(cifra(cal.soglia, 2))}</span>}
                   </div>
                 </div>
@@ -171,23 +209,31 @@ export default function VistaBeta(p: PropsBeta) {
                     <span className="k">
                       {nomeFonte(l, w, p.periodo)}
                       <span className="bbn-grow" />
-                      {!l.riconciliato && <span className="fat-pill is-outline">{w.radioOutside}</span>}
+                      {l.esclusa
+                        ? <span className="fat-pill is-warn">{w.excludedPill(l.esclusa.nObs === null ? w.na : cifra(l.esclusa.nObs, 0), l.esclusa.minObs === null ? w.na : cifra(l.esclusa.minObs, 0))}</span>
+                        : !l.riconciliato && <span className="fat-pill is-outline">{w.radioOutside}</span>}
                       <Info testo={l.definizione || perche(l.definizioneMuta)} />
                     </span>
                     <b className="num">{cifra(l.valore, 2)}</b>
-                    <small>{glossaFonte(l, w)}</small>
+                    {/* l'esclusa dice PERCHÉ (testo del backend); le altre la glossa e le osservazioni */}
+                    {l.esclusa
+                      ? <small className="fat-bad">{l.esclusa.motivo}</small>
+                      : <small>{glossaFonte(l, w)}{l.nObs !== null ? ' · ' + w.obsCount(cifra(l.nObs, 0)) : ''}</small>}
                   </button>
                 ))}
               </div>
 
               {(cal.nota || (esito && !ok)) && (
-                <div className={'fat-note ' + (giudicato && !ok ? (divergente ? 'is-bad' : 'is-warn') : 'is-plain')}>
-                  {giudicato && !ok && <AlertTriangle size={16} aria-hidden="true" />}
+                <div className={'fat-note ' + (giudicato && !ok ? (divergente ? 'is-bad' : 'is-warn') : conEsclusioni ? 'is-warn' : 'is-plain')}>
+                  {((giudicato && !ok) || conEsclusioni) && <AlertTriangle size={16} aria-hidden="true" />}
                   <span className="txt">{cal.nota || (esito ? esito.frase : '')}</span>
                 </div>
               )}
               {cal.fontiCadute.length > 0 && (
                 <div className="fat-note is-warn"><span className="txt">{w.sourcesFailed(cal.fontiCadute.map(([k, v]) => `${k} (${v})`).join(' · '))}</span></div>
+              )}
+              {cal.esclusaSenzaBeta.length > 0 && (
+                <div className="fat-note is-warn"><span className="txt">{w.excludedNoValue(cal.esclusaSenzaBeta.map(([k, v]) => `${k} (${v})`).join(' · '))}</span></div>
               )}
             </>
           )}

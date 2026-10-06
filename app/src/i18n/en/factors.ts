@@ -19,5 +19,6 @@ export const factors = {
   "f107": "regional FF composite Mkt-RF loading, window ",
   "f108": " — estimate shown on this page, not included in the guardrail reconciliation",
   "f109": "FX rate missing for {a}: {b}",
-  "f110": "stale price for {a}: {b}"
+  "f110": "stale price for {a}: {b}",
+  "f111": "exclusion reason not provided by the backend"
 };
