@@ -13,7 +13,7 @@ export const shell = {
   engine: 'Motore', agents: 'Agenti', session: 'SESSIONE', live_run: 'RUN IN CORSO',
   ready: 'PRONTI', unavailable: 'N.D.', engine_restart: 'N.D. · RIAVVIO SERVIZIO NECESSARIO',
   workspace: 'Area di lavoro · F1–F20 · CTRL+K',
-  filing_new: '{n} titoli con novità nei filing',
+  filing_new_one: '1 titolo con novità nei filing', filing_new_other: '{n} titoli con novità nei filing',
   markets: 'Mercati', last_snapshot: 'ultimo snapshot', prices_failed: '{n} simboli non aggiornati', prices_undeclared: 'esito dell’aggiornamento non dichiarato dal backend', data_status: 'Stato dei dati',
   market_open: 'APERTO', market_closed: 'CHIUSO', px_sync: 'IN AGGIORNAMENTO', px_ok: 'OK', px_error: 'ERRORE', px_partial: 'PARZIALE', px_undeclared: 'NON DICHIARATO',
   appearance_menu: 'Aspetto: tema', appearance_theme_group: 'Tema', appearance_light: 'Chiaro', appearance_dark: 'Scuro',
@@ -24,7 +24,8 @@ export const shell = {
   appearance_recovery_light_action: 'Torna al tema Chiaro',
   appearance_recovery_light_note: 'Il tema Chiaro mantiene schede, filtri e operazioni in corso.',
   system_status: 'Stato del sistema', service: 'Servizio', prices: 'Prezzi', fx_rates: 'Cambi in euro', timezone: 'Fuso orario',
-  group_toggle: 'Apri o chiudi il gruppo {g}', decisions_pending: '{n} decisioni da prendere',
+  group_toggle: 'Apri o chiudi il gruppo {g}', decisions_pending_one: '1 decisione da prendere',
+  decisions_pending_other: '{n} decisioni da prendere',
   decisions_unknown: 'Decisioni da prendere: conteggio non leggibile',
   agents_working: 'Comitato al lavoro: {done} agenti su {total} hanno finito',
 };

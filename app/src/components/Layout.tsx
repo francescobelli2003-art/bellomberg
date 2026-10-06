@@ -365,37 +365,48 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="bb-modern-nav-scroll">
               {gruppi.map(gruppo => {
                 const chiuso = chiusi.has(gruppo.id);
-                // a gruppo chiuso resta visibile solo la pagina aperta, se sta lì
-                const voci = chiuso ? gruppo.voci.filter(v => location.pathname.startsWith(v.to)) : gruppo.voci;
-                const nascoste = gruppo.voci.filter(v => !voci.includes(v));
+                // a gruppo chiuso resta visibile solo la pagina aperta, se sta lì. Le altre voci restano
+                // nel DOM con is-collapsed (nascoste dal CSS): sotto i 900 px il menu è a sole icone, senza
+                // i pulsanti dei gruppi, e lì devono tornare raggiungibili (review PR #14).
+                const aperte = (v: typeof nav[number]) => !chiuso || location.pathname.startsWith(v.to);
+                const nascoste = gruppo.voci.filter(v => !aperte(v));
                 return (
-                  <div key={gruppo.id} className={'bb-nav-group' + (chiuso ? ' is-closed' : '')}>
+                  <div key={gruppo.id} className={'bb-nav-group' + (chiuso ? ' is-closed' : '')}
+                    role="group" aria-label={gruppo.label}>
                     <button type="button" className="bb-modern-nav-group" aria-expanded={!chiuso}
                       title={t('shell.group_toggle', { g: gruppo.label })} onClick={() => alternaGruppo(gruppo.id)}>
                       <ChevronDown size={14} aria-hidden="true" className="bb-nav-chevron" />{gruppo.label}
                       {chiuso && nascoste.some(v => v.id === 'agents') && agentiAlLavoro && <i className="bb-nav-dot is-live" aria-hidden="true" />}
                     </button>
-                    {voci.map(({ to, label, group, icon: Icon, key, id }) => (
-                      <NavLink
-                        key={to}
-                        to={to}
-                        title={`${key} · ${label} · ${group}`}
-                        aria-label={`${key} · ${label} · ${group}`}
-                        className={({ isActive }) => 'bb-modern-nav-link' + (isActive ? ' is-active' : '')}
-                      >
-                        <Icon size={16} aria-hidden="true" />
-                        <span>{label}</span>
-                        {id === 'filing' && <BadgeFiling etichetta={n => t('shell.filing_new', { n })} />}
-                        {id === 'decisions' && <BadgeDecisioni percorso={location.pathname} etichetta={n => t('shell.decisions_pending', { n })}
-                          ignota={t('shell.decisions_unknown')} nd={t('shell.unavailable')} />}
-                        {id === 'agents' && agentiAlLavoro && (
-                          <em className="bb-nav-live" title={t('shell.agents_working', { done: tel.done ?? '—', total: tel.total ?? '—' })}>
-                            <i aria-hidden="true" />{tel.done ?? '—'}/{tel.total ?? '—'}
-                          </em>
-                        )}
-                        <kbd>{key}</kbd>
-                      </NavLink>
-                    ))}
+                    {gruppo.voci.map(voce => {
+                      const { to, label, group, icon: Icon, key, id } = voce;
+                      const lavoro = t('shell.agents_working', { done: tel.done ?? '—', total: tel.total ?? '—' });
+                      /* Niente aria-label sul link (review PR #14): sostituirebbe il nome e i contatori
+                         dentro non verrebbero letti. Il nome nasce dal contenuto: etichetta, frasi
+                         nascoste dei contatori, tasto F; il gruppo lo dà role="group" qui sopra. */
+                      return (
+                        <NavLink
+                          key={to}
+                          to={to}
+                          title={`${key} · ${label} · ${group}`}
+                          className={({ isActive }) => 'bb-modern-nav-link' + (isActive ? ' is-active' : '') + (aperte(voce) ? '' : ' is-collapsed')}
+                        >
+                          <Icon size={16} aria-hidden="true" />
+                          <span>{label}</span>
+                          {id === 'filing' && <BadgeFiling etichetta={n => n === 1 ? t('shell.filing_new_one') : t('shell.filing_new_other', { n })} />}
+                          {id === 'decisions' && <BadgeDecisioni percorso={location.pathname}
+                            etichetta={n => n === 1 ? t('shell.decisions_pending_one') : t('shell.decisions_pending_other', { n })}
+                            ignota={t('shell.decisions_unknown')} nd={t('shell.unavailable')} />}
+                          {id === 'agents' && agentiAlLavoro && <>
+                            <em className="bb-nav-live" title={lavoro} aria-hidden="true">
+                              <i />{tel.done ?? '—'}/{tel.total ?? '—'}
+                            </em>
+                            <small className="sr-only">{`, ${lavoro}`}</small>
+                          </>}
+                          <kbd>{key}</kbd>
+                        </NavLink>
+                      );
+                    })}
                   </div>
                 );
               })}

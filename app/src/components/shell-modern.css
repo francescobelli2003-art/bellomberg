@@ -233,6 +233,8 @@
 .bb-modern-nav-link:hover { background: var(--sh-hover); color: var(--bbn-text); }
 .bb-modern-nav-link.is-active { background: var(--sh-active); box-shadow: var(--sh-active-shadow); color: var(--bbn-text); }
 .bb-modern-nav-link.is-active svg { color: var(--bbn-accent); }
+/* voce di un gruppo chiuso: resta nel DOM e torna visibile sotto i 900 px (v. Layout.tsx) */
+.bb-modern-nav-link.is-collapsed { display: none; }
 .bb-modern-nav-link > span:first-of-type { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bb-modern-shell kbd {
   flex: none; min-width: 26px; padding: 1px 5px; border-radius: 6px; background: none; color: var(--bbn-muted);
@@ -419,8 +421,15 @@ html[data-platform="darwin"] .bb-modern-sidebar-brand { padding-left: 76px; -web
   .bb-modern-shell { grid-template-columns: 56px minmax(0, 1fr); }
   .bb-modern-sidebar { padding-inline: 6px; }
   .bb-modern-sidebar-brand { justify-content: center; padding: 0; }
-  .bb-modern-sidebar-brand strong, .bb-modern-nav-group, .bb-modern-nav-link > :not(svg), .bb-modern-config > :not(svg) { display: none; }
-  .bb-nav-group.is-closed .bb-modern-nav-link { display: flex; }
+  .bb-modern-sidebar-brand strong, .bb-modern-nav-group, .bb-modern-nav-link > :not(svg, span:first-of-type, .sr-only), .bb-modern-config > :not(svg) { display: none; }
+  /* menu a sole icone: senza i pulsanti dei gruppi ogni voce deve restare raggiungibile, anche
+     quelle dei gruppi chiusi (review PR #14). L'etichetta si nasconde alla vista ma non ai lettori
+     di schermo: con display:none il link resterebbe senza nome e il contatore senza contesto. */
+  .bb-modern-nav-link.is-collapsed { display: flex; }
+  .bb-modern-nav-link > span:first-of-type {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+    clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
   .bb-modern-nav-link, .bb-modern-config { justify-content: center; padding: 0; }
   .bb-modern-header { padding-left: 12px; }
   .bb-modern-footer-brand, .bb-modern-footer-workspace { display: none; }

@@ -13,7 +13,7 @@ export const shell = {
   engine: 'Engine', agents: 'Agents', session: 'SESSION', live_run: 'RUN IN PROGRESS',
   ready: 'READY', unavailable: 'N/A', engine_restart: 'N/A · SERVICE RESTART REQUIRED',
   workspace: 'Workspace · F1–F20 · CTRL+K',
-  filing_new: '{n} holdings with new filing changes',
+  filing_new_one: '1 holding with new filing changes', filing_new_other: '{n} holdings with new filing changes',
   markets: 'Markets', last_snapshot: 'last snapshot', prices_failed: '{n} symbols not updated', prices_undeclared: 'update result not declared by the backend', data_status: 'Data status',
   market_open: 'OPEN', market_closed: 'CLOSED', px_sync: 'SYNCING', px_ok: 'OK', px_error: 'ERROR', px_partial: 'PARTIAL', px_undeclared: 'UNDECLARED',
   appearance_menu: 'Appearance: theme', appearance_theme_group: 'Theme', appearance_light: 'Light', appearance_dark: 'Dark',
@@ -24,7 +24,8 @@ export const shell = {
   appearance_recovery_light_action: 'Return to Light theme',
   appearance_recovery_light_note: 'The Light theme keeps tabs, filters and running operations.',
   system_status: 'System status', service: 'Service', prices: 'Prices', fx_rates: 'Rates in euro', timezone: 'Time zone',
-  group_toggle: 'Open or close the {g} group', decisions_pending: '{n} decisions to make',
+  group_toggle: 'Open or close the {g} group', decisions_pending_one: '1 decision to make',
+  decisions_pending_other: '{n} decisions to make',
   decisions_unknown: 'Decisions to make: count unavailable',
   agents_working: 'Committee at work: {done} of {total} agents done',
 };
