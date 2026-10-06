@@ -99,14 +99,13 @@ export default function EdgeScannerPage() {
   }, [minStrength]);
   useEffect(() => { load(false); }, [load]);
 
-  // il dialogo della copertura si chiude con Esc e, chiuso, rende il fuoco a chi l'ha aperto
-  // (il fuoco entra nel dialogo con l'autoFocus del tasto Chiudi, in VistaRicerca)
+  // Esc chiude il dialogo della copertura anche col fuoco fuori; il fuoco (entrata, giro di TAB,
+  // ritorno a chi l'ha aperto) lo gestisce usaFocusPannello in VistaRicerca
   useEffect(() => {
     if (!copertura) return;
-    const prima = typeof document !== 'undefined' ? document.activeElement as HTMLElement | null : null;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setCopertura(false); };
     window.addEventListener('keydown', onKey);
-    return () => { window.removeEventListener('keydown', onKey); prima?.focus?.(); };
+    return () => window.removeEventListener('keydown', onKey);
   }, [copertura]);
 
   const tutti = useMemo(() => (viva?.segnali || []).map((s, i) => ({ s, k: chiaveSegnale(s, i) })), [viva]);

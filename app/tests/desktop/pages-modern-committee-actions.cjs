@@ -248,8 +248,16 @@ async function run(q) {
     await q.pause(450);
     await q.click(`${tabSelector}:nth-of-type(3)`);
     await q.waitFor(sel => document.querySelectorAll(sel)[2]?.getAttribute('aria-pressed') === 'true', 'details tab selected', 3000, tabSelector);
+    // focus del cassetto (review PR #16): entra all'apertura, TAB e MAIUSC+TAB restano dentro
+    const dentro = () => !!document.activeElement?.closest('main [data-page="agents"] .ag-dettagli .ag-cass');
+    await q.waitFor(dentro, 'focus inside the details drawer', 3000);
+    for (let i = 0; i < 12; i++) await q.key('Tab');
+    assert.equal(await q.js(dentro), true, 'Tab keeps focus inside the details drawer');
+    for (let i = 0; i < 12; i++) await q.key('Tab', ['Shift']);
+    assert.equal(await q.js(dentro), true, 'Shift+Tab keeps focus inside the details drawer');
     await q.click('main [data-page="agents"] .ag-dettagli button.ag-cass-x');
     await q.waitFor(() => document.querySelector('main [data-page="agents"] .ag-dettagli')?.dataset.aperto === '0', 'details drawer closed', 3000);
+    await q.waitFor(() => document.activeElement?.matches('main [data-page="agents"] button[data-dettagli="1"]'), 'focus back on the details opener', 3000);
     const chosen = await readState();
     assert.notEqual(chosen.tab, beforeTab.tab, 'a trusted click on a details tab should select it');
     const beforeModeCounts = await q.counts();

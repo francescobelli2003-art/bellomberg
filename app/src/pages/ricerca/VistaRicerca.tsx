@@ -15,6 +15,7 @@ import {
   CATEGORIE, SPIEGAZIONE, etichettaMappa, fileMarcatori, livelloForza, nomeCategoria, rilevatoreDi, scalaDiagnosi, type Grado,
 } from './calcoli';
 import { parole, type ChiavePagina, type Parole } from './parole';
+import { usaFocusPannello } from '@/lib/usaFocusPannello';
 
 export type Diagnosi =
   | { ticker: string; stato: 'attesa' }
@@ -269,17 +270,19 @@ function Copertura({ d, a, p }: { d: DatiRicerca; a: AzioniRicerca; p: P }) {
 }
 
 function DialogoCopertura({ d, a, p }: { d: DatiRicerca; a: AzioniRicerca; p: P }) {
+  // montato solo da aperto: il focus entra, TAB gira dentro, alla chiusura torna al link
+  const fuoco = usaFocusPannello<HTMLDivElement>(true, () => a.copertura(false));
   const c = d.viva?.copertura;
   if (!c || !c.dichiarata) return null;
   const titoli = titoliCoperti(c, p);
   const nome = (g: Grado) => p.t(GRADI.find(x => x[0] === g)![1]);
   return (
     <div className="ro-scrim" onClick={e => { if (e.target === e.currentTarget) a.copertura(false); }}>
-      <div className="ro-dialog" role="dialog" aria-modal="true" aria-label={p.t('edge.covDialogTitle')} data-zona="dialogo-copertura">
+      <div ref={fuoco.ref} className="ro-dialog" role="dialog" aria-modal="true" aria-label={p.t('edge.covDialogTitle')} data-zona="dialogo-copertura" onKeyDown={fuoco.onKeyDown}>
         <Testa icona={<ShieldCheck size={16} />} titolo={p.t('edge.covDialogTitle')}
           nota={[d.oraScan ? p.t('edge.scanAt', { a: d.oraScan }) : '', c.contate ? p.t('edge.covDialogMeta', { a: c.scansionate, b: c.totali }) : ''].filter(Boolean).join(' · ')}>
           <span className="bbn-grow" />
-          <button type="button" className="bbn-icon-btn" aria-label={p.t('edge.close')} autoFocus onClick={() => a.copertura(false)}><X size={16} /></button>
+          <button type="button" className="bbn-icon-btn" aria-label={p.t('edge.close')} onClick={() => a.copertura(false)}><X size={16} /></button>
         </Testa>
         <div className="ro-dialog-body">
           <div className="ro-ctab">
