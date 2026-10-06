@@ -18,7 +18,7 @@ import { Archive, Check, ChevronLeft, ChevronRight, Globe, History, Lock, Plus, 
 
 const BODY_LIMIT = 30000;
 // Quanto di una tesi arriva al consigliere: specchio di current_facts.MAX_CHAR_TESI.
-const THESIS_LIMIT = 10000;
+const THESIS_LIMIT = 4000;
 type Destination = { id: number } | 'new';
 
 function DeferredJournalView({ render }: { render: () => ReactNode }) {
