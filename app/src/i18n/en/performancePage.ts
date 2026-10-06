@@ -232,7 +232,8 @@ export const performancePage = {
   "replayLoss": "Loss if it happened again",
   "replayGain": "Gain if it happened again",
   "replayOutcome": "Outcome if it happened again",
-  "replayNote": "Deterministic replay of the first 21 sessions: one outcome, no distribution.",
+  "replayNote": "Deterministic replay of the first {n} sessions: one outcome, no distribution.",
+  "replayNoteNoDays": "Deterministic replay: one outcome, no distribution.",
   "replayFallback": "Replay not applied",
   "proxied": "Proxied with SPY: {t}",
   // Metodo

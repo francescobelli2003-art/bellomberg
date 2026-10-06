@@ -113,3 +113,33 @@ test('Rischio: replay colorato e firmato secondo il segno, etichetta coerente', 
   }
   language.impostaLinguaCorrente('it');
 });
+
+// Review del maintainer (06/10, secondo giro): la nota del replay legge le sedute da
+// stress_meta.replaced_days (mai un numero fisso); senza il dato la frase non ne cita.
+test('Rischio: nota del replay con le sedute dichiarate dal motore', () => {
+  const nota = (lang, meta) => {
+    const html = render(lang, { scenari: { ...scenari, gfc_2008: { stato: 'ok', dati: { stress_meta: { applied: 'gfc_2008', window_loss_eur: -400, ...meta } } } } });
+    const m = html.match(/class="perf-sc-note">([^<]*)</); assert.ok(m, html); return m[1];
+  };
+  assert.equal(nota('it', { replaced_days: 15 }), 'Replay deterministico delle prime 15 sedute: un solo esito, senza distribuzione.');
+  assert.equal(nota('en', { replaced_days: 15 }), 'Deterministic replay of the first 15 sessions: one outcome, no distribution.');
+  for (const meta of [{}, { replaced_days: null }, { replaced_days: 0 }]) {
+    assert.equal(nota('it', meta), 'Replay deterministico: un solo esito, senza distribuzione.');
+  }
+  language.impostaLinguaCorrente('it');
+});
+
+// Ramo Monte Carlo (none, shock_3sigma): «Perdita mediana» e «Peggior 5%» prendono il colore
+// dal segno dell'euro mostrato, come il replay; nessun colore se il dato manca. Numeri inventati interi.
+test('Rischio: scenari simulati colorati secondo il segno, neutri se manca il dato', () => {
+  const sim = (p50, p5) => ({ stato: 'ok', dati: { base_nav_eur: 1000, percentiles_eur: { p50, p5 } } });
+  const scheda = (html, id) => { const from = html.indexOf(`data-scenario="${id}"`); assert.ok(from > 0, id);
+    const to = html.indexOf('data-qa="perf-scenario"', from + 1); return html.slice(from, to > 0 ? to : undefined); };
+  const valori = box => [...box.matchAll(/class="perf-sc-v"><span>[^<]*<\/span><b( class="[^"]*")?>/g)].map(m => m[1] || '');
+  const html = render('it', { scenari: { ...scenari, none: sim(1100, 900), shock_3sigma: sim(1200, 1050) } });
+  assert.deepEqual(valori(scheda(html, 'none')), [' class="up-t"', ' class="down-t"']);
+  assert.deepEqual(valori(scheda(html, 'shock_3sigma')), [' class="up-t"', ' class="up-t"']);
+  const vuoto = scheda(render('it', { scenari: { ...scenari, none: sim(undefined, 1000) } }), 'none');
+  assert.deepEqual(valori(vuoto), ['', '']);
+  language.impostaLinguaCorrente('it');
+});

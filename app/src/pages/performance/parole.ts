@@ -214,7 +214,8 @@ function costruisci(l: Lingua) {
     replayLoss: tr('performancePage.replayLoss'),
     replayGain: tr('performancePage.replayGain'),
     replayOutcome: tr('performancePage.replayOutcome'),
-    replayNote: tr('performancePage.replayNote'),
+    // il numero di sedute arriva da stress_meta.replaced_days, mai scritto fisso
+    replayNote: (n: number | null) => (n != null ? tr('performancePage.replayNote', { n }) : tr('performancePage.replayNoteNoDays')),
     replayFallback: tr('performancePage.replayFallback'),
     proxied: (t: string) => tr('performancePage.proxied', { t }),
     mWarn: tr('performancePage.mWarn'),

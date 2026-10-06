@@ -232,7 +232,8 @@ export const performancePage = {
   "replayLoss": "Perdita se si ripetesse",
   "replayGain": "Guadagno se si ripetesse",
   "replayOutcome": "Esito se si ripetesse",
-  "replayNote": "Replay deterministico delle prime 21 sedute: un solo esito, senza distribuzione.",
+  "replayNote": "Replay deterministico delle prime {n} sedute: un solo esito, senza distribuzione.",
+  "replayNoteNoDays": "Replay deterministico: un solo esito, senza distribuzione.",
   "replayFallback": "Replay non applicato",
   "proxied": "Approssimati con SPY: {t}",
   // Metodo

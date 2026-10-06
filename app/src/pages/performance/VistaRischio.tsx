@@ -326,7 +326,7 @@ function Scenario({ id, s, onRiprova }: { id: IdScenario; s: Stato<MonteCarloRes
                 <div className="perf-sc-v is-big" data-replay-sign={esito == null ? 'na' : esito < 0 ? 'loss' : esito > 0 ? 'gain' : 'flat'}>
                   <span>{esito != null && esito > 0 ? w.replayGain : esito != null && esito < 0 ? w.replayLoss : w.replayOutcome}</span>
                   <b className={tono || undefined}>{euro(meta?.window_loss_eur, 0, true)}</b><small>{pct(meta?.window_loss_pct)}</small></div>
-                <div className="perf-sc-note">{w.replayNote}</div>
+                <div className="perf-sc-note">{w.replayNote(finito(meta?.replaced_days) && meta!.replaced_days! > 0 ? meta!.replaced_days! : null)}</div>
                 {proxied.length > 0 && <div className="perf-sc-f">{w.proxied(proxied.join(', '))}</div>}
               </>
             );
@@ -334,10 +334,13 @@ function Scenario({ id, s, onRiprova }: { id: IdScenario; s: Stato<MonteCarloRes
           const base = m.base_nav_eur, p50 = m.percentiles_eur?.p50, p5 = m.percentiles_eur?.p5;
           const perdita = (v: number | undefined) => (finito(v) && finito(base) ? v - base : null);
           const quota = (v: number | undefined) => (finito(v) && finito(base) && base > 0 ? (v / base - 1) * 100 : null);
+          // stesso schema del replay: il colore segue il segno dell'euro MOSTRATO, nessun colore se manca
+          const tonoDi = (v: number | null) => (v == null || v === 0 ? undefined : v < 0 ? 'down-t' : 'up-t');
+          const mediana = perdita(p50), peggiore = perdita(p5);
           return (
             <>
-              <div className="perf-sc-v"><span>{w.medianLoss}</span><b className="down-t">{euro(perdita(p50), 0)}</b><small>{pct(m.median_return_pct)}</small></div>
-              <div className="perf-sc-v"><span>{w.worst5}</span><b className="down-t">{euro(perdita(p5), 0)}</b><small>{pct(quota(p5))}</small></div>
+              <div className="perf-sc-v"><span>{w.medianLoss}</span><b className={tonoDi(mediana)}>{euro(mediana, 0)}</b><small>{pct(m.median_return_pct)}</small></div>
+              <div className="perf-sc-v"><span>{w.worst5}</span><b className={tonoDi(peggiore)}>{euro(peggiore, 0)}</b><small>{pct(quota(p5))}</small></div>
               <div className="perf-sc-p"><span>{w.probLoss10}</span>
                 <div className="perf-pbar" aria-hidden="true"><i style={{ width: (finito(m.prob_loss_10pct) ? Math.min(100, m.prob_loss_10pct) : 0) + '%' }} /></div>
                 <b>{pct(m.prob_loss_10pct, 1, false)}</b></div>
