@@ -334,7 +334,7 @@ test('the what-if dialog keeps keyboard focus inside while it is open', async ()
 
 // ── scenario deterministico (sync 2a72bf8) ──
 // Il replay copre tutto l'orizzonte: il motore manda le metriche statistiche a null e lo
-// dichiara. Numeri inventati interi (regola dei test): NAV 1000, scenario −40% / −400 €.
+// dichiara. Numeri inventati interi (regola dei test): NAV 1000, scenario in perdita di 400 €.
 const NA_DET = ['expected_return_pct', 'median_return_pct', 'stdev_pct', 'sharpe_simulated', 'prob_negative_pct',
   'prob_loss_10pct', 'prob_loss_20pct', 'prob_gain_10pct', 'prob_gain_20pct', 'var_95_pct', 'var_99_pct',
   'var_99_cornish_fisher_pct', 'es_95_pct', 'es_99_pct', 'es_95_eur', 'es_99_eur', 'max_drawdown_p5_pct',
@@ -389,7 +389,7 @@ test('a deterministic scenario shows its outcome and declares the statistical me
       assert.ok(values.length > 0, `${language} ${cls}: declared values`);
       for (const v of values) assert.equal(v, marker[language], `${language} ${cls}`);
     }
-    // l'esito dello scenario ha il segno: −40% è una perdita, rossa
+    // l'esito dello scenario ha il segno: una perdita, rossa
     const det = sezione(page, 'mc-det');
     assert.match(det, /class="num mc-down">-40[.,]00%</);
     // sul grafico: niente bande né etichette dei percentili, una traiettoria dichiarata
@@ -477,7 +477,9 @@ test('with a deterministic scenario the tails toggle is disabled and says why', 
     en: 'VaR and ES thresholds off: with a deterministic scenario VaR and ES do not apply, there is nothing to draw.' };
   for (const language of ['it', 'en']) {
     const button = bottoneSoglie(html[language]);
-    assert.match(button, / disabled=""/); assert.match(button, /aria-pressed="false"/);
+    // spento ma raggiungibile da tastiera: aria-disabled, mai disabled (che toglie il focus)
+    assert.match(button, /aria-disabled="true"/); assert.doesNotMatch(button, / disabled=""/);
+    assert.match(button, /aria-pressed="false"/);
     assert.ok(button.includes(`title="${why[language]}"`), `${language}: title`);
     assert.match(button, /aria-describedby="mc-tails-off"/);
     assert.ok(html[language].includes(`<span id="mc-tails-off" class="sr-only">${why[language]}</span>`), `${language}: description`);

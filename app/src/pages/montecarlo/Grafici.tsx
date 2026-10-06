@@ -55,8 +55,9 @@ export function Cono({ r, view, tracce, soglie, onTracce, onSoglie }: {
     <div className="bbn-card-head"><h2>{tr('montecarlo.coneTitle')}</h2><Aiuto testo={tr('montecarlo.coneHelp')} /><span className="bbn-grow" />
       <button type="button" className="mc-toggle" aria-pressed={tracce} onClick={onTracce}>{tr('montecarlo.togglePaths')}</button>
       {/* scenario deterministico: VaR ed ES sono null per costruzione e le soglie non
-          disegnerebbero niente; il tasto resta visibile ma spento, e dice perché */}
-      <button type="button" className="mc-toggle" aria-pressed={det ? false : soglie} onClick={onSoglie} disabled={det}
+          disegnerebbero niente; il tasto resta visibile ma spento, e dice perché. aria-disabled
+          e non disabled: resta raggiungibile da tastiera, così il motivo si legge anche senza mouse */}
+      <button type="button" className="mc-toggle" aria-pressed={det ? false : soglie} onClick={det ? undefined : onSoglie} aria-disabled={det || undefined}
               title={det ? tr('montecarlo.tailsDetOff') : undefined} aria-describedby={det ? 'mc-tails-off' : undefined}>{tr('montecarlo.toggleTails')}</button>
       {det && <span id="mc-tails-off" className="sr-only">{tr('montecarlo.tailsDetOff')}</span>}
     </div>
