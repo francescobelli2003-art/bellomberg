@@ -1,5 +1,5 @@
 // Ricerca opportunità (F13 Edge Scanner) · vista Nuova, dal mockup approvato il 05/10/2026
-// (`outputs/ricerca-opportunita-nuova/mockup.html`). Solo presentazione: stato, chiamate e
+// (non versionato nel repo). Solo presentazione: stato, chiamate e
 // orologio stanno in EdgeScannerPage.tsx; i giudizi sul payload in lib/edge.ts.
 import type { ReactNode } from 'react';
 import {
@@ -38,6 +38,8 @@ export interface DatiRicerca {
   tutti: RigaSegnale[];
   righe: RigaSegnale[];
   sel: RigaSegnale | null;
+  /** la scelta del PM non c'è più nell'ultima scansione: `sel` è il ripiego sul primo, dichiarato */
+  selPersa: boolean;
   vuoto: Vuoto | null;
   eta: EtaResa | null;
   oraScan: string | null;
@@ -429,6 +431,10 @@ function Dettaglio({ d, a, p }: { d: DatiRicerca; a: AzioniRicerca; p: P }) {
   const sottoDir = s.category === 'momentum' ? p.t('edge.dirSubMomentum') : dir === 'caution' ? p.t('edge.dirSubCaution') : p.t('edge.dirSubOther');
   return (
     <section className="bbn-card ro-card ro-det" data-zona="dettaglio">
+      {d.selPersa && (
+        <p className="ro-note is-warn" data-avviso="scelta-persa"><AlertTriangle size={15} aria-hidden="true" />
+          <span>{p.t('edge.detLost')}</span></p>
+      )}
       <div className="ro-det-head">
         <IconaTitolo ticker={s.ticker} dimensione="lg" />
         <div className="ro-det-t">

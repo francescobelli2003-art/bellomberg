@@ -185,6 +185,7 @@ export const edge = {
   "listNote": "{a} with strength ≥ {b} · ranked by strength",
   "catAll": "All",
   "detSelect": "Select a signal to read its detail.",
+  "detLost": "The selected signal is not in the latest scan: showing the first one in the list.",
   "detMeta": "{a} · source {b}",
   "openMarkets": "Open in Global markets",
   "tStrength": "Strength",

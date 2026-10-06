@@ -121,7 +121,7 @@ test('the scanner footer describes supplied data without asserting a completed b
 
 // ── review della PR #13 (Opus 5.5): la vista Nuova non trasforma un buco in una misura ──
 
-function vista(lang, { diagnosi = null, data = fixture(), copertura = false } = {}) {
+function vista(lang, { diagnosi = null, data = fixture(), copertura = false, selPersa = false } = {}) {
   const load = creaCaricatore({ stub: { '@/lib/loghi-remoti': { caricaLoghi: async () => {}, useLogoRemoto: () => ({}) } } });
   const language = load('i18n/lingua.ts'), edge = load('lib/edge.ts');
   language.impostaLinguaCorrente(lang);
@@ -130,7 +130,7 @@ function vista(lang, { diagnosi = null, data = fixture(), copertura = false } = 
   const tutti = esito.segnali.map((s, i) => ({ s, k: `k${i}` }));
   const eta = edge.etaScan(esito.eta, 1000, 11000);
   const d = { esito, viva: esito, errore: null, loading: false, forzata: false, attesaS: 0, timeoutMs: 420000,
-    minStrength: 45, sogliaResa: 45, cat: '', tutti, righe: tutti, sel: tutti[0] || null, vuoto: null, eta,
+    minStrength: 45, sogliaResa: 45, cat: '', tutti, righe: tutti, sel: tutti[0] || null, selPersa, vuoto: null, eta,
     oraScan: '10:00', copertura, diagnosi };
   const noop = () => {};
   const a = { soglia: noop, categoria: noop, scegli: noop, rifai: noop, riprova: noop, copertura: noop, diagnosi: noop, apriMercati: noop };
@@ -188,4 +188,42 @@ test('the degraded-coverage bucket does not claim exactly one silent detector', 
   const it = vista('it', { data }).html, en = vista('en', { data }).html;
   assert.doesNotMatch(it, /Un rilevatore muto/); assert.doesNotMatch(en, /One silent detector/);
   assert.match(it, /Almeno un rilevatore muto/); assert.match(en, /At least one silent detector/);
+});
+
+// ── review: la chiave di un segnale nasce dal contenuto, non dalla posizione in lista ──
+
+test('a signal keeps its key across rescans that reorder, insert or drop other signals', () => {
+  const calcoli = creaCaricatore()('pages/ricerca/calcoli.ts');
+  const base = fixture().signals[0];
+  const sig = (ticker, category, value, strength, direction = 'bullish') => ({ ...base, ticker, category, value, strength, direction });
+  const vrp = sig('SYNTH.X', 'volatility', '+3.0pt', 80);
+  const zs = sig('SYNTH.Y', 'momentum', '+2.0σ', 70);
+  const beta = sig('SYNTH.X', 'factor', 'β 1.80', 60);
+  const prima = [vrp, zs, beta];
+  const k = s => calcoli.chiaviSegnali(prima)[prima.indexOf(s)];
+  // nuova scansione: entra un segnale in testa, l'ordine per forza cambia, uno esce
+  const em = sig('SYNTH.Z', 'volatility', '±4.0%', 90);
+  const dopo = [em, { ...beta, strength: 85 }, { ...vrp, strength: 50 }];
+  const kd = calcoli.chiaviSegnali(dopo);
+  assert.equal(kd[2], k(vrp), 'same VRP signal, same key after moving from first to last');
+  assert.equal(kd[1], k(beta), 'same beta signal, same key with a different strength');
+  assert.ok(!kd.includes(k(zs)), 'a dropped signal leaves no key behind for another one to inherit');
+  assert.equal(new Set(kd).size, kd.length);
+  // il nome arriva tradotto: cambiare lingua non cambia la chiave
+  assert.deepEqual(calcoli.chiaviSegnali([{ ...vrp, name: 'Vol Risk Premium' }]), calcoli.chiaviSegnali([{ ...vrp, name: 'Premio volatilità' }]));
+  // rilevatore non riconosciuto: i gemelli si distinguono col contatore, gli altri non si spostano
+  const risk1 = sig('SYNTH.W', 'risk', 'x', 40), risk2 = sig('SYNTH.W', 'risk', 'y', 30);
+  const kr = calcoli.chiaviSegnali([risk1, vrp, risk2]);
+  assert.equal(new Set(kr).size, 3);
+  assert.equal(kr[1], k(vrp));
+  assert.equal(calcoli.chiaviSegnali([em, risk1, vrp, risk2])[2], k(vrp));
+});
+
+test('a selection missing from the latest scan is declared, not silently swapped', () => {
+  for (const [lang, rx] of [['it', /Il segnale scelto non è nell&#x27;ultima scansione/], ['en', /The selected signal is not in the latest scan/]]) {
+    const lost = vista(lang, { selPersa: true }).html;
+    assert.match(lost, /data-avviso="scelta-persa"/, `${lang}: declared fallback`);
+    assert.match(lost, rx, `${lang}: fallback text`);
+    assert.doesNotMatch(vista(lang).html, /data-avviso="scelta-persa"/, `${lang}: no warning when the selection exists`);
+  }
 });

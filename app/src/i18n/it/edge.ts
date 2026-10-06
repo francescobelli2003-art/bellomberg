@@ -185,6 +185,7 @@ export const edge = {
   "listNote": "{a} con forza ≥ {b} · ordinati per forza",
   "catAll": "Tutte",
   "detSelect": "Seleziona un segnale per leggerne il dettaglio.",
+  "detLost": "Il segnale scelto non è nell'ultima scansione: qui sotto il primo dell'elenco.",
   "detMeta": "{a} · fonte {b}",
   "openMarkets": "Apri in Mercati globali",
   "tStrength": "Forza",

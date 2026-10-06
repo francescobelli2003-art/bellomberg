@@ -8,7 +8,7 @@ import { caricaLoghi } from '@/lib/loghi-remoti';
 import {
   leggiScan, vuotoScan, esitoChiamata, etaScan, oraIt,
 } from '@/lib/edge';
-import { chiaveSegnale, leggiDiagnosi, nomeCategoria } from './ricerca/calcoli';
+import { chiaviSegnali, leggiDiagnosi, nomeCategoria } from './ricerca/calcoli';
 import VistaRicerca, { type AzioniRicerca, type DatiRicerca, type Diagnosi } from './ricerca/VistaRicerca';
 import '@/components/nuova/nuova.css';
 import './ricerca-nuova.css';
@@ -16,7 +16,7 @@ import './ricerca-nuova.css';
 // #181 — F13 Edge Scanner: segnali quantitativi oggettivi del portafoglio, ranked.
 // L'agente non inventa: parte da QUESTI segnali. Qui il PM li vede ogni giorno.
 //
-// 05/10/2026 · stile Nuova (mockup approvato `outputs/ricerca-opportunita-nuova/mockup.html`):
+// 05/10/2026 · stile Nuova (mockup approvato dal PM, non versionato nel repo):
 // Mappa della forza | Copertura in alto, Segnali | Dettaglio fisso sotto. Qui restano lo stato e
 // le chiamate, la vista (`ricerca/VistaRicerca.tsx`) è solo presentazione.
 //
@@ -109,13 +109,21 @@ export default function EdgeScannerPage() {
     return () => { window.removeEventListener('keydown', onKey); prima?.focus?.(); };
   }, [copertura]);
 
-  const tutti = useMemo(() => (viva?.segnali || []).map((s, i) => ({ s, k: chiaveSegnale(s, i) })), [viva]);
+  const tutti = useMemo(() => {
+    const segnali = viva?.segnali || [];
+    const chiavi = chiaviSegnali(segnali);
+    return segnali.map((s, i) => ({ s, k: chiavi[i] }));
+  }, [viva]);
   const tickerLoghi = useMemo(() => [...new Set(tutti.map(x => x.s.ticker))].sort().join(','), [tutti]);
   useEffect(() => { if (tickerLoghi) caricaLoghi(tickerLoghi.split(',')); }, [tickerLoghi]);
 
   const righe = tutti.filter(x => !cat || x.s.category === cat);
   const sogliaResa = risposta?.soglia ?? minStrength;
   const vuoto = viva ? vuotoScan(viva, sogliaResa, nomeCategoria(cat, k => tr(k)), righe.length) : null;
+  // Senza scelta si legge il primo dell'elenco. Se la scelta del PM non c'è più nell'ultima
+  // scansione si ripiega sul primo lo stesso, ma lo si DICE (`selPersa`, avviso nel Dettaglio):
+  // mai un altro segnale spacciato per quello scelto.
+  const selPersa = selK !== null && viva !== null && !tutti.some(x => x.k === selK);
   const sel = righe.find(x => x.k === selK) ?? righe[0] ?? null;
   const attesaS = loading ? Math.max(0, (adesso - partita.current) / 1000) : 0;
   // E3 · IL REGISTRO (rosa E, scelta PM 25/08): età e copertura sono la STESSA
@@ -138,7 +146,7 @@ export default function EdgeScannerPage() {
 
   const dati: DatiRicerca = {
     esito, viva, errore, loading, forzata: esito.stato === 'attesa' && esito.forzata, attesaS, timeoutMs: TIMEOUT_MS,
-    minStrength, sogliaResa, cat, tutti, righe, sel, vuoto, eta, oraScan, copertura, diagnosi,
+    minStrength, sogliaResa, cat, tutti, righe, sel, selPersa, vuoto, eta, oraScan, copertura, diagnosi,
   };
   const azioni: AzioniRicerca = {
     soglia: v => setMinStrength(v),

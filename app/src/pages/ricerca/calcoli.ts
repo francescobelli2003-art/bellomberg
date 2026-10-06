@@ -6,9 +6,21 @@ import type { Diagnosi } from './VistaRicerca';
 /** L'ordine fisso delle categorie del motore dei segnali (signal_engine). */
 export const CATEGORIE = ['momentum', 'factor', 'volatility', 'positioning', 'insider', 'risk'] as const;
 
-/** Chiave stabile di un segnale nella scansione: un rilevatore dà al più un segnale per titolo. */
-export function chiaveSegnale(s: Segnale, i: number): string {
-  return `${s.ticker}|${s.category}|${s.name}|${i}`;
+/** Le chiavi dei segnali di una scansione, nello stesso ordine. Nascono dal CONTENUTO, mai dalla
+ *  posizione in lista: dopo una nuova scansione lo stesso segnale ritrova la stessa chiave anche se
+ *  altri entrano, escono o cambiano forza. Il backend non dà un id (`signal_engine._sig`), quindi:
+ *  titolo | categoria | rilevatore. Il nome no: arriva tradotto e cambierebbe con la lingua.
+ *  Un rilevatore dà al più un segnale per titolo, quindi di norma la chiave è già unica; quando il
+ *  rilevatore non si riconosce (null) o la regola non regge, il suffisso `#n` conta le occorrenze
+ *  della stessa chiave di contenuto nell'ordine del backend: deterministico, e tocca solo i gemelli. */
+export function chiaviSegnali(segnali: readonly Segnale[]): string[] {
+  const visti = new Map<string, number>();
+  return segnali.map(s => {
+    const base = `${s.ticker}|${s.category}|${rilevatoreDi(s) ?? '?'}`;
+    const n = visti.get(base) ?? 0;
+    visti.set(base, n + 1);
+    return `${base}#${n}`;
+  });
 }
 
 /** Quale rilevatore ha prodotto il segnale. Il nome arriva tradotto dal backend, quindi si
