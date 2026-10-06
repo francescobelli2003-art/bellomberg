@@ -9,7 +9,7 @@ import IconaTitolo from './IconaTitolo';
 import PastigliaVariazione from './PastigliaVariazione';
 
 // Quanto di una tesi arriva al consigliere: specchio di current_facts.MAX_CHAR_TESI.
-const LIMITE_TESI = 10000;
+const LIMITE_TESI = 4000;
 const finito = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 const compatto = (value: number | null | undefined, decimali = 2) => finito(value)
   ? Intl.NumberFormat(localeDi(linguaCorrente()), { notation: 'compact', maximumFractionDigits: decimali }).format(value) : fmtNum(null);
