@@ -24,7 +24,7 @@ export const activity = {
   "unreadableHeartbeat": "unreadable heartbeat",
   "starting": "STARTING COMMITTEE PROCESS…",
   "startShort": "Starting…",
-  "runActiveEstimate": "RUN {a} ACTIVE — estimated 25-40 min — email when complete",
+  "runActiveEstimate": "RUN {a} ACTIVE — email when complete",
   "synthesisHead": "SYNTHESIS · CAPO",
   "synthesisNoTools": "no tool calls: the synthesis chain is running — duration available, timestamps absent",
   "startingNoTools": "run started: no tool calls yet",

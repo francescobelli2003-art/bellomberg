@@ -24,7 +24,7 @@ export const activity = {
   "unreadableHeartbeat": "heartbeat illeggibile",
   "starting": "AVVIO PROCESSO CONSIGLIERE…",
   "startShort": "Avvio…",
-  "runActiveEstimate": "RUN {a} ATTIVA — stimati 25-40 min — email a fine corsa",
+  "runActiveEstimate": "RUN {a} ATTIVA — email a fine corsa",
   "synthesisHead": "SINTESI · CAPO",
   "synthesisNoTools": "nessuna chiamata a strumento: gira la catena di sintesi — durata sì, orario no",
   "startingNoTools": "run avviata: nessuna chiamata a strumento ancora",
