@@ -4,6 +4,12 @@ import { traduci, type Chiave, type Parametri } from '@/i18n/t';
 
 
 // I testi stanno nel catalogo (i18n/it|en/agentsPage.ts): qui solo la forma che le viste usano.
+
+/** Un motivo del backend dentro una frase che chiude col suo punto: via la punteggiatura
+ *  finale del motivo (. ! ?), o la frase finirebbe con «..» o «!.» (review PR #19). */
+export function senzaPuntoFinale(testo: string): string {
+  return testo.replace(/[\s.!?]+$/u, '');
+}
 function costruisci(l: Lingua) {
   const tr = (k: Chiave, p?: Record<string, string | number | null | undefined>) => traduci(l, k, p as Parametri | undefined);
   /* strumento → [frase senza ticker, frase con ticker] */
@@ -73,7 +79,8 @@ function costruisci(l: Lingua) {
       if (stato === 'interrotta') return tr('agentsPage.esitoDesc_interrotta');
       if (stato === 'annullata') return tr('agentsPage.esitoDesc_annullata');
       // «bloccata» dice gia' nel titolo che nessun memo e' stato consegnato
-      return [motivo ? tr('agentsPage.esitoReason', { motivo }) : tr('agentsPage.esitoNoReason'),
+      const m = motivo ? senzaPuntoFinale(motivo) : '';
+      return [m ? tr('agentsPage.esitoReason', { motivo: m }) : tr('agentsPage.esitoNoReason'),
         stato === 'bloccata' ? '' : memoFrase(memo, id), ripresa ? tr('agentsPage.esitoResumable') : ''].filter(Boolean).join(' ');
     },
     titleStarting: tr('agentsPage.titleStarting'),
@@ -88,7 +95,24 @@ function costruisci(l: Lingua) {
     stepPartlyResumed: tr('agentsPage.stepPartlyResumed'),
     resumeAvailable: tr('agentsPage.resumeAvailable'),
     resumeOpen: tr('agentsPage.resumeOpen'),
-    retriedBeforeSuccess: (desk: string, n: number, r: number) => tr(n === 1 ? 'agentsPage.retriedBeforeSuccess_one' : 'agentsPage.retriedBeforeSuccess', { desk, n, r }),
+    /* righe di tentativi_falliti_poi_riusciti: conteggio o round assenti si dichiarano n.d. (mai «undefined») */
+    retriedBeforeSuccess: (desk: string, n: unknown, r: unknown) => {
+      const round = typeof r === 'number' && Number.isFinite(r) ? r : tr('activity.unavailable');
+      if (typeof n !== 'number' || !Number.isFinite(n)) return tr('agentsPage.retriedBeforeSuccess_nd', { desk, n: tr('activity.unavailable'), r: round });
+      return tr(n === 1 ? 'agentsPage.retriedBeforeSuccess_one' : 'agentsPage.retriedBeforeSuccess', { desk, n, r: round });
+    },
+    attemptsBanner: (n: number, tot: number) => n === 1 ? tr('agentsPage.attemptsBanner_one', { tot }) : tr('agentsPage.attemptsBanner_other', { n, tot }),
+    attemptsOldSemantics: tr('agentsPage.attemptsOldSemantics'),
+    attemptsFinalOk: (desks: string) => tr('agentsPage.attemptsFinalOk', { desks }),
+    attemptsFinalNd: (desks: string) => tr('agentsPage.attemptsFinalNd', { desks }),
+    attemptsShort: (n: number) => n === 1 ? tr('agentsPage.attemptsShort_one') : tr('agentsPage.attemptsShort_other', { n }),
+    stUnconfirmed: tr('agentsPage.stUnconfirmed'),
+    unconfirmedDoing: tr('agentsPage.unconfirmedDoing'),
+    stepUnconfirmed: tr('agentsPage.stepUnconfirmed'),
+    nowUnconfirmed: tr('agentsPage.nowUnconfirmed'),
+    sLastKnown: (ora: string) => tr('agentsPage.sLastKnown', { ora }),
+    sClockStopped: tr('agentsPage.sClockStopped'),
+    kNoRunCost: tr('agentsPage.kNoRunCost'),
     shareKnownOnly: (n: number) => n === 0 ? tr('agentsPage.shareKnownOnly_partial') : n === 1 ? tr('agentsPage.shareKnownOnly_one') : tr('agentsPage.shareKnownOnly', { n }),
     pillIdle: tr('agentsPage.pillIdle'),
     pillUnreadable: tr('agentsPage.pillUnreadable'),
@@ -221,7 +245,10 @@ function costruisci(l: Lingua) {
     noTickers: tr('agentsPage.noTickers'),
     done: (ora: string, memo: number | null) => memo != null ? tr('agentsPage.done_memo', { ora, memo }) : tr('agentsPage.done', { ora }),
     backendDown: tr('agentsPage.backendDown'),
-    backendDownSub: (dettaglio: string, ora: string | null) => ora ? tr('agentsPage.backendDownSub_at', { dettaglio, ora }) : tr('agentsPage.backendDownSub', { dettaglio }),
+    backendDownSub: (dettaglio: string, ora: string | null) => {
+      const d = senzaPuntoFinale(dettaglio);
+      return ora ? tr('agentsPage.backendDownSub_at', { dettaglio: d, ora }) : tr('agentsPage.backendDownSub', { dettaglio: d });
+    },
     koBanner: (n: number, tot: number) => n === 1 ? tr('agentsPage.koBanner_one', { tot }) : tr('agentsPage.koBanner_other', { n, tot }),
     stuck: tr('agentsPage.stuck'),
     stuckSub: (min: number) => tr('agentsPage.stuckSub', { min }),

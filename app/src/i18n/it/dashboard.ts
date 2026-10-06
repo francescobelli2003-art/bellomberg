@@ -12,7 +12,7 @@ export const dashboard = {
   "data_unavailable": "Dati non disponibili",
   "spy_official": "SPY (EUR)·TR UFF.",
   "run_starting": "Avvio del processo consigliere…",
-  "run_active": "RUN {task} ATTIVA - stima 25-40min - email al completamento",
+  "run_active": "RUN {task} ATTIVA - email al completamento",
   "error_prefix": "Errore: ",
   "attribution_endpoint_missing": "endpoint /portfolio/attribution non ancora attivo sul backend vivo: si accende al riavvio (fase 1b, voce (36))",
   "benchmark_empty": "serie benchmark vuota dal backend",

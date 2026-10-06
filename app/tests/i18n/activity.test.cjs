@@ -147,9 +147,9 @@ test('missing total cost does not claim a complete total in either language', ()
 
 test('agent costs and domain verdicts translate without replacing zero, KO or raw source details', () => {
   const fixture = { running: false, start_time: '2026-09-12T10:00:00', completed_at: '2026-09-12T10:02:00',
-    usage_total: { cost_eur: 1234.5, partial: true, unpriced_agents: ['quant'], error_agents: ['quant'],
+    usage_total: { cost_eur: 1234.5, partial: true, unpriced_agents: ['quant'], error_agents: ['quant'], error_agents_semantica: 'esito_finale_v2',
       error: 'original aggregation failure', in: 1000, out: 100, cache_read: 0, cache_write: 0 },
-    usage_by_specialist: { quant: { status: 'api_error', cost_eur: 0, duration_s: 60, in: 1000, out: 100, cache_read: 0, cache_write: 0 } },
+    usage_by_specialist: { quant: { status: 'api_error', status_finale: 'api_error', cost_eur: 0, duration_s: 60, in: 1000, out: 100, cache_read: 0, cache_write: 0 } },
     specialist_status: { quant: 'done' }, tool_log: [{ time: '10:00:05', specialist: 'quant', round: 1, tool: 'get_synthetic_data', input: 'Original synthetic input' }],
   };
   const roster = [{ id: 'quant', name: 'QUANT', role: 'Original role', color: '#29D3F2' }];
@@ -185,12 +185,15 @@ test('a retained run memo switches labels and preserves its original language an
 });
 
 // 13/09 (Claude Opus 5): frasi attese congelate qui, non lette dai cataloghi sotto prova.
+// 06/10 (review PR #19): la fixture porta il contratto attuale (esito_finale_v2 + status_finale): i
+// desk sono KO FINALI. La semantica vecchia ha i suoi test, piu' sotto.
 const tapeFixture = (tools = ['get_synthetic_a', 'get_synthetic_a', 'get_synthetic_b'], usage = {}) => ({
   running: false, start_time: '2026-09-12T10:00:00', completed_at: '2026-09-12T10:05:00',
-  usage_total: { cost_eur: 2, partial: false, error_agents: ['quant', 'macro'], in: 1000, out: 100, cache_read: 0, cache_write: 0, ...usage },
+  usage_total: { cost_eur: 2, partial: false, error_agents: ['quant', 'macro'], error_agents_semantica: 'esito_finale_v2',
+    in: 1000, out: 100, cache_read: 0, cache_write: 0, ...usage },
   usage_by_specialist: {
-    quant: { status: 'api_error', cost_eur: 1, duration_s: 60, api_calls: 2, in: 500, out: 50, cache_read: 0, cache_write: 0 },
-    macro: { status: 'api_error', cost_eur: 1, duration_s: 60, api_calls: 2, in: 500, out: 50, cache_read: 0, cache_write: 0 },
+    quant: { status: 'api_error', status_finale: 'api_error', cost_eur: 1, duration_s: 60, api_calls: 2, in: 500, out: 50, cache_read: 0, cache_write: 0 },
+    macro: { status: 'api_error', status_finale: 'api_error', cost_eur: 1, duration_s: 60, api_calls: 2, in: 500, out: 50, cache_read: 0, cache_write: 0 },
   },
   specialist_status: { quant: 'done', macro: 'done' },
   tool_log: tools.map((tool, i) => ({ time: `10:00:${String(5 + i * 10).padStart(2, '0')}`, specialist: i === 0 ? 'quant' : 'macro', round: 1, tool, input: `Synthetic input ${i}` })),
@@ -227,8 +230,8 @@ test('heartbeat message quotes, desk conjunction, FX source hole and token toolt
   const noMsg = { 5: { msg: null, da: 1, al: 1 } };
   assert.match(pageInLanguage('it', seed(noMsg)), /\(«heartbeat illeggibile»\) — /);
   assert.match(pageInLanguage('en', seed(noMsg)), /\(“unreadable heartbeat”\) — /);
-  assert.match(it, /<span>Quant e Macro dichiarano/);
-  assert.match(en, /<span>Quant and Macro report/);
+  assert.match(it, /<span>Quant e Macro hanno chiuso il lavoro in errore/);
+  assert.match(en, /<span>Quant and Macro ended their work in error/);
   assert.match(it, /FX USD\/EUR <b class="is-warn">n\.d\.<\/b>/);
   assert.match(en, /FX USD\/EUR <b class="is-warn">n\/a<\/b>/);
   const declaredHole = { 3: tapeFixture(undefined, { fx_source: 'n.d.' }) };
@@ -244,20 +247,20 @@ test('one desk in API error takes the singular and two desks keep the plural, in
   const one = tapeFixture(['get_synthetic_a'], { error_agents: ['quant'] });
   const oneIt = pageInLanguage('it', { 0: tapeRoster, 3: one }), oneEn = pageInLanguage('en', { 0: tapeRoster, 3: one });
   assert.match(oneIt, /<b>1 desk su 2 ha sbattuto contro l’API\.<\/b>/);
-  assert.match(oneIt, /<span>Quant dichiara <b>status api_error<\/b> e ha comunque consegnato il report<\/span>/);
+  assert.match(oneIt, /<span>Quant ha chiuso il lavoro in errore \(esito finale\)<\/span>/);
   assert.match(oneIt, /\(50%\) spesi da quel desk<\/span>/);
   assert.match(oneIt, /Dentro ci sono 1,00\s€ spesi da 1 desk finito in errore\./);
   assert.match(oneEn, /<b>1 desk out of 2 hit API errors\.<\/b>/);
-  assert.match(oneEn, /<span>Quant reports <b>status api_error<\/b> and still delivered the report<\/span>/);
+  assert.match(oneEn, /<span>Quant ended its work in error \(final outcome\)<\/span>/);
   assert.match(oneEn, /\(50%\) spent by that desk<\/span>/);
   assert.match(oneEn, /This includes €1\.00 spent by 1 desk that ended in error\./);
   const twoIt = pageInLanguage('it', { 0: tapeRoster, 3: tapeFixture() }), twoEn = pageInLanguage('en', { 0: tapeRoster, 3: tapeFixture() });
   assert.match(twoIt, /<b>2 desk su 2 hanno sbattuto contro l’API\.<\/b>/);
-  assert.match(twoIt, /<span>Quant e Macro dichiarano <b>status api_error<\/b> e hanno comunque consegnato il report<\/span>/);
+  assert.match(twoIt, /<span>Quant e Macro hanno chiuso il lavoro in errore \(esito finale\)<\/span>/);
   assert.match(twoIt, /\(100%\) spesi da loro<\/span>/);
   assert.match(twoIt, /Dentro ci sono 2,00\s€ spesi da 2 desk finiti in errore\./);
   assert.match(twoEn, /<b>2 desks out of 2 hit API errors\.<\/b>/);
-  assert.match(twoEn, /<span>Quant and Macro report <b>status api_error<\/b> and still delivered the report<\/span>/);
+  assert.match(twoEn, /<span>Quant and Macro ended their work in error \(final outcome\)<\/span>/);
   assert.match(twoEn, /\(100%\) spent by them<\/span>/);
   assert.match(twoEn, /This includes €2\.00 spent by 2 desks that ended in error\./);
 });
@@ -599,4 +602,118 @@ test('the insider tool phrase does not narrow insider trades to purchases', () =
     for (const f of [w.faccio('get_insider_trades', null), w.faccio('get_insider_trades', 'ACME')]) assert.doesNotMatch(f, /acquist|buying/);
   }
   language.impostaLinguaCorrente('it');
+});
+
+// review PR #19, seconda passata (06/10, Opus 5.5): fixture sintetiche, frasi attese scritte qui.
+const vecchioHb = (byExtra = {}) => chiusa(esitoDi('completata', { memo_consegnato: true, stato_memo_db: 'scritto' }), {
+  usage_total: { cost_eur: 2, partial: false, error_agents: ['quant', 'macro'], in: 1000, out: 100, cache_read: 0, cache_write: 0 },
+  usage_by_specialist: {
+    quant: { status: 'api_error', cost_eur: 1, duration_s: 60, api_calls: 2, in: 500, out: 50, cache_read: 0, cache_write: 0, ...byExtra.quant },
+    macro: { status: 'api_error', status_finale: 'ok', cost_eur: 1, duration_s: 60, api_calls: 2, in: 500, out: 50, cache_read: 0, cache_write: 0, ...byExtra.macro },
+  },
+  specialist_status: { quant: 'done', macro: 'done' },
+  tool_log: [{ time: '10:00:05', specialist: 'quant', round: 1, tool: 'get_synthetic_a', input: '{}' },
+    { time: '10:00:15', specialist: 'macro', round: 1, tool: 'get_synthetic_b', input: '{}' }],
+});
+
+test('an old heartbeat without the marker never counts «at least one attempt KO» as a final error', () => {
+  const it = pageInLanguage('it', { 0: tapeRoster, 3: vecchioHb() }), en = pageInLanguage('en', { 0: tapeRoster, 3: vecchioHb() });
+  for (const html of [it, en]) {
+    assert.doesNotMatch(html, /data-avviso="ko"/);
+    assert.match(html, /data-avviso="tentativi"/);
+    assert.doesNotMatch(html, /data-esito="KO"/);
+    assert.doesNotMatch(html, /desk finit[oi] in errore|desks? that ended in error|data-stato="ko"/);
+  }
+  assert.match(it, /<b>2 desk su 2 hanno avuto almeno un tentativo in errore\.<\/b>/);
+  assert.match(it, /Esito finale riuscito: Macro\./);
+  assert.match(it, /Esito finale non dichiarato: Quant\./);
+  assert.match(en, /<b>2 desks out of 2 had at least one attempt in error\.<\/b>/);
+  assert.match(en, /Final outcome not declared: Quant\./);
+  // l'esito finale di Quant non e' dichiarato: niente «Nessun errore», si dice quanti desk hanno tentativi in errore
+  assert.doesNotMatch(it, /Nessun errore/); assert.doesNotMatch(en, /No errors/);
+  assert.match(it, /2 desk con almeno un tentativo in errore/);
+  assert.match(en, /2 desks with at least one attempt in error/);
+  // il desk senza esito finale lo dice nella sua card
+  assert.match(it, /in almeno un tentativo; l&#x27;heartbeat non dichiara l&#x27;esito finale/);
+});
+
+test('an old heartbeat with status_finale KO keeps that desk as a final error, singular in both languages', () => {
+  const misto = vecchioHb({ quant: { status_finale: 'api_error' } });
+  const it = pageInLanguage('it', { 0: tapeRoster, 3: misto }), en = pageInLanguage('en', { 0: tapeRoster, 3: misto });
+  assert.match(it, /<b>1 desk su 2 ha sbattuto contro l’API\.<\/b> <span>Quant ha chiuso il lavoro in errore \(esito finale\)<\/span>/);
+  assert.match(it, /<b>1 desk su 2 ha avuto almeno un tentativo in errore\.<\/b>/);
+  assert.match(en, /<b>1 desk out of 2 hit API errors\.<\/b> <span>Quant ended its work in error \(final outcome\)<\/span>/);
+  assert.match(en, /<b>1 desk out of 2 had at least one attempt in error\.<\/b>/);
+  for (const html of [it, en]) {
+    assert.match(html, /data-agente="quant"[^>]*data-esito="KO"/);
+    assert.doesNotMatch(html, /data-agente="macro"[^>]*data-esito="KO"/);
+  }
+});
+
+test('«status not verifiable» shows no desk at work and stops the clock at the last heartbeat', () => {
+  const start = Date.parse('2026-09-12T10:00:00');
+  const dubbia = { running: true, start_time: '2026-09-12T10:00:00', updated_at: '2026-09-12T10:04:00', current_round: 1,
+    specialist_status: { quant: 'running', macro: 'running' },
+    tool_log: [{ time: '10:03:55', specialist: 'quant', round: 1, tool: 'get_synthetic_a', input: '{}' },
+      { time: '10:02:00', specialist: 'macro', round: 1, tool: 'get_synthetic_b', input: '{}' }],
+    esito_run: esitoDi('in_corso_senza_segnale', { fonte: 'processo_non_verificabile', motivo: 'synthetic', stato_memo_db: 'non_letto' }) };
+  // seed 7 = l'orologio: un'ora dopo l'avvio; la durata deve restare quella dell'ultimo heartbeat (4 minuti)
+  const seed = { 0: tapeRoster, 3: dubbia, 7: start + 3600000 };
+  const it = pageInLanguage('it', seed), en = pageInLanguage('en', seed);
+  for (const html of [it, en]) {
+    assert.match(html, /data-agente="quant"[^>]*data-stato="stale"/);
+    assert.match(html, /data-agente="macro"[^>]*data-stato="stale"/);
+    assert.doesNotMatch(html, /data-stato="(?:run|think)"/);
+    assert.match(html, /<li class="is-lav">[^<]*<b class="num">0<\/b>/);
+    // markup SSR: ' e " escono come entita'
+    assert.match(html, /<span class="l">(?:Durata|Duration)<\/span><span class="v num">4&#x27;00&quot;<\/span>/);
+    assert.doesNotMatch(html, /60&#x27;00&quot;/);
+  }
+  assert.match(it, /<h1>Stato non verificabile<\/h1>/);
+  assert.match(it, /Non confermato/); assert.match(en, /Unconfirmed/);
+  assert.doesNotMatch(it, />Al lavoro</); assert.doesNotMatch(en, />Working</);
+  assert.match(it, /all’ultimo heartbeat \([^)]*\) · orologio fermo/);
+  assert.match(en, /at the last heartbeat \([^)]*\) · clock stopped/);
+  assert.match(it, /Nessun processo conferma che la run stia lavorando/);
+  assert.doesNotMatch(it, /orologio della run/);
+});
+
+test('failed-then-succeeded rows without count or round declare n.d., never «undefined»', () => {
+  const righe = chiusa(esitoDi('completata', { memo_consegnato: true }), { usage_total: { cost_eur: 2, partial: false, error_agents: [],
+    error_agents_semantica: 'esito_finale_v2', tentativi_falliti_poi_riusciti: [{ agent: 'quant', round: 1 }, { agent: 'macro', tentativi_falliti: 2 }] } });
+  const it = pageInLanguage('it', { 0: tapeRoster, 3: righe }), en = pageInLanguage('en', { 0: tapeRoster, 3: righe });
+  assert.match(it, /Quant: tentativi falliti \(quanti: n\.d\.\) prima di riuscire \(Round 1\)/);
+  assert.match(it, /Macro: 2 tentativi falliti prima di riuscire \(Round n\.d\.\)/);
+  assert.match(en, /Quant: failed attempts \(how many: n\/a\) before succeeding \(Round 1\)/);
+  assert.match(en, /Macro: 2 failed attempts before succeeding \(Round n\/a\)/);
+  for (const html of [it, en]) assert.doesNotMatch(html, /undefined|NaN/);
+});
+
+test('a backend motive ending with punctuation is not followed by a second period', () => {
+  for (const motivo of ['synthetic blocked reason.', 'synthetic blocked reason!', 'synthetic blocked reason?  ']) {
+    const ferma = chiusa(esitoDi('bloccata', { motivo, ripresa_disponibile: true }));
+    const it = pageInLanguage('it', { 0: tapeRoster, 3: ferma }), en = pageInLanguage('en', { 0: tapeRoster, 3: ferma });
+    assert.match(it, /Motivo: synthetic blocked reason\. Si può riprendere\./);
+    assert.match(en, /Reason: synthetic blocked reason\. It can be resumed\./);
+    for (const html of [it, en]) assert.doesNotMatch(html, /reason[.!?]\s*\./);
+  }
+  // anche il dettaglio dell'errore di rete: un solo punto
+  for (const selected of ['it', 'en']) {
+    const html = pageInLanguage(selected, { 3: tapeFixture(), 4: 'original network failure!' });
+    assert.match(html, /\/agents\/live: original network failure\. /);
+  }
+});
+
+test('a run that died before the committee shows no cost for this run, never n.d. or a computed 0', () => {
+  const vuota = chiusa(esitoDi('fallita', { motivo: 'synthetic' }), { lavagna: 'assente' });
+  const kpi = html => html.match(/class="ag-cifre-costo"><div class="ag-kpi"><span class="l">[^<]*<\/span><span class="([^"]*)">([^<]*)<\/span><span class="s[^"]*">([^<]*)<\/span>/);
+  const it = kpi(pageInLanguage('it', { 0: tapeRoster, 3: vuota })), en = kpi(pageInLanguage('en', { 0: tapeRoster, 3: vuota }));
+  assert.deepEqual(it.slice(1), ['v num', 'Nessuno', 'nessun costo di questa run']);
+  assert.deepEqual(en.slice(1), ['v num', 'None', 'no cost for this run']);
+  for (const html of [pageInLanguage('it', { 0: tapeRoster, 3: vuota }), pageInLanguage('en', { 0: tapeRoster, 3: vuota })])
+    assert.doesNotMatch(html, /0,00\s€|€0\.00/);
+  // con un totale dichiarato dal backend vince la cifra, e il sotto-testo non la contraddice
+  const conTotale = { ...vuota, usage_total: { cost_eur: 3, partial: false, error_agents: [], error_agents_semantica: 'esito_finale_v2' } };
+  const t = kpi(pageInLanguage('it', { 0: tapeRoster, 3: conTotale }));
+  assert.match(t[2], /3,00/); assert.doesNotMatch(t[3], /nessun costo/);
 });

@@ -20,6 +20,9 @@ export type Esito = {
   /** heartbeat `running: true` smentito: processo morto o fermato, oppure (fonte
    *  `processo_vivo`) heartbeat della run PRECEDENTE mentre la nuova parte */
   smentita: boolean;
+  /** run dichiarata in corso ma senza pid e senza processi noti (fonte `processo_non_verificabile`):
+   *  nessuno conferma che lavori, quindi nessun desk «al lavoro» e nessun orologio che corre */
+  nonConfermata: boolean;
 };
 
 const ATTIVI = new Set(['in_corso', 'in_corso_senza_segnale']);
@@ -30,7 +33,7 @@ export function leggiEsito(state: AgentsLiveState | null | undefined): Esito | n
   if (!e || typeof e.stato !== 'string') {
     const viva = state.running === true;
     return { stato: viva ? 'in_corso' : 'sconosciuta', memo: viva ? false : null, motivo: null, ripresaDisponibile: false,
-      fonte: 'assente', attiva: viva, chiusa: !viva && !!state.start_time, smentita: false };
+      fonte: 'assente', attiva: viva, chiusa: !viva && !!state.start_time, smentita: false, nonConfermata: false };
   }
   const attiva = ATTIVI.has(e.stato);
   return {
@@ -44,6 +47,7 @@ export function leggiEsito(state: AgentsLiveState | null | undefined): Esito | n
     // review PR #19: in avvio il file e' della run precedente anche se dice running:true
     // (run precedente morta senza chiudere): quei desk non sono al lavoro
     smentita: state.running === true && (!attiva || e.fonte === 'processo_vivo'),
+    nonConfermata: e.stato === 'in_corso_senza_segnale' && e.fonte === 'processo_non_verificabile',
   };
 }
 

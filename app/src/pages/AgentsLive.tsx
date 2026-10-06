@@ -102,8 +102,16 @@ type Verdict = { k: string; cls: string; t: string };
 type StopNotice = { issues: { source: string; detail: string | null }[]; running: boolean | null };
 const phaseText = (key: string) => key === 'SINTESI' ? tr('activity.synthesis')
   : key === 'FRA ROUND' ? tr('activity.betweenRounds') : key;
-function verdictOf(d: Pick<Desk, 'statusRun' | 'statusUsage' | 'cost'>): Verdict {
+/** verdetto di un desk con un errore solo nella STORIA (heartbeat senza status_finale) */
+const TENTATIVI_KO = 'TENTATIVI_KO';
+function verdictOf(d: Pick<Desk, 'statusRun' | 'statusUsage' | 'statusStoria' | 'cost'>): Verdict {
   const STATUS_DESC = statusDescriptions();
+  /* review PR #19 (06/10): senza status_finale `status` e' il PEGGIORE dei tentativi, non
+     l'esito. Un errore li' dice «almeno un tentativo in errore»: non e' un KO del desk, e
+     l'esito finale non e' dichiarato. Il desk resta nel suo stato di run (consegnato, ecc.) */
+  if (d.statusStoria && isErrorStatus(d.statusUsage))
+    return { k: TENTATIVI_KO, cls: 'amc',
+      t: tr('activity.attemptErrorNoFinal', { a: STATUS_DESC[d.statusUsage!] || tr('activity.declaredError') }) };
   if (isErrorStatus(d.statusUsage))
     /* «ha consegnato il report» solo se e' done: un desk KO in un round prima
        puo' essere in corsa ORA (review F45), e allora si dicono i due fatti */
@@ -212,22 +220,31 @@ export default function AgentsLive() {
   /* in avvio la run e' attiva anche se l'heartbeat e' ancora della precedente */
   const runAttiva = isRunning || esito?.attiva === true;
 
+  /* review PR #19 (06/10): «Stato non verificabile» (heartbeat running senza pid e nessun
+     processo noto) non e' una run che lavora: l'orologio si ferma e la durata e' l'ultima
+     nota, cioe' quella all'ultimo heartbeat (updated_at). Senza updated_at resta n.d. */
+  const nonConfermata = esito?.nonConfermata === true;
+  const ultimoHbMs = state?.updated_at ? new Date(state.updated_at).getTime() : NaN;
+  const orologio = isRunning && !nonConfermata;
+
   /* l'orologio serve SOLO a una run viva: la sua durata non e' nel payload */
   useEffect(() => {
-    if (!isRunning) return;
+    if (!orologio) return;
     const i = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(i);
-  }, [isRunning]);
+  }, [orologio]);
 
   useEffect(() => {
-    if (!state?.start_time || !isRunning) { setElapsed(0); return; }
+    if (!state?.start_time || !orologio) { setElapsed(0); return; }
     const start = new Date(state.start_time).getTime();
     if (!isFinite(start)) return;
     const i = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
     return () => clearInterval(i);
-  }, [state?.start_time, isRunning]);
+  }, [state?.start_time, orologio]);
 
-  const P0 = useMemo(() => derivePlancia(statoV, agents, engines, now), [statoV, agents, engines, now, tr]);
+  /* run non confermata: la plancia si legge all'istante dell'ultimo heartbeat, non a «adesso» */
+  const nowPlancia = nonConfermata && isFinite(ultimoHbMs) ? ultimoHbMs : now;
+  const P0 = useMemo(() => derivePlancia(statoV, agents, engines, nowPlancia), [statoV, agents, engines, nowPlancia, tr]);
   /* Il tema non cambia i dati: i colori dei desk li normalizza IconaDesk
      (coloreDesk), uguali in Chiaro e in Scuro. Il memo resta per non spostare
      l'ordine degli hook. */
@@ -387,7 +404,18 @@ export default function AgentsLive() {
   const notes = costNotes(total, state?.usage_by_specialist);
   const hasTotal = total?.cost_eur != null;
   const partial = hasTotal && isPartial(total);
-  const koIds = total?.error_agents || [];
+  /* review PR #19 (06/10): error_agents cambia significato col marcatore. Con
+     «esito_finale_v2» sono i KO FINALI; senza (heartbeat vecchio) vuol dire «almeno un
+     tentativo KO», e un desk ritentato e poi riuscito ci sta dentro. Li' il KO finale si
+     prende da status_finale del desk quando c'e'; chi non ce l'ha resta «almeno un
+     tentativo in errore, esito finale non dichiarato» — mai contato come errore finale. */
+  const dichiaratiKo = total?.error_agents || [];
+  const semanticaFinale = total?.error_agents_semantica === 'esito_finale_v2';
+  const finaleDi = (id: string) => state?.usage_by_specialist?.[id]?.status_finale;
+  const koIds = semanticaFinale ? dichiaratiKo : dichiaratiKo.filter(id => isErrorStatus(finaleDi(id)));
+  const tentativiKo = semanticaFinale ? [] : dichiaratiKo.filter(id => !koIds.includes(id));
+  const tentativiPoiOk = tentativiKo.filter(id => finaleDi(id) != null);
+  const tentativiSenzaFinale = tentativiKo.filter(id => finaleDi(id) == null);
   // costo non dichiarato = n.d., mai 0 nella somma (08b S13, revisione G9b)
   const costoNoto = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
   const koCostiNoti = koIds.map(id => state?.usage_by_specialist?.[id]?.cost_eur);
@@ -444,7 +472,7 @@ export default function AgentsLive() {
     return [...v.mappa.values()];
   }, [state]);
   const PC = useMemo(() => statoV && P.logTappato && logVisto.length > (statoV.tool_log?.length || 0)
-    ? derivePlancia({ ...statoV, tool_log: logVisto }, agents, engines, now) : P, [P, logVisto, statoV, agents, engines, now]);
+    ? derivePlancia({ ...statoV, tool_log: logVisto }, agents, engines, nowPlancia) : P, [P, logVisto, statoV, agents, engines, nowPlancia]);
 
   /* i report consegnati (reports_by_specialist: i primi 500 caratteri di ogni round).
      L'ora si scrive solo se l'arrivo e' stato VISTO qui; quelli gia' presenti
@@ -488,6 +516,9 @@ export default function AgentsLive() {
       const statoEsito = esito?.stato ?? 'sconosciuta';
       const lavagnaAssente = state?.lavagna === 'assente';
       const nonInR2 = (id: string) => !!r2 && !r2.includes(id) && (!vivo || (P.round ?? 0) >= 2);
+      /* desk e Capo «fermi»: heartbeat fermo (fermoDa) oppure run che nessun processo conferma */
+      const fermo = fermoDa != null || nonConfermata;
+      const fermoTappa = fermoDa != null ? w.stepStale(fmtDurShort(fermoDa)) : w.stepUnconfirmed;
 
       const desks: VistaDesk[] = deskElenco.map(d => {
         const v = verdictOf(d);
@@ -497,7 +528,7 @@ export default function AgentsLive() {
         const fa = ultima ? Math.max(0, P.runSec - ultima.t) : null;
         const stato: StatoDesk = v.cls === 'ko' ? 'ko'
           : v.k === 'n.d.' ? 'nd'
-          : corre ? (fermoDa != null ? 'stale' : ultima && (P.round == null || ultima.r === P.round) && fa != null && fa <= 20 ? 'run' : 'think')
+          : corre ? (fermo ? 'stale' : ultima && (P.round == null || ultima.r === P.round) && fa != null && fa <= 20 ? 'run' : 'think')
           : d.statusRun === 'done' ? 'ok'
           : 'wait';
         const giri = [d.rounds.length ? w.rounds(d.rounds.length) : null, nonInR2(d.id) ? w.notInR2 : null,
@@ -512,11 +543,11 @@ export default function AgentsLive() {
           : stato === 'think' ? (ultima && (P.round == null || ultima.r === P.round)
               ? { icona: 'think', codice: false, testo: w.thinkingSince(fmtDurShort(fa)), sotto: w.lastTool(ultima.tool) + (pulisci(ultima.input) ? ' · ' + pulisci(ultima.input) : '') }
               : { icona: 'think', codice: false, testo: w.noCallYet, sotto: w.noCallYetSub })
-          : stato === 'stale' ? { icona: 'pause', codice: false, testo: w.staleDoing(fmtDurShort(fermoDa)), sotto: ultima ? w.lastTool(ultima.tool) : '' }
+          : stato === 'stale' ? { icona: 'pause', codice: false, testo: fermoDa != null ? w.staleDoing(fmtDurShort(fermoDa)) : w.unconfirmedDoing, sotto: ultima ? w.lastTool(ultima.tool) : '' }
           : stato === 'ko' ? { icona: 'ko', codice: false, testo: w.koTitle, sotto: v.t }
           : stato === 'nd' ? { icona: 'file', codice: false, testo: d.statusRun === 'done' ? w.delivered : frase(v.k), sotto: v.t }
           : stato === 'ok' ? { icona: 'file', codice: false,
-              testo: vivo && P.round != null && !nonInR2(d.id) ? w.deliveredRound(P.round) : w.delivered, sotto: giri }
+              testo: vivo && P.round != null && !nonInR2(d.id) ? w.deliveredRound(P.round) : w.delivered, sotto: v.k === TENTATIVI_KO ? v.t : giri }
           : { icona: 'wait', codice: false, testo: vivo ? w.waitingLive : w.waitingIdle, sotto: state ? (vivo ? '' : v.t) : '' };
         const piuAlto = d.rounds.length ? Math.max(...d.rounds) : -1;
         const round = [0, 1, 2].map((r): StatoRound => {
@@ -528,7 +559,8 @@ export default function AgentsLive() {
         });
         return {
           id: d.id, nome: nomeDi(d), ruolo: rosterDi(d.id)?.role || d.role, colore: coloreDi(d.id) || d.color, stato,
-          pastiglia: { run: w.stWorking, think: w.stThinking, ok: w.stDone, ko: w.stKo, nd: w.stNd, wait: w.stWaiting, stale: w.stStale }[stato],
+          pastiglia: { run: w.stWorking, think: w.stThinking, ok: w.stDone, ko: w.stKo, nd: w.stNd, wait: w.stWaiting,
+            stale: fermoDa != null ? w.stStale : w.stUnconfirmed }[stato],
           titolo: v.t, fare, round, esito: v.k,
           dur: fmtDurShort(d.dur), chiamate: w.calls(d.nCalls),
           costo: d.cost == null ? tr('activity.unavailable') : (d.partial ? '~' : '') + fmtEur(d.cost), costoNd: d.cost == null,
@@ -543,7 +575,7 @@ export default function AgentsLive() {
       const memoId = state?.memo_id ?? null;
       const chiusaConRun = !vivo && !!state?.start_time;
       const capoStato: StatoDesk = capoV?.cls === 'ko' ? 'ko'
-        : vivo && P.capo === 'running' ? (fermoDa != null ? 'stale' : 'run')
+        : vivo && P.capo === 'running' ? (fermo ? 'stale' : 'run')
         : chiusaConRun && memoOk ? 'ok'
         : 'wait';
       const vaiDecisioni = () => navigate('/decisions');
@@ -552,12 +584,12 @@ export default function AgentsLive() {
       const capo: VistaCapo = {
         stato: capoStato, colore: coloreDi('capo'),
         titolo: capoStato === 'ko' ? w.koTitle
-          : capoStato === 'run' || capoStato === 'stale' ? (P.capoT != null ? w.capoWriting(fmtDurShort(Math.max(0, P.runSec - P.capoT))) : w.capoWritingNoTime)
+          : capoStato === 'run' || capoStato === 'stale' ? (P.capoT != null && !nonConfermata ? w.capoWriting(fmtDurShort(Math.max(0, P.runSec - P.capoT))) : w.capoWritingNoTime)
           : capoStato === 'ok' ? (memoId != null ? w.capoSaved(memoId) : w.pillDone)
           : chiusaConRun ? w.capoNoMemo
           : vivo ? w.capoWaiting : w.capoIdle,
         sotto: capoStato === 'ko' ? capoV!.t
-          : capoStato === 'stale' ? w.capoWritingStale(fmtDurShort(fermoDa))
+          : capoStato === 'stale' ? (fermoDa != null ? w.capoWritingStale(fmtDurShort(fermoDa)) : w.unconfirmedDoing)
           : capoStato === 'run' ? (state?.updated_at ? w.capoWritingSub(ora(state.updated_at)) : tr('activity.capoStartMissing'))
           : capoStato === 'ok' ? w.capoSavedSub(fmtDurShort(capoD?.dur), ora(state?.completed_at))
           : chiusaConRun ? w.capoNoMemoSub
@@ -587,9 +619,9 @@ export default function AgentsLive() {
         if (vivo && capoScrive) t = p ? { ...t, stato: 'done', sotto: arco(p) } : { ...t, stato: P.round != null && r <= P.round ? 'done' : 'skip', sotto: P.round != null && r <= P.round ? w.stepDone : w.stepSkipped };
         else if (vivo && P.round != null) {
           if (r < P.round) t = { ...t, stato: 'done', sotto: p ? arco(p) : w.stepDone };
-          else if (r === P.round) t = { ...t, stato: 'now', sotto: fermoDa != null ? w.stepStale(fmtDurShort(fermoDa)) : p ? w.stepNow(fmtDurShort(Math.max(0, P.runSec - p.t0))) : w.stepNowShort };
+          else if (r === P.round) t = { ...t, stato: 'now', sotto: fermo ? fermoTappa : p ? w.stepNow(fmtDurShort(Math.max(0, P.runSec - p.t0))) : w.stepNowShort };
         } else if (vivo) {
-          if (p) t = { ...t, stato: p.open ? 'now' : 'done', sotto: p.open ? w.stepNow(fmtDurShort(Math.max(0, P.runSec - p.t0))) : arco(p) };
+          if (p) t = { ...t, stato: p.open ? 'now' : 'done', sotto: p.open ? (fermo ? fermoTappa : w.stepNow(fmtDurShort(Math.max(0, P.runSec - p.t0)))) : arco(p) };
         } else if (p) t = { ...t, stato: 'done', sotto: arco(p) };
         else if (state?.start_time) {
           /* review PR #19: l'assenza dal tool_log (tappato a 50) non prova «nessuna chiamata»;
@@ -607,7 +639,7 @@ export default function AgentsLive() {
       }
       const sintesi = fase('SINTESI');
       tappe.push(capoScrive
-        ? { id: 'sintesi', nome: w.stepSynthesis, stato: 'now', sotto: fermoDa != null ? w.stepStale(fmtDurShort(fermoDa))
+        ? { id: 'sintesi', nome: w.stepSynthesis, stato: 'now', sotto: fermo ? fermoTappa
             : P.capoT != null ? w.stepNow(fmtDurShort(Math.max(0, P.runSec - P.capoT))) : w.stepNowShort }
         : !vivo && sintesi ? { id: 'sintesi', nome: w.stepSynthesis, stato: 'done', sotto: arco(sintesi) }
         : chiusaConRun && (memoOk || P.capo === 'done') ? { id: 'sintesi', nome: w.stepSynthesis, stato: 'done', sotto: w.stepDone }
@@ -622,6 +654,7 @@ export default function AgentsLive() {
       const fraRound = P.phases.find(p => p.k === 'FRA ROUND' && p.open);
       const adesso: [string, string?] | null = !vivo ? null
         : fermoDa != null ? [w.nowStale(fmtDurShort(fermoDa)), w.nowStaleSub(hhmm(state?.updated_at))]
+        : nonConfermata ? [w.nowUnconfirmed, state?.updated_at ? w.nowStaleSub(hhmm(state.updated_at)) : undefined]
         : capoScrive ? [w.nowSynthesis, w.nowCapo]
         : P.round != null && P.running.length ? [w.nowRound(P.round), w.nowWorking(P.running.length, nDesk, consegnati)]
         : fraRound ? [w.nowBetween]
@@ -632,10 +665,20 @@ export default function AgentsLive() {
       const chiamateTot = P.logTappato && P.nCallsTot == null ? null : (P.nCallsTot ?? P.calls.length);
       const costoTesto = (partial ? '~' : '') + fmtEur(total?.cost_eur);
       const costoTono = !hasTotal || partial || notes.length ? 'warn' as const : undefined;
-      const kDurata = <Kpi etichetta={w.kDuration} valore={fmtDurShort(isRunning ? (elapsed || P.runSec) : P.runSec)}
-        sotto={isRunning ? w.sClock : lavoro > 0 ? w.sWork(fmtDurShort(lavoro)) : tr('activity.durationMissing')} />;
-      const kCosto = <Kpi etichetta={isRunning ? w.kCostSoFar : w.kCost} valore={costoTesto} nd={!hasTotal}
-        sotto={lavagnaAssente && !isRunning ? w.sNoRunCost : !hasTotal ? w.sUnpriced : isRunning ? (partial ? w.sSoFarPartial : w.sSoFar)
+      /* run non confermata: orologio fermo, durata all'ultimo heartbeat (dichiarata), n.d. senza updated_at */
+      const durataRun = nonConfermata ? (isFinite(ultimoHbMs) ? P.runSec : null) : isRunning ? (elapsed || P.runSec) : P.runSec;
+      const kDurata = <Kpi etichetta={w.kDuration} valore={fmtDurShort(durataRun)} nd={durataRun == null}
+        sotto={nonConfermata ? (isFinite(ultimoHbMs) ? w.sLastKnown(hhmm(state?.updated_at)) : w.sClockStopped)
+          : isRunning ? w.sClock : lavoro > 0 ? w.sWork(fmtDurShort(lavoro)) : tr('activity.durationMissing')}
+        tono={nonConfermata ? 'warn' : undefined} />;
+      /* review PR #19: lavagna assente = la run e' morta prima del comitato, nessuna chiamata LLM
+         partita. Il costo di QUESTA run e' «nessuno» (un fatto, non un buco): niente «n.d.» sopra
+         «nessun costo», e niente 0,00 € inventato. Se il backend porta comunque un totale, vince quello. */
+      const senzaCostoRun = lavagnaAssente && !isRunning && !hasTotal;
+      const kCosto = senzaCostoRun
+        ? <Kpi etichetta={w.kCost} valore={w.kNoRunCost} sotto={w.sNoRunCost} />
+        : <Kpi etichetta={isRunning ? w.kCostSoFar : w.kCost} valore={costoTesto} nd={!hasTotal}
+        sotto={!hasTotal ? w.sUnpriced : isRunning ? (partial ? w.sSoFarPartial : w.sSoFar)
           : koVisibile ? w.sKoSpent(fmtEur(koCost)) : partial ? w.sPartial : w.sComplete}
         tono={koVisibile && !isRunning ? 'warn' : costoTono} />;
       const kChiamate = <Kpi etichetta={w.kCalls} valore={chiamateTot ?? tr('activity.unavailable')} nd={chiamateTot == null}
@@ -645,10 +688,13 @@ export default function AgentsLive() {
         : <Kpi etichetta={w.kTickers} valore={P.tickers.length} sotto={isRunning ? w.sTickersSoFar : w.sDistinctTools(P.nToolsDistinct)} />;
       /* «Nessun errore» solo su una run completata: interrotta, ferma o senza esito lo dicono (revisione PR #16) */
       const esitoGrave = ['bloccata', 'fallita', 'interrotta'].includes(statoEsito);
+      /* «Nessun errore» non si dice se l'esito finale di un desk con tentativi in errore non e' dichiarato */
+      const sottoEsito = [tentativiKo.length ? w.attemptsShort(tentativiKo.length) : '',
+        statoEsito !== 'completata' ? w.memoEsito(esito?.memo ?? null, memoId) : ''].filter(Boolean).join(' · ');
       const kEsito = <Kpi etichetta={w.kOutcome}
-        valore={koIds.length ? w.outcomeKo(koIds.length) : statoEsito === 'completata' ? w.outcomeOk : w.pillEsito(statoEsito)}
-        sotto={koIds.length ? koIds.map(id => nomeDi({ id, name: id })).join(', ') : statoEsito !== 'completata' ? w.memoEsito(esito?.memo ?? null, memoId) : undefined}
-        tono={koIds.length || esitoGrave ? 'bad' : statoEsito !== 'completata' ? 'warn' : undefined} />;
+        valore={koIds.length ? w.outcomeKo(koIds.length) : statoEsito === 'completata' && !tentativiSenzaFinale.length ? w.outcomeOk : w.pillEsito(statoEsito)}
+        sotto={koIds.length ? koIds.map(id => nomeDi({ id, name: id })).join(', ') : sottoEsito || undefined}
+        tono={koIds.length || esitoGrave ? 'bad' : statoEsito !== 'completata' || tentativiSenzaFinale.length ? 'warn' : undefined} />;
 
       const cieco = !state || !!liveErr;
       const inAvvio = runAttiva && !isRunning;   // processo vivo, heartbeat ancora della run precedente
@@ -706,7 +752,7 @@ export default function AgentsLive() {
         testo: <><b>{tr(stopNotice.running === false ? 'activity.stopObservedIdle' : 'activity.stopUnconfirmed')}</b>
           {stopNotice.issues.map((issue, i) => <span key={i} className="ag-ban-line">{issue.source} — {issue.detail || tr('activity.errorNotDescribed')}</span>)}</> });
       if (liveErr) avvisi.push({ k: 'backend', tono: 'bad', icona: <WifiOff size={18} />,
-        testo: <><b>{w.backendDown}</b> {w.backendDownSub(liveErr.replace(/[.\s]+$/, ''), state?.updated_at ? hhmm(state.updated_at) : null)}</> });
+        testo: <><b>{w.backendDown}</b> {w.backendDownSub(liveErr, state?.updated_at ? hhmm(state.updated_at) : null)}</> });
       if (isRunning && (state?.stale_warning || hbIllLungo)) avvisi.push({ k: 'fermo', tono: 'bad', icona: <TriangleAlert size={18} />,
         /* review 31/08: a poll illeggibile `stale_seconds` resta CONGELATO all'ultimo
            payload buono mentre l'orologio avanza — vince la misura che cresce */
@@ -720,12 +766,19 @@ export default function AgentsLive() {
             : <>{tr('activity.noneSinceOpen')}</>} {tr('activity.retryCadence')}</> });
       if (koIds.length > 0) avvisi.push({ k: 'ko', tono: 'bad', icona: <CircleAlert size={18} />,
         testo: <><b>{w.koBanner(koIds.length, nDesk || koIds.length)}</b>{' '}
-          {/* review PR #19: con esito_finale_v2 error_agents sono i KO FINALI: «ha comunque consegnato il report» non e' piu' vero */}
-          {total?.error_agents_semantica === 'esito_finale_v2'
-            ? <span>{koIds.map(id => nomeDi({ id, name: id })).join(tr('movements.and'))} {tr(koIds.length === 1 ? 'activity.koFinalOne' : 'activity.koFinal')}</span>
-            : <span>{koIds.map(id => nomeDi({ id, name: id })).join(tr('movements.and'))} {tr(koIds.length === 1 ? 'activity.declareOne' : 'activity.declare')} <b>status api_error</b> {tr(koIds.length === 1 ? 'activity.reportAnywayOne' : 'activity.reportAnyway')}</span>}.{' '}
+          {/* review PR #19: koIds sono sempre KO FINALI (v2, o status_finale sull'heartbeat vecchio):
+              «ha comunque consegnato il report» non e' mai vero per loro */}
+          <span>{koIds.map(id => nomeDi({ id, name: id })).join(tr('movements.and'))} {tr(koIds.length === 1 ? 'activity.koFinalOne' : 'activity.koFinal')}</span>.{' '}
           <span>{maiuscola(tr('activity.withinTotalPrefix'))} {fmtEur(total?.cost_eur)} {tr('activity.include')} <b>{fmtEur(koCost)}</b>
             {total?.cost_eur && koCost != null ? ` (${fmtN(koCost / total.cost_eur * 100, 0)}%)` : ''} {tr(koIds.length === 1 ? 'activity.spentByThemOne' : 'activity.spentByThem')}</span>.</> });
+      /* heartbeat senza marcatore: error_agents = «almeno un tentativo in errore». Si dice
+         questo, con l'esito finale quando status_finale lo porta, mai «finito in errore» */
+      const nomi = (ids: string[]) => ids.map(id => nomeDi({ id, name: id })).join(tr('movements.and'));
+      if (tentativiKo.length > 0) avvisi.push({ k: 'tentativi', tono: 'warn', icona: <TriangleAlert size={18} />,
+        testo: <><b>{w.attemptsBanner(tentativiKo.length, nDesk || tentativiKo.length)}</b>{' '}
+          {w.attemptsOldSemantics}
+          {tentativiPoiOk.length > 0 && <span className="ag-ban-line">{w.attemptsFinalOk(nomi(tentativiPoiOk))}</span>}
+          {tentativiSenzaFinale.length > 0 && <span className="ag-ban-line">{w.attemptsFinalNd(nomi(tentativiSenzaFinale))}</span>}</> });
       /* «totale parziale» lo dice il titolo del banner: la nota del catalogo non si ripete */
       const altreNote = partial ? notes.filter(n => n !== tr('activity.partialTotal')) : notes;
       if (notes.length > 0) avvisi.push({ k: 'costi', tono: 'warn', icona: <TriangleAlert size={18} />,
@@ -757,9 +810,10 @@ export default function AgentsLive() {
       const agentiCosto = [...deskElenco, ...P.stages.filter(s => s.id === 'capo')];
       const mxCosto = Math.max(0.0001, ...agentiCosto.map(a => a.cost || 0));
       const fx = total?.fx_source == null || total.fx_source === 'n.d.' ? tr('activity.unavailable') : total.fx_source;
-      const corpoCosti = !total ? <p className="bbn-empty">{tr('activity.heartbeatMissing')} <b>usage_total</b>{tr('activity.runCostsMissing')}</p> : (
+      const corpoCosti = !total ? (senzaCostoRun ? <p className="bbn-empty">{w.descNoCommittee}</p>
+          : <p className="bbn-empty">{tr('activity.heartbeatMissing')} <b>usage_total</b>{tr('activity.runCostsMissing')}</p>) : (
         <div className="ag-costs">
-          <div className="ag-cost-tot"><div className="ag-big"><span className={'num' + (hasTotal ? '' : ' is-nd')}>{costoTesto}</span>
+          <div className="ag-cost-tot"><div className="ag-big"><span className={'num' + (hasTotal || senzaCostoRun ? '' : ' is-nd')}>{senzaCostoRun ? w.kNoRunCost : costoTesto}</span>
             {hasTotal && <span className={'bbn-pill ' + (partial ? 'is-warn' : 'is-su')}>{partial ? w.pillPartial : w.pillComplete}</span>}
             <span className="fx">{w.fx} <b className={total.fx_source === 'live' ? 'is-live' : 'is-warn'}>{fx}</b></span></div>
           <p className="ag-foot">
@@ -836,7 +890,7 @@ export default function AgentsLive() {
         chiamate: PC.calls.map(c => ({ key: `${c.a}|${c.r}|${c.hhmm}|${c.tool}|${c.input}`, a: c.a })),
         report: consegne.map(c => ({ key: c.key, a: c.id })),
         angoli: vista === 'viva' || vista === 'finita' ? {
-          crono: fmtDurShort(isRunning ? (elapsed || P.runSec) : P.runSec),
+          crono: fmtDurShort(durataRun),
           /* niente durata «tipica» (nessuno strumento la misura) e la barra si riempie solo coi
              report consegnati: una run finita male non arriva al 100% (revisione PR #16) */
           sotto: vista === 'finita' ? w.runEnded : attesi != null ? w.reportsOf(consegne.length, attesi) : w.reportsN(consegne.length),
@@ -936,7 +990,7 @@ export default function AgentsLive() {
               <div className="ag-adesso-b">
                 <b className="ag-fase">{titoloAdesso}</b>
                 {adesso ? <p className="ag-now"><span><b>{adesso[0]}</b>{adesso[1] ? ' · ' + adesso[1] : ''}</span>
-                    {capoScrive && fermoDa == null && <span className="muted">{w.nowCapoNote}</span>}</p>
+                    {capoScrive && !fermo && <span className="muted">{w.nowCapoNote}</span>}</p>
                   : <p className="ag-now-p">{vista === 'finita' ? (memoOk ? w.nowDoneMemo : descrizione) : vista === 'cieco' || inAvvio || nonVerificabile ? descrizione : w.nowIdle}</p>}
                 {(capoScrive || vista === 'finita') && <div className="ag-stadi">{capo.stadi.map(s => (
                   <span key={s.id} className={'ag-stadio is-' + s.stato} data-stadio={s.id}>{s.stato === 'ok' ? <Check size={13} /> : <i />}{s.nome}<em>{s.nota}</em></span>

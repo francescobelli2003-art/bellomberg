@@ -47,6 +47,23 @@ export const agentsPage = {
   "resumeOpen": "Recovery",
   "retriedBeforeSuccess": "{desk}: {n} failed attempts before succeeding (Round {r})",
   "retriedBeforeSuccess_one": "{desk}: 1 failed attempt before succeeding (Round {r})",
+  "retriedBeforeSuccess_nd": "{desk}: failed attempts (how many: {n}) before succeeding (Round {r})",
+  // review PR #19: heartbeat without the marker, error_agents = "at least one attempt in error"
+  "attemptsBanner_one": "1 desk out of {tot} had at least one attempt in error.",
+  "attemptsBanner_other": "{n} desks out of {tot} had at least one attempt in error.",
+  "attemptsOldSemantics": "Heartbeat in the format that predates the final outcome: here error_agents means “at least one attempt in error”, not work that ended in error.",
+  "attemptsFinalOk": "Final outcome successful: {desks}.",
+  "attemptsFinalNd": "Final outcome not declared: {desks}.",
+  "attemptsShort_one": "1 desk with at least one attempt in error",
+  "attemptsShort_other": "{n} desks with at least one attempt in error",
+  // review PR #19: run in progress that no process confirms (processo_non_verificabile)
+  "stUnconfirmed": "Unconfirmed",
+  "unconfirmedDoing": "Declared at work, no process confirms it",
+  "stepUnconfirmed": "unconfirmed",
+  "nowUnconfirmed": "No process confirms that the run is working",
+  "sLastKnown": "at the last heartbeat ({ora}) · clock stopped",
+  "sClockStopped": "clock stopped: no dated heartbeat",
+  "kNoRunCost": "None",
   "shareKnownOnly": "Shares of known costs only · {n} agents without a declared cost",
   "shareKnownOnly_one": "Shares of known costs only · 1 agent without a declared cost",
   "shareKnownOnly_partial": "Shares of known costs only: the total is partial",
@@ -354,5 +371,6 @@ export const agentsPage = {
   "do_read_blackboard": "Reads the other desks' reports",
   // RUN-ANDREA (Opus 5.5, 05/10): a missing filing is not a run gate
   "filingNotBlocking": "Missing filings never block the run: it starts anyway and the committee is told, holding by holding, that the comparison is missing.",
+  "runDurationUnmeasured": "not measured · email when complete · progress in F4",
   "filingSecNotConfigured": "SEC not configured: set SEC_CONTACT_EMAIL in .env and restart the backend. European reports (ESEF) stay active without it.",
 };

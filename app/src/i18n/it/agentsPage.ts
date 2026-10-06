@@ -47,6 +47,23 @@ export const agentsPage = {
   "resumeOpen": "Recupero",
   "retriedBeforeSuccess": "{desk}: {n} tentativi falliti prima di riuscire (Round {r})",
   "retriedBeforeSuccess_one": "{desk}: 1 tentativo fallito prima di riuscire (Round {r})",
+  "retriedBeforeSuccess_nd": "{desk}: tentativi falliti (quanti: {n}) prima di riuscire (Round {r})",
+  // review PR #19: heartbeat senza marcatore, error_agents = «almeno un tentativo in errore»
+  "attemptsBanner_one": "1 desk su {tot} ha avuto almeno un tentativo in errore.",
+  "attemptsBanner_other": "{n} desk su {tot} hanno avuto almeno un tentativo in errore.",
+  "attemptsOldSemantics": "Heartbeat in formato precedente all’esito finale: qui error_agents vuol dire «almeno un tentativo in errore», non lavoro finito in errore.",
+  "attemptsFinalOk": "Esito finale riuscito: {desks}.",
+  "attemptsFinalNd": "Esito finale non dichiarato: {desks}.",
+  "attemptsShort_one": "1 desk con almeno un tentativo in errore",
+  "attemptsShort_other": "{n} desk con almeno un tentativo in errore",
+  // review PR #19: run in corso che nessun processo conferma (processo_non_verificabile)
+  "stUnconfirmed": "Non confermato",
+  "unconfirmedDoing": "Dichiarato al lavoro, nessun processo lo conferma",
+  "stepUnconfirmed": "non confermato",
+  "nowUnconfirmed": "Nessun processo conferma che la run stia lavorando",
+  "sLastKnown": "all’ultimo heartbeat ({ora}) · orologio fermo",
+  "sClockStopped": "orologio fermo: nessun heartbeat datato",
+  "kNoRunCost": "Nessuno",
   "shareKnownOnly": "Quote sui soli costi noti · {n} agenti senza costo dichiarato",
   "shareKnownOnly_one": "Quote sui soli costi noti · 1 agente senza costo dichiarato",
   "shareKnownOnly_partial": "Quote sui soli costi noti: il totale è parziale",
@@ -354,5 +371,6 @@ export const agentsPage = {
   "do_read_blackboard": "Legge i report degli altri desk",
   // RUN-ANDREA (Opus 5.5, 05/10): il filing mancante non e' un cancello della run
   "filingNotBlocking": "I filing mancanti non bloccano la run: parte comunque e il comitato riceve, titolo per titolo, che il confronto manca.",
+  "runDurationUnmeasured": "non misurata · email a fine run · avanzamento in F4",
   "filingSecNotConfigured": "SEC non configurata: imposta SEC_CONTACT_EMAIL nel .env e riavvia il backend. I bilanci europei (ESEF) restano attivi anche senza.",
 };

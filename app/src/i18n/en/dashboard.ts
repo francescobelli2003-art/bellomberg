@@ -12,7 +12,7 @@ export const dashboard = {
   "data_unavailable": "Data unavailable",
   "spy_official": "SPY (EUR)·OFFICIAL TR",
   "run_starting": "Starting committee process…",
-  "run_active": "RUN {task} ACTIVE - estimated 25–40min - email on completion",
+  "run_active": "RUN {task} ACTIVE - email on completion",
   "error_prefix": "Error: ",
   "attribution_endpoint_missing": "the /portfolio/attribution endpoint is not active on the running backend yet: enabled after restart (phase 1b, item (36))",
   "benchmark_empty": "empty benchmark series from backend",

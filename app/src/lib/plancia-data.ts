@@ -39,6 +39,8 @@ export interface Desk {
   onGrid: boolean;              // ha una voce nel roster di /agents/list?
   statusRun?: string;           // specialist_status: ha consegnato il report?
   statusUsage?: string;         // usage.status: ha sbattuto contro l'API?
+  /** true = statusUsage e' la STORIA (il peggiore dei tentativi): heartbeat senza status_finale */
+  statusStoria?: boolean;
   dur: number | null; apiCalls: number; cost: number | null; partial?: boolean;
   tin: number | null; tout: number | null; cacheR: number | null; cacheW: number | null;
   nCalls: number;               // CHIAMATE a strumento (righe di tool_log)
@@ -239,6 +241,7 @@ export function derivePlancia(
       onGrid: !!meta,
       statusRun: st.specialist_status?.[id],
       statusUsage: u?.status_finale ?? u?.status,   // 06/10: esito finale, non la storia del peggiore
+      statusStoria: u != null && u.status_finale == null && u.status != null,
       dur: u?.duration_s ?? null,
       apiCalls: u?.api_calls ?? 0,
       cost: u?.cost_eur ?? null,
