@@ -238,7 +238,7 @@ export function derivePlancia(
       color: meta?.color || '#5A6685',
       onGrid: !!meta,
       statusRun: st.specialist_status?.[id],
-      statusUsage: u?.status,
+      statusUsage: u?.status_finale ?? u?.status,   // 06/10: esito finale, non la storia del peggiore
       dur: u?.duration_s ?? null,
       apiCalls: u?.api_calls ?? 0,
       cost: u?.cost_eur ?? null,

@@ -414,6 +414,7 @@
 .ag-cifre-costo .ag-kpi .v { font-size: 30px; letter-spacing: -.03em; }
 .ag-quota { display: flex; gap: 2px; height: 6px; overflow: hidden; border-radius: 6px; background: var(--bbn-raised); }
 .ag-quota u { display: block; height: 100%; transition: width .8s ease; }
+.ag-quota-nota { margin-top: -4px; color: var(--bbn-warn); font-size: 12px; font-weight: 600; }
 .ag-cifre .ag-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
 .ag-kpis { display: flex; gap: 8px; flex-wrap: wrap; }
 .ag-kpi { display: grid; gap: 1px; min-width: 0; padding: 9px 12px; border-radius: 14px; background: var(--bbn-raised); }

@@ -171,6 +171,7 @@ test('agent costs and domain verdicts translate without replacing zero, KO or ra
 test('a retained run memo switches labels and preserves its original language and stage times', () => {
   const fixture = { language: 'it', running: false, start_time: '2026-09-12T10:00:00', completed_at: '2026-09-12T10:02:00',
     tool_log: [{ time: '10:00:05', specialist: 'quant', round: 1, tool: 'get_synthetic_data', input: 'Original synthetic input' }],
+    esito_run: { stato: 'completata', memo_consegnato: true, motivo: null, ripresa_disponibile: null, ripresa: false, fonte: 'registro_run_settimanale', stato_memo_db: 'scritto' },
   };
   const render = retainedPage({ 3: fixture });
   const it = render('it'), en = render('en'), again = render('it');
@@ -245,20 +246,83 @@ test('one desk in API error takes the singular and two desks keep the plural, in
   assert.match(oneIt, /<b>1 desk su 2 ha sbattuto contro l’API\.<\/b>/);
   assert.match(oneIt, /<span>Quant dichiara <b>status api_error<\/b> e ha comunque consegnato il report<\/span>/);
   assert.match(oneIt, /\(50%\) spesi da quel desk<\/span>/);
-  assert.match(oneIt, /Dentro ci sono 1,00\s€ spesi da 1 desk con status api_error\./);
+  assert.match(oneIt, /Dentro ci sono 1,00\s€ spesi da 1 desk finito in errore\./);
   assert.match(oneEn, /<b>1 desk out of 2 hit API errors\.<\/b>/);
   assert.match(oneEn, /<span>Quant reports <b>status api_error<\/b> and still delivered the report<\/span>/);
   assert.match(oneEn, /\(50%\) spent by that desk<\/span>/);
-  assert.match(oneEn, /This includes €1\.00 spent by 1 desk with status api_error\./);
+  assert.match(oneEn, /This includes €1\.00 spent by 1 desk that ended in error\./);
   const twoIt = pageInLanguage('it', { 0: tapeRoster, 3: tapeFixture() }), twoEn = pageInLanguage('en', { 0: tapeRoster, 3: tapeFixture() });
   assert.match(twoIt, /<b>2 desk su 2 hanno sbattuto contro l’API\.<\/b>/);
   assert.match(twoIt, /<span>Quant e Macro dichiarano <b>status api_error<\/b> e hanno comunque consegnato il report<\/span>/);
   assert.match(twoIt, /\(100%\) spesi da loro<\/span>/);
-  assert.match(twoIt, /Dentro ci sono 2,00\s€ spesi da 2 desk con status api_error\./);
+  assert.match(twoIt, /Dentro ci sono 2,00\s€ spesi da 2 desk finiti in errore\./);
   assert.match(twoEn, /<b>2 desks out of 2 hit API errors\.<\/b>/);
   assert.match(twoEn, /<span>Quant and Macro report <b>status api_error<\/b> and still delivered the report<\/span>/);
   assert.match(twoEn, /\(100%\) spent by them<\/span>/);
-  assert.match(twoEn, /This includes €2\.00 spent by 2 desks with status api_error\./);
+  assert.match(twoEn, /This includes €2\.00 spent by 2 desks that ended in error\./);
+});
+
+// 06/10 (esito_run): titolo, pastiglia e «memo consegnato» vengono dall'esito del backend,
+// mai da running + memo_id. Numeri e motivi inventati.
+const esitoDi = (stato, extra = {}) => ({ stato, memo_consegnato: false, motivo: null, ripresa_disponibile: null, ripresa: false,
+  fonte: 'registro_run_settimanale', stato_memo_db: 'in_corso', ...extra });
+const chiusa = (esito, extra = {}) => ({ running: false, start_time: '2026-09-12T10:00:00', completed_at: '2026-09-12T10:05:00',
+  memo_id: 77, esito_run: esito, ...extra });
+
+test('esito_run drives title, pill and memo: a blocked run with memo_id is never «delivered», in both languages', () => {
+  const ferma = chiusa(esitoDi('bloccata', { motivo: 'synthetic blocked reason', ripresa_disponibile: true }));
+  const it = pageInLanguage('it', { 0: tapeRoster, 3: ferma }), en = pageInLanguage('en', { 0: tapeRoster, 3: ferma });
+  assert.match(it, /<h1>Run ferma · nessun memo consegnato<\/h1>/);
+  assert.match(it, /Motivo: synthetic blocked reason\. Si può riprendere\./);
+  assert.match(it, />Ferma</);
+  assert.match(en, /<h1>Run stopped · no memo delivered<\/h1>/);
+  assert.match(en, /Reason: synthetic blocked reason\. It can be resumed\./);
+  for (const html of [it, en]) {
+    assert.doesNotMatch(html, /consegnato il memo|delivered the memo|Nessun errore|No errors/);
+    assert.match(html, /data-tappa="memo" data-stato="skip"/);
+    assert.match(html, /data-avviso="ripresa"/);
+  }
+});
+
+test('a completed run with the memo delivered keeps the completed wording', () => {
+  const ok = chiusa(esitoDi('completata', { memo_consegnato: true, stato_memo_db: 'scritto' }));
+  const it = retainedPage({ 0: tapeRoster, 3: ok })('it');
+  assert.match(it, /data-tappa="memo" data-stato="done"/);
+  assert.match(it, /Memo #77/);
+});
+
+test('a dead process overrides running:true: interrupted run, no desk at work, outcome not «no errors»', () => {
+  const morta = chiusa(esitoDi('interrotta', { fonte: 'processo_morto', motivo: 'synthetic' }), { running: true, completed_at: null,
+    specialist_status: { quant: 'running', macro: 'done' }, updated_at: '2026-09-12T10:04:00' });
+  const it = pageInLanguage('it', { 0: tapeRoster, 3: morta }), en = pageInLanguage('en', { 0: tapeRoster, 3: morta });
+  assert.match(it, /<h1>Run interrotta<\/h1>/);
+  assert.match(it, /Il processo si è chiuso senza scrivere un esito\. Nessun memo consegnato\./);
+  assert.match(en, /<h1>Run interrupted<\/h1>/);
+  for (const html of [it, en]) {
+    assert.match(html, /data-vista="finita"/);
+    assert.doesNotMatch(html, /Ferma la run|Stop the run|Nessun errore|No errors/);
+  }
+});
+
+test('a starting run says the data below belong to the previous run', () => {
+  const avvio = chiusa(esitoDi('in_corso', { fonte: 'processo_vivo' }));
+  const it = pageInLanguage('it', { 0: tapeRoster, 3: avvio }), en = pageInLanguage('en', { 0: tapeRoster, 3: avvio });
+  assert.match(it, /<h1>Run avviata · in attesa del primo segnale<\/h1>/);
+  assert.match(it, /I dati sotto sono della run precedente\./);
+  assert.match(en, /<h1>Run started · waiting for the first signal<\/h1>/);
+  for (const html of [it, en]) assert.match(html, /data-vista="viva"/);
+});
+
+test('a run that died before the committee says so; failed-then-succeeded attempts are information, not KO', () => {
+  const vuota = chiusa(esitoDi('fallita', { motivo: 'synthetic' }), { lavagna: 'assente' });
+  assert.match(pageInLanguage('it', { 0: tapeRoster, 3: vuota }), /La run si è fermata prima di avviare il comitato: nessuna chiamata, nessun costo di questa run\./);
+  const ritenta = chiusa(esitoDi('completata', { memo_consegnato: true }), { usage_total: { cost_eur: 2, partial: false, error_agents: [],
+    tentativi_falliti_poi_riusciti: [{ agent: 'quant', round: 1, tentativi_falliti: 2 }, { agent: 'macro', round: 0, tentativi_falliti: 1 }] } });
+  const it = pageInLanguage('it', { 0: tapeRoster, 3: ritenta }), en = pageInLanguage('en', { 0: tapeRoster, 3: ritenta });
+  assert.match(it, /Quant: 2 tentativi falliti prima di riuscire \(Round 1\)/);
+  assert.match(it, /Macro: 1 tentativo fallito prima di riuscire \(Round 0\)/);
+  assert.match(en, /Quant: 2 failed attempts before succeeding \(Round 1\)/);
+  assert.doesNotMatch(it, /data-avviso="ko"/);
 });
 
 test('a live round says how many desks work out of how many, with one or two, in both languages', () => {

@@ -41,6 +41,7 @@ import Tavolo, { type DatiTavolo } from './agents/Tavolo';
 import Corsie, { type DatiCorsie } from './agents/Corsie';
 import Cassetto from './agents/Cassetto';
 import { parole } from './agents/parole';
+import { leggiEsito, statoEffettivo } from './agents/esito';
 import CoperturaFiling, { mancantiFiling, type ErroreFiling } from './agents/CoperturaFiling';
 import { aggiornamentoInCorso, pollFiling } from '@/lib/filing-poll';
 import './agents-nuova.css';
@@ -202,7 +203,14 @@ export default function AgentsLive() {
     return () => { mounted = false; clearInterval(i); };
   }, []);
 
-  const isRunning = state?.running === true;
+  /* esito vero della run (06/10): se il backend smentisce `running` (processo morto o
+     fermato) la pagina disegna la run come chiusa; nessun hook nuovo qui (i test SSR
+     seminano gli stati per indice) */
+  const esito = leggiEsito(state);
+  const statoV = statoEffettivo(state, esito);
+  const isRunning = statoV?.running === true;
+  /* in avvio la run e' attiva anche se l'heartbeat e' ancora della precedente */
+  const runAttiva = isRunning || esito?.attiva === true;
 
   /* l'orologio serve SOLO a una run viva: la sua durata non e' nel payload */
   useEffect(() => {
@@ -219,7 +227,7 @@ export default function AgentsLive() {
     return () => clearInterval(i);
   }, [state?.start_time, isRunning]);
 
-  const P0 = useMemo(() => derivePlancia(state, agents, engines, now), [state, agents, engines, now, tr]);
+  const P0 = useMemo(() => derivePlancia(statoV, agents, engines, now), [statoV, agents, engines, now, tr]);
   /* Il tema non cambia i dati: i colori dei desk li normalizza IconaDesk
      (coloreDesk), uguali in Chiaro e in Scuro. Il memo resta per non spostare
      l'ordine degli hook. */
@@ -320,11 +328,11 @@ export default function AgentsLive() {
   };
 
   useEffect(() => {
-    if (state && state.running === false && activeTaskId && !stopNotice?.issues.length) {
+    if (statoV && statoV.running === false && !runAttiva && activeTaskId && !stopNotice?.issues.length) {
       try { localStorage.removeItem(ACTIVE_RUN_KEY); } catch {}
       setActiveTaskId(null);
     }
-  }, [state?.running, activeTaskId, stopNotice]);
+  }, [statoV?.running, runAttiva, activeTaskId, stopNotice]);
 
 
   /* ── presentazione (redesign 02/10/2026): quello che c'era sul quadrante sta
@@ -334,13 +342,13 @@ export default function AgentsLive() {
   const [finitaQui, setFinitaQui] = useState(false);
   const eraViva = useRef<boolean | null>(null);
   useEffect(() => {
-    if (state?.running == null) return;
+    if (statoV?.running == null) return;
     /* «completata» solo se la fine e' avvenuta sotto gli occhi del PM; aprire la
        pagina su una run gia' chiusa la mostra a riposo, con l'ultima run */
-    if (eraViva.current === true && state.running === false) setFinitaQui(true);
-    if (state.running === true) setFinitaQui(false);
-    eraViva.current = state.running;
-  }, [state?.running]);
+    if (eraViva.current === true && statoV.running === false) setFinitaQui(true);
+    if (statoV.running === true) setFinitaQui(false);
+    eraViva.current = statoV.running;
+  }, [statoV?.running]);
 
   /* ── copertura filing (fase D, 03/10/2026): letta all'apertura e a fine run, quando
      cambiano le novita'; l'attivazione in blocco rilegge subito e dopo 15 s, il tempo
@@ -435,8 +443,8 @@ export default function AgentsLive() {
     for (const e of state?.tool_log || []) v.mappa.set(`${e.specialist}|${e.round}|${e.time}|${e.tool}|${e.input}`, e);
     return [...v.mappa.values()];
   }, [state]);
-  const PC = useMemo(() => state && P.logTappato && logVisto.length > (state.tool_log?.length || 0)
-    ? derivePlancia({ ...state, tool_log: logVisto }, agents, engines, now) : P, [P, logVisto, state, agents, engines, now]);
+  const PC = useMemo(() => statoV && P.logTappato && logVisto.length > (statoV.tool_log?.length || 0)
+    ? derivePlancia({ ...statoV, tool_log: logVisto }, agents, engines, now) : P, [P, logVisto, statoV, agents, engines, now]);
 
   /* i report consegnati (reports_by_specialist: i primi 500 caratteri di ogni round).
      L'ora si scrive solo se l'arrivo e' stato VISTO qui; quelli gia' presenti
@@ -475,6 +483,10 @@ export default function AgentsLive() {
     <ModernPage page="agents" render={() => {
       const w = parole();
       const vivo = P.live;
+      /* «ha consegnato il memo» solo se il backend lo afferma (esito_run.memo_consegnato) */
+      const memoOk = esito?.memo === true;
+      const statoEsito = esito?.stato ?? 'sconosciuta';
+      const lavagnaAssente = state?.lavagna === 'assente';
       const nonInR2 = (id: string) => !!r2 && !r2.includes(id) && (!vivo || (P.round ?? 0) >= 2);
 
       const desks: VistaDesk[] = deskElenco.map(d => {
@@ -532,7 +544,7 @@ export default function AgentsLive() {
       const chiusaConRun = !vivo && !!state?.start_time;
       const capoStato: StatoDesk = capoV?.cls === 'ko' ? 'ko'
         : vivo && P.capo === 'running' ? (fermoDa != null ? 'stale' : 'run')
-        : chiusaConRun && (memoId != null || P.capo === 'done') ? 'ok'
+        : chiusaConRun && memoOk ? 'ok'
         : 'wait';
       const vaiDecisioni = () => navigate('/decisions');
       /* il chip Filing apre i dettagli della run sulla scheda Filing */
@@ -557,7 +569,7 @@ export default function AgentsLive() {
           return s?.dur != null ? { id, nome, stato: 'ok' as const, nota: fmtDurShort(s.dur) }
             : { id, nome, stato: 'wait' as const, nota: chiusaConRun && s ? w.stageNoDuration : w.stageAfter };
         }),
-        azioni: capoStato === 'ok' && memoId != null ? <>
+        azioni: capoStato === 'ok' ? <>
           <button type="button" className="bbn-btn is-primary is-sm" onClick={vaiDecisioni}><FileText size={15} />{w.openDecisions}</button>
           <button type="button" className="bbn-btn is-sm" onClick={() => navigate('/memos')}>{w.memoArchive}</button>
         </> : undefined,
@@ -580,6 +592,10 @@ export default function AgentsLive() {
           if (p) t = { ...t, stato: p.open ? 'now' : 'done', sotto: p.open ? w.stepNow(fmtDurShort(Math.max(0, P.runSec - p.t0))) : arco(p) };
         } else if (p) t = { ...t, stato: 'done', sotto: arco(p) };
         else if (state?.start_time) t = { ...t, stato: 'skip', sotto: w.stepSkipped };
+        /* round_esiti (06/10): «ripreso» = fatto in un tentativo precedente, non «nessuna chiamata» */
+        const re = !vivo ? state?.round_esiti?.[String(r)]?.stato : undefined;
+        if (re === 'ripreso') t = { ...t, stato: 'done', sotto: w.stepResumed };
+        else if (re === 'misto') t = { ...t, stato: 'done', sotto: (p ? arco(p) : w.stepDone) + ' · ' + w.stepPartlyResumed };
         tappe.push(t);
       }
       const sintesi = fase('SINTESI');
@@ -587,11 +603,11 @@ export default function AgentsLive() {
         ? { id: 'sintesi', nome: w.stepSynthesis, stato: 'now', sotto: fermoDa != null ? w.stepStale(fmtDurShort(fermoDa))
             : P.capoT != null ? w.stepNow(fmtDurShort(Math.max(0, P.runSec - P.capoT))) : w.stepNowShort }
         : !vivo && sintesi ? { id: 'sintesi', nome: w.stepSynthesis, stato: 'done', sotto: arco(sintesi) }
-        : chiusaConRun && (memoId != null || P.capo === 'done') ? { id: 'sintesi', nome: w.stepSynthesis, stato: 'done', sotto: w.stepDone }
+        : chiusaConRun && (memoOk || P.capo === 'done') ? { id: 'sintesi', nome: w.stepSynthesis, stato: 'done', sotto: w.stepDone }
         : chiusaConRun ? { id: 'sintesi', nome: w.stepSynthesis, stato: 'skip', sotto: w.stepSkipped }
         : { id: 'sintesi', nome: w.stepSynthesis, stato: 'wait', sotto: w.stepWaiting });
-      tappe.push(chiusaConRun && memoId != null
-        ? { id: 'memo', nome: w.stepMemo, stato: 'done', sotto: `#${memoId} · ${ora(state?.completed_at)}` }
+      tappe.push(chiusaConRun && memoOk
+        ? { id: 'memo', nome: w.stepMemo, stato: 'done', sotto: memoId != null ? `#${memoId} · ${ora(state?.completed_at)}` : ora(state?.completed_at) }
         : chiusaConRun ? { id: 'memo', nome: w.stepMemo, stato: 'skip', sotto: w.stepNoMemo }
         : { id: 'memo', nome: w.stepMemo, stato: 'wait', sotto: w.stepWaiting });
 
@@ -612,7 +628,7 @@ export default function AgentsLive() {
       const kDurata = <Kpi etichetta={w.kDuration} valore={fmtDurShort(isRunning ? (elapsed || P.runSec) : P.runSec)}
         sotto={isRunning ? w.sClock : lavoro > 0 ? w.sWork(fmtDurShort(lavoro)) : tr('activity.durationMissing')} />;
       const kCosto = <Kpi etichetta={isRunning ? w.kCostSoFar : w.kCost} valore={costoTesto} nd={!hasTotal}
-        sotto={!hasTotal ? w.sUnpriced : isRunning ? (partial ? w.sSoFarPartial : w.sSoFar)
+        sotto={lavagnaAssente && !isRunning ? w.sNoRunCost : !hasTotal ? w.sUnpriced : isRunning ? (partial ? w.sSoFarPartial : w.sSoFar)
           : koVisibile ? w.sKoSpent(fmtEur(koCost)) : partial ? w.sPartial : w.sComplete}
         tono={koVisibile && !isRunning ? 'warn' : costoTono} />;
       const kChiamate = <Kpi etichetta={w.kCalls} valore={chiamateTot ?? tr('activity.unavailable')} nd={chiamateTot == null}
@@ -620,42 +636,63 @@ export default function AgentsLive() {
       const kQuarta = par != null
         ? <Kpi etichetta={w.kParallelism} valore={fmtN(par, 2) + '×'} sotto={w.sTogether} />
         : <Kpi etichetta={w.kTickers} valore={P.tickers.length} sotto={isRunning ? w.sTickersSoFar : w.sDistinctTools(P.nToolsDistinct)} />;
-      const kEsito = <Kpi etichetta={w.kOutcome} valore={koIds.length ? w.outcomeKo(koIds.length) : w.outcomeOk}
-        sotto={koIds.length ? koIds.map(id => nomeDi({ id, name: id })).join(', ') : undefined} tono={koIds.length ? 'bad' : undefined} />;
+      /* «Nessun errore» solo su una run completata: interrotta, ferma o senza esito lo dicono (revisione PR #16) */
+      const esitoGrave = ['bloccata', 'fallita', 'interrotta'].includes(statoEsito);
+      const kEsito = <Kpi etichetta={w.kOutcome}
+        valore={koIds.length ? w.outcomeKo(koIds.length) : statoEsito === 'completata' ? w.outcomeOk : w.pillEsito(statoEsito)}
+        sotto={koIds.length ? koIds.map(id => nomeDi({ id, name: id })).join(', ') : statoEsito !== 'completata' ? w.memoEsito(esito?.memo ?? null, memoId) : undefined}
+        tono={koIds.length || esitoGrave ? 'bad' : statoEsito !== 'completata' ? 'warn' : undefined} />;
 
       const cieco = !state || !!liveErr;
+      const inAvvio = runAttiva && !isRunning;   // processo vivo, heartbeat ancora della run precedente
+      const nonVerificabile = statoEsito === 'in_corso_senza_segnale' && esito?.fonte === 'processo_non_verificabile';
+      const chiusaEsito = !runAttiva && !!esito?.chiusa && !!state?.start_time;
+      const tonoEsito = statoEsito === 'completata' ? 'is-su' : ['bloccata', 'fallita', 'interrotta'].includes(statoEsito) ? 'is-giu' : 'is-warn';
       const pillola = !state && !liveErr && !hbIll ? <span className="bbn-pill is-piatto"><i className="ag-dot" />{w.pillQuerying}</span>
         : cieco ? <span className="bbn-pill is-giu"><WifiOff size={13} />{w.pillUnreadable}</span>
+        : nonVerificabile ? <span className="bbn-pill is-warn"><i className="ag-dot" />{w.pillUnverified}</span>
+        : inAvvio ? <span className="bbn-pill is-acc"><i className="ag-pulse" />{w.pillStarting}</span>
         : isRunning ? <span className={'bbn-pill ' + (fermoDa != null ? 'is-warn' : 'is-acc')}><i className={fermoDa != null ? 'ag-dot' : 'ag-pulse'} />{fermoDa != null ? w.pillStuck : w.pillRunning}</span>
-        : finitaQui ? <span className="bbn-pill is-su"><i className="ag-dot" />{memoId != null ? w.pillDone : w.pillEnded}</span>
+        : chiusaEsito && (finitaQui || statoEsito !== 'completata') ? <span className={'bbn-pill ' + tonoEsito}><i className="ag-dot" />{w.pillEsito(statoEsito)}</span>
         : <span className="bbn-pill is-piatto"><i className="ag-dot" />{w.pillIdle}</span>;
       const lingua = state?.language === 'it' ? tr('activity.originalRunIt') : state?.language === 'en' ? tr('activity.originalRunEn') : null;
       const meta = isRunning && state?.start_time ? [w.startedAt(ora(state.start_time)), lingua].filter(Boolean).join(' · ')
-        : finitaQui && state?.start_time ? [w.runSpan(giorno(state.start_time), ora(state.start_time), ora(state.completed_at)), lingua].filter(Boolean).join(' · ')
+        : chiusaEsito && (finitaQui || statoEsito !== 'completata') ? [w.runSpan(giorno(state.start_time), ora(state.start_time), ora(state.completed_at)), lingua].filter(Boolean).join(' · ')
         : '';
-      const vista: 'cieco' | 'viva' | 'finita' | 'riposo' = cieco ? 'cieco' : isRunning ? 'viva' : finitaQui ? 'finita' : 'riposo';
+      /* la run chiusa male si mostra sempre; una completata solo se e' finita sotto gli occhi del PM */
+      const vista: 'cieco' | 'viva' | 'finita' | 'riposo' = cieco ? 'cieco' : runAttiva ? 'viva'
+        : chiusaEsito && (finitaQui || statoEsito !== 'completata') ? 'finita' : 'riposo';
       const titolo = vista === 'cieco' ? (state || liveErr || hbIll ? w.titleUnreadable : w.titleIdle)
-        : vista === 'viva' ? (capoScrive ? w.titleSynthesis : w.titleLive)
-        : vista === 'finita' ? (memoId != null ? w.titleDone : w.titleDoneNoMemo)
+        : vista === 'viva' ? (nonVerificabile ? w.titleUnverified : inAvvio ? w.titleStarting : capoScrive ? w.titleSynthesis : w.titleLive)
+        : vista === 'finita' ? (statoEsito === 'completata' ? (memoOk ? w.titleDone(memoId) : w.titleDoneNoMemo) : w.titleEsito(statoEsito))
         : w.titleIdle;
       const descrizione = vista === 'cieco' ? (state || liveErr || hbIll ? w.descUnreadable(state?.updated_at ? hhmm(state.updated_at) : null) : w.descIdle(nDesk))
-        : vista === 'viva' ? w.descLive
-        : vista === 'finita' ? (memoId != null ? w.descDone(nDesk, P.phases.filter(p => /^R\d/.test(p.k)).length) : w.descDoneNoMemo)
+        : vista === 'viva' ? (nonVerificabile ? w.descUnverified : inAvvio ? w.descStarting : w.descLive)
+        : vista === 'finita' ? (lavagnaAssente ? w.descNoCommittee
+          : statoEsito === 'completata' && memoOk ? w.descDone(nDesk, P.phases.filter(p => /^R\d/.test(p.k)).length)
+          : w.descEsito(statoEsito, esito?.motivo ?? null, esito?.memo ?? null, memoId, !!esito?.ripresaDisponibile))
         : w.descIdle(nDesk);
-      const bottone = isRunning
+      const bottone = runAttiva
         ? <button type="button" className="bbn-btn ag-stop" onClick={stopRun} disabled={stopping}
             title={activeTaskId ? tr('activity.stopTask', { a: activeTaskId }) : tr('activity.noTrackedTask')}>
             <Square size={15} />{stopping ? w.stopping : w.stop}</button>
-        : vista === 'finita' && memoId != null
+        : vista === 'finita' && memoOk
           ? <><button type="button" className="bbn-btn is-primary" onClick={vaiDecisioni}><FileText size={16} />{w.openDecisions}</button>
               <button type="button" className="bbn-btn ag-launch" onClick={() => setAskRun(true)}><Play size={15} />{w.newRun}</button></>
           : <button type="button" className="bbn-btn is-primary ag-launch" onClick={() => setAskRun(true)}><Play size={15} />{w.launch}</button>;
 
       /* ── avvisi: i buchi in vetrina, non nei tooltip (regola PM 14/07) ── */
       const avvisi: { k: string; tono: 'bad' | 'warn' | 'good' | 'info'; icona: ReactNode; testo: ReactNode; azione?: ReactNode }[] = [];
-      if (vista === 'finita') avvisi.push({ k: 'finita', tono: 'good', icona: <Check size={18} />,
-        testo: <b>{w.done(ora(state?.completed_at), memoId)}</b>,
-        azione: memoId != null ? <button type="button" className="bbn-link" onClick={vaiDecisioni}>{w.openDecisions} <ArrowUpRight size={14} /></button> : undefined });
+      if (vista === 'finita' && statoEsito === 'completata') avvisi.push({ k: 'finita', tono: 'good', icona: <Check size={18} />,
+        testo: <b>{w.done(ora(state?.completed_at), memoOk ? memoId : null)}</b>,
+        azione: memoOk ? <button type="button" className="bbn-link" onClick={vaiDecisioni}>{w.openDecisions} <ArrowUpRight size={14} /></button> : undefined });
+      if (vista === 'finita' && esito?.ripresaDisponibile) avvisi.push({ k: 'ripresa', tono: 'info', icona: <Play size={18} />,
+        testo: <b>{w.resumeAvailable}</b>,
+        azione: <button type="button" className="bbn-link" onClick={() => apriDettagli('recupero')}>{w.resumeOpen} <ArrowUpRight size={14} /></button> });
+      /* tentativi falliti e poi riusciti: storia della run, non un KO (06/10) */
+      const ritentati = (total?.tentativi_falliti_poi_riusciti || []).filter(x => x && x.agent);
+      if (ritentati.length) avvisi.push({ k: 'ritentati', tono: 'info', icona: <CircleAlert size={18} />,
+        testo: <>{ritentati.map((x, i) => <span key={i} className="ag-ban-line">{w.retriedBeforeSuccess(nomeDi({ id: x.agent, name: x.agent }), x.tentativi_falliti, x.round)}</span>)}</> });
       if (triggerMsg) avvisi.push({ k: 'avvio', tono: 'info', icona: <Play size={18} />,
         testo: frase(triggerMsg.kind === 'starting' ? tr('activity.starting') : tr('activity.runActiveEstimate', { a: triggerMsg.id ?? tr('activity.unavailable') })) });
       if (stopNotice) avvisi.push({ k: 'stop', tono: stopNotice.running === false && !stopNotice.issues.length ? 'good' : 'bad', icona: <Square size={18} />,
@@ -814,7 +851,7 @@ export default function AgentsLive() {
           chiamate: v.chiamate, costo: v.costo, costoNd: v.costoNd, report: consegne.some(c => c.id === v.id),
           barre: PC.windows.filter(x => x.a === v.id).map(x => ({ r: x.r, t0: x.t0, t1: x.t1, aperta: !!x.open,
             tacche: PC.calls.filter(c => c.a === v.id && c.r === x.r).map(c => c.t) })) })),
-        capo: { nome: w.capo, sotto: w.lanesCapo, barre: capoBarre, costo: capoCosto, costoNd: capoD?.cost == null && P.capo !== 'running', memo: memoId != null },
+        capo: { nome: w.capo, sotto: w.lanesCapo, barre: capoBarre, costo: capoCosto, costoNd: capoD?.cost == null && P.capo !== 'running', memo: memoOk },
       };
 
       /* ── sotto la lente: i ticker scritti negli input, con chi li ha guardati ── */
@@ -825,6 +862,8 @@ export default function AgentsLive() {
       const lenteTop = [...lente.entries()].sort((a, b) => b[1].n - a[1].n);
       const quotaCosti = agentiCosto.filter(a => a.cost != null && a.cost > 0);
       const sommaQuote = quotaCosti.reduce((s, a) => s + (a.cost || 0), 0);
+      /* la barra ripartisce solo i costi noti: chi non ce l'ha si dichiara (revisione PR #16) */
+      const quoteIgnote = agentiCosto.filter(a => a.cost == null && !(a.id === 'capo' && P.capo === 'running')).length;
 
       /* ── report del desk scelto ─────────────────────────────────────── */
       const sel = repDesk ? desks.find(d => d.id === repDesk.id) || null : null;
@@ -838,7 +877,7 @@ export default function AgentsLive() {
 
       const faseOra = tappe.find(t => t.stato === 'now');
       const titoloAdesso = vista === 'cieco' ? w.titleUnreadable : vista === 'viva' ? (faseOra?.nome ?? w.pillRunning)
-        : vista === 'finita' ? (memoId != null ? w.pillDone : w.pillEnded) : w.pillIdle;
+        : vista === 'finita' ? w.pillEsito(statoEsito) : w.pillIdle;
       const lavorano = desks.filter(d => d.stato === 'run' || d.stato === 'think');
 
       return (
@@ -847,7 +886,7 @@ export default function AgentsLive() {
           <section className="bbn-card ag-run" aria-live="polite">
             <div className="ag-run-id">
               <AnelloDesk id="capo" colore={coloreDi('capo')} grande
-                stato={vista === 'viva' ? (fermoDa != null ? 'stale' : 'run') : vista === 'finita' && memoId != null ? 'ok' : 'wait'} />
+                stato={vista === 'viva' ? (fermoDa != null || nonVerificabile ? 'stale' : 'run') : vista === 'finita' && memoOk ? 'ok' : vista === 'finita' && tonoEsito === 'is-giu' ? 'ko' : 'wait'} />
               <div className="ag-run-copy">
                 <span className="k">{pillola}{meta && <span className="meta">{meta}</span>}</span>
                 <h1>{titolo}</h1>
@@ -888,13 +927,13 @@ export default function AgentsLive() {
                 <b className="ag-fase">{titoloAdesso}</b>
                 {adesso ? <p className="ag-now"><span><b>{adesso[0]}</b>{adesso[1] ? ' · ' + adesso[1] : ''}</span>
                     {capoScrive && fermoDa == null && <span className="muted">{w.nowCapoNote}</span>}</p>
-                  : <p className="ag-now-p">{vista === 'finita' ? (memoId != null ? w.nowDoneMemo : w.descDoneNoMemo) : vista === 'cieco' ? descrizione : w.nowIdle}</p>}
+                  : <p className="ag-now-p">{vista === 'finita' ? (memoOk ? w.nowDoneMemo : descrizione) : vista === 'cieco' || inAvvio || nonVerificabile ? descrizione : w.nowIdle}</p>}
                 {(capoScrive || vista === 'finita') && <div className="ag-stadi">{capo.stadi.map(s => (
                   <span key={s.id} className={'ag-stadio is-' + s.stato} data-stadio={s.id}>{s.stato === 'ok' ? <Check size={13} /> : <i />}{s.nome}<em>{s.nota}</em></span>
                 ))}</div>}
                 {vista === 'riposo' && state?.start_time && <div className="ag-last">
                   <span className="t">{w.lastRun} <span>· {w.runSpan(giorno(state.start_time), ora(state.start_time), state.completed_at ? ora(state.completed_at) : tr('activity.unavailable'))}{lingua ? ' · ' + lingua : ''}</span></span>
-                  {memoId != null && <button type="button" className="bbn-link ag-memo-link" onClick={vaiDecisioni}>{w.memo(memoId)} <ArrowUpRight size={14} /></button>}
+                  {memoOk && memoId != null && <button type="button" className="bbn-link ag-memo-link" onClick={vaiDecisioni}>{w.memo(memoId)} <ArrowUpRight size={14} /></button>}
                 </div>}
                 {capo.azioni && <div className="ag-adesso-act">{capo.azioni}</div>}
               </div>
@@ -919,6 +958,7 @@ export default function AgentsLive() {
                 {sommaQuote > 0 && <span className="ag-quota" title={w.costByDesk}>{quotaCosti.map(a => (
                   <u key={a.id} style={{ width: `${(a.cost || 0) / sommaQuote * 100}%`, background: tintaDi(a.id) }} title={`${nomeDi(a)} ${fmtEur(a.cost)}`} />
                 ))}</span>}
+                {sommaQuote > 0 && (quoteIgnote > 0 || partial) && <span className="ag-quota-nota">{w.shareKnownOnly(quoteIgnote)}</span>}
                 <div className="ag-kpis">{kDurata}{kChiamate}{kQuarta}{(vista === 'finita' || vista === 'riposo') && state?.start_time ? kEsito : null}</div>
               </div>}
             </section>

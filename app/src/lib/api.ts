@@ -726,6 +726,9 @@ export interface UsageBySpecialist {
   partial?: boolean;
   tokens_status?: 'completo' | 'parziale';
   tokens_missing?: string[];
+  // 06/10: esito FINALE del lavoro (ultimo tentativo di ogni round); `status` resta la
+  // storia del peggiore. La card del desk legge questo, quando c'e'.
+  status_finale?: UsageStatus | string;
 }
 
 // Totale run (v2). Stessa regola dell'aggregato per agente, ma sommando per ENTRY:
@@ -753,7 +756,29 @@ export interface UsageTotal {
   unpriced_agents?: string[];
   error_agents?: string[];
   error?: string;
+  // 06/10: "esito_finale_v2" = error_agents contiene i KO FINALI; assente = heartbeat
+  // vecchio, dove error_agents vuol dire «almeno un tentativo KO»
+  error_agents_semantica?: string;
+  // round in cui un tentativo e' fallito e l'ultimo e' riuscito: informativo, non un KO
+  tentativi_falliti_poi_riusciti?: { agent: string; round: number; tentativi_falliti: number }[];
+  misura_richieste?: string;
 }
+
+/** Esito VERO della run (GET /agents/live, 06/10): titolo e pastiglia vengono da qui,
+ *  mai da `running` + `memo_id` (il memo_id esiste dal primo secondo della run). */
+export type StatoEsitoRun = 'in_corso' | 'in_corso_senza_segnale' | 'completata' | 'incompleta' | 'bloccata'
+  | 'fallita' | 'annullata' | 'interrotta' | 'nessuna_run' | 'sconosciuta';
+export interface EsitoRun {
+  stato: StatoEsitoRun | string;
+  memo_consegnato: boolean | null;   // null = non misurabile (lo dice `motivo`)
+  motivo: string | null;
+  ripresa_disponibile: boolean | null;
+  ripresa: boolean | null;
+  fonte: string;
+  stato_memo_db?: 'scritto' | 'in_corso' | 'assente' | 'illeggibile' | 'non_letto' | string;
+}
+export interface RoundEsito { stato: 'eseguito' | 'ripreso' | 'misto' | 'assente' | 'n.d.' | string;
+  desk_eseguiti?: string[]; desk_ripresi?: string[]; desk_senza_orario?: string[] }
 
 export interface AgentsLiveState {
   language?: 'it' | 'en' | null;
@@ -785,6 +810,10 @@ export interface AgentsLiveState {
   // la UI degrada nascondendo la metrica (mai NaN, mai 0 finto).
   usage_by_specialist?: Record<string, UsageBySpecialist>;
   usage_total?: UsageTotal;
+  esito_run?: EsitoRun;
+  round_esiti?: Record<string, RoundEsito>;
+  // "assente" = la run e' morta prima di avviare il comitato: niente tool_log ne' usage
+  lavagna?: 'questa_run' | 'assente' | string;
 }
 
 export interface RiskAlert { level: 'high'|'med'|'low'; metric: string; message: string; }
