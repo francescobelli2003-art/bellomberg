@@ -227,7 +227,7 @@ export const decisiondesk = {
   "reopenResearchHint": "Reopens the status: the run picks it up at the next round",
   "restoreResearch": "Back on the page and reopen",
   "restoreResearchHint": "Brings the research back and reopens it: the run picks it up at the next round",
-  "archiveOpsNote": "History stays in the database: bringing it back changes neither status nor result.",
+  "archiveOpsNote": "Outcome, veto and trade can be recorded from here too: the proposal stays archived. Bringing it back changes neither status nor result.",
   "archiveResNote": "Once back on the page the research is «pending» again and the committee picks it up at the next run.",
 
   "holdDlgTitle_one": "Confirm 1 position as executed?",

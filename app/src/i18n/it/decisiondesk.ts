@@ -227,7 +227,7 @@ export const decisiondesk = {
   "reopenResearchHint": "Riapre lo stato: la run la riprende al prossimo giro",
   "restoreResearch": "Riporta in pagina e riapri",
   "restoreResearchHint": "Riporta la ricerca in pagina e la riapre: la run la riprende al prossimo giro",
-  "archiveOpsNote": "Lo storico resta nel database: riportarla in pagina non cambia stato né risultato.",
+  "archiveOpsNote": "Esito, veto e trade si registrano anche da qui: la proposta resta in archivio. Riportarla in pagina non cambia stato né risultato.",
   "archiveResNote": "Riportandola in pagina la ricerca torna «in attesa» e il Comitato la riprende alla prossima run.",
 
   "holdDlgTitle_one": "Confermare 1 posizione come eseguita?",

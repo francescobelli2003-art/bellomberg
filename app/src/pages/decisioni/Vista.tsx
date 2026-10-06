@@ -357,7 +357,8 @@ function StessoTitolo({ d, a, x }: { d: DatiDecisioni; a: AzioniDecisioni; x: De
 function ChiudiDecisione({ d, a, x }: { d: DatiDecisioni; a: AzioniDecisioni; x: Decision }) {
   const pctErr = d.letturaPct && !d.letturaPct.ok ? d.letturaPct.motivo : null;
   const eurErr = d.letturaEur && !d.letturaEur.ok ? d.letturaEur.motivo : null;
-  const chiusa = x.status !== 'PENDING';
+  // in Archivio niente Riapri: una proposta riaperta li' resterebbe PENDING fuori da «Da decidere»
+  const chiusa = x.status !== 'PENDING', archiviata = d.vista === 'arch';
   return (
     <div className="dc-box" data-dc-chiudi={x.id}>
       <h3><Gavel size={16} aria-hidden="true" />{w(chiusa ? 'fixTitle' : 'closeTitle')}</h3>
@@ -387,7 +388,7 @@ function ChiudiDecisione({ d, a, x }: { d: DatiDecisioni; a: AzioniDecisioni; x:
         {decisioneCompatibile(x, x.ticker, x.action) && <button type="button" className="bbn-btn" data-dc-azione="collega" onClick={() => a.collegaTrade(x)}>
           <Plus size={15} aria-hidden="true" />{w('linkTrade')}</button>}
         {statoDivergenza(x) !== null && <button type="button" className="bbn-btn" data-dc-azione="divergenza" onClick={() => a.divergenza(x)}>{w('record_manual_divergence')}</button>}
-        {chiusa && !x.veto && <button type="button" className="bbn-btn" data-dc-azione="riapri" disabled={d.saving} onClick={a.riapri}>
+        {chiusa && !x.veto && !archiviata && <button type="button" className="bbn-btn" data-dc-azione="riapri" disabled={d.saving} onClick={a.riapri}>
           <RotateCcw size={15} aria-hidden="true" />{w('reopen')}</button>}
       </div>
     </div>
@@ -461,9 +462,11 @@ function DettaglioOperativa({ d, a, x }: { d: DatiDecisioni; a: AzioniDecisioni;
           {!hold && <StessoTitolo d={d} a={a} x={x} />}
         </div>
         <div className="dc-col">
-          {!archiviata && <ChiudiDecisione d={d} a={a} x={x} />}
-          {!archiviata && <Veto d={d} a={a} x={x} />}
+          {/* 06/10 (PM): Chiudi, Veto e Collega trade anche in Archivio, come prima del restyle: un esito
+              tardivo si registra senza «Riporta in pagina». Stessi blocchi, stesse chiamate, la voce resta archiviata. */}
           {archiviata && <div className="dc-note"><Archive size={16} aria-hidden="true" /><span>{w('archiveOpsNote')}</span></div>}
+          <ChiudiDecisione d={d} a={a} x={x} />
+          <Veto d={d} a={a} x={x} />
           {hold && <StessoTitolo d={d} a={a} x={x} />}
         </div>
       </div>

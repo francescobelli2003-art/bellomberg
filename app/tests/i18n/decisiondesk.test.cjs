@@ -232,3 +232,34 @@ test('hold confirmations are grouped and confirmed one by one, minus the exclude
   await ui.action('ok-dialogo').props.onClick();
   assert.deepEqual(ui.calls.filter(c => c[0] === 'update'), [['update', 203, { status: 'EXECUTED' }], ['update', 201, { status: 'EXECUTED' }]]);
 });
+
+test('archived operative decisions keep Close, Veto and Link trade; archived research does not', async () => {
+  // 06/10 (PM): a late outcome is recorded from the Archive without «Bring back» first, as before the restyle.
+  const apriArchivio = (ui, tipo) => {
+    ui.find(p => p.onClick && p['aria-pressed'] !== undefined && /Archivio/.test(words(p.children))).props.onClick(); ui.render('it');
+    if (tipo) { ui.find(p => p.onClick && p['aria-pressed'] !== undefined && tipo.test(words(p.children))).props.onClick(); ui.render('it'); }
+  };
+  const op = retained({ data: [decision({ status: 'EXECUTED', archived: true })] }); await op.ready('it');
+  apriArchivio(op);
+  assert.equal(op.find(p => p['data-dc-dettaglio'] !== undefined).props['data-dc-dettaglio'], 123, 'fixture: the archived proposal is open');
+  for (const name of ['conferma', 'veto', 'collega', 'ripristina']) assert.ok(op.action(name), `${name} is offered in the archive`);
+  assert.equal(op.action('riapri'), undefined, 'no reopen from the archive: it would hide a pending proposal');
+  op.field('pct').props.onChange({ target: { value: '12' } }); op.render('it');
+  await op.confirm();
+  assert.deepEqual(op.calls.find(c => c[0] === 'update'), ['update', 123, { status: 'EXECUTED', outcome_pct: 12 }]);
+  assert.equal(op.calls.filter(c => c[0] === 'read').length, 2, 'the page reloads after the write, as for active decisions');
+  op.render('it');
+  op.field('veto').props.onChange({ target: { value: 'Motivo sintetico' } }); op.render('it');
+  op.action('veto').props.onClick(); op.render('it');
+  await op.action('ok-dialogo').props.onClick();
+  assert.deepEqual(op.calls.find(c => c[0] === 'veto'), ['veto', 123, 'Motivo sintetico']);
+  op.render('it');
+  op.action('collega').props.onClick();
+  assert.deepEqual(op.calls.find(c => c[0] === 'navigate'), ['navigate', '/trades?decision=123']);
+
+  const res = retained({ data: [decision({ action: 'RESEARCH', status: 'EXPIRED', archived: true })] }); await res.ready('it');
+  apriArchivio(res, /Ricerche/);
+  assert.equal(res.find(p => p['data-dc-dettaglio'] !== undefined).props['data-dc-dettaglio'], 123, 'fixture: the archived research is open');
+  assert.ok(res.action('ricerca-ripristina'), 'fixture: research restore is there');
+  for (const name of ['conferma', 'veto', 'collega']) assert.equal(res.action(name), undefined, `${name} is not offered on research`);
+});
