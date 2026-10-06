@@ -216,7 +216,7 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
       riga: backups === null && loadingReads.backups ? caricamento(tr('ui.loading'))
         : backups === null ? tr('settingsPage.idxBackupUnreadable')
         : !backups.length ? tr('settingsPage.idxNoBackups')
-        : tr('settingsPage.idxBackup', { n: count ?? '?', mb: num(totMb, 0), c: calendario.length - scoperte, d: calendario.length }),
+        : tr(count === 1 ? 'settingsPage.idxBackup_one' : 'settingsPage.idxBackup_other', { n: count ?? '?', mb: num(totMb, 0), c: calendario.length - scoperte, d: calendario.length }),
       tono: backups === null ? (loadingReads.backups ? 'muted' : 'ko') : !backups.length || scoperte > calendario.length - scoperte ? 'warn' : 'ok' },
     { id: 'lavori', titolo: tr('settingsPage.secJobs'),
       riga: tasks === null && loadingReads.tasks ? caricamento(tr('ui.loading'))
@@ -322,7 +322,9 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
           <span><kbd>{'F19'}</kbd>{tr('settingsPage.footF19')}</span>
           <span><kbd>{'Esc'}</kbd>{tr('settingsPage.footEsc')}</span>
           <span className="bbn-imp-grow" />
-          <span>{tr('settingsPage.footTotals', { n: count ?? '?', mb: num(totMb, 0), d: calendario.length })}</span>
+          <span>{tr('settingsPage.footTotals', {
+            files: tr(count === 1 ? 'settingsPage.filesN_one' : 'settingsPage.filesN_other', { n: count ?? '?' }), mb: num(totMb, 0),
+            days: tr(calendario.length === 1 ? 'settingsPage.footDays_one' : 'settingsPage.footDays_other', { n: calendario.length }) })}</span>
         </div>
 
         {esito && (

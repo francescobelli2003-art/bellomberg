@@ -125,3 +125,15 @@ export function etichetteAsse(cal: Giorno[]): string[] {
     return `${dd}/${mm}`;
   });
 }
+
+/* Etichette dell'asse dei MB (cima e meta' del grafico). Sotto i 10 MB
+   l'intero mente: 2,5 diventava «3» e, col fondo scala a 1, cima e meta'
+   uscivano entrambe «1». Quindi una cifra decimale sotto 10, due sotto 1;
+   se l'arrotondamento le rende comunque uguali si aggiunge una cifra a
+   entrambe, mai due etichette identiche su righe diverse. */
+export const cifreMb = (v: number) => (v >= 10 ? 0 : v >= 1 ? 1 : 2);
+export function etichetteMb(max: number, num: (v: number, cifre: number) => string): [string, string] {
+  let ca = cifreMb(max), cm = cifreMb(max / 2);
+  while (num(max, ca) === num(max / 2, cm) && ca < 6) { ca++; cm++; }
+  return [num(max, ca), num(max / 2, cm)];
+}

@@ -9,7 +9,7 @@ import {
 import type { useT } from '../../i18n/provider';
 import {
   type Backup, type Giorno, type GruppoMotori, type Lavoro, type SezioneId,
-  chiave, engineLabels, etichetteAsse, ggmm, gruppoMotore, hhmm, isAuto, nomeLavoro, parseIso, parseTask, spento,
+  chiave, engineLabels, etichetteAsse, etichetteMb, ggmm, gruppoMotore, hhmm, isAuto, nomeLavoro, parseIso, parseTask, spento,
 } from './logica';
 
 export type Tr = ReturnType<typeof useT>;
@@ -86,11 +86,12 @@ export function SezioneGenerale(p: {
 function Grafico({ cal, tr, num }: { cal: Giorno[]; tr: Tr; num: Numero }) {
   const max = Math.max(1, ...cal.map(c => c.mb));
   const fitto = cal.length > 45;
+  const [alto, mezzo] = etichetteMb(max, num);
   return (
     <div className={'bbn-imp-chart' + (fitto ? ' is-dense' : '')}>
       <div className="bbn-imp-plot">
-        <span className="bbn-imp-grid" style={{ top: 0 }} /><span className="bbn-imp-gl" style={{ top: 0 }}>{num(max, 0)} MB</span>
-        <span className="bbn-imp-grid" style={{ top: '50%' }} /><span className="bbn-imp-gl" style={{ top: '50%' }}>{num(max / 2, 0)}</span>
+        <span className="bbn-imp-grid" style={{ top: 0 }} /><span className="bbn-imp-gl" style={{ top: 0 }}>{alto} MB</span>
+        <span className="bbn-imp-grid" style={{ top: '50%' }} /><span className="bbn-imp-gl" style={{ top: '50%' }}>{mezzo}</span>
         {cal.map((c, i) => {
           const h = c.n ? Math.max(6, Math.round(100 * c.mb / max)) : 0;
           const [aa, mm, dd] = c.g.split('-');
@@ -101,11 +102,11 @@ function Grafico({ cal, tr, num }: { cal: Giorno[]; tr: Tr; num: Numero }) {
             <span key={c.g} tabIndex={0} role="img"
               className={'bbn-imp-bar' + (c.n ? (soloMano ? ' is-manual' : '') : ' is-empty') + (i === cal.length - 1 ? ' is-last' : '') + lato}
               style={{ '--h': (c.n ? h : 0) + '%' } as CSSProperties}
-              aria-label={c.n ? tr('settingsPage.nightAria', { d: data, mb: num(c.mb, 2), n: c.n }) : tr('settingsPage.nightEmptyAria', { d: data })}>
+              aria-label={c.n ? tr(c.n === 1 ? 'settingsPage.nightAria_one' : 'settingsPage.nightAria_other', { d: data, mb: num(c.mb, 2), n: c.n }) : tr('settingsPage.nightEmptyAria', { d: data })}>
               <i />
               <span className="bbn-imp-tip">
-                {c.n ? <><b>{tr('settingsPage.tipBackups', { mb: num(c.mb, 2), n: c.n })}</b>
-                  <span>{data} · {c.mano ? tr('settingsPage.tipManual', { n: c.mano }) : tr('settingsPage.tipAuto')}</span></>
+                {c.n ? <><b>{tr(c.n === 1 ? 'settingsPage.tipBackups_one' : 'settingsPage.tipBackups_other', { mb: num(c.mb, 2), n: c.n })}</b>
+                  <span>{data} · {c.mano ? tr(c.mano === 1 ? 'settingsPage.tipManual_one' : 'settingsPage.tipManual_other', { n: c.mano }) : tr('settingsPage.tipAuto')}</span></>
                   : <><b>{tr('settingsPage.tipEmpty')}</b><span>{data}</span></>}
               </span>
             </span>
@@ -148,13 +149,13 @@ export function SezioneBackup(p: {
         <div className="bbn-imp-tile"><div className="k">{tr('settingsPage.tileUncovered')}</div>
           <div className={'v' + (p.scoperte ? ' is-ko' : '')}>{p.cal.length ? <>{p.scoperte} <small>{num(100 * p.scoperte / p.cal.length, 1)}%</small></> : nd}</div></div>
         <div className="bbn-imp-tile"><div className="k">{tr('settingsPage.tileSpace')}</div>
-          <div className="v">{p.backups ? <>{num(p.totMb, 0)} MB <small>{tr('settingsPage.filesN', { n: p.count ?? '?' })}</small></> : nd}</div></div>
+          <div className="v">{p.backups ? <>{num(p.totMb, 0)} MB <small>{tr(p.count === 1 ? 'settingsPage.filesN_one' : 'settingsPage.filesN_other', { n: p.count ?? '?' })}</small></> : nd}</div></div>
       </div>
 
       <div className="bbn-imp-card bbn-imp-bk-chart">
         <div className="bbn-imp-card-head">
           <h3>{tr('settingsPage.chartTitle')}</h3>
-          <span className="bbn-imp-card-note">{tr('settingsPage.chartNote', { n: p.cal.length })}</span>
+          <span className="bbn-imp-card-note">{tr(p.cal.length === 1 ? 'settingsPage.chartNote_one' : 'settingsPage.chartNote_other', { n: p.cal.length })}</span>
           <span className="bbn-imp-grow" />
           <div className="bbn-imp-legend">
             <span><i className="sw a" />{tr('settingsPage.legendOvernight')}</span>
@@ -179,7 +180,7 @@ export function SezioneBackup(p: {
       <div className="bbn-imp-card bbn-imp-files-card">
         <div className="bbn-imp-card-head">
           <h3>{tr('settingsPage.filesTitle')}</h3>
-          <span className="bbn-imp-card-note">{tr('settingsPage.filesNote', { n: p.count ?? '?' })}</span>
+          <span className="bbn-imp-card-note">{tr(p.count === 1 ? 'settingsPage.filesNote_one' : 'settingsPage.filesNote_other', { n: p.count ?? '?' })}</span>
           <span className="bbn-imp-grow" />
           <button type="button" className="btn am bbn-imp-btn is-primary" data-azione="backup" onClick={p.onCrea} disabled={p.creando}>
             {p.creando ? <Loader2 size={15} className="bbn-imp-spin" /> : <HardDrive size={15} />}

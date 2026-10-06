@@ -279,3 +279,78 @@ test('a job without a last result never prints «undefined»', async () => {
   assert.match(it, /SYNTHOFF/); assert.doesNotMatch(it, /undefined/);
   h.language.impostaLinguaCorrente('en'); assert.doesNotMatch(h.render(), /undefined/);
 });
+
+// 06/10 (review PR #9): il fumetto del grafico e i conteggi dei file hanno singolare e plurale
+// veri, in entrambe le lingue: niente «1 presi a mano», «backup(s)», «1 files» o «1 days».
+test('one backup taken by hand is singular in the tooltip, the aria label and the file counts, in both languages', async () => {
+  const h = harness('SettingsPanel'); h.language.impostaLinguaCorrente('it'); h.render();
+  const it = await h.settle();
+  assert.match(it, /1 preso a mano/); assert.doesNotMatch(it, /1 presi a mano/);
+  assert.match(it, /MB in 1 backup/); assert.match(it, />1 file</); assert.doesNotMatch(it, /\b1 giorni\b/);
+  h.language.impostaLinguaCorrente('en'); const en = h.render();
+  assert.match(en, /1 made manually/); assert.match(en, /MB across 1 backup\b/);
+  assert.doesNotMatch(en, /backup\(s\)/); assert.doesNotMatch(en, /\b1 files\b/); assert.match(en, />1 file</);
+  assert.doesNotMatch(en, /\b1 days\b/); assert.match(en, /1 day covered/);
+});
+
+test('two backups taken by hand on the same night keep the plural in both languages', async () => {
+  const backups = [1, 2].map(i => ({ filename: 'synthetic_' + i + '.zip', path: 'synthetic/path/synthetic_' + i + '.zip',
+    size_mb: 2, created: '2026-09-10T2' + i + ':00:00' }));
+  const h = harness('SettingsPanel', { dbBackupsList: { count: 2, backups } });
+  h.language.impostaLinguaCorrente('it'); h.render(); const it = await h.settle();
+  assert.match(it, /2 presi a mano/); assert.match(it, /MB in 2 backup/); assert.match(it, />2 file</);
+  h.language.impostaLinguaCorrente('en'); const en = h.render();
+  assert.match(en, /2 made manually/); assert.match(en, /MB across 2 backups/); assert.match(en, />2 files</);
+});
+
+// 06/10 (review PR #9): sotto i 10 MB l'asse non arrotonda all'intero (2,5 era «3», e col fondo
+// scala a 1 cima e meta' erano entrambe «1»): una cifra decimale sotto 10, due sotto 1.
+test('the MB axis keeps decimals below 10 MB and never prints two identical labels', async () => {
+  const assi = html => [...html.matchAll(/class="bbn-imp-gl"[^>]*>([^<]*)</g)].map(m => m[1]);
+  const conMb = mb => harness('SettingsPanel', { dbBackupsList: { count: 1, backups: [{ filename: 'synthetic_backup.zip',
+    path: 'synthetic/path/synthetic_backup.zip', size_mb: mb, created: '2026-09-10T23:00:00' }] } });
+  let h = conMb(3); h.language.impostaLinguaCorrente('it'); h.render();
+  assert.deepEqual(assi(await h.settle()), ['3,0 MB', '1,5']);
+  h.language.impostaLinguaCorrente('en'); assert.deepEqual(assi(h.render()), ['3.0 MB', '1.5']);
+  h = conMb(1); h.language.impostaLinguaCorrente('it'); h.render();
+  assert.deepEqual(assi(await h.settle()), ['1,0 MB', '0,50']);
+  h = conMb(40); h.language.impostaLinguaCorrente('it'); h.render();
+  assert.deepEqual(assi(await h.settle()), ['40 MB', '20']);
+  h = conMb(16); h.render();
+  assert.deepEqual(assi(await h.settle()), ['16 MB', '8,0']);
+
+  const { etichetteMb } = creaCaricatore()('components/impostazioni/logica.ts');
+  const fisso = (v, cifre) => v.toFixed(cifre);
+  assert.deepEqual(etichetteMb(2.5, fisso), ['2.5', '1.3']);
+  assert.deepEqual(etichetteMb(9, fisso), ['9.0', '4.5']);
+  // un formattatore che arrotonda tutto uguale non produce due etichette identiche
+  const grezzo = (v, cifre) => (cifre < 3 ? '1' : v.toFixed(cifre));
+  const [alto, mezzo] = etichetteMb(1, grezzo); assert.notEqual(alto, mezzo);
+});
+
+// 06/10 (review PR #9): la lingua salvata nel profilo senza memoria locale non e' un successo pieno:
+// l'avviso ha tono e icona d'avviso, non la spunta verde.
+test('the unsaved local cache notice is a warning, not the green check', async () => {
+  const slots = []; let cursor = 0; const effects = [];
+  const memo = (fn, deps) => { const i = cursor++, old = slots[i];
+    if (!old || !deps || deps.some((v, k) => !Object.is(v, old.deps[k]))) slots[i] = { deps, value: fn() }; return slots[i].value; };
+  const hooks = { ...React,
+    useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = initial; return [slots[i], v => { slots[i] = typeof v === 'function' ? v(slots[i]) : v; }]; },
+    useRef(initial) { return memo(() => ({ current: initial }), []); },
+    useCallback: (fn, deps) => memo(() => fn, deps), useMemo: memo,
+    useEffect(fn, deps) { memo(() => { effects.push(fn); return true; }, deps); },
+    useSyncExternalStore(_s, snapshot) { return snapshot(); },
+  };
+  ambienteBrowser();
+  const preferenze = { caricaPreferenza: async () => ({ selected: true, language: 'it', cacheSaved: false }),
+    scegliLingua: async () => { throw new Error('unexpected save'); }, ErrorePreferenza: Error };
+  const load = creaCaricatore({ stub: { react: hooks, '@/lib/api': { Bellomberg: {} }, '@/i18n/preferenze': preferenze } });
+  const language = load('i18n/lingua.ts'); const SceltaLingua = load('components/SceltaLingua.tsx').default;
+  const render = () => { cursor = 0; const html = renderToStaticMarkup(SceltaLingua({ variant: 'nuova' })); while (effects.length) effects.shift()(); return html; };
+  language.impostaLinguaCorrente('it'); render(); await Promise.resolve(); await Promise.resolve();
+  const it = render();
+  const nota = it.match(/<span role="status" class="bbn-imp-card-note[^"]*">.*?<\/span>/)[0];
+  assert.match(nota, /is-warn/); assert.match(nota, /triangle-alert/); assert.doesNotMatch(nota, /lucide-check\b/);
+  assert.match(nota, /memoria locale del browser non è disponibile/);
+  language.impostaLinguaCorrente('en'); assert.match(render(), /Browser storage is unavailable/);
+});

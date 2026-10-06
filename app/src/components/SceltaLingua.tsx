@@ -3,7 +3,7 @@ import { Bellomberg } from '@/lib/api';
 import { caricaPreferenza, scegliLingua, ErrorePreferenza, type PreferenzaVerificata } from '@/i18n/preferenze';
 import { type Lingua } from '@/i18n/lingua';
 import { useLingua, useT } from '@/i18n/provider';
-import { Check } from 'lucide-react';
+import { Check, TriangleAlert } from 'lucide-react';
 
 type Props = { initial?: boolean; onReady?: (preference: PreferenzaVerificata) => void; variant?: 'nuova' };
 
@@ -73,7 +73,10 @@ export default function SceltaLingua({ initial = false, onReady, variant }: Prop
           {state === 'saving' ? t('settingsPage.langSaving') : repair ? t('settingsPage.langRepair') : t('settingsPage.langSave')}
         </button>
         {state === 'error' && <button type="button" className="bbn-imp-btn" disabled={busy} onClick={() => void load()}>{t('settingsPage.langReload')}</button>}
-        {notice && <span role="status" className="bbn-imp-card-note"><Check size={13} /> {t(notice === 'cache' ? 'lingua.cache_non_salvata' : notice === 'backup' ? 'lingua.backup_salvato' : 'lingua.salvata')}</span>}
+        {/* La cache locale non salvata non e' un successo pieno: la lingua e' nel
+            profilo ma l'accesso sara' bilingue. Tono e icona d'avviso, non la spunta. */}
+        {notice === 'cache' && <span role="status" className="bbn-imp-card-note is-warn"><TriangleAlert size={13} aria-hidden="true" /> {t('lingua.cache_non_salvata')}</span>}
+        {notice && notice !== 'cache' && <span role="status" className="bbn-imp-card-note"><Check size={13} /> {t(notice === 'backup' ? 'lingua.backup_salvato' : 'lingua.salvata')}</span>}
       </div>
     </div>
   </section>;

@@ -56,6 +56,8 @@ Object.assign(NEUTRE_PER_CHIAVE, {
   'dashboardPage.dt_evEbitda': 'EV/EBITDA', 'dashboardPage.dt_volume': 'Vol.',
   'newsPage.theme_fed': 'Fed / FOMC', 'newsPage.theme_btc_etf': 'BTC / ETF',
   'settingsPage.chipBackend': 'Backend',
+  // Impostazioni (06/10): «1 file» e' uguale nelle due lingue; il piede compone solo segnaposti
+  'settingsPage.filesN_one': '1 file', 'settingsPage.footTotals': '{files} · {mb} MB · {days}',
   // Monte Carlo (05/10): sigle d'orizzonte identiche nelle due lingue
   'montecarlo.h21': '1M', 'montecarlo.h63': '3M', 'montecarlo.h126': '6M',
   'tradeidea.pdfSectionPage': 'p. {page}', 'tradeidea.pdfSection_business': 'Business', 'tradeidea.pdfSection_red_team': 'Red team',
