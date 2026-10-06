@@ -64,9 +64,21 @@ async function runOperations(q) {
       await q.toggle('modern');
       await q.capture('research-favorite-note-error');
       await q.fixture({ setWrite: { '/favorites/SYN1': { ok: true } } });
+      // il cuore non cancella subito: «Annulla» rimette il preferito senza scrivere nel DB
       await q.click('[data-page="watchlist"] [data-remove="SYN1"]');
       await q.waitFor(() => !document.querySelector('[data-page="watchlist"] .pf-row[data-ticker="SYN1"]'), 'favorite optimistic removal');
-      assert.equal((await writesFor(q, '/favorites/SYN1', 'DELETE')).length, 1);
+      assert.equal((await writesFor(q, '/favorites/SYN1', 'DELETE')).length, 0);
+      await q.click('[data-page="watchlist"] [data-undo-remove]');
+      await q.waitFor(() => !!document.querySelector('[data-page="watchlist"] .pf-row[data-ticker="SYN1"]'), 'favorite undo restores the row');
+      assert.equal((await writesFor(q, '/favorites/SYN1', 'DELETE')).length, 0);
+      // chiudere l'avviso conferma la rimozione: una sola DELETE
+      await q.click('[data-page="watchlist"] [data-remove="SYN1"]');
+      await q.waitFor(() => !!document.querySelector('[data-page="watchlist"] [data-undo-remove]'), 'undo offered after removal');
+      await q.click('[data-page="watchlist"] .pf-toast button.bbn-icon-btn');
+      await q.waitFor(() => !document.querySelector('[data-page="watchlist"] [data-undo-remove]'), 'confirmed removal closes the notice');
+      let deletes = 0;
+      for (let i = 0; i < 20 && deletes === 0; i++) { deletes = (await writesFor(q, '/favorites/SYN1', 'DELETE')).length; if (!deletes) await new Promise(r => setTimeout(r, 100)); }
+      assert.equal(deletes, 1);
       const target = '[data-page="watchlist"] [data-open-market]';
       const next = await q.js(s => document.querySelector(s)?.dataset.openMarket || null, target);
       assert.ok(next && next !== 'SYN1', 'detail moved to another favorite after removal');
@@ -75,7 +87,7 @@ async function runOperations(q) {
       // Market consumes the one-shot session key on mount; assert the selected UI.
       await q.waitFor(t => document.querySelector('[data-page="market"] .mk-dtitle span')?.textContent.split(' · ')[0] === t, 'favorite ticker selected in market', 10000, next);
       assert.equal(await q.js(() => sessionStorage.getItem('bb:mktTicker')), null);
-      return { assertionResults: { oneNoteWriteAcrossToggles: true, queryPayloadPreserved: true, errorRetainsDraft: true, deleteOnce: true, keyboardTickerNavigation: true }, allWritesSynthetic: true };
+      return { assertionResults: { oneNoteWriteAcrossToggles: true, queryPayloadPreserved: true, errorRetainsDraft: true, undoKeepsFavorite: true, deleteOnce: true, keyboardTickerNavigation: true }, allWritesSynthetic: true };
     } finally { await reset(q, []); }
   });
 

@@ -34,7 +34,7 @@ export type PropsVista = {
   settore: string; setSettore: (s: string) => void; ordine: Ordine; setOrdine: (o: Ordine) => void; testo: string; setTesto: (t: string) => void;
   notes: Record<string, string>; savedNote: Record<string, boolean>; noteErrors: Record<string, string>; savingNotes: Record<string, boolean>;
   profiloAperto: boolean; setProfiloAperto: (v: boolean) => void;
-  avviso: { tono: 'ok' | 'bad'; testo: string } | null; chiudiAvviso: () => void;
+  avviso: { tono: 'ok' | 'bad'; testo: string; annulla?: boolean } | null; chiudiAvviso: () => void; onAnnulla: () => void;
   aggiungo: string | null; addRef: MutableRefObject<HTMLInputElement | null>;
   onRefresh: () => void; onScegli: (t: string) => void; onRemove: (t: string) => void; onAdd: (h: MktSearchHit) => void;
   onEditNote: (t: string, v: string) => void; onSaveNote: (t: string) => void;
@@ -97,7 +97,8 @@ export default function VistaPreferiti(p: PropsVista) {
       {p.avviso && (
         <div className={'pf-toast is-' + p.avviso.tono} role="status">
           <span>{p.avviso.testo}</span>
-          <button type="button" className="bbn-icon-btn" aria-label={w.closeToast} onClick={p.chiudiAvviso}><X size={14} aria-hidden="true" /></button>
+          {p.avviso.annulla && <button type="button" className="pf-undo" data-undo-remove onClick={p.onAnnulla}>{w.undo}</button>}
+          <button type="button" className="bbn-icon-btn" aria-label={p.avviso.annulla ? w.confirmRemove : w.closeToast} onClick={p.chiudiAvviso}><X size={14} aria-hidden="true" /></button>
         </div>
       )}
     </div>

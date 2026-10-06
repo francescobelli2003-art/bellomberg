@@ -16,6 +16,8 @@ import './preferiti-nuova.css';
  *  stesso ordine: le viste sono solo presentazione. */
 
 const erroreDi = (e: any) => leggiDetail(e?.response?.data?.detail) || leggiDetail(e?.message) || String(e);
+const ANNULLA_MS = 6000;
+type Avviso = { tono: 'ok' | 'bad'; testo: string; annulla?: boolean };
 const oraOra = () => new Date().toLocaleTimeString(localeDi(linguaCorrente()), { hour: '2-digit', minute: '2-digit' });
 
 export default function WatchlistPage() {
@@ -38,12 +40,14 @@ export default function WatchlistPage() {
   const [filingErr, setFilingErr] = useState<string | null>(null);
   const [quotesAt, setQuotesAt] = useState<string | null>(null);
   const [profiloAperto, setProfiloAperto] = useState(false);
-  const [avviso, setAvviso] = useState<{ tono: 'ok' | 'bad'; testo: string } | null>(null);
+  const [avviso, setAvviso] = useState<Avviso | null>(null);
   const [aggiungo, setAggiungo] = useState<string | null>(null);
   const notesRef = useRef<Record<string, string>>({});
   const savingRef = useRef(new Set<string>());
   const serverRef = useRef<Record<string, string>>({});
   const addRef = useRef<HTMLInputElement | null>(null);
+  // rimozione in attesa: il DB si tocca solo allo scadere di «Annulla» (review PR #11)
+  const inAttesaRef = useRef<{ f: FavCompany; i: number; timer: ReturnType<typeof setTimeout> } | null>(null);
   const navigate = useNavigate();
 
   const leggiFiling = () => {
@@ -57,7 +61,8 @@ export default function WatchlistPage() {
     leggiFiling();
     try {
       const r = await Bellomberg.favorites();
-      const list = r.favorites || [];
+      // un titolo in attesa di rimozione resta fuori anche dopo «Aggiorna»
+      const list = (r.favorites || []).filter(f => f.ticker !== inAttesaRef.current?.f.ticker);
       setFavs(list);
       // una bozza non salvata sopravvive ad «Aggiorna»; le altre note seguono il server
       const prima = notesRef.current, server = serverRef.current;
@@ -77,12 +82,17 @@ export default function WatchlistPage() {
   };
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // l'avviso si chiude da solo dopo qualche secondo
+  // l'avviso si chiude da solo dopo qualche secondo; quello con «Annulla» lo chiude la rimozione
   useEffect(() => {
-    if (!avviso) return;
+    if (!avviso || avviso.annulla) return;
     const t = setTimeout(() => setAvviso(null), avviso.tono === 'bad' ? 8000 : 4000);
     return () => clearTimeout(t);
   }, [avviso]);
+  // uscendo dalla pagina la rimozione in attesa si completa: il PM l'ha chiesta e non l'ha annullata
+  useEffect(() => () => {
+    const r = inAttesaRef.current;
+    if (r) { clearTimeout(r.timer); inAttesaRef.current = null; Bellomberg.favDel(r.f.ticker).catch(() => {}); }
+  }, []);
 
   const visibili = favs ? elenco(favs, quotes, { settore, testo, ordine }) : [];
   // il dettaglio segue la scelta; senza scelta (o se il titolo è uscito) il primo dell'elenco
@@ -90,16 +100,39 @@ export default function WatchlistPage() {
 
   const scegli = (t: string) => { setSel(t); setProfiloAperto(false); };
 
+  // Il cuore toglie il titolo dall'elenco ma cancella dal DB (nota compresa) solo dopo
+  // ANNULLA_MS: fino ad allora «Annulla» lo rimette com'era. Chiudere l'avviso conferma subito.
+  const conferma = async () => {
+    const r = inAttesaRef.current;
+    if (!r) return;
+    clearTimeout(r.timer); inAttesaRef.current = null;
+    setAvviso(a => a?.annulla ? null : a);
+    try { await Bellomberg.favDel(r.f.ticker); }
+    catch (e) { setAvviso({ tono: 'bad', testo: w.removeError(r.f.ticker, erroreDi(e)) }); load(); }
+  };
+
+  const annulla = () => {
+    const r = inAttesaRef.current;
+    if (!r) return;
+    clearTimeout(r.timer); inAttesaRef.current = null;
+    setFavs(f => { const l = (f || []).filter(x => x.ticker !== r.f.ticker); l.splice(Math.min(r.i, l.length), 0, r.f); return l; });
+    setSel(r.f.ticker);
+    setAvviso({ tono: 'ok', testo: w.restoredToast(r.f.ticker) });
+  };
+
   const remove = async (t: string) => {
-    const resto = (favs || []).filter(x => x.ticker !== t);
+    const f = favs?.find(x => x.ticker === t);
+    if (!f) return;
+    await conferma(); // una sola rimozione in attesa alla volta: la precedente si completa
     if (scelto?.ticker === t) setSel(visibili.find(x => x.ticker !== t)?.ticker ?? null);
-    setFavs(resto);
-    try { await Bellomberg.favDel(t); setAvviso({ tono: 'ok', testo: w.removedToast(t) }); }
-    catch (e) { setAvviso({ tono: 'bad', testo: w.removeError(t, erroreDi(e)) }); load(); }
+    setFavs(l => (l || []).filter(x => x.ticker !== t));
+    inAttesaRef.current = { f, i: (favs || []).indexOf(f), timer: setTimeout(conferma, ANNULLA_MS) };
+    setAvviso({ tono: 'ok', testo: w.removedToast(t), annulla: true });
   };
 
   const add = async (hit: MktSearchHit) => {
     const t = hit.symbol.toUpperCase();
+    if (inAttesaRef.current?.f.ticker === t) { annulla(); return; }
     if (aggiungo || favs?.some(f => f.ticker === t)) return;
     setAggiungo(t);
     // la quotazione dà nome e settore; se manca si aggiunge lo stesso con il nome della ricerca
@@ -159,7 +192,7 @@ export default function WatchlistPage() {
         loading={loading} err={err} quotesAt={quotesAt} filing={filing} filingErr={filingErr}
         settore={settore} setSettore={setSettore} ordine={ordine} setOrdine={setOrdine} testo={testo} setTesto={setTesto}
         notes={notes} savedNote={savedNote} noteErrors={noteErrors} savingNotes={savingNotes}
-        profiloAperto={profiloAperto} setProfiloAperto={setProfiloAperto} avviso={avviso} chiudiAvviso={() => setAvviso(null)}
+        profiloAperto={profiloAperto} setProfiloAperto={setProfiloAperto} avviso={avviso} chiudiAvviso={() => avviso?.annulla ? conferma() : setAvviso(null)} onAnnulla={annulla}
         aggiungo={aggiungo} addRef={addRef}
         onRefresh={load} onScegli={scegli} onRemove={remove} onAdd={add} onEditNote={editNote} onSaveNote={saveNote}
         onOpenMarket={openMkt} onTradeIdea={openTradeIdea} onOpenFiling={openFiling}

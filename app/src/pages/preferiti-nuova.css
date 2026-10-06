@@ -231,6 +231,11 @@
   box-shadow: 0 16px 48px rgba(0, 0, 0, .3); animation: pf-in .2s ease-out;
 }
 .pf-toast.is-bad { background: var(--bbn-bad); color: #fff; }
+.bb-page.bb-page-modern[data-page] .bbn-preferiti .pf-toast .pf-undo {
+  border: 0; border-radius: 999px; padding: 4px 12px; background: transparent; color: var(--bbn-accent); font: inherit; text-transform: uppercase; letter-spacing: .04em; cursor: pointer;
+}
+.bb-page.bb-page-modern[data-page] .bbn-preferiti .pf-toast .pf-undo:hover { background: color-mix(in srgb, var(--bbn-bg) 14%, transparent); }
+.bb-page.bb-page-modern[data-page] .bbn-preferiti .pf-toast .pf-undo:focus-visible { outline: 2px solid var(--bbn-accent); outline-offset: 2px; }
 .bb-page.bb-page-modern[data-page] .bbn-preferiti .pf-toast button.bbn-icon-btn { width: 26px; height: 26px; background: transparent; color: inherit; }
 @keyframes pf-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translateX(-50%); } }
 
