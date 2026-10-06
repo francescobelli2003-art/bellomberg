@@ -331,3 +331,119 @@ test('the what-if dialog keeps keyboard focus inside while it is open', async ()
   dialog.props.onKeyDown({ key: 'Tab', shiftKey: true, currentTarget: box, preventDefault() { prevented++; } });
   assert.deepEqual(moved, ['first', 'last']); assert.equal(prevented, 2);
 });
+
+// ── scenario deterministico (sync 2a72bf8) ──
+// Il replay copre tutto l'orizzonte: il motore manda le metriche statistiche a null e lo
+// dichiara. Numeri inventati interi (regola dei test): NAV 1000, scenario −40% / −400 €.
+const NA_DET = ['expected_return_pct', 'median_return_pct', 'stdev_pct', 'sharpe_simulated', 'prob_negative_pct',
+  'prob_loss_10pct', 'prob_loss_20pct', 'prob_gain_10pct', 'prob_gain_20pct', 'var_95_pct', 'var_99_pct',
+  'var_99_cornish_fisher_pct', 'es_95_pct', 'es_99_pct', 'es_95_eur', 'es_99_eur', 'max_drawdown_p5_pct',
+  'max_drawdown_median_pct', 'max_drawdown_p95_pct', 'percentiles_ratio', 'percentiles_eur'];
+function deterministicFixture() {
+  const data = fixture(), via = [1000, 800, 600];
+  Object.assign(data, { base_nav_eur: 1000, stress_scenario: 'gfc_2008', stress_requested: 'gfc_2008', stress_fallback: false,
+    stress_meta: { applied: 'gfc_2008', replaced_days: 252, window_loss_pct: -40, window_loss_eur: -400 },
+    stress_nature: 'deterministic', stress_nature_label: 'Frase natura it',
+    fan_bands: { days: [1, 126, 252], ...Object.fromEntries(['p5', 'p10', 'p25', 'p50', 'p75', 'p90', 'p95'].map(k => [k, via])),
+      deterministic: true, label: 'Frase bande it' },
+    sample_paths: [[1, 0.8, 0.6]], terminal_hist: { counts: [0, 10000, 0], edges_eur: [500, 550, 650, 700] },
+    deterministic_scenario: { label: 'scenario deterministico', scenario: 'gfc_2008', replayed_days: 252, horizon_days: 252,
+      scenario_loss_pct: -40, scenario_loss_eur: -400, scenario_max_drawdown_pct: -45, metrics_not_applicable: NA_DET,
+      sign_convention: 'Convenzione it', reason: 'Motivo it' } });
+  for (const k of NA_DET) data[k] = null;
+  data._presentation_v1.texts.push(
+    { path: ['stress_nature_label'], it: 'Frase natura it', en: 'Nature sentence en' },
+    { path: ['fan_bands', 'label'], it: 'Frase bande it', en: 'Bands sentence en' },
+    { path: ['deterministic_scenario', 'label'], it: 'scenario deterministico', en: 'deterministic scenario' },
+    { path: ['deterministic_scenario', 'sign_convention'], it: 'Convenzione it', en: 'Convention en' },
+    { path: ['deterministic_scenario', 'reason'], it: 'Motivo it', en: 'Reason en' });
+  return data;
+}
+const sezione = (html, cls) => { const from = html.indexOf(`<section class="bbn-card ${cls}"`); assert.ok(from >= 0, cls);
+  return html.slice(from, html.indexOf('</section>', from)); };
+
+test('a deterministic scenario shows its outcome and declares the statistical metrics not applicable, never green or as numbers', async () => {
+  const html = await settled(deterministicFixture());
+  const marker = { it: 'n.a. (scenario deterministico)', en: 'n/a (deterministic scenario)' };
+  const expected = {
+    it: ['|scenario deterministico · GFC 2008|?|una sola traiettoria|Frase natura it|Esito dello scenario|?|-40,00%|-400 €|Drawdown massimo|?|-45,00%|Sedute replicate|252 su 252|Motivo it|',
+      '|Atteso|?|n.a. (scenario deterministico)|', '|Volatilità|?|n.a. (scenario deterministico)|', '|Sharpe|?|n.a. (scenario deterministico)|',
+      '|Perdita di qualsiasi entità|n.a. (scenario deterministico)|', '|Guadagno oltre il 20%|n.a. (scenario deterministico)|',
+      '|P95|n.a. (scenario deterministico)|n.a. (scenario deterministico)|', '|ES 99%|?|n.a. (scenario deterministico)|n.a. (scenario deterministico)|',
+      '|Traiettoria|Partenza|Frase bande it|'],
+    en: ['|deterministic scenario · GFC 2008|?|a single path|Nature sentence en|Scenario outcome|?|-40.00%|-€400|Maximum drawdown|?|-45.00%|Replayed sessions|252 of 252|Reason en|',
+      '|Expected|?|n/a (deterministic scenario)|', '|Volatility|?|n/a (deterministic scenario)|', '|Sharpe|?|n/a (deterministic scenario)|',
+      '|Any loss|n/a (deterministic scenario)|', '|Gain over 20%|n/a (deterministic scenario)|',
+      '|P95|n/a (deterministic scenario)|n/a (deterministic scenario)|', '|ES 99%|?|n/a (deterministic scenario)|n/a (deterministic scenario)|',
+      '|Path|Start|Bands sentence en|'],
+  };
+  for (const language of ['it', 'en']) {
+    const page = html[language], text = plain(page);
+    for (const phrase of expected[language]) assert.ok(text.includes(phrase), `${language}: ${phrase}`);
+    // `null >= 0` è true in JS: nessuna metrica non applicabile esce colorata come guadagno o perdita
+    for (const cls of ['mc-esito', 'mc-prob', 'mc-pct', 'mc-risk', 'mc-depth']) {
+      const box = sezione(page, cls);
+      assert.doesNotMatch(box, /mc-up|mc-down|is-su|is-giu/, `${language} ${cls}: no sign colour`);
+      // ogni valore dichiarato non applicabile porta solo il segnaposto, mai un numero
+      const values = [...box.matchAll(/class="num[^"]*is-na[^"]*">([^<]*)</g)].map(m => m[1]);
+      assert.ok(values.length > 0, `${language} ${cls}: declared values`);
+      for (const v of values) assert.equal(v, marker[language], `${language} ${cls}`);
+    }
+    // l'esito dello scenario ha il segno: −40% è una perdita, rossa
+    const det = sezione(page, 'mc-det');
+    assert.match(det, /class="num mc-down">-40[.,]00%</);
+    // sul grafico: niente bande né etichette dei percentili, una traiettoria dichiarata
+    const cone = sezione(page, 'mc-cone');
+    assert.doesNotMatch(cone, /p5–p95|mc-band|>P95</);
+    assert.match(cone, /data-det-bands/);
+  }
+  assert.doesNotMatch(html.it, /n\/a/); assert.doesNotMatch(html.en, /n\.a\. \(scenario/);
+});
+
+test('a stress fixed then simulated declares that the metrics are conditional on the scenario', async () => {
+  const data = fixture();
+  Object.assign(data, { stress_scenario: 'shock_3sigma', stress_nature: 'fixed_then_simulated', stress_nature_label: 'Condizionate it', deterministic_scenario: null });
+  data._presentation_v1.texts.push({ path: ['stress_nature_label'], it: 'Condizionate it', en: 'Conditional en' });
+  const html = await settled(data);
+  assert.ok(plain(html.it).includes('|Condizionate it|')); assert.ok(plain(html.en).includes('|Conditional en|'));
+  // le metriche restano numeri veri: niente blocco deterministico né segnaposto
+  for (const language of ['it', 'en']) assert.doesNotMatch(html[language], /data-deterministic|is-na/);
+});
+
+test('the simulation time stamp carries the year', async () => {
+  const html = await settled(fixture());
+  assert.ok(plain(html.it).includes('|Calcolata 12 set 2026 · 10:41|'));
+  assert.match(plain(html.en), /\|Computed 12 Sept? 2026 · 10:41\|/);
+});
+
+test('the what-if tabs are real tabs connected to their panels, with arrow keys', async () => {
+  const { render } = retained({ ...fixture(), weights_pre: { 'SYNTH.X': 1 }, weights_post: { 'SYNTH.X': 0.5, 'SYNTH.Y': 0.5 } });
+  render('it'); await render.effects(); render('it');
+  find(render.view(), n => n.type === 'button' && n.props['data-action'] === 'open-banco').props.onClick(); render('it');
+  const banco = find(render.view(), named('Banco'));
+  const draw = props => { let tree; renderToStaticMarkup(React.createElement(function Cattura() { tree = banco.type(props); return tree; })); return tree; };
+  const tree = draw(banco.props);
+  const list = find(tree, n => n.props && n.props.role === 'tablist');
+  assert.ok(list.props['aria-label']);
+  const tabs = ['mod', 'pesi'].map(id => find(tree, n => n.props && n.props.role === 'tab' && n.props.id === `mc-tab-${id}`));
+  const panels = ['mod', 'pesi'].map(id => find(tree, n => n.props && n.props.role === 'tabpanel' && n.props.id === `mc-panel-${id}`));
+  tabs.forEach((tab, i) => {
+    assert.equal(tab.props['aria-controls'], panels[i].props.id);
+    assert.equal(panels[i].props['aria-labelledby'], tab.props.id);
+  });
+  assert.deepEqual(tabs.map(t => [t.props['aria-selected'], t.props.tabIndex]), [[true, 0], [false, -1]]);
+  assert.deepEqual(panels.map(p => p.props.hidden), [false, true]);
+  // freccia a destra: scheda «pesi», e il fuoco la segue
+  const chosen = [], focused = [];
+  global.document = { getElementById: id => ({ focus() { focused.push(id); } }) };
+  const press = (props, key) => find(draw(props), n => n.props && n.props.role === 'tablist').props.onKeyDown({ key, preventDefault() {} });
+  press({ ...banco.props, onTab: t => chosen.push(t) }, 'ArrowRight');
+  press({ ...banco.props, tab: 'pesi', onTab: t => chosen.push(t) }, 'Home');
+  assert.deepEqual(chosen, ['pesi', 'mod']); assert.deepEqual(focused, ['mc-tab-pesi', 'mc-tab-mod']);
+  const onPesi = draw({ ...banco.props, tab: 'pesi' });
+  assert.equal(find(onPesi, n => n.props && n.props.id === 'mc-panel-pesi').props.hidden, false);
+  assert.equal(find(onPesi, n => n.props && n.props.id === 'mc-tab-pesi').props['aria-selected'], true);
+  // senza confronto dei pesi nel payload la scheda è spenta e le frecce restano su «Modifiche»
+  const without = []; press({ ...banco.props, result: fixture(), onTab: t => without.push(t) }, 'ArrowRight');
+  assert.deepEqual(without, ['mod']);
+});

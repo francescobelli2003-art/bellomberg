@@ -1,28 +1,44 @@
 import { t as tr, type Chiave } from '@/i18n/t';
 import { linguaCorrente, localeDi } from '@/i18n/lingua';
+import type { MonteCarloResult } from '@/lib/api';
 import { fmtEUR as fmtEURlib, fmtPct as fmtPctlib, fmtNum as fmtNumlib } from '@/lib/format';
 
 // B-UI15: logica di formato UNICA in lib/format; qui solo la convenzione locale della
 // pagina — EUR a 0 decimali, numeri nella lingua corrente. Il buco lo dichiara la pagina
 // col segnaposto della lingua della UI: lib/format stampa un 'n/a' fisso.
-export const naOr = (v: number | null | undefined, f: (x: number) => string) =>
-  v == null || !isFinite(v) ? tr('montecarlo.na') : f(v);
-export const fmtEUR = (v: number | null | undefined) => naOr(v, x => fmtEURlib(x, false, 0));
-export const fmtEURS = (v: number | null | undefined) => naOr(v, x => fmtEURlib(x, true, 0));
-export const fmtEUR2 = (v: number | null | undefined) => naOr(v, x => fmtEURlib(x, false, 2));
-export const fmtPct = (v: number | null | undefined) => naOr(v, x => fmtPctlib(x, false));
-export const fmtPctS = (v: number | null | undefined) => naOr(v, x => fmtPctlib(x, true));
-export const fmtNum = (v: number | null | undefined, dec = 2) => naOr(v, x => fmtNumlib(x, dec));
+// `na`: il segnaposto da stampare al posto del buco; di norma «n.d.» (campo mancante), ma
+// con lo scenario deterministico le metriche statistiche sono null PER COSTRUZIONE e si dice
+// perché (vedi `naDi`).
+export const naOr = (v: number | null | undefined, f: (x: number) => string, na?: string) =>
+  v == null || !isFinite(v) ? (na ?? tr('montecarlo.na')) : f(v);
+export const fmtEUR = (v: number | null | undefined, na?: string) => naOr(v, x => fmtEURlib(x, false, 0), na);
+export const fmtEURS = (v: number | null | undefined, na?: string) => naOr(v, x => fmtEURlib(x, true, 0), na);
+export const fmtEUR2 = (v: number | null | undefined, na?: string) => naOr(v, x => fmtEURlib(x, false, 2), na);
+export const fmtPct = (v: number | null | undefined, na?: string) => naOr(v, x => fmtPctlib(x, false), na);
+export const fmtPctS = (v: number | null | undefined, na?: string) => naOr(v, x => fmtPctlib(x, true), na);
+export const fmtNum = (v: number | null | undefined, dec = 2, na?: string) => naOr(v, x => fmtNumlib(x, dec), na);
 export const fmtInt = (v: number | null | undefined) =>
   naOr(v, x => Math.round(x).toLocaleString(localeDi(linguaCorrente()), { useGrouping: true }));
 
-/** Timbro d'esecuzione della simulazione: «5 ott · 19:27». Mai inventato: se il payload
- *  non porta il timestamp, si dichiara. */
+/** Scenario deterministico (replay che copre tutto l'orizzonte): lo dice il motore, col
+ *  blocco `deterministic_scenario`; la pagina non lo deduce da una varianza nulla. */
+export const deterministico = (r: MonteCarloResult | null | undefined) =>
+  r?.stress_nature === 'deterministic' || r?.deterministic_scenario != null;
+
+/** Segnaposto di un campo del payload: «n.a. (scenario deterministico)» se il motore lo
+ *  elenca fra le metriche non applicabili, altrimenti undefined (= il «n.d.» di sempre).
+ *  Solo i campi ELENCATI: un buco qualunque resta un buco, non diventa «non applicabile». */
+export const naDi = (r: MonteCarloResult | null | undefined, campo: string): string | undefined =>
+  r?.deterministic_scenario?.metrics_not_applicable?.includes(campo) ? tr('montecarlo.naDeterministic') : undefined;
+
+/** Timbro d'esecuzione della simulazione: «5 ott 2026 · 19:27». Con l'anno (review): una
+ *  simulazione in cache può venire da un altro anno, e senza l'anno la data mentirebbe. Mai
+ *  inventato: se il payload non porta il timestamp, si dichiara. */
 export const stamp = (iso?: string) => {
   const d = iso ? new Date(iso) : null;
   if (!d || isNaN(d.getTime())) return tr('montecarlo.stampMissing');
   const loc = localeDi(linguaCorrente());
-  const day = d.toLocaleDateString(loc, { day: 'numeric', month: 'short' }).replace('.', '');
+  const day = d.toLocaleDateString(loc, { day: 'numeric', month: 'short', year: 'numeric' }).replace('.', '');
   const time = d.toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit', hour12: false });
   return `${day} · ${time}`;
 };

@@ -974,6 +974,21 @@ export interface NewsTopicMeta {
   tickers_affected?: string[];
 }
 
+/** Scenario deterministico (stress_nature = "deterministic"): il replay storico copre tutto
+ *  l'orizzonte. `scenario_loss_pct/eur` sono un rendimento CON SEGNO (negativo = perdita). */
+export interface MonteCarloDeterministicScenario {
+  label: string;
+  scenario?: string | null;
+  replayed_days: number | null;
+  horizon_days: number | null;
+  scenario_loss_pct: number | null;
+  scenario_loss_eur: number | null;
+  scenario_max_drawdown_pct: number | null;
+  metrics_not_applicable: string[];
+  sign_convention?: string | null;
+  reason?: string | null;
+}
+
 export interface MonteCarloResult {
   timestamp: string;
   version?: string;
@@ -998,6 +1013,14 @@ export interface MonteCarloResult {
     window_loss_eur?: number;
     basis?: string;
   };
+  // Natura dello stress (voce 5 handoff-4, sync 2a72bf8). "deterministic" = il replay copre
+  // TUTTO l'orizzonte: ogni simulazione è identica, non c'è distribuzione e le metriche
+  // statistiche escono null (elenco in deterministic_scenario.metrics_not_applicable).
+  // "fixed_then_simulated" = replay o shock fisso e poi simulazione: metriche CONDIZIONATE.
+  // Assenti sui payload pre-sync: la pagina non deduce la natura da sola.
+  stress_nature?: 'none' | 'deterministic' | 'fixed_then_simulated';
+  stress_nature_label?: string | null;
+  deterministic_scenario?: MonteCarloDeterministicScenario | null;
   calibration_note?: string | null;
   returns_basis?: string;
   lookback_years?: number;
@@ -1011,27 +1034,28 @@ export interface MonteCarloResult {
   added_tickers: string[];
   weights: Record<string, number>;
   base_nav_eur: number;
-  percentiles_ratio: Record<string, number>;
-  percentiles_eur: Record<string, number>;
-  expected_return_pct: number;
-  median_return_pct: number;
-  stdev_pct: number;
-  sharpe_simulated: number;
-  prob_negative_pct: number;
-  prob_loss_10pct: number;
-  prob_loss_20pct: number;
-  prob_gain_10pct: number;
-  prob_gain_20pct: number;
-  var_95_pct?: number;
-  var_99_pct?: number;
-  var_99_cornish_fisher_pct?: number;
-  es_95_pct?: number;
-  es_99_pct?: number;
-  es_95_eur?: number;
-  es_99_eur?: number;
-  max_drawdown_p5_pct: number;
-  max_drawdown_median_pct: number;
-  max_drawdown_p95_pct: number;
+  // ⚠ null con lo scenario deterministico (vedi stress_nature): mai letti come zero
+  percentiles_ratio: Record<string, number> | null;
+  percentiles_eur: Record<string, number> | null;
+  expected_return_pct: number | null;
+  median_return_pct: number | null;
+  stdev_pct: number | null;
+  sharpe_simulated: number | null;
+  prob_negative_pct: number | null;
+  prob_loss_10pct: number | null;
+  prob_loss_20pct: number | null;
+  prob_gain_10pct: number | null;
+  prob_gain_20pct: number | null;
+  var_95_pct?: number | null;
+  var_99_pct?: number | null;
+  var_99_cornish_fisher_pct?: number | null;
+  es_95_pct?: number | null;
+  es_99_pct?: number | null;
+  es_95_eur?: number | null;
+  es_99_eur?: number | null;
+  max_drawdown_p5_pct: number | null;
+  max_drawdown_median_pct: number | null;
+  max_drawdown_p95_pct: number | null;
   sample_paths: number[][];
   // Giorno di ciascun punto di sample_paths (decimazione esplicita lato backend):
   // la UI NON re-indovina lo step. Assente sui payload vecchi -> si dichiara.
@@ -1051,6 +1075,10 @@ export interface MonteCarloResult {
     days: number[];
     p5: number[]; p10: number[]; p25: number[]; p50: number[];
     p75: number[]; p90: number[]; p95: number[];
+    // true = scenario deterministico: UNA traiettoria, i p5..p95 coincidono e NON sono
+    // percentili; `label` lo dice (testo del motore, localizzato)
+    deterministic?: boolean;
+    label?: string | null;
   };
   // Distribuzione dei NAV a scadenza (#143): istogramma VERO delle simulazioni,
   // non ricampionato. edges_eur ha SEMPRE un elemento in piu' di counts.

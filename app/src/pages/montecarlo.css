@@ -109,6 +109,16 @@
 .mc-note.is-bad { background: var(--bbn-bad-soft); color: var(--bbn-bad); }
 .mc-note.is-warn { background: var(--bbn-warn-soft); color: var(--bbn-warn); }
 .bb-page.bb-page-modern[data-page] .bbn-mc.bbn-mc button.mc-note-act { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+/* scenario deterministico (sync 2a72bf8): un blocco solo, sopra la plancia; le metriche
+   statistiche non applicabili dichiarano il motivo in grigio e vanno a capo, mai colorate */
+.bbn-mc .mc-det { flex: none; padding-bottom: 14px; }
+.mc-det h2::first-letter { text-transform: uppercase; }
+.mc-det-lead { margin: 0; padding: 0 20px 8px; color: var(--bbn-warn); font-size: 13px; font-weight: 700; }
+.mc-det-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 220px)); gap: 8px; padding: 0 16px; }
+.mc-det-row .mc-tile small { display: block; font-size: 13px; font-weight: 700; }
+.mc-det-reason { margin: 0; padding: 10px 20px 0; color: var(--bbn-muted); font-size: 12px; font-weight: 600; max-width: 1100px; }
+.mc-det-bands { color: var(--bbn-warn); font-weight: 700; }
+.bb-page.bb-page-modern[data-page] .bbn-mc.bbn-mc .is-na { color: var(--bbn-muted); font-size: 12px; font-weight: 700; letter-spacing: 0; line-height: 1.25; white-space: normal; }
 .mc-missing { margin: 8px 20px 18px; padding: 12px 14px; border-radius: 14px; background: var(--bbn-bad-soft); color: var(--bbn-bad); font-size: 13px; font-weight: 600; }
 .bbn-mc .mc-empty { flex: 1 1 auto; display: grid; place-items: center; min-height: 260px; padding: 48px 24px; text-align: center; color: var(--bbn-muted); font-size: 14px; }
 .mc-empty b { display: block; margin-bottom: 6px; color: var(--bbn-text); font-size: 18px; }
@@ -273,6 +283,9 @@
 .mc-drawer-head { display: flex; align-items: center; gap: 10px; padding: 22px 22px 6px; }
 .mc-drawer-head h2 { font-size: 20px; font-weight: 800; }
 .mc-drawer-lead { margin: 0; padding: 0 22px 12px; color: var(--bbn-muted); font-size: 13px; font-weight: 600; }
+/* le schede del banco: il pannello prende il posto che prima avevano corpo e piede */
+.mc-tabpanel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.mc-tabpanel[hidden] { display: none; }
 .mc-drawer-body { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px 22px 16px; }
 .mc-drawer-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 22px 22px; border-top: 1px solid var(--bbn-line); }
 .mc-foot-sum { flex: 1 1 auto; color: var(--bbn-muted); font-size: 12px; font-weight: 600; }

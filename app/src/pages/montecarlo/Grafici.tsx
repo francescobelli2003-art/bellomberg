@@ -3,7 +3,7 @@ import { Pin } from 'lucide-react';
 import { useT } from '@/i18n/provider';
 import type { MonteCarloResult } from '@/lib/api';
 import { useBox } from '@/lib/useBox';
-import { fmtEUR, fmtInt, fmtNum, fmtPctS } from './formato';
+import { deterministico, fmtEUR, fmtInt, fmtNum, fmtPctS } from './formato';
 import { Aiuto, PKEYS } from './Viste';
 
 /* I due grafici della plancia, su dati VERI del payload: bande del cono (fan_bands),
@@ -13,6 +13,11 @@ import { Aiuto, PKEYS } from './Viste';
 
 export type Finestra = { lo: number; hi: number };
 const MAX_TRACCE = 40;   // il campione resta leggero: le bande sono il dato, le tracce l'esempio
+
+/** Scenario deterministico: le «bande» sono UNA traiettoria (p5..p95 coincidono) e non sono
+ *  percentili. Lo dice il motore (fan_bands.deterministic) o il blocco dello scenario: basta
+ *  uno dei due perché il grafico smetta di etichettarle come percentili. */
+const unaTraiettoria = (r: MonteCarloResult) => !!r.fan_bands?.deterministic || deterministico(r);
 
 function tacche(lo: number, hi: number, target: number): number[] {
   if (!(hi > lo)) return [];
@@ -45,14 +50,19 @@ export function Cono({ r, view, tracce, soglie, onTracce, onSoglie }: {
   const [pin, setPin] = useState<number | null>(null);
   const fb = r.fan_bands;
   const disegnate = Math.min(MAX_TRACCE, r.sample_paths?.length ?? 0);
-  return <section className="bbn-card mc-cone">
+  const det = unaTraiettoria(r);
+  return <section className="bbn-card mc-cone" data-deterministic={det || undefined}>
     <div className="bbn-card-head"><h2>{tr('montecarlo.coneTitle')}</h2><Aiuto testo={tr('montecarlo.coneHelp')} /><span className="bbn-grow" />
       <button type="button" className="mc-toggle" aria-pressed={tracce} onClick={onTracce}>{tr('montecarlo.togglePaths')}</button>
       <button type="button" className="mc-toggle" aria-pressed={soglie} onClick={onSoglie}>{tr('montecarlo.toggleTails')}</button>
     </div>
     <div className="mc-legend">
-      <span><i className="mc-sw is-b1" />p5–p95</span><span><i className="mc-sw is-b2" />p10–p90</span><span><i className="mc-sw is-b3" />p25–p75</span>
-      <span><i className="mc-sw is-line" />{tr('montecarlo.legendMedian')}</span><span><i className="mc-sw is-start" />{tr('montecarlo.legendStart')}</span>
+      {det
+        // le bande coincidono: nessuna legenda di percentili, e la frase del motore lo dichiara sul grafico
+        ? <><span><i className="mc-sw is-line" />{tr('montecarlo.detPath')}</span><span><i className="mc-sw is-start" />{tr('montecarlo.legendStart')}</span>
+            <span className="mc-det-bands" role="note" data-det-bands>{fb?.label || tr('montecarlo.detBands')}</span></>
+        : <><span><i className="mc-sw is-b1" />p5–p95</span><span><i className="mc-sw is-b2" />p10–p90</span><span><i className="mc-sw is-b3" />p25–p75</span>
+            <span><i className="mc-sw is-line" />{tr('montecarlo.legendMedian')}</span><span><i className="mc-sw is-start" />{tr('montecarlo.legendStart')}</span></>}
       <span className="bbn-grow" />
       <span>{fb ? tr('montecarlo.coneMeta', { points: fb.days.length, paths: fmtInt(disegnate), sims: fmtInt(r.n_sims) }) : null}
         {fb && tracce && disegnate > 0 && !r.sample_paths_days ? tr('montecarlo.uniformDays') : ''}</span>
@@ -60,14 +70,14 @@ export function Cono({ r, view, tracce, soglie, onTracce, onSoglie }: {
     {!fb || !fb.days?.length || !view
       ? <div className="mc-missing" role="note">{tr('montecarlo.coneMissingA')} <b>{tr('montecarlo.fanBandsName')}</b>{tr('montecarlo.coneMissingB', { field: 'fan_bands' })}</div>
       : <div className="mc-chart" ref={ref}>
-          <ConoSvg r={r} view={view} w={box.w} h={box.h} tracce={tracce ? disegnate : 0} soglie={soglie}
+          <ConoSvg r={r} view={view} w={box.w} h={box.h} tracce={tracce ? disegnate : 0} soglie={soglie} det={det}
             idx={hover ?? pin} pinned={pin != null} onHover={setHover} onPick={i => setPin(p => (p != null ? null : i))} />
         </div>}
   </section>;
 }
 
-function ConoSvg({ r, view, w, h, tracce, soglie, idx, pinned, onHover, onPick }: {
-  r: MonteCarloResult; view: Finestra; w: number; h: number; tracce: number; soglie: boolean;
+function ConoSvg({ r, view, w, h, tracce, soglie, det, idx, pinned, onHover, onPick }: {
+  r: MonteCarloResult; view: Finestra; w: number; h: number; tracce: number; soglie: boolean; det: boolean;
   idx: number | null; pinned: boolean; onHover: (i: number | null) => void; onPick: (i: number | null) => void;
 }) {
   const tr = useT();
@@ -85,8 +95,12 @@ function ConoSvg({ r, view, w, h, tracce, soglie, idx, pinned, onHover, onPick }
   const yT = tacche(view.lo, view.hi, Math.max(3, Math.round((B - T) / 70)));
   const xT = Array.from({ length: 6 }, (_, i) => Math.round(d0 + ((d1 - d0) * i) / 5));
   const paths = (r.sample_paths || []).slice(0, tracce), pdays = r.sample_paths_days;
-  const code: [number | undefined, string][] = [[r.var_95_pct, 'VaR 95%'], [r.es_95_pct, 'ES 95%'], [r.es_99_pct, 'ES 99%']];
-  const fine = (['p95', 'p75', 'p50', 'p25', 'p5'] as const).map(k => ({ k, v: fb[k][n - 1] }));
+  const code: [number | null | undefined, string][] = [[r.var_95_pct, 'VaR 95%'], [r.es_95_pct, 'ES 95%'], [r.es_99_pct, 'ES 99%']];
+  // scenario deterministico: una traiettoria sola, quindi un'etichetta sola (la p50, uguale
+  // alle altre) e col nome della traiettoria, mai «P95…P5» impilate sullo stesso valore
+  const chiavi = det ? ['p50'] as const : PKEYS;
+  const nome = (k: string) => det ? tr('montecarlo.detPath') : k.toUpperCase();
+  const fine = (det ? ['p50'] as const : ['p95', 'p75', 'p50', 'p25', 'p5'] as const).map(k => ({ k, v: fb[k][n - 1] }));
   const fineY = scosta(fine.map(f => y(f.v)), 28);
   // soglie di coda: la linea sta sul valore vero, la targhetta si scosta se tocca la vicina
   const soglieIn = code.filter(([v]) => v != null && isFinite(v)).map(([v, lab]) => ({ lab, e: nav * (1 + v! / 100) }))
@@ -118,9 +132,11 @@ function ConoSvg({ r, view, w, h, tracce, soglie, idx, pinned, onHover, onPick }
       {xT.map(d => <text key={d} className="mc-ax" x={x(d)} y={B + 18} textAnchor="middle">{d}</text>)}
       <text className="mc-ax" x={(L + R) / 2} y={B + 34} textAnchor="middle">{tr('montecarlo.axisDays')}</text>
       <g clipPath="url(#mc-plot)">
-        <path className="mc-band is-b1" d={band(fb.p5, fb.p95)} />
-        <path className="mc-band is-b2" d={band(fb.p10, fb.p90)} />
-        <path className="mc-band is-b3" d={band(fb.p25, fb.p75)} />
+        {!det && <>
+          <path className="mc-band is-b1" d={band(fb.p5, fb.p95)} />
+          <path className="mc-band is-b2" d={band(fb.p10, fb.p90)} />
+          <path className="mc-band is-b3" d={band(fb.p25, fb.p75)} />
+        </>}
         {paths.map((p, i) => {
           const dd = (j: number) => (pdays && pdays[j] != null ? pdays[j] : d0 + ((d1 - d0) * j) / Math.max(1, p.length - 1));
           return <path key={i} className="mc-trace" d={p.map((v, j) => `${j ? 'L' : 'M'}${x(dd(j)).toFixed(1)} ${y(v * nav).toFixed(1)}`).join(' ')} />;
@@ -138,24 +154,24 @@ function ConoSvg({ r, view, w, h, tracce, soglie, idx, pinned, onHover, onPick }
         })}
         {idx != null && <>
           <line className="mc-cross" x1={x(days[idx])} x2={x(days[idx])} y1={T} y2={B} />
-          {PKEYS.map(k => <circle key={k} className={k === 'p50' ? 'mc-dot is-med' : 'mc-dot'} cx={x(days[idx])} cy={y(fb[k][idx])} r={k === 'p50' ? 4.5 : 3} />)}
+          {chiavi.map(k => <circle key={k} className={k === 'p50' ? 'mc-dot is-med' : 'mc-dot'} cx={x(days[idx])} cy={y(fb[k][idx])} r={k === 'p50' ? 4.5 : 3} />)}
         </>}
       </g>
       <rect className="mc-plate is-raised" x={L + 8} y={y(nav) - 26} width={partenza.length * 6.6 + 16} height={20} rx={10} />
       <text className="mc-plate-t" x={L + 16} y={y(nav) - 12}>{partenza}</text>
       {fine.map(({ k, v }, i) => <g key={k} className={k === 'p50' ? 'mc-end is-med' : 'mc-end'}>
         <line x1={R} x2={R + 6} y1={y(v)} y2={y(v)} />
-        <text className="mc-end-k" x={R + 10} y={fineY[i] - 3}>{k.toUpperCase()}</text>
+        <text className="mc-end-k" x={R + 10} y={fineY[i] - 3}>{nome(k)}</text>
         <text className="mc-end-v" x={R + 10} y={fineY[i] + 11}>{fmtEUR(v)}</text>
       </g>)}
     </svg>
     {idx != null && <div className={'mc-readout' + (avanti ? ' is-left' : '')} style={avanti ? { left: L + 12 } : { right: w - R + 12 }}>
       <div className="mc-rh">{tr('montecarlo.readDay', { d: days[idx], t: d1 })}
         {pinned && <span className="bbn-pill is-piatto"><Pin aria-hidden="true" />{tr('montecarlo.pinned')}</span>}</div>
-      {PKEYS.map(k => {
+      {chiavi.map(k => {
         const v = fb[k][idx], d = nav ? (v / nav - 1) * 100 : null;
         return <div key={k} className={'mc-rr' + (k === 'p50' ? ' is-med' : '')}>
-          <span>{k.toUpperCase()}</span><b className="num">{fmtEUR(v)}</b>
+          <span>{nome(k)}</span><b className="num">{fmtEUR(v)}</b>
           <b className={'num ' + (k === 'p50' || d == null ? '' : d < 0 ? 'mc-down' : 'mc-up')}>{fmtPctS(d)}</b>
         </div>;
       })}

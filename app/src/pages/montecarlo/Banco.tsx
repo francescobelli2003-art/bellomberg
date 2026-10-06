@@ -37,6 +37,8 @@ export function Banco({ tab, onTab, onClose, mods, ctx, ownedTickers, posErr, ba
   const chiudi = useRef<HTMLButtonElement>(null);
   useEffect(() => { chiudi.current?.focus(); }, []);
   const pesi = !!(result?.weights_pre && result?.weights_post);
+  // la scheda MOSTRATA: «pesi» chiesta senza il confronto nel payload resta sulle modifiche
+  const attiva = tab === 'pesi' && pesi ? 'pesi' : 'mod';
   const scartate = result?.skipped_modifications || [];
   const conta = (n: number, uno: Parameters<typeof tr>[0], molti: Parameters<typeof tr>[0]) => n === 1 ? tr(uno) : tr(molti, { count: n });
 
@@ -47,7 +49,9 @@ export function Banco({ tab, onTab, onClose, mods, ctx, ownedTickers, posErr, ba
              if (e.key === 'Escape') { onClose(); return; }
              // aria-modal: il fuoco da tastiera resta nel pannello (review PR #12)
              if (e.key !== 'Tab') return;
-             const f = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+             // fuori i controlli della scheda nascosta e la scheda inattiva (tabIndex -1)
+             const f = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+               .filter(el => !el.closest?.('[hidden]') && el.tabIndex !== -1);
              if (!f.length) return;
              const primo = f[0], ultimo = f[f.length - 1], qui = document.activeElement;
              if (e.shiftKey && qui === primo) { e.preventDefault(); ultimo.focus(); }
@@ -55,16 +59,29 @@ export function Banco({ tab, onTab, onClose, mods, ctx, ownedTickers, posErr, ba
            }}>
       <div className="mc-drawer-head">
         <h2 id="mc-drawer-title">{tr('montecarlo.bancoTitle')}</h2><span className="bbn-grow" />
-        <div className="bbn-seg mc-seg" role="tablist">
-          <button type="button" role="tab" aria-selected={tab === 'mod'} className={tab === 'mod' ? 'is-on' : ''} onClick={() => onTab('mod')}>{tr('montecarlo.tabMods')}</button>
-          <button type="button" role="tab" aria-selected={tab === 'pesi'} className={tab === 'pesi' ? 'is-on' : ''} disabled={!pesi}
+        {/* schede vere (review): tablist/tab/tabpanel collegati per id, fuoco solo sulla scheda
+            attiva e frecce/Home/Fine per spostarsi, come in Mandato. «Pesi» spenta (niente
+            confronto nel payload) non riceve il fuoco: le frecce restano su «Modifiche». */}
+        <div className="bbn-seg mc-seg" role="tablist" aria-label={tr('montecarlo.bancoTitle')} onKeyDown={e => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+          e.preventDefault();
+          const next = !pesi || e.key === 'Home' ? 'mod' : e.key === 'End' ? 'pesi' : attiva === 'mod' ? 'pesi' : 'mod';
+          onTab(next); document.getElementById('mc-tab-' + next)?.focus();
+        }}>
+          <button type="button" id="mc-tab-mod" role="tab" aria-selected={attiva === 'mod'} aria-controls="mc-panel-mod" tabIndex={attiva === 'mod' ? 0 : -1}
+                  className={attiva === 'mod' ? 'is-on' : ''} onClick={() => onTab('mod')}>{tr('montecarlo.tabMods')}</button>
+          <button type="button" id="mc-tab-pesi" role="tab" aria-selected={attiva === 'pesi'} aria-controls="mc-panel-pesi" tabIndex={attiva === 'pesi' ? 0 : -1}
+                  className={attiva === 'pesi' ? 'is-on' : ''} disabled={!pesi}
                   title={pesi ? undefined : tr('montecarlo.weightsUnavailable')} onClick={() => onTab('pesi')}>{tr('montecarlo.tabWeights')}</button>
         </div>
         <button type="button" ref={chiudi} className="bbn-icon-btn" aria-label={tr('montecarlo.close')} onClick={onClose}><X aria-hidden="true" /></button>
       </div>
       <p className="mc-drawer-lead">{tr('montecarlo.bancoLead')}</p>
 
-      {tab === 'pesi' && pesi ? <div className="mc-drawer-body"><Pesi r={result!} /></div> : <>
+      <div id="mc-panel-pesi" className="mc-tabpanel" role="tabpanel" aria-labelledby="mc-tab-pesi" tabIndex={0} hidden={attiva !== 'pesi'}>
+        {pesi && <div className="mc-drawer-body"><Pesi r={result!} /></div>}
+      </div>
+      <div id="mc-panel-mod" className="mc-tabpanel" role="tabpanel" aria-labelledby="mc-tab-mod" hidden={attiva !== 'mod'}>
         <div className="mc-drawer-body">
           <div className="mc-addrow">
             <button type="button" className="mc-addb is-add" data-add="add" onClick={() => onAdd('add')}><i />{tr('montecarlo.addAdd')}</button>
@@ -91,7 +108,7 @@ export function Banco({ tab, onTab, onClose, mods, ctx, ownedTickers, posErr, ba
                   title={simulaTitle} onClick={onRun}>
             {running ? <RefreshCw aria-hidden="true" className="animate-spin" /> : <Play aria-hidden="true" />}{simulaLabel}</button>
         </div>
-      </>}
+      </div>
     </aside>
   </div>;
 }

@@ -10,7 +10,7 @@ import { Bellomberg, MonteCarloResult, Position } from '@/lib/api';
 import { contaBanco, costruisciPayload, etichettaSimula } from '@/lib/montecarlo';
 import { Banco, type DraftMod, type ModAction } from './montecarlo/Banco';
 import { Cono, Distribuzione } from './montecarlo/Grafici';
-import { Aiuto, DrawdownPercorso, Esito, NoteMotore, Percentili, Probabilita, RischioCoda } from './montecarlo/Viste';
+import { Aiuto, DrawdownPercorso, Esito, NoteMotore, Percentili, Probabilita, RischioCoda, ScenarioDeterministico } from './montecarlo/Viste';
 import { etichettaMotore, fmtEUR, fmtEURS, fmtInt, stamp } from './montecarlo/formato';
 import '@/components/nuova/nuova.css';
 import './montecarlo.css';
@@ -282,6 +282,12 @@ export default function MonteCarloPage() {
       </> : result ? <>
         {result.stress_fallback && <div className="mc-note is-warn"><AlertCircle aria-hidden="true" />
           <span>{tr('montecarlo.fallbackBanner', { req: etichettaMotore('stress', result.stress_requested) })}</span></div>}
+        {/* natura dello stress (sync 2a72bf8): deterministico = blocco dello scenario con
+            l'esito da leggere; fisso-poi-simulato = metriche CONDIZIONATE, lo si dice sopra */}
+        {result.deterministic_scenario
+          ? <ScenarioDeterministico r={result} />
+          : result.stress_nature === 'fixed_then_simulated' && result.stress_nature_label
+            && <div className="mc-note is-warn" data-stress-nature><AlertCircle aria-hidden="true" /><span>{result.stress_nature_label}</span></div>}
         <div className={'mc-plancia' + (running ? ' is-loading' : '')} aria-busy={running}>
           <div className="mc-upper">
             <div className="mc-col is-left"><Esito r={result} /><Probabilita r={result} /></div>
