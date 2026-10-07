@@ -395,6 +395,7 @@ async function tradeActions(q) {
     await capture(q, 'operations/trades-cash-reference-labels');
     await q.toggle('classic');
     await q.setValue('#f7-tk', 'SYNQA');
+    await q.setValue('#f7-decisione', 'none'); // the link starts undeclared: pick «no decision» explicitly
     await q.setValue('#f7-qt', '0');
     await q.setValue('#f7-pz', '40');
     await submitTrade(q);

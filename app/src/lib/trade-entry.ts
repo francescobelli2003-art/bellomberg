@@ -109,6 +109,13 @@ export function assessmentAllowsExecution(d: Partial<Pick<Decision, 'assessment_
   return !status || status === 'OPERATIVE';
 }
 
+/** Il legame di partenza: l'id della decisione se il trade nasce dal suo pulsante,
+ *  altrimenti «non dichiarato». Partire da «nessuna decisione» faceva salvare
+ *  un'affermazione che il PM non ha mai fatto. */
+export function legameIniziale(decisionFromRoute: string | null): string {
+  return decisionFromRoute || 'unknown';
+}
+
 export function legameTrade(selection: string, decisions: Decision[], ticker: string, action: string,
                             verifiedTickerAlias = false) {
   if (selection === 'none') return { senza_decisione: true };

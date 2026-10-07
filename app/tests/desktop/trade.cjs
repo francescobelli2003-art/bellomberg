@@ -349,7 +349,7 @@ async function renderer(config) {
     scenarios.push('query decision + partial + historical conventional date + local replay + frozen exact confirmation');
 
     await open();
-    assert.equal(await js(() => document.querySelector('#f7-decisione').value), 'none');
+    assert.equal(await js(() => document.querySelector('#f7-decisione').value), 'unknown', 'no route decision: link starts undeclared');
     await fill('', 'none');
     await submit(); await dialog();
     assert.match(await row('Decisione'), /manuale, senza decisione/);

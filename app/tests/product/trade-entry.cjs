@@ -49,6 +49,39 @@ test('manual no-decision differs from unknown; partial executions can link expli
   assert.throws(() => legameTrade('31', [], 'SYNTH', 'BUY'));
 });
 
+test('without a decision in the route the link starts undeclared; ?decision=<id> keeps the id', () => {
+  const { legameIniziale } = helpers();
+  assert.equal(legameIniziale(null), 'unknown');
+  assert.equal(legameIniziale(''), 'unknown');
+  assert.equal(legameIniziale('31'), '31');
+  const src = fs.readFileSync(path.resolve(__dirname, '../../src/pages/TradeEntryPage.tsx'), 'utf8');
+  assert.ok(src.includes('useState(() => legameIniziale(decisionFromRoute))'), 'the page starts from legameIniziale');
+  assert.ok(!src.includes("useState(decisionFromRoute || 'none')"), 'no silent «no decision» default');
+});
+
+test('preview and confirmation carry the chosen link: undeclared, manual no-decision, explicit id', () => {
+  const { legameIniziale, legameTrade, congelaAnteprima } = helpers();
+  const base = { ticker: 'SYNTH', action: 'BUY', quantita: 2, prezzo: 30, valuta: 'USD', data: '2026-08-10' };
+  const cases = [
+    { selection: legameIniziale(null), origin: 'unknown', decisione: null,
+      check: b => { assert.equal(b.senza_decisione, false); assert.equal('linked_decision_id' in b, false); } },
+    { selection: 'none', origin: 'none', decisione: null,
+      check: b => { assert.equal(b.senza_decisione, true); assert.equal('linked_decision_id' in b, false); } },
+    { selection: legameIniziale('31'), origin: 'explicit', decisione: { id: 31, status: 'PARTIAL', nota: null },
+      check: b => { assert.equal(b.senza_decisione, false); assert.equal(b.linked_decision_id, 31); } },
+  ];
+  for (const c of cases) {
+    const request = { ...base, ...legameTrade(c.selection, [decision], 'SYNTH', 'BUY') };
+    c.check(request);
+    const frozen = congelaAnteprima(request, { ...response(), link_origin: c.origin, decisione: c.decisione });
+    c.check(frozen.body);
+    for (const other of ['unknown', 'none', 'explicit'].filter(o => o !== c.origin)) {
+      assert.throws(() => congelaAnteprima(request, { ...response(), link_origin: other, decisione: c.decisione }),
+        `${c.origin} body must not confirm a ${other} preview`);
+    }
+  }
+});
+
 test('blocked proposal is not linkable; different execution ticker needs recorded identity proof', () => {
   const { assessmentAllowsExecution, decisioneCompatibile, legameTrade } = helpers();
   const blocked = { ...decision, assessment_status: 'BLOCKED' };

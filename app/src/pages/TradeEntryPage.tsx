@@ -27,7 +27,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Bellomberg } from '@/lib/api';
 import type { Decision, MktSearchHit, MovimentoCassa, PortfolioSnapshot, Position } from '@/lib/api';
 import { portfolioValues } from '@/lib/portfolio-values';
-import { congelaAnteprima, corpoIdentita, dataTrade, decisioneCompatibile, legameTrade, righeLegame, totaliMovimenti, FrontendTradeError, statoDivergenza, etichettaStatoDivergenza, spiegazioneDivergenza } from '@/lib/trade-entry';
+import { congelaAnteprima, corpoIdentita, dataTrade, decisioneCompatibile, legameIniziale, legameTrade, righeLegame, totaliMovimenti, FrontendTradeError, statoDivergenza, etichettaStatoDivergenza, spiegazioneDivergenza } from '@/lib/trade-entry';
 import type { TradeRequest, TradePreview, TradeResult } from '@/lib/trade-entry';
 import { preparaPosizioneIniziale, congelaPosizioneIniziale, leggiRicevutaPosizione, leggiPosizioniIniziali } from '@/lib/position-opening';
 import type { OpeningDraft, OpeningRecord, OpeningResult } from '@/lib/position-opening';
@@ -213,7 +213,7 @@ function TradeOperationEntry({ view, onTestata, ricarica }: {
   const divergenceRouteConsumed = useRef<string | null>(null);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [decisionsErr, setDecisionsErr] = useState<string | null>(null);
-  const [selectedDecision, setSelectedDecision] = useState(decisionFromRoute || 'none');
+  const [selectedDecision, setSelectedDecision] = useState(() => legameIniziale(decisionFromRoute));
   const [manualDivergenceDecision, setManualDivergenceDecision] = useState(divergenceFromRoute || '');
   const [manualDivergenceReason, setManualDivergenceReason] = useState('');
   const [manualDivergenceMessage, setManualDivergenceMessage] = useState<{
@@ -884,7 +884,7 @@ function TradeOperationEntry({ view, onTestata, ricarica }: {
   useEffect(() => { if (cercaAttiva > opzioni.length - 1) setCercaAttiva(0); }, [opzioni.length, cercaAttiva]);
 
   // I Dettagli si aprono da soli quando contengono qualcosa che pesa sulla scrittura.
-  const dettagliForzati = selectedDecision !== 'none' || !!manualDivergenceDecision || !!tradeDay || !!tradeTime;
+  const dettagliForzati = !['none', 'unknown'].includes(selectedDecision) || !!manualDivergenceDecision || !!tradeDay || !!tradeTime;
   useEffect(() => { if (dettagliForzati) setDettagli(true); }, [dettagliForzati]);
 
   const scegliMercato = (hit: MktSearchHit) => {
