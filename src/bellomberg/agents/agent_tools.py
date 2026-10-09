@@ -1021,6 +1021,18 @@ def _options_data_usa(ticker, expiry=None, note_polygon=None):
         if polygon_available():
             poly = get_options_summary_polygon(ticker, expiry=expiry)
             if poly and not poly.get("error"):
+                # Public formatter aliases use percent; retain raw decimal keys.
+                # Incomplete quote qualifications cannot become ATM or IV/HV.
+                poly = dict(poly)
+                qualified = poly.get("atm_status") == "QUALIFIED"
+                for side in ("call", "put"):
+                    iv = poly.get("iv_atm_" + side)
+                    poly["atm_iv_" + side + "_pct"] = (
+                        round(iv * 100, 1) if qualified and iv is not None else None)
+                poly["iv_hv_comparison_status"] = "UNVERIFIED"
+                poly["iv_hv_comparison_note"] = (
+                    "Confronto IV/HV non verificato: servono ATM qualificato e "
+                    "finestre temporali compatibili; nessuna equivalenza implicita.")
                 return poly
             if note_polygon is not None:
                 note_polygon.append("Polygon: " + (str(poly.get("error")) if poly else "nessuna risposta"))

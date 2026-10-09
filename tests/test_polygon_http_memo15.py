@@ -112,3 +112,24 @@ def test_stdout_rotto_preserva_http(http_fake, monkeypatch, exc):
     assert out["error"] == "HTTP 429"
     clean(out)
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize('status', [401, 403, 429])
+def test_summary_quote_unavailable_on_http_error(http_fake, status):
+    arm, calls = http_fake
+    arm(status, 'synthetic provider refusal')
+    out = polygon_data.get_options_summary_polygon('SYNTH', '2099-06-18')
+    assert out['error'] == f'HTTP {status}'
+    assert out['coverage']['status'] == 'UNAVAILABLE'
+    assert out.get('spot') is None and out.get('iv_atm_call') is None
+    assert len(calls) == 1
+
+
+def test_summary_expiry_without_contracts_is_unavailable(http_fake):
+    arm, calls = http_fake
+    arm(200, '', {'results': []})
+    out = polygon_data.get_options_summary_polygon('SYNTH', '2099-06-18')
+    assert out['error'] == 'no data'
+    assert out['coverage']['rows_observed'] == 0
+    assert out.get('spot') is None
+    assert len(calls) == 1

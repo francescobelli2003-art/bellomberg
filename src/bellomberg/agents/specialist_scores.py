@@ -571,10 +571,18 @@ def options_score(proxy_ticker=None, portfolio_data=None, options_data=None):
                 "unavailable_reason": reason, "lines": [("Expiry", reason, None)], "metrics": {}}
     civ = _finite_number(options_data.get("atm_iv_call_pct"))
     piv = _finite_number(options_data.get("atm_iv_put_pct"))
+    atm_status = options_data.get("atm_status")
+    if atm_status is not None and atm_status != "QUALIFIED":
+        civ = piv = None
     pcr = _finite_number(options_data.get("put_call_oi_ratio"))
     skew = (piv - civ) if (piv is not None and civ is not None) else None
     atm = piv if piv is not None else civ
     lines = []; pts = []
+    unscored = []
+    if atm_status is not None and atm_status != "QUALIFIED":
+        reason = atm_status + ": " + ", ".join(options_data.get("atm_issues") or [])
+        lines.extend([("ATM IV", reason, None), ("Skew (IV put-call)", reason, None)])
+        unscored = ["ATM IV", "Skew (IV put-call)"]
     if pcr is not None:
         p = 0 if pcr < 0.8 else 1 if pcr < 1.1 else 2 if pcr < 1.5 else 3
         lines.append(("Put/Call OI ratio", "{:.2f}".format(pcr), p)); pts.append(p)
@@ -585,11 +593,16 @@ def options_score(proxy_ticker=None, portfolio_data=None, options_data=None):
         p = 0 if atm < 15 else 1 if atm < 22 else 2 if atm < 30 else 3
         lines.append(("ATM IV", "{:.1f}%".format(atm), p)); pts.append(p)
     if not pts:
+        if unscored:
+            return {"domain": "options ({})".format(proxy_ticker or "?"),
+                    "score": None, "max_score": None, "verdict": "n.d. - " + reason,
+                    "unavailable_reason": reason, "lines": lines, "metrics": {}}
         return None
     score = sum(pts); max_score = len(pts) * 3
     verdict = _verdict_bands(score, max_score, [_t("VOL COMPLACENTE"), _t("VOL NORMALE"), _t("VOL TESA"), _t("VOL PANICO")])
     return {"domain": "options ({})".format(proxy_ticker or "?"), "score": score, "max_score": max_score,
-            "verdict": verdict, "lines": lines, "metrics": {"atm_iv": atm, "skew": skew, "put_call_oi": pcr}}
+            "verdict": verdict, "lines": lines, "unscored": unscored,
+            "metrics": {"atm_iv": atm, "skew": skew, "put_call_oi": pcr}}
 
 
 @scoped_language

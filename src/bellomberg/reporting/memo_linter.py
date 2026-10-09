@@ -69,38 +69,102 @@ def _check_nav_percentages(memo, nav):
 
 
 def _check_scenario_sum(memo):
-    """Tabella Scenari: le probabilita' devono sommare ~100 (colonna con 'prob' nell'header)."""
-    m = re.search(r"##[^\n]*(?:Tabella Scenari|Scenario Table)[^\n]*\n(.*?)(?=\n## |\Z)", memo,
-                  re.IGNORECASE | re.DOTALL)
-    if not m:
-        return []
-    rows = [r for r in m.group(1).split("\n") if r.strip().startswith("|")]
-    if len(rows) < 3:
-        return []
-    header = [c.strip().lower() for c in rows[0].strip().strip("|").split("|")]
-    col = next((j for j, h in enumerate(header) if "prob" in h), None)
-    if col is None:
-        return []
-    probs = []
-    for r in rows[1:]:
-        cells = [c.strip() for c in r.strip().strip("|").split("|")]
-        if len(cells) <= col or "---" in cells[0]:
-            continue
-        pm = re.search(r"(\d+(?:[.,]\d+)?)\s*%", cells[col])
-        if pm:
-            probs.append(_pct(pm.group(1)))
-    probs = [p for p in probs if p is not None]
-    if len(probs) < 2:
-        return []
-    tot = sum(probs)
-    if not (SCENARI_SUM_RANGE[0] <= tot <= SCENARI_SUM_RANGE[1]):
-        return [_lt(f"**Tabella Scenari**: le probabilita' sommano {tot:.0f}% "
-                f"({' + '.join(f'{p:.0f}' for p in probs)}) invece di ~100: "
-                "scenari non mutuamente esclusivi o proxy (regole sez. 10)",
-                f"**Scenario Table**: probabilities total {tot:.0f}% "
-                f"({' + '.join(f'{p:.0f}' for p in probs)}) instead of ~100: "
-                "scenarios are not mutually exclusive, or are proxies (section 10 rules)")]
-    return []
+    """Check each scenario distribution, never adding its declared total twice."""
+    def cells(row):
+        return [c.strip() for c in re.split(r"(?<!\\)\|", row.strip().strip("|"))]
+
+    def normalized(value):
+        return re.sub(r"[*_`]", "", value).strip().rstrip(":").strip().casefold()
+
+    out = []
+    sections = re.finditer(
+        r"^##[ \t]+[^\n]*(?:Tabella Scenari|Scenario Table)[^\n]*\n"
+        r"(.*?)(?=^#{1,2}[ \t]+|\Z)", memo, re.IGNORECASE | re.DOTALL | re.MULTILINE)
+    for section in sections:
+        body = section.group(1)
+        previous_end = 0
+        for index, block in enumerate(re.finditer(
+                r"^[ \t]*\|[^\n]*(?:\n[ \t]*\|[^\n]*)*", body, re.MULTILINE), 1):
+            context = body[previous_end:block.start()]
+            previous_end = block.end()
+            rows = [cells(row) for row in block.group().splitlines()]
+            if len(rows) < 3 or not all(re.fullmatch(r":?-{3,}:?", c) for c in rows[1]):
+                continue
+            header = [normalized(c) for c in rows[0]]
+            col = next((j for j, h in enumerate(header) if "prob" in h), None)
+            if col is None:
+                continue
+            label_col = next((j for j, h in enumerate(header)
+                              if re.search(r"\b(?:scenario|scenari|case|caso)\b", h)), 0)
+            data = rows[2:]
+            prefix = _lt(f"**Tabella Scenari (tabella {index})**", f"**Scenario Table (table {index})**")
+            denominator_cols = [j for j, h in enumerate(header)
+                                if re.search(r"denominat|condizion|condition|given", h) and j != col]
+            different_bases = any(len({normalized(row[j]) for row in data
+                                       if len(row) > max(j, label_col)
+                                       and normalized(row[label_col]) not in {"totale", "total"}}) > 1
+                                  for j in denominator_cols)
+            probability_text = header[col] + "\n" + "\n".join(
+                row[col] for row in data if len(row) > col)
+            conditional = re.search(
+                r"\b(?:condizionat\w*|conditional\w*)\b|\bp\s*\([^)]*\\\|",
+                probability_text, re.IGNORECASE) or re.search(
+                r"\bp\s*\([^)]*\\\|",
+                "\n".join(row[label_col] for row in data if len(row) > label_col),
+                re.IGNORECASE) or re.search(
+                r"\bprobabilit\S*\s+(?:(?:sono|are)\s+)?(?:condizionat\w*|conditional)\b|"
+                r"\bconditional\s+probabilit\w*\b",
+                context + "\n" + section.group().split("\n", 1)[0], re.IGNORECASE)
+            if conditional or different_bases:
+                out.append(prefix + _lt(
+                    ": controllo non applicabile — probabilita' condizionate o denominatori differenti; "
+                    "la somma a 100% non e' verificabile come distribuzione unica.",
+                    ": check not applicable — conditional probabilities or different denominators; "
+                    "a total of 100% cannot be checked as a single distribution."))
+                continue
+            probs, declared = [], []
+            missing = False
+            numeric_input = False
+            for row in data:
+                if len(row) <= max(col, label_col):
+                    missing = True
+                    continue
+                is_total = normalized(row[label_col]) in {"totale", "total"}
+                numeric_input = numeric_input or bool(re.search(r"\d|%", row[col]))
+                interval = re.search(r"\d(?:[.,]\d+)?\s*%?\s*[-–—]\s*\d", row[col])
+                negative = re.search(r"[-−]\s*\d+(?:[.,]\d+)?\s*%", row[col])
+                matches = re.findall(r"(?<![\d.,+\-–—])\+?(\d+(?:[.,]\d+)?)\s*%", row[col])
+                if interval or negative or len(matches) != 1:
+                    missing = True
+                    continue
+                probability = _pct(matches[0])
+                if not is_total and not (0 <= probability <= 100):
+                    missing = True
+                    continue
+                (declared if is_total else probs).append(probability)
+            if missing and numeric_input:
+                out.append(prefix + _lt(
+                    ": controllo non applicabile — probabilita' mancanti o ambigue; somma non verificabile.",
+                    ": check not applicable — missing or ambiguous probabilities; total cannot be checked."))
+                continue
+            if not probs:
+                continue
+            tot = sum(probs)
+            if len(probs) >= 2 and not (SCENARI_SUM_RANGE[0] <= tot <= SCENARI_SUM_RANGE[1]):
+                out.append(prefix + _lt(
+                    f": le probabilita' sommano {tot:g}% "
+                    f"({' + '.join(f'{p:g}' for p in probs)}) invece di ~100: "
+                    "scenari non mutuamente esclusivi o proxy (regole sez. 10)",
+                    f": probabilities total {tot:g}% "
+                    f"({' + '.join(f'{p:g}' for p in probs)}) instead of ~100: "
+                    "scenarios are not mutually exclusive, or are proxies (section 10 rules)"))
+            for total in declared:
+                # The existing ~100 tolerance also bounds the arithmetic residual.
+                if not (SCENARI_SUM_RANGE[0] - 100 <= total - tot <= SCENARI_SUM_RANGE[1] - 100):
+                    out.append(prefix + _lt(
+                        f": totale dichiarato {total:g}% non coerente con la somma degli scenari {tot:g}%.",
+                        f": declared total {total:g}% does not match the scenario sum {tot:g}%."))
+    return out
 
 
 def _check_cash_quadrature(memo, cash_eur):

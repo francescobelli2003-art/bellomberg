@@ -16,8 +16,9 @@ non solo la nearest come yfinance.
 from bellomberg.core.paths import PROJECT_ROOT
 from bellomberg.core.errori_sicuri import senza_segreti
 import os
+import math
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 try:
     import requests
@@ -258,6 +259,8 @@ def get_options_chain(underlying: str, expiry: Optional[str] = None,
             "oi": c.get("open_interest"),
             "volume": day.get("volume"),
             "close": day.get("close"),
+            # Keep the provider observation; a strike/delta is never its price.
+            "underlying_asset": c.get("underlying_asset"),
         })
     rows.sort(key=lambda x: (x.get("expiry") or "", x.get("strike") or 0))
     rows = rows[:max_contracts]
@@ -265,6 +268,81 @@ def get_options_chain(underlying: str, expiry: Optional[str] = None,
             "n_contracts": len(rows), "n_pages": pages, "chain": rows, "coverage": coverage,
             "_source": "polygon /v3/snapshot/options (paginated)",
             "_timestamp": datetime.now().isoformat()}
+
+
+def _summary_spot_observation(ticker, chain):
+    """Preserve observed quotes without asserting undocumented qualifications.
+
+    Massive/Polygon option-chain-snapshot (checked 2026-10-09) documents
+    underlying_asset.price/ticker/last_updated/timeframe, but no currency or
+    timestamp for implied_volatility. Do not infer USD, an ISIN, or IV time from
+    last_quote/day. No freshness tolerance or additional provider call here.
+    https://massive.com/docs/rest/options/snapshots/option-chain-snapshot
+    """
+    result = {"spot": None, "spot_status": "MISSING", "spot_source": None,
+              "spot_asof": None, "spot_currency": None, "spot_proxy": None,
+              "spot_observation": None, "atm_status": "UNVERIFIED",
+              "spot_observations": [], "spot_observation_issues": {},
+              "spot_observation_coverage": "UNAVAILABLE",
+              "atm_issues": ["currency_unattested", "iv_timestamp_unattested"]}
+    observations = []
+    issues = result["spot_observation_issues"]
+    for contract in chain:
+        observation = contract.get("underlying_asset")
+        price = observation.get("price") if isinstance(observation, dict) else None
+        if observation is None or observation == {}:
+            status = "MISSING"
+        elif not isinstance(observation, dict):
+            status = "INVALID_OBSERVATION"
+        elif price is None:
+            status = "MISSING_PRICE"
+        elif (isinstance(price, bool) or not isinstance(price, (int, float))
+                or not math.isfinite(price) or price <= 0):
+            status = "INVALID_PRICE"
+        elif observation.get("ticker") != ticker.upper():
+            status = "IDENTITY_MISMATCH"
+        else:
+            stamp = observation.get("last_updated")
+            try:
+                if isinstance(stamp, bool) or not isinstance(stamp, int) or stamp <= 0:
+                    raise ValueError("invalid timestamp")
+                asof = datetime.fromtimestamp(stamp / 1_000_000_000, timezone.utc)
+                if asof > datetime.now(timezone.utc):
+                    raise ValueError("future timestamp")
+            except (ValueError, OverflowError, OSError):
+                status = "INVALID_TIMESTAMP"
+            else:
+                status = "UNVERIFIED_CURRENCY"
+                observations.append(observation)
+        # Preserve every received observation independently of aggregate quality.
+        result["spot_observations"].append({
+            "contract": contract.get("contract"), "type": contract.get("type"),
+            "status": status, "observation": observation})
+        if status != "UNVERIFIED_CURRENCY":
+            issues[status] = issues.get(status, 0) + 1
+        if observation is not None:
+            result["spot_source"] = "polygon /v3/snapshot/options underlying_asset"
+    if not observations:
+        result["spot_status"] = next(iter(issues)) if len(issues) == 1 else "UNAVAILABLE"
+        result["atm_issues"].append("underlying_quote_unavailable")
+        return result
+    result["spot_observation_coverage"] = "PARTIAL" if issues else "COMPLETE"
+    if issues:
+        result["atm_issues"].append("underlying_quote_partial")
+    # No tolerance: different observations stay raw, never averaged or combined.
+    fields = ("price", "ticker", "last_updated", "timeframe", "currency")
+    first = observations[0]
+    if any(any(o.get(k) != first.get(k) for k in fields) for o in observations[1:]):
+        result["spot_status"] = "CONFLICTING_OBSERVATIONS"
+        result["atm_issues"].append("underlying_quotes_conflicting")
+        return result
+    asof = datetime.fromtimestamp(first["last_updated"] / 1_000_000_000, timezone.utc)
+    result.update(spot_status="UNVERIFIED_CURRENCY",
+                  spot_asof=asof.isoformat(),
+                  spot_observation={k: first[k] for k in fields if k in first})
+    # An unexpected currency field remains in the raw observation, not an
+    # attestation: this endpoint's documented schema has no currency contract.
+    return result
 
 
 def get_options_summary_polygon(ticker: str, expiry: Optional[str] = None) -> Dict[str, Any]:
@@ -332,17 +410,23 @@ def get_options_summary_polygon(ticker: str, expiry: Optional[str] = None) -> Di
             return {"error": "chain incompleta per expiry richiesta", "coverage": coverage,
                     "expiry_coverage": expiry_coverage, "_source": src}
 
-        # Spot: call con delta ~0.5
-        spot = None
-        cands = [c for c in calls if c.get("delta") is not None and abs(c["delta"] - 0.5) < 0.08]
-        if cands:
-            spot = float(min(cands, key=lambda c: abs(c["delta"] - 0.5))["strike"])
-        if spot is None:
-            ks = sorted(c["strike"] for c in calls)
-            spot = ks[len(ks) // 2]
-
-        atm_c = min(calls, key=lambda c: abs(c["strike"] - spot))
-        atm_p = min(puts, key=lambda c: abs(c["strike"] - spot))
+        spot_contract = _summary_spot_observation(ticker, chain)
+        if coverage.get("status") != "COMPLETE":
+            spot_contract["atm_issues"].append("chain_not_complete")
+        observed_candidates = None
+        observation = spot_contract["spot_observation"]
+        if observation:
+            # A numerical locator for inspecting raw IV, NOT verified moneyness:
+            # currency and IV timing remain unattested in this endpoint.
+            observed_candidates = {
+                "status": "UNVERIFIED_CURRENCY_AND_TIMING",
+                "method": "nearest_numeric_strike_to_observed_price; not qualified ATM",
+                "coverage": coverage.get("status"),
+            }
+            for side, contracts in (("call", calls), ("put", puts)):
+                candidate = min(contracts, key=lambda c: abs(c["strike"] - observation["price"]))
+                observed_candidates[side] = {
+                    k: candidate.get(k) for k in ("contract", "strike", "expiry", "iv", "delta")}
         total_call_oi = sum(int(c.get("oi") or 0) for c in calls)
         total_put_oi = sum(int(c.get("oi") or 0) for c in puts)
         pc = round(total_put_oi / total_call_oi, 3) if total_call_oi else None
@@ -375,20 +459,20 @@ def get_options_summary_polygon(ticker: str, expiry: Optional[str] = None) -> Di
             "expiry_coverage": expiry_coverage,
             "partial": any((c or {}).get("status") != "COMPLETE" for c in
                            [coverage] + ([expiry_coverage] if expiry_coverage else [])),
-            "spot": spot,
-            "atm_strike": atm_c.get("strike"),
-            "iv_atm_call": round(atm_c["iv"], 4) if atm_c.get("iv") else None,
-            "iv_atm_put": round(atm_p["iv"], 4) if atm_p.get("iv") else None,
-            "delta_atm_call": atm_c.get("delta"),
-            "gamma_atm": atm_c.get("gamma"),
-            "theta_atm": atm_c.get("theta"),
+            **spot_contract,
+            "observed_strike_candidates": observed_candidates,
+            "atm_strike": None,
+            "iv_atm_call": None,
+            "iv_atm_put": None,
+            "delta_atm_call": None,
+            "gamma_atm": None,
+            "theta_atm": None,
             "total_call_oi": total_call_oi,
             "total_put_oi": total_put_oi,
             "put_call_oi_ratio": pc,
             "interpretation_pc": interp,
             "max_pain_strike": max_pain,
-            "max_pain_vs_spot_pct": (round((max_pain - spot) / spot * 100, 2)
-                                     if (max_pain and spot) else None),
+            "max_pain_vs_spot_pct": None,
             "n_contracts": len(chain),
             "data_source": "polygon_options_starter (delayed 15min, greeks inclusi)",
             "_source": src,
