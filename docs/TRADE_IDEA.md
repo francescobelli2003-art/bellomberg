@@ -271,20 +271,97 @@ sizing, notes, PM text, original committee prose and private metadata. Workbook
 cells, hidden sheets, comments, properties, links and PDF metadata are checked.
 It is not the complete committee dossier, and exporting never sends it to a third party.
 
+## Aggiornamento storage
+
+Pulling code does not install Trade Idea tables. The store checks its required
+tables, indexes and triggers in read-only mode; GET and preflight never run DDL.
+An existing database can need this explicit migration after an update. On a
+**fresh installation**, complete the normal [first backend startup](guide/installation.md)
+to initialize the base SQLite database, then stop it before this procedure.
+The migration requires an existing Bellomberg base schema in WAL mode; it
+refuses a missing file, a foreign/incompatible schema or a non-WAL database.
+Do not create an empty replacement database or convert WAL by hand to bypass a refusal.
+
+1. Check that no paid run is active. Close the desktop app, stop the backend and
+   scheduled writers; the desktop can start the backend again. Apply checks that
+   port 8765 is free, but that alone cannot detect every other writer.
+2. Use the real checkout directory, its installed virtual environment and the
+   **same configuration as the backend** (`BELLOMBERG_PROJECT_ROOT`, `.env`,
+   `BELLOMBERG_DATA_DIR`, including any launcher environment overrides). From
+   that root, print the configured path without opening SQLite:
+
+   Windows PowerShell:
+   ```powershell
+   .\.venv\Scripts\python.exe -c "from bellomberg.core.paths import SQLITE_PATH; print(SQLITE_PATH)"
+   $tradeIdeaDb = 'C:\path\to\your\consigliere.db'
+   .\.venv\Scripts\python.exe tools/migrations/migra_trade_idea.py --db "$tradeIdeaDb" --dry-run
+   ```
+
+   macOS/Linux shell:
+   ```sh
+   ./.venv/bin/python -c 'from bellomberg.core.paths import SQLITE_PATH; print(SQLITE_PATH)'
+   trade_idea_db='/absolute/path/to/your/consigliere.db'
+   ./.venv/bin/python tools/migrations/migra_trade_idea.py --db "$trade_idea_db" --dry-run
+   ```
+
+   Replace the example path with the verified existing database printed above.
+   Check the JSON `db` target. If it differs from your intended installation,
+   stop and correct configuration. Do not migrate an unexpected empty book.
+3. Read the dry-run result: `sorgente_invariata` and `prova.schema_completo` must
+   be true; `scritture_sorgente.scritture` and `total_changes` must be zero.
+   Rehearsal changes a transactional copy only. The source comparison covers
+   schema and rows; SQLite WAL checkpointing can change physical files without
+   changing their logical contents. Any exception/nonzero exit means stop,
+   preserve the diagnostic and investigate before apply.
+4. With writers still stopped, apply to the same explicit target:
+
+   ```powershell
+   .\.venv\Scripts\python.exe tools/migrations/migra_trade_idea.py --db "$tradeIdeaDb" --apply
+   ```
+
+   ```sh
+   ./.venv/bin/python tools/migrations/migra_trade_idea.py --db "$trade_idea_db" --apply
+   ```
+
+   Apply creates and verifies the reported `.pre-trade-idea-*.bak` backup,
+   checks source fingerprints again, installs the additive schema and rereads
+   it. Check `applicazione.preesistente_invariato`, `rilettura.schema_completo`
+   and `rilettura.preesistente_invariato`. Keep the backup. It inserts no sample
+   portfolio, decision or run. A second apply on the same compatible schema
+   preserves existing rows and creates another backup; it is not a data refresh.
+5. Restart the normal backend/app only after successful readback. Repeat the
+   source check; storage readiness does not establish provider/source readiness.
+
+`migra_trade_idea_watch.py` is a separate migration for Research watch triggers.
+If that feature reports its schema missing, use it **after** `migra_trade_idea.py`,
+with the same `--db`, dry-run/apply sequence and stopped writers. Its absence
+does not block the base Trade Idea store or admission. Do not run unrelated
+migrations just because the code was updated.
+
+### Backend diagnostic contract
+
+Storage refusals retain HTTP 503 and the textual `detail`. They add `error_code`
+and a `storage` object containing `status`, `error_code`, `update_required`,
+`action` and `documentation` (this section's repository path).
+
+| `storage.status` | `update_required` | `action` |
+| --- | --- | --- |
+| `schema_absent` / `schema_partial` | true | `run_explicit_migration` (preview first; migration validates eligibility) |
+| `db_missing` | false | `check_database_path` |
+| `schema_incompatible` | false | `inspect_schema` |
+| `db_unreadable` | false | `check_database_access` (permissions/integrity) |
+
+Preflight keeps its existing HTTP 200, `ok: false` and blocking `reasons`, and
+adds the same `storage` diagnosis when storage prevents admission. Its public
+`source_qualification.execution_status` is `not_run` when an earlier gate blocked
+it, `completed` when the source qualifier returned (including a blocked result),
+or `failed` when qualification raised an error. `status` still carries the
+qualification verdict. A skipped check has no source-failure reasons; the real
+blocking reasons remain at preflight level. Genuine identity errors, returned
+source failures and executed research-mode mismatches still block admission.
+The execution marker is public metadata; accepted source fingerprints are unchanged.
+
 ## Installation and offline verification
-
-The additive schema migration is explicit. Stop the Bellomberg backend after
-checking active jobs, then run from the real project directory:
-
-```powershell
-python tools/migrations/migra_trade_idea.py --dry-run
-python tools/migrations/migra_trade_idea.py --apply
-```
-
-Dry-run checks a transactional database copy. Apply requires a free backend port,
-creates and verifies a backup, checks the source has not changed, and preserves
-existing tables and rows. It inserts no example runs or research into the
-personal database. Restart the normal application after a successful apply.
 
 Automated coverage uses temporary SQLite databases, intercepted providers and
 captured SMTP MIME. Electron coverage includes the real authenticated API with an

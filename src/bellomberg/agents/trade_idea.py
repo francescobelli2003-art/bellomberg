@@ -435,10 +435,12 @@ def qualify_trade_idea_sources(ticker, identity, as_of, *, archive_root=None,
         analysis_mode=analysis_mode)
 
 
-def source_qualification_summary(qualified):
+def source_qualification_summary(qualified, *, execution_status=None):
     """No private documents, filesystem paths or model input payload in preflight UI."""
     public = {key: qualified.get(key) for key in
               ("status", "reasons", "checklist", "method_id", "fingerprint", "analysis_mode")}
+    if execution_status is not None:
+        public["execution_status"] = execution_status
     public["coverage"] = {key: value for key, value in (qualified.get("coverage") or {}).items()
         if key in ("method_id", "method_version", "source_requirements", "sources", "preparer",
                    "economic_qualification", "engine")}
@@ -456,6 +458,7 @@ def preflight_trade_idea(ticker, pm_view="", view_source="manual", budget_limit_
                           document_sources=(), analysis_mode=None, execution_policy=None) -> dict:
     """No LLM request and no DB writes; a failed check is visible before spending."""
     reasons = []
+    storage = None
     if analysis_mode not in (None, RESEARCH_ANALYSIS_MODE):
         reasons.append('Modalita di analisi non supportata')
     try:
@@ -549,7 +552,9 @@ def preflight_trade_idea(ticker, pm_view="", view_source="manual", budget_limit_
                 reasons.append("un'altra run pagata e' attiva")
         except Exception as exc:
             reasons.append("stato run pagate non verificabile: " + str(exc)[:200])
-    qualified = {"status": "blocked", "reasons": ["identity or admission checks failed"],
+            storage = getattr(exc, "storage", None)
+    qualification_execution = "not_run"
+    qualified = {"status": "blocked", "reasons": [],
                  "fingerprint": None, "method_id": None, "coverage": {}, "checklist": []}
     try:
         if identity.get("status") == "confirmed" and not reasons:
@@ -559,10 +564,13 @@ def preflight_trade_idea(ticker, pm_view="", view_source="manual", budget_limit_
             qualified = (source_qualifier or qualify_trade_idea_sources)(
                 ticker, identity, datetime.now(timezone.utc).date().isoformat(),
                 archive_root=archive_root, **document_options)
-        if qualified.get("status") not in ("qualified", "preparation_required", "research_required"):
+            qualification_execution = "completed"
+        if qualification_execution == "completed" and qualified.get("status") not in (
+                "qualified", "preparation_required", "research_required"):
             reasons.extend("fonti non qualificate: " + str(reason)
                            for reason in qualified.get("reasons") or ["qualification not demonstrated"])
     except Exception as exc:
+        qualification_execution = "failed"
         qualified = {"status": "blocked", "reasons": [type(exc).__name__ + ": " + str(exc)[:400]],
                      "fingerprint": None, "method_id": None, "coverage": {}, "checklist": []}
         reasons.append("fonti non qualificabili: " + qualified["reasons"][0])
@@ -574,11 +582,13 @@ def preflight_trade_idea(ticker, pm_view="", view_source="manual", budget_limit_
                        "historical_required" if qualified.get('status') == 'preparation_required' else
                        "blocked" if qualified.get("status") != "qualified" else "required" if required else "ready"}
     if analysis_mode == RESEARCH_ANALYSIS_MODE:
-        if not is_research_mode(qualified):
+        if qualification_execution == "completed" and not is_research_mode(qualified):
             reasons.append('La qualificazione non corrisponde alla modalita di ricerca accettata')
         preparation = {'required': False, 'paid': False, 'status': 'not_required'}
     val_state = {"status": "per_run", "candidate_status": qualified.get("status"),
                  "candidate_reason": "; ".join(qualified.get("reasons") or []) or None}
+    qualification_summary = source_qualification_summary(qualified,
+        execution_status=qualification_execution)
     return {"ok": not reasons, "identity": identity, "models": models,
             "authorization": {"status": "ready" if not reasons else "blocked",
                               "reason": "; ".join(reasons) if reasons else "account access not paid-tested"},
@@ -586,8 +596,9 @@ def preflight_trade_idea(ticker, pm_view="", view_source="manual", budget_limit_
                        "limit_usd": budget, "estimated_cost_usd": None, "model_prices": prices,
                        "completion_guaranteed": False, "remaining_cost_status": "unknown",
                        "remaining_cost_reason": "Prompts, tool iterations and future output are not yet known; each dispatch requires a durable reservation within the original ceiling"},
-            "valuation": val_state, "source_qualification": source_qualification_summary(qualified),
-            "document_sources": source_qualification_summary(qualified)["document_sources"],
+            "valuation": val_state, "source_qualification": qualification_summary,
+            "document_sources": qualification_summary["document_sources"],
+            **({"storage": storage} if storage is not None else {}),
             "preparation": preparation, "analysis_mode": analysis_mode,
             **({'execution_policy': execution_policy} if execution_policy is not None else {}),
             "reasons": reasons, "catalog_snapshot": catalog,

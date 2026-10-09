@@ -71,6 +71,120 @@ def store(path):
     return TradeIdeaStore(path, mandate_loader=lambda: "a" * 64)
 
 
+@pytest.mark.parametrize("state", ["db_missing", "schema_absent", "schema_partial", "schema_incompatible"])
+def test_storage_diagnosis_is_read_only_and_distinguishes_upgrade_from_wrong_path(db_path, state):
+    from bellomberg.storage.trade_idea_store import ensure_schema
+    from bellomberg.storage.sqlite_checks import fingerprint, schema_fingerprint
+    target = db_path.with_name("missing.db") if state == "db_missing" else db_path
+    with sqlite3.connect(db_path) as conn:
+        if state == "schema_partial":
+            ensure_schema(conn)
+            conn.execute("DROP INDEX idx_trade_idea_one_active")
+        elif state == "schema_incompatible":
+            ensure_schema(conn)
+            conn.execute("ALTER TABLE trade_idea_costs ADD COLUMN unexpected TEXT")
+        before = fingerprint(conn), schema_fingerprint(conn)
+    with pytest.raises((RuntimeError, FileNotFoundError)) as caught:
+        store(target)
+    diagnostic = getattr(caught.value, "storage", {})
+    assert diagnostic.get("status") == state
+    assert diagnostic["update_required"] is (state in ("schema_absent", "schema_partial"))
+    assert diagnostic["documentation"] == "docs/TRADE_IDEA.md#aggiornamento-storage"
+    assert diagnostic["action"] == ("run_explicit_migration" if state in
+        ("schema_absent", "schema_partial") else "check_database_path" if state == "db_missing"
+        else "inspect_schema")
+    assert not db_path.with_name("missing.db").exists()
+    with sqlite3.connect(db_path) as conn:
+        assert (fingerprint(conn), schema_fingerprint(conn)) == before
+
+
+def test_storage_current_schema_needs_no_watch_migration(migrated):
+    assert store(migrated).list_runs()["runs"] == []
+
+
+@pytest.mark.parametrize("foreign_table", [False, True])
+def test_storage_empty_or_foreign_database_is_not_an_upgrade(tmp_path, foreign_table):
+    path = tmp_path / "wrong.db"
+    with sqlite3.connect(path) as conn:
+        if foreign_table:
+            conn.execute("CREATE TABLE unrelated(id INTEGER)")
+    with pytest.raises(RuntimeError) as caught:
+        store(path)
+    assert caught.value.storage["status"] == "schema_incompatible"
+    assert caught.value.storage["update_required"] is False
+    assert caught.value.storage["action"] == "inspect_schema"
+
+
+def test_storage_current_schema_accepts_watch_and_extra_indexes(migrated):
+    from bellomberg.storage.trade_idea_watch_store import ensure_schema
+    with sqlite3.connect(migrated) as conn:
+        ensure_schema(conn)
+        conn.execute("CREATE INDEX synthetic_extra ON trade_idea_runs(currency)")
+    assert store(migrated).list_runs()["total"] == 0
+
+
+@pytest.mark.parametrize("fault", ["corrupt", "access"])
+def test_storage_unreadable_is_not_an_upgrade(tmp_path, monkeypatch, fault):
+    path = tmp_path / "unreadable.db"
+    path.write_bytes(b"synthetic invalid SQLite")
+    if fault == "access":
+        def denied(*args, **kwargs):
+            raise PermissionError("synthetic denied path")
+        monkeypatch.setattr(TradeIdeaStore, "_connect", denied)
+    with pytest.raises(RuntimeError) as caught:
+        store(path)
+    assert caught.value.storage["status"] == "db_unreadable"
+    assert caught.value.storage["update_required"] is False
+    assert "synthetic denied path" not in str(caught.value)
+    assert path.read_bytes() == b"synthetic invalid SQLite"
+
+
+def test_partial_tables_upgrade_and_second_apply_preserve_existing_records(db_path, monkeypatch):
+    from bellomberg.storage.trade_idea_store import SCHEMA
+    from bellomberg.storage.sqlite_checks import fingerprint, schema_fingerprint
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(SCHEMA[0])
+        before = fingerprint(conn), schema_fingerprint(conn)
+    with pytest.raises(RuntimeError) as caught:
+        store(db_path)
+    assert caught.value.storage["status"] == "schema_partial"
+    assert migra_trade_idea.migra(db_path)["sorgente_invariata"] is True
+    with sqlite3.connect(db_path) as conn:
+        assert (fingerprint(conn), schema_fingerprint(conn)) == before
+    monkeypatch.setattr(migra_trade_idea, "backend_alive", lambda: False)
+    first = migra_trade_idea.migra(db_path, apply=True)
+    with sqlite3.connect(db_path) as conn:
+        after = fingerprint(conn), schema_fingerprint(conn)
+    second = migra_trade_idea.migra(db_path, apply=True)
+    assert first["backup"] != second["backup"]
+    assert second["tabelle_mancanti"] == []
+    assert second["applicazione"]["righe_cambiate"] == 0
+    assert second["rilettura"]["preesistente_invariato"] is True
+    with sqlite3.connect(db_path) as conn:
+        assert (fingerprint(conn), schema_fingerprint(conn)) == after
+    assert store(db_path).list_runs()["total"] == 0
+
+
+def test_migration_refuses_live_backend_and_incompatible_schema_without_changes(db_path, monkeypatch):
+    from bellomberg.storage.sqlite_checks import fingerprint, schema_fingerprint
+    monkeypatch.setattr(migra_trade_idea, "backend_alive", lambda: True)
+    with sqlite3.connect(db_path) as conn:
+        before = fingerprint(conn), schema_fingerprint(conn)
+    with pytest.raises(RuntimeError, match="8765"):
+        migra_trade_idea.migra(db_path, apply=True)
+    with sqlite3.connect(db_path) as conn:
+        assert (fingerprint(conn), schema_fingerprint(conn)) == before
+        conn.execute("CREATE TABLE trade_idea_runs(id TEXT)")
+        before = fingerprint(conn), schema_fingerprint(conn)
+    monkeypatch.setattr(migra_trade_idea, "backend_alive", lambda: False)
+    for apply in (False, True):
+        with pytest.raises(ValueError, match="incompatibile"):
+            migra_trade_idea.migra(db_path, apply=apply)
+    with sqlite3.connect(db_path) as conn:
+        assert (fingerprint(conn), schema_fingerprint(conn)) == before
+    assert not list(db_path.parent.glob("*.bak"))
+
+
 def request(ticker="TEST"):
     return {"ticker": ticker, "company_name": "Synthetic Company", "exchange": "XNAS",
             "currency": "USD", "language": "it", "view_text": "My thesis to challenge",

@@ -13,6 +13,9 @@
 | Address already in use | The process owning the API or Vite port | Reuse the intended backend or stop the identified stale process; do not kill unrelated processes |
 | Browser development URL fails | The exact hostname Vite printed | Try that URL; do not assume `127.0.0.1` and `localhost` are interchangeable |
 | Book unexpectedly empty after update | Runtime directory/interpreter | Stop and verify configuration; do not re-enter the portfolio |
+| Trade Idea reports `schema_absent` / `schema_partial` or "run explicit migration" | Updated code with storage not yet installed completely | Follow the [explicit storage upgrade](../TRADE_IDEA.md#aggiornamento-storage), dry-run first; source qualification may be `not_run`, which is not a source outage |
+| Trade Idea reports `db_missing` | Backend configuration and actual database path | Verify the existing data location; the migration does not create a missing database or replace your portfolio |
+| Trade Idea reports `schema_incompatible` / `db_unreadable` | Schema compatibility, permissions and SQLite integrity | Preserve the database and seek diagnosis; do not run apply blindly or delete tables |
 | Opening-position confirmation returns 409 | Preview age and whether the book changed | Obtain a new preview from the current book; the old confirmation token cannot be reused |
 | Opening-position confirmation has an uncertain outcome | Saved opening-position register | Read back the record before taking another action; do not automatically repeat a write |
 | Briefing cache is unreadable | Declared cache error and original diagnostic | Preserve the file and investigate it; this is different from a briefing that has never been generated |

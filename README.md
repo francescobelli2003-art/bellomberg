@@ -199,6 +199,10 @@ calls out these limits instead of promising universal coverage.
 
 Read [updating and publishing safely](docs/guide/updates.md) before changing an
 existing installation or contributing from a machine holding personal data.
+After pulling Trade Idea code, an older database may still need the explicit
+[Trade Idea storage upgrade](docs/TRADE_IDEA.md#aggiornamento-storage).
+`schema_absent` or `schema_partial` is a storage gate; source qualification has
+not run. Follow the dry-run procedure before applying a migration.
 Back up first. A new installation must not run the legacy cash migration;
 existing installations use it only when the old balance has not already been
 initialized in SQLite. For that specific legacy case,

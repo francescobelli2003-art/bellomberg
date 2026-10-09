@@ -99,6 +99,70 @@ def test_preflight_missing_budget_never_calls_provider():
     assert touched == ["configuration-only"]
 
 
+@pytest.mark.parametrize("cause", ["budget", "storage", "identity"])
+def test_preflight_skipped_qualification_has_no_secondary_source_errors(cause, db_path):
+    from bellomberg.core.research_analysis import RESEARCH_ANALYSIS_MODE
+    calls = []
+    def active():
+        if cause == "storage":
+            store(db_path)
+        return False
+    checked = trade_idea.preflight_trade_idea("TEST", budget_limit_usd=None if cause == "budget" else "5",
+        analysis_mode=RESEARCH_ANALYSIS_MODE, catalog_fetcher=lambda: _priced_request()["catalog_snapshot"],
+        identity_resolver=lambda ticker: {"ticker": ticker, "name": "Synthetic", "exchange": "XNAS",
+            "currency": "USD", "status": "ambiguous" if cause == "identity" else "confirmed",
+            "reason": "Synthetic ambiguity" if cause == "identity" else None},
+        active_checker=active, mandate_loader=lambda: {}, key_checker=lambda: None,
+        source_qualifier=lambda *a, **k: calls.append("qualification"))
+    assert checked["ok"] is False
+    assert checked["source_qualification"].get("execution_status") == "not_run"
+    assert checked["source_qualification"]["reasons"] == []
+    assert not calls
+    assert not any("fonti non qualific" in reason or "modalita di ricerca" in reason
+                   or "identity or admission" in reason for reason in checked["reasons"])
+    if cause == "storage":
+        assert checked["storage"]["status"] == "schema_absent"
+
+
+@pytest.mark.parametrize("failure", ["exception", "blocked", "mismatch"])
+def test_preflight_real_source_failures_remain_visible(failure):
+    from bellomberg.core.research_analysis import RESEARCH_ANALYSIS_MODE
+    def qualify(*args, **kwargs):
+        if failure == "exception":
+            raise ValueError("Synthetic unavailable filing")
+        return {"status": "blocked" if failure == "blocked" else "qualified",
+                "reasons": ["Synthetic unavailable filing"] if failure == "blocked" else [],
+                "analysis_mode": RESEARCH_ANALYSIS_MODE if failure == "blocked" else None}
+    checked = trade_idea.preflight_trade_idea("TEST", budget_limit_usd="5",
+        analysis_mode=RESEARCH_ANALYSIS_MODE, catalog_fetcher=lambda: _priced_request()["catalog_snapshot"],
+        identity_resolver=lambda ticker: {"ticker": ticker, "name": "Synthetic", "exchange": "XNAS",
+            "currency": "USD", "status": "confirmed", "reason": None},
+        active_checker=lambda: False, mandate_loader=lambda: {}, key_checker=lambda: None,
+        source_qualifier=qualify)
+    assert checked["ok"] is False
+    assert checked["source_qualification"].get("execution_status") == (
+        "failed" if failure == "exception" else "completed")
+    assert any(("modalita di ricerca" if failure == "mismatch" else "Synthetic unavailable filing")
+               in reason for reason in checked["reasons"])
+
+
+def test_preflight_executed_research_summary_does_not_change_accepted_sources():
+    from copy import deepcopy
+    from bellomberg.core.research_analysis import RESEARCH_ANALYSIS_MODE
+    qualified = {"status": "research_required", "reasons": [], "fingerprint": "a" * 64,
+                 "analysis_mode": RESEARCH_ANALYSIS_MODE}
+    original = deepcopy(qualified)
+    checked = trade_idea.preflight_trade_idea("TEST", budget_limit_usd="5",
+        analysis_mode=RESEARCH_ANALYSIS_MODE, catalog_fetcher=lambda: _priced_request()["catalog_snapshot"],
+        identity_resolver=lambda ticker: {"ticker": ticker, "name": "Synthetic", "exchange": "XNAS",
+            "currency": "USD", "status": "confirmed", "reason": None},
+        active_checker=lambda: False, mandate_loader=lambda: {}, key_checker=lambda: None,
+        source_qualifier=lambda *a, **k: qualified)
+    assert checked["ok"] is True
+    assert checked["source_qualification"]["execution_status"] == "completed"
+    assert checked["_source_qualification"] == original == qualified
+
+
 def test_exhausted_budget_blocks_before_provider_create(migrated):
     s = store(migrated)
     payload = _priced_request(budget="0.000001")

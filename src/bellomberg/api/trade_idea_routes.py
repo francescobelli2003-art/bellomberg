@@ -17,7 +17,7 @@ from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from bellomberg.agents.trade_idea import (
@@ -29,7 +29,7 @@ from bellomberg.core.trade_idea_policy import CURRENT_EXECUTION_POLICY
 from bellomberg.core.paths import DATA_DIR, MODELS_DIR, REPORT_DIR
 from bellomberg.storage.memory_db import SQLITE_PATH
 from bellomberg.storage.trade_idea_store import (
-    TradeIdeaStore, IdempotencyConflict, RunConflict, BudgetBlocked)
+    TradeIdeaStore, IdempotencyConflict, RunConflict, BudgetBlocked, StorageNotReady)
 
 
 class PreflightBody(BaseModel):
@@ -122,7 +122,8 @@ class _PreflightSnapshots:
                 original = self._decode(self._entries[key])
                 for name in ('_source_qualification', 'identity', 'preparation', 'valuation'):
                     checked[name] = original[name]
-                summary = source_qualification_summary(checked['_source_qualification'])
+                summary = source_qualification_summary(checked['_source_qualification'],
+                    execution_status=checked.get('source_qualification', {}).get('execution_status'))
                 checked['source_qualification'] = summary
                 checked['document_sources'] = summary['document_sources']
             # An explicit new preflight may refresh admission/catalog metadata,
@@ -204,9 +205,23 @@ def _keyerror_http(exc, operation):
                          + "): operazione di " + operation + " bloccata")
 
 
+class StorageUnavailable(HTTPException):
+    def __init__(self, error):
+        super().__init__(503, "Trade Idea storage non pronto: " + str(error))
+        self.storage = error.storage
+
+
+async def _storage_unavailable_response(_request, error):
+    return JSONResponse(status_code=error.status_code, content={
+        "detail": error.detail, "error_code": error.storage["error_code"],
+        "storage": error.storage})
+
+
 def _store(db_path=SQLITE_PATH):
     try:
         return TradeIdeaStore(db_path)
+    except StorageNotReady as exc:
+        raise StorageUnavailable(exc) from exc
     except (FileNotFoundError, RuntimeError) as exc:
         raise HTTPException(503, "Trade Idea storage non pronto: " + str(exc)) from exc
 
@@ -555,6 +570,7 @@ def recover_orphan_runs(db_path=SQLITE_PATH, *, delivery=None,
 
 def install_trade_idea_routes(app, require_session, *, db_path=SQLITE_PATH,
                               weekly_active=None, source_archive_root=None):
+    app.add_exception_handler(StorageUnavailable, _storage_unavailable_response)
     router = APIRouter(prefix="/trade-ideas", dependencies=[Depends(require_session)])
     snapshots = _PreflightSnapshots()
 

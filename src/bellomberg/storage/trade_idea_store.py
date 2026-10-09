@@ -181,6 +181,54 @@ class BudgetBlocked(RuntimeError):
     pass
 
 
+class StorageNotReady(RuntimeError):
+    """Read-only diagnosis, safe to expose without filesystem paths or SQL."""
+
+    def __init__(self, status, message):
+        super().__init__(message)
+        self.storage = {
+            "status": status, "error_code": "trade_idea_" + status,
+            "update_required": status in ("schema_absent", "schema_partial"),
+            "action": ("run_explicit_migration" if status in ("schema_absent", "schema_partial")
+                       else "check_database_path" if status == "db_missing"
+                       else "inspect_schema" if status == "schema_incompatible" else "check_database_access"),
+            "documentation": "docs/TRADE_IDEA.md#aggiornamento-storage",
+        }
+
+
+class StorageDBMissing(StorageNotReady, FileNotFoundError):
+    pass
+
+
+def _check_storage_schema(conn):
+    # Reuse the migration's DDL as the contract, without executing any DDL here.
+    # Only required objects are compared: unrelated tables/watch and extra
+    # indexes remain valid extensions. Missing safety indexes/triggers block too.
+    expected = {}
+    for statement in SCHEMA:
+        sql = statement.replace(" IF NOT EXISTS", "", 1)
+        match = re.match(r"CREATE (?:UNIQUE )?(TABLE|INDEX|TRIGGER) (\w+)", sql)
+        expected[match.group(2)] = (match.group(1).lower(), " ".join(sql.split()))
+    actual = {name: (kind, " ".join((sql or "").split())) for kind, name, sql in
+              conn.execute("SELECT type,name,sql FROM sqlite_master")}
+    if any(actual[name] != value for name, value in expected.items() if name in actual):
+        raise StorageNotReady("schema_incompatible", "Trade Idea schema incompatible: inspect before migration")
+    missing = set(expected) - set(actual)
+    if missing:
+        # These base anchors distinguish an upgrade from an empty/foreign DB.
+        # The explicit migration still validates the complete legacy contract,
+        # WAL mode and integrity before any change; this is not an apply permit.
+        anchors = {"decisions": "id", "memos": "id", "positions": "ticker",
+                   "cash_state": "singleton_id"}
+        if any(column not in {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+               for table, column in anchors.items()):
+            raise StorageNotReady("schema_incompatible",
+                                  "Trade Idea base schema absent or incompatible: verify database path and schema")
+        if not set(TABLES).intersection(actual):
+            raise StorageNotReady("schema_absent", "Trade Idea schema absent: run explicit migration")
+        raise StorageNotReady("schema_partial", "Trade Idea schema partial: run explicit migration")
+
+
 def ensure_schema(conn):
     """Only for the explicit migration and disposable test databases."""
     for statement in SCHEMA:
@@ -532,12 +580,12 @@ class TradeIdeaStore:
         self._mandate_loader = mandate_loader or self._load_mandate_hash
         self._clock = clock or _now
         if not os.path.isfile(self.db_path):
-            raise FileNotFoundError(f"Trade Idea DB absent: {self.db_path}")
-        with self._connect(read_only=True) as conn:
-            existing = {r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'")}
-            if not set(TABLES).issubset(existing):
-                raise RuntimeError("Trade Idea schema absent: run explicit migration")
+            raise StorageDBMissing("db_missing", "Trade Idea DB absent: verify configured database path")
+        try:
+            with self._connect(read_only=True) as conn:
+                _check_storage_schema(conn)
+        except (sqlite3.DatabaseError, OSError) as exc:
+            raise StorageNotReady("db_unreadable", "Trade Idea DB unreadable: verify access and integrity") from exc
 
     @staticmethod
     def _load_mandate_hash():

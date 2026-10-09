@@ -31,7 +31,12 @@ Keep private files in their existing configured locations.
    cd ..
    ```
 
-7. Start with the same backend directory, interpreter and runtime paths as before.
+7. Before restarting, follow the [Trade Idea storage upgrade](../TRADE_IDEA.md#aggiornamento-storage)
+   if that feature reports `schema_absent` or `schema_partial`. Pulling code does
+   not install its tables. The existing migration previews the configured,
+   explicit database target; it does not create a missing database. The watch
+   trigger migration is separate and is not required to start Trade Idea.
+   Start with the same backend directory, interpreter and runtime paths as before.
    Schema migrations are versioned; journal and progress tables are additive.
    Read startup errors before continuing.
 8. Sign in, compare positions and cash with your pre-update records, open a saved
