@@ -1291,9 +1291,13 @@ def _weekly_contract(*, analysis_mode='fundamentals_research_v1'):
         for round_n in (0, 1, 2):
             models[cls.name + ":" + str(round_n)] = modello_o_buco("consigliere", cls.name, round_n)
     from bellomberg.core.mandato_pm import MANDATE_TEXT_POLICY, MANDATE_TEXT_POLICY_KEY
+    from datetime import datetime, timezone
+    from bellomberg.core.evidence_followup_policy import KEY, POLICY, AS_OF_KEY
     contract = {MANDATE_TEXT_POLICY_KEY: MANDATE_TEXT_POLICY, "models": models, "roster": [cls.name for cls in SPECIALIST_ORDER],
+                KEY: POLICY, AS_OF_KEY: datetime.now(timezone.utc).date().isoformat(),
                 "r1_stages": R1_STAGES, "r2_specialists": sorted(R2_SPECIALISTS),
                 "reflection_policy": "weekly-reflection36/1",
+                "research_notes_policy": "weekly-research-notes/1",
                 "memo_facts_policy": "weekly-facts/1",
                 "semantic_memory_policy": "weekly-published-chunks/1",
                 "source_health_policy": "weekly-source-health/1",
@@ -1326,11 +1330,17 @@ def _resume_publication_contract(contract, saved):
     from bellomberg.core.reflection_policy import enabled as _reflection_enabled
     _reflection_enabled(saved)
     research_gate_enabled(saved)
+    from bellomberg.core.current_facts import research_notes_enabled
+    research_notes_enabled(saved)
     from bellomberg.core.mandato_pm import text_policy_from_context
     text_policy_from_context(saved)
+    from bellomberg.core.evidence_followup_policy import enabled as _followup_enabled, frozen_as_of
+    if _followup_enabled(saved):
+        frozen_as_of(saved)
     contract = dict(contract)
     for key in ('publication_gate_policy', 'instrument_natures', 'instrument_natures_source',
-                'memo_facts_policy', 'semantic_memory_policy', 'source_health_policy', 'quant_render_policy', 'mandate_text_policy', 'evidence_prompt_policy', 'reflection_policy'):
+                'memo_facts_policy', 'semantic_memory_policy', 'source_health_policy', 'quant_render_policy', 'mandate_text_policy', 'evidence_prompt_policy', 'reflection_policy', 'research_notes_policy',
+                'evidence_followup_policy', 'evidence_followup_as_of'):
         if key in saved:
             contract[key] = saved[key]
         else:
@@ -1428,6 +1438,8 @@ def run_multi_agent(*, resume_memo_id=None, delivery_only=False,
         mandate = mandato_o_esci()
         portfolio = db.get_portfolio_summary()
         store = create_run(db, portfolio, mandate, _capture_publication_natures(_weekly_contract()), capture_language())
+        from bellomberg.core.current_facts import freeze_research_notes
+        freeze_research_notes(store, capture=True)
     else:
         store = WeeklyRunStore(db, resume_memo_id)
         if store.context['contract'].get('analysis_mode') is None:
@@ -1439,6 +1451,11 @@ def run_multi_agent(*, resume_memo_id=None, delivery_only=False,
             if store.get('memo_validated') is None:
                 raise WeeklyRunBlocked('Memo validato assente: run legacy in archivio, '
                     'ripresa analitica ed Excel non autorizzati')
+    # Validate accepted policy markers before checking individual new checkpoints.
+    # This also preserves the existing diagnostic when multiple prerequisites are broken.
+    _resume_publication_contract(store.context['contract'], store.context['contract'])
+    from bellomberg.core.current_facts import freeze_research_notes
+    freeze_research_notes(store)  # Invalid markers/missing new checkpoints fail before any replay.
     selected = store.context["language"]
     try:
         with store.claim(mode="delivery" if delivery_only else "resume" if resume_memo_id else "new"):
@@ -1662,9 +1679,11 @@ def _run_multi_agent(store, db, *, send_email=True):
         def _observe_health(name, result):
             return capture_health(bb, "preflight:" + name, name, result, phase="preflight")
 
+        _probe_acquisitions = {}
         def _probe(name, fn):
             try:
                 r = fn()
+                _probe_acquisitions[name] = {"status": "RETURNED", "payload_present": r is not None}
                 observation = _observe_health(name, r)
                 if observation is not None and observation["observation"]["status"] == "UNVERIFIED":
                     tool_health.setdefault("unverified", []).append(name)
@@ -1680,6 +1699,7 @@ def _run_multi_agent(store, db, *, send_email=True):
             except WeeklyRunBlocked:
                 raise
             except Exception as e:
+                _probe_acquisitions[name] = {"status": "FAILED", "exception_type": type(e).__name__}
                 _observe_health(name, {"error": "probe_failed"})
                 tool_health["ko"].append(name + " -> " + type(e).__name__ + ": " + str(e)[:160])
                 return None
@@ -1696,12 +1716,14 @@ def _run_multi_agent(store, db, *, send_email=True):
             tool_health["ok"].append("macro_dashboard (" + str(len(macro["indicators"])) + " indicatori)")
         else:
             tool_health["ko"].append("macro_dashboard -> vuoto/KO")
+        _var_contribution = None
         try:
             from bellomberg.portfolio.portfolio_analytics import compute_var_contribution
-            _probe("var_contribution", lambda: compute_var_contribution())
+            _var_contribution = _probe("var_contribution", lambda: compute_var_contribution())
         except WeeklyRunBlocked:
             raise
         except Exception as e:
+            _probe_acquisitions["var_contribution"] = {"status": "IMPORT_FAILED", "exception_type": type(e).__name__}
             _observe_health("var_contribution", {"error": "probe_import_failed"})
             tool_health["ko"].append("var_contribution -> import: " + str(e)[:120])
         _quant_advanced_metrics = None
@@ -1827,15 +1849,21 @@ def _run_multi_agent(store, db, *, send_email=True):
         # i valori fermi (funding +10,95% identico per 4 memo) o con osservazione
         # vecchia (il "DXY in risalita" del #42 era un FRED di 11 giorni prima).
         freshness_report = None
+        from bellomberg.core.evidence_followup_policy import board_enabled as _followup_enabled, frozen_as_of
+        _evidence_followup = _followup_enabled(bb)
+        _freshness_as_of = frozen_as_of(store.context['contract']) if _evidence_followup else None
         try:
             from bellomberg.core.freshness import check_and_update
+            if _evidence_followup:
+                from bellomberg.core.freshness import check_release_freshness, project_macro_observation
             _cur = {}
             for _k, _ind in ((macro or {}).get("indicators") or {}).items():
-                if isinstance(_ind, dict) and _ind.get("value") is not None:
+                if isinstance(_ind, dict) and (_evidence_followup or _ind.get("value") is not None):
                     # prefisso = fonte dichiarata (P1 14/07: le serie native hanno
                     # 'src' ONS/Eurostat/IMF/BCB; quelle FRED restano 'fred:')
                     _src = str(_ind.get("src") or "fred").lower()
-                    _cur[_src + ":" + _k] = {"value": _ind.get("value"), "obs_date": _ind.get("date")}
+                    _cur[_src + ":" + _k] = (project_macro_observation(_ind) if _evidence_followup
+                        else {"value": _ind.get("value"), "obs_date": _ind.get("date")})
             try:
                 from bellomberg.agents.agent_tools import tool_get_hyperliquid_intel
                 _hl = tool_get_hyperliquid_intel()
@@ -1846,8 +1874,9 @@ def _run_multi_agent(store, db, *, send_email=True):
                             "value": _row["funding_annualized_pct"], "obs_date": None}
             except Exception as _he:
                 _log("  [!] freshness: hyperliquid non raggiungibile (" + str(_he)[:80] + ")")
-            if _cur:
-                freshness_report = check_and_update(_cur)
+            if _cur or _evidence_followup:
+                freshness_report = (check_release_freshness(_cur, _freshness_as_of) if _evidence_followup
+                                    else check_and_update(_cur))
                 _log("Freshness: " + str(freshness_report["checked"]) + " dati esterni, "
                      + str(len(freshness_report["stale"])) + " STALE")
                 for _s in freshness_report["stale"]:
@@ -1886,6 +1915,8 @@ def _run_multi_agent(store, db, *, send_email=True):
             "freshness_report": freshness_report, "tool_health": tool_health,
             "scorecard": _progress_scorecard, "score_error": _progress_score_error,
             "beta_reconcile": bb.data["_beta_reconcile"],
+            **({"var_contribution": _var_contribution,
+                "var_contribution_acquisition": _probe_acquisitions["var_contribution"]} if _evidence_followup else {}),
             **({"quant_advanced_metrics": _quant_advanced_metrics} if _quant_render_enabled else {})}, bb)
     else:
         # ripresa: il guardrail del priming si RIUSA; checkpoint di una run precedente alla

@@ -82,6 +82,45 @@ def test_total_does_not_lend_count_to_subgroup(db,client):
     assert rp.parse_rows(output(('overall','action:BUY')),evidence) is None
     assert rp.parse_rows(output(('overall','action:SELL')),evidence)
 
+
+@pytest.mark.parametrize('n', [0, 1, 35, 36, 37])
+def test_capo_projection_preserves_descriptive_counts_and_producer(n):
+    sc = score(n)
+    before = deepcopy(sc)
+    producer = rp.groups_for(sc)
+    projection = rp.descriptive_groups_for(sc)
+    groups = projection['groups']
+    for key in ('overall', 'action:BUY', 'confidence:ALTA', 'specialist:quant'):
+        group = groups[key]
+        assert group['group_id'] == key and group['n'] == n
+        assert group['hits'] == sc['overall']['hits']
+        assert group['descriptive_only'] is (n < 36)
+        assert group['operational_eligible'] is (n >= 36)
+        assert group['method_note'] == sc['method_note']
+    assert sc == before and rp.groups_for(sc) == producer
+
+
+@pytest.mark.parametrize('fault', ['duplicate', 'bad_id', 'bad_hit', 'duplicate_desk',
+    'missing_details', 'missing_membership', 'bool_n', 'str_n', 'mismatch_n', 'bad_hits', 'nan_stat'])
+def test_capo_projection_never_attests_bad_membership_or_counts(fault):
+    sc = score(36)
+    if fault == 'duplicate': sc['details'][1]['id'] = sc['details'][0]['id']
+    elif fault == 'bad_id': sc['details'][0]['id'] = True
+    elif fault == 'bad_hit': sc['details'][0]['hit'] = 1
+    elif fault == 'duplicate_desk': sc['details'][0]['specialists'] *= 2
+    elif fault == 'missing_details': sc.pop('details')
+    elif fault == 'missing_membership': sc['details'][0].pop('action')
+    elif fault == 'bool_n': sc['by_action']['BUY']['n'] = True
+    elif fault == 'str_n': sc['by_action']['BUY']['n'] = '36'
+    elif fault == 'mismatch_n': sc['by_action']['BUY']['n'] = 37
+    elif fault == 'bad_hits': sc['by_action']['BUY']['hits'] = 0
+    elif fault == 'nan_stat': sc['by_action']['BUY']['avg_edge_pct'] = float('nan')
+    projected = rp.descriptive_groups_for(sc)
+    assert not projected['groups'].get('action:BUY', {}).get('operational_eligible', False)
+    assert projected['issues']
+    # Unavailable evidence must remain JSON transportable, with explicit nulls.
+    json.dumps(projected, allow_nan=False)
+
 @pytest.mark.parametrize('fault',['duplicate','bool_id','bool_n','string_n','nan_n','count','hits','missing_details','duplicate_desk'])
 def test_bad_denominators_do_not_attest_overall(fault):
     sc=score(36)

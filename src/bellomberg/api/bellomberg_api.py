@@ -2288,8 +2288,12 @@ if FASTAPI_OK:
                 d["archived"] = str(d.get("status") or "").upper() != "PENDING"
                 try:
                     d["notes"] = db.get_decision_notes(d["id"])
+                    d["notes_status"] = "available"
+                    d["notes_error"] = None
                 except Exception:
                     d["notes"] = []
+                    d["notes_status"] = "unavailable"
+                    d["notes_error"] = "decision_notes_unavailable"
             else:
                 d["archived"] = str(d.get("timestamp") or "9999") < _cutoff7
             # F10-C (PM 17/07): l'override MANUALE vince sempre sull'automatico —

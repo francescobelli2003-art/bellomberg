@@ -130,6 +130,11 @@ def _derivati_mnav_btc(latest, ticker):
         missing = [k for k in ("debt", "pref", "cash") if latest.get(k) is None]
         dm = {
             "mnav_equity_basic": round(mktcap / btc_nav, 3),
+            "metric_metadata": {
+                "mnav_equity_basic": {"unit": "multiple", "method": "market_cap/asset_value",
+                    "perimeter": "basic common equity / BTC assets; debt and preferred excluded"},
+                "mnav_ev": {"unit": "multiple", "method": "enterprise_value/asset_value",
+                    "perimeter": "basic market cap + debt + preferred - cash / BTC assets"}},
             "inputs": {
                 "price_mstr": round(px_mstr, 2), "price_btc": round(px_btc),
                 "price_src": "yfinance fast_info",
@@ -347,6 +352,11 @@ def _fetch_dat_dashboard_inputs(ticker):
                     "adjusted_nav_per_fd_share_dtl_addback": round(anav_ps_dtl, 4),
                     "mnav": round(purr_px / anav_ps, 3) if anav_ps > 0 else None,
                     "mnav_dtl_addback": round(purr_px / anav_ps_dtl, 3) if anav_ps_dtl > 0 else None,
+                    "metric_metadata": {
+                        "mnav": {"unit": "multiple", "method": "price/NAV_per_share",
+                            "perimeter": "adjusted NAV / fully diluted shares; treasury-method warrants; DTL included"},
+                        "mnav_dtl_addback": {"unit": "multiple", "method": "price/NAV_per_share",
+                            "perimeter": "adjusted NAV with DTL addback / fully diluted shares; treasury-method warrants"}},
                     "nota": "Mirror della computeDashboard del sito sugli input /api/dashboard-inputs; "
                             "prezzi live dichiarati in purr_quote/hype_quote.",
                 }

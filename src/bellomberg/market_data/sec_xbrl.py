@@ -334,7 +334,15 @@ def quarterly_history(facts: Dict[str, Any], quarters: int = 8, fino_al: Optiona
                 chiave = (0 if trimestrale and (durata or 0) > 100 else 1, -priorita, str(ob.get("filed", "")))
                 if cella is None or chiave > cella["_chiave"]:
                     valori_per_end[end][canon] = {"_chiave": chiave, "valore": ob.get("val"), "unita": unit,
-                                                  "tag": tag, "durata_giorni": durata}
+                                                  "tag": tag, "durata_giorni": durata,
+                        "metadata": {"period_start": ob.get("start"), "period_end": end,
+                            "duration_days": durata, "fiscal_year_label": (
+                                "FY" + str(ob["fy"]) if ob.get("fy") is not None else None),
+                            "unit": unit, "currency": unit.split('/')[0] if unit in
+                                ("USD", "EUR", "GBP", "USD/shares", "EUR/shares", "GBP/shares") else None,
+                            "definition": tag, "form": form, "accession": ob.get("accn"),
+                            "filing_date": ob.get("filed"), "fiscal_period": ob.get("fp"),
+                            "source": "SEC companyfacts"}}
                 if trimestrale and (canon in INSTANT_ITEMS or (durata is not None and 80 <= durata <= 100)):
                     prev = serie.setdefault(canon, {}).get(end)
                     if prev is None or (-priorita, str(ob.get("filed", ""))) >= prev[1]:
@@ -376,6 +384,7 @@ def quarterly_history(facts: Dict[str, Any], quarters: int = 8, fino_al: Optiona
         latest = dict(per_end[end])
         celle = sorted(valori_per_end.get(end, {}).items())
         latest["values"] = {k: c["valore"] for k, c in celle}
+        latest["metric_metadata"] = {k: dict(c["metadata"]) for k, c in celle}
         unita = {k: c["unita"] for k, c in celle if c["unita"] != "USD"}
         if unita:
             latest["units_non_usd"] = unita

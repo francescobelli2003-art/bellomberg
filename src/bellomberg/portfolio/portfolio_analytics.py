@@ -1256,7 +1256,10 @@ def compute_drawdowns(force: bool = False) -> Dict[str, Any]:
     ], dtype=float)
     nav = ratio  # use ratio in place of NAV for DD calculation
     if len(nav) < 5:
-        return {"error": _message('storico insufficiente (servono >=5 giorni)', 'insufficient history (need >=5 days)'),
+        return {"error": _message('storico insufficiente: {n} osservazioni (minimo 5 giorni)', 'insufficient history: {n} observations (minimum 5 days)', n=len(nav)),
+                "error_code": "INSUFFICIENT_HISTORY", "calculation": "drawdowns",
+                "observations": len(nav), "minimum_observations": 5,
+                "observation_basis": "daily_pnl_cost_basis_ratio",
                 "n_days": len(nav)}
 
     # Running max
@@ -1599,7 +1602,10 @@ def compute_var_contribution(lookback_days: int = 252,
         close = close.dropna(axis=1, how="all")  # una colonna morta non svuota il panel
         returns = close.pct_change().dropna(how="any")
         if len(returns) < 60:
-            return {"error": _message('storico insufficiente: {v0} osservazioni', 'insufficient history: {v0} obs', v0=len(returns))}
+            return {"error": _message('storico insufficiente: {v0} osservazioni comuni (minimo 60)', 'insufficient history: {v0} common observations (minimum 60)', v0=len(returns)),
+                    "error_code": "INSUFFICIENT_HISTORY", "calculation": "component_var",
+                    "observations": len(returns), "minimum_observations": 60,
+                    "observation_basis": "common_daily_returns"}
     except Exception as e:
         return {"error": _message('Download fallito: {v0}', 'download failed: {v0}', v0=e)}
 

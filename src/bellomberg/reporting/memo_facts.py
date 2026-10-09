@@ -228,7 +228,7 @@ def _unavailable_node(node, cutoff):
     return None
 
 
-def _scopes(payload, *, tool, ticker, cutoff, issues, ref):
+def _scopes(payload, *, tool, ticker, cutoff, issues, ref, admitted_nodes=None):
     scopes, events = [], []
     excluded = 0
 
@@ -260,6 +260,8 @@ def _scopes(payload, *, tool, ticker, cutoff, issues, ref):
             excluded += 1
             _issue(issues, 'SCOPE_TICKER_DIFFERS', ref + path)
             return
+        if admitted_nodes is not None:
+            admitted_nodes.add(path)
         period = node.get('period') or node.get('period_end') or node.get('fiscal_date')
         currency = node.get('currency') or node.get('valuta')
         if tool == 'get_guidance' and isinstance(node.get('active'), list):
@@ -317,7 +319,7 @@ def _scopes(payload, *, tool, ticker, cutoff, issues, ref):
     return scopes, events, excluded
 
 
-def _receipts(snapshot, cutoff, issues):
+def _receipts(snapshot, cutoff, issues, *, followup=False):
     rows = snapshot.get('receipts')
     if not isinstance(rows, list):
         _issue(issues, 'RECEIPTS_UNAVAILABLE')
@@ -339,11 +341,14 @@ def _receipts(snapshot, cutoff, issues):
             payload = json.loads(row.get('output') or '')
             if not isinstance(payload, dict):
                 raise ValueError('RECEIPT_JSON_UNSUPPORTED')
+            admitted_nodes = set() if followup else None
             scopes, events, gaps = _scopes(payload, tool=row['tool'], ticker=ticker, cutoff=cutoff,
-                                           issues=issues, ref=entry['id'])
+                                           issues=issues, ref=entry['id'], admitted_nodes=admitted_nodes)
             excluded += gaps
             valid.append({'id': entry['id'], 'tool': row['tool'], 'ticker': ticker,
                           'scopes': scopes, 'events': events, 'sha256': entry['sha256']})
+            if followup:
+                valid[-1]['admitted_scope_paths'] = admitted_nodes
         except (ValueError, TypeError, OverflowError) as exc:
             rejected += 1
             # Local controlled codes only; never raw decoder/provider messages.
@@ -483,6 +488,82 @@ def _arithmetic(expression, language):
         return 'INCOMPLETE'
 
 
+def _followup_period_kind(value):
+    """Comparable labels only: an end date, FY, CY and provider bucket differ."""
+    if not isinstance(value, str):
+        return None
+    value = _period(value)
+    if re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+        try:
+            _day(value)
+            return 'date'
+        except ValueError:
+            return None
+    found = re.fullmatch(r'(FY|CY|Q[1-4](?:FY|CY)?)\d{4}', value)
+    return re.sub(r'^Q[1-4]', 'Q', found.group(1)) if found else None
+
+
+def _followup_attribute(finding, token, clause, receipts, projection, language):
+    """New contract only: missing fiscal/unit/duration evidence is not falsehood.
+
+    Reuses the closed claim grammar and numeric comparison of /1; only an exact
+    receipt path admitted by its source/cutoff checks can supply scoped metadata.
+    """
+    finding['dimensions']['semantic_scope'] = 'NOT_ASSESSED'
+    tags = list(dict.fromkeys(t.strip() for t in _TAG.findall(clause)))
+    ticker = _ticker(clause, receipts)
+    metric = _claim_metric(clause, ticker, token)
+    period, unit, duration = _claim_period(clause), _unit(clause, token), _claim_duration(clause)
+    kind = _followup_period_kind(period)
+    if (len(tags) != 1 or not ticker or not metric or not kind or not unit or duration == 'AMBIGUOUS'
+            or re.search(r'\b(?:growth|crescita|variazione|delta|yoy|vs)\b', clause, re.I)):
+        return
+    admitted = {(r['sha256'], s['path']) for r in receipts for s in r['scopes']}
+    admitted_metadata = {(r['sha256'], path) for r in receipts for path in r.get('admitted_scope_paths', ())}
+    candidates, incomplete, conflicting = [], False, False
+    for fact in projection.get('facts', []):
+        ref = fact['source_receipt']
+        if (ref['tool'] != tags[0] or fact['ticker'] != ticker or _metric(fact['metric']) != metric
+                or (ref['sha256'], ref['path']) not in admitted or fact.get('value_status') != 'AVAILABLE'):
+            continue
+        # The numeric field can survive while its sibling metadata is rejected.
+        # Require the same validator's admission for every supplying metadata node.
+        metadata_paths = ref.get('metadata_paths')
+        if (not metadata_paths or any((ref['sha256'], path) not in admitted_metadata for path in metadata_paths)):
+            incomplete = True
+            continue
+        labels = {_period(fact.get(key)) for key in ('provider_bucket', 'fiscal_year_label', 'period_end')
+                  if _followup_period_kind(fact.get(key)) == kind}
+        raw_unit = fact.get('unit')
+        currency = fact.get('currency')
+        actual_unit = currency if currency in ('EUR', 'USD', 'GBP', 'GBX') else raw_unit
+        scale = _UNIT_SCALE.get(str(raw_unit).lower(), 0)
+        if (not labels or actual_unit not in ('EUR', 'USD', 'GBP', 'GBX', 'pct')
+                or (raw_unit is not None and raw_unit not in (actual_unit, str(actual_unit) + '/shares')
+                    and str(raw_unit).lower() not in _UNIT_SCALE)
+                or (duration and _duration(fact.get('duration')) is None)):
+            incomplete = True
+            continue
+        if len(labels) != 1:
+            conflicting = True
+            continue
+        candidates.append({'value': _numeric(fact['value']), 'exponent': scale,
+                           'period': next(iter(labels)), 'unit': actual_unit,
+                           'duration': _duration(fact.get('duration'))})
+    if conflicting:
+        finding['dimensions']['semantic_scope'] = 'AMBIGUOUS'
+        return
+    matched = [s for s in candidates if s['period'] == period and s['unit'] == unit
+               and (not duration or s['duration'] == duration)]
+    if len(matched) > 1:
+        finding['dimensions']['semantic_scope'] = 'AMBIGUOUS'
+    elif len(matched) == 1:
+        finding['dimensions']['semantic_scope'] = ('CONSISTENT_EXPLICIT' if
+            _semantic_number_attested(token, language, matched[0]) else 'MISMATCH_EXPLICIT')
+    elif candidates and not incomplete:
+        finding['dimensions']['semantic_scope'] = 'MISMATCH_EXPLICIT'
+
+
 def _event(finding, clause, receipts):
     identity = list(dict.fromkeys('earnings' if m.group().lower() == 'risultati' else m.group().lower()
                                  for m in _EVENTS.finditer(clause)))
@@ -535,7 +616,17 @@ def audit_memo_facts(source_memo, evidence_snapshot, *, language='it', version=V
                       snapshot_sha256=_digest(snapshot))
         parts, completeness = _context(snapshot, issues, report['language'])
         report['context_completeness'] = completeness
-        receipts, total, rejected, excluded = _receipts(snapshot, cutoff, issues)
+        receipts, total, rejected, excluded = _receipts(snapshot, cutoff, issues,
+                                                       followup='evidence_scope_followup' in snapshot)
+        if 'evidence_scope_followup' in snapshot:
+            from bellomberg.core.evidence_followup_policy import POLICY, project_receipts
+            followup = snapshot['evidence_scope_followup']
+            if not isinstance(followup, dict) or followup.get('policy') != POLICY:
+                raise ValueError('EVIDENCE_FOLLOWUP_CONTRACT_UNAVAILABLE')
+            # Recompute only from hash-verified receipts; a sidecar cannot certify itself.
+            valid_ids = {r['id'] for r in receipts}
+            verified_rows = [r['receipt'] for r in snapshot['receipts'] if r.get('id') in valid_ids]
+            report['evidence_scope_followup'] = project_receipts(verified_rows, run_id=snapshot['run_id'])
         for _ in snapshot.get('issues') or []:
             _issue(issues, 'COLLECTOR_REPORTED_GAP')
         findings = report['findings']
@@ -557,6 +648,9 @@ def audit_memo_facts(source_memo, evidence_snapshot, *, language='it', version=V
                 finding = _finding('number', offset + start, offset + end, source_memo)
                 _presence(finding, token, parts, completeness, report['language'], clause)
                 _attribute(finding, token, clause, receipts, report['language'])
+                if 'evidence_scope_followup' in report:
+                    _followup_attribute(finding, token, clause, receipts,
+                                        report['evidence_scope_followup'], report['language'])
                 findings.append(finding)
         for index, finding in enumerate(findings):
             finding['id'] = 'f' + str(index)
@@ -606,5 +700,24 @@ def render_memo_facts(report):
         if states and type(line) is int and line >= 1:
             flagged.append(('- Line ' if en else '- Riga ') + str(line) + ': ' + '; '.join(states))
     lines.extend(flagged[:8])
+    if 'evidence_scope_followup' in report:
+        evidence = report['evidence_scope_followup']
+        gaps = []
+        for fact in evidence.get('facts', []):
+            missing = [key for key in ('fiscal_year_status', 'duration_status', 'unit_status',
+                                      'currency_status', 'definition_status') if fact.get(key) == 'UNVERIFIED']
+            if fact.get('identity_basis') == 'UNVERIFIED':
+                missing.append('identity_basis')
+            if missing:
+                gaps.append(str(fact.get('ticker') or 'n.d.') + ' ' + fact['metric'] + ': '
+                            + ', '.join(missing) + ' = UNVERIFIED')
+        lines.append(('Evidence metadata gaps (not proven falsehood): ' if en else
+                      'Lacune metadati delle ricevute (non falsita dimostrate): ') + str(len(gaps)) + '.')
+        lines.extend('- ' + gap for gap in gaps[:8])
+        if evidence.get('issues'):
+            lines.append(('Projection diagnostics: ' if en else 'Diagnostica proiezione: ')
+                         + ', '.join(sorted({item['code'] for item in evidence['issues']})) + '.')
+        lines.append(('Other prose and issuer names: NOT_ASSESSED; desk claims are not primary sources.' if en else
+                      'Altra prosa e nomi emittenti: NOT_ASSESSED; claim dei desk non sono fonti primarie.'))
     lines.append(('Diagnostics displayed: ' if en else 'Diagnosi mostrate: ') + str(min(8, len(flagged))) + '/' + str(len(flagged)) + '.')
     return '\n'.join(lines)

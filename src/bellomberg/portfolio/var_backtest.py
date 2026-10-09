@@ -342,6 +342,9 @@ def backtest_var(window: int = 252, period: str = "3y",
     if len(port_r) < window + 60:
         return {"error": f"campione troppo corto per il backtest: {len(port_r)} obs "
                          f"(servono >= {window + 60})",
+                "error_code": "INSUFFICIENT_HISTORY", "calculation": "var_backtest",
+                "observations": int(len(port_r)), "minimum_observations": int(window + 60),
+                "observation_basis": "portfolio_daily_returns_including_warmup",
                 "sample_meta": sample_meta, "timestamp": datetime.now().isoformat()}
 
     out: Dict[str, Any] = {

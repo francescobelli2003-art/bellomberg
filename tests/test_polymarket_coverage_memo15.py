@@ -226,3 +226,98 @@ def test_later_negative_evidence_retracts_earlier_projection(poly, monkeypatch, 
         assert out['results'][0]['activity_status'] == 'unknown'
     else:
         assert not any(m['activity_status'] == 'active' for r in out['results'] for m in r.get('markets', []))
+
+
+def test_country_search_never_promotes_sports_other_country_or_translation(poly, monkeypatch):
+    rows = [event(slug='cup', title='Norland football cup', markets=[]),
+            event(slug='other', title='Solaria election', markets=[]),
+            event(slug='translated', title='Eleicao presidencial Norland', markets=[]),
+            event(slug='short-title', title='Who will win?', markets=[])]
+    calls = install(poly, monkeypatch, events=rows)
+    out = poly.tool_get_polymarket_events('Norland election')
+    assert out['count'] == len(rows)
+    assert out['count_basis'] == 'technical_candidates_not_verified_relevant_markets'
+    assert out['relevant_count'] is None and out['relevance_status'] == 'NOT_ASSESSED'
+    by_slug = {r['url'].rsplit('/', 1)[-1]: r for r in out['results']}
+    assert set(by_slug) == {r['slug'] for r in rows}  # No blind lexical rejection.
+    assert by_slug['cup']['search_match']['missing_query_terms'] == ['election']
+    assert by_slug['other']['search_match']['missing_query_terms'] == ['norland']
+    assert by_slug['short-title']['search_match']['basis'] == 'server_search_only'
+    assert all(r['search_match']['relevance_status'] == 'UNVERIFIED' for r in by_slug.values())
+    assert out['query'] == 'Norland election'
+    assert len(out['coverage']['pages']) == len(calls)
+    assert out['coverage']['pages'][0]['query'] == out['query']
+
+
+def test_search_records_why_expired_candidate_was_excluded_and_history_is_missing(poly, monkeypatch):
+    install(poly, monkeypatch, events=[event(slug='past', endDate='2000-01-01T00:00:00Z',
+                                           markets=[market(slug='past-child')]), event()])
+    out = poly.tool_get_polymarket_events('fed')
+    excluded = out['coverage']['excluded_candidates']
+    assert excluded[0]['slug'] == 'past' and 'expired' in excluded[0]['reasons']
+    assert excluded[0]['end_date'] == '2000-01-01T00:00:00Z'
+    history = out['results'][0]['markets'][0]['historical_change']
+    assert history['delta_7d'] is None and history['delta_30d'] is None
+    assert history['status'] == 'UNAVAILABLE'
+    assert 'COMPARABLE_HISTORY_NOT_FETCHED' in history['reason']
+
+
+def test_zero_candidates_is_only_the_observed_search(poly, monkeypatch):
+    install(poly, monkeypatch)
+    out = poly.tool_get_polymarket_events('Norland election')
+    assert out['count'] == 0 and out['relevant_count'] is None
+    assert out['coverage_verified'] is False
+    assert len(out['coverage']['pages']) == 3
+    assert 'not evidence of market absence' in out['note']
+
+
+@pytest.mark.parametrize('source', ['events', 'markets'])
+def test_local_translated_and_incomplete_candidates_survive_without_lexical_match(poly, monkeypatch, source):
+    titles = [('translated', 'Eleicao no Pais Azul'), ('incomplete', 'Who will win?')]
+    rows = ([event(slug=slug, title=title, markets=[]) for slug, title in titles]
+            if source == 'events' else [market(slug=slug, question=title) for slug, title in titles])
+    install(poly, monkeypatch, events=rows if source == 'events' else [],
+            singles=rows if source == 'markets' else [], source=source)
+    out = poly.tool_get_polymarket_events('Norland election')
+    assert {r['url'].rsplit('/', 1)[-1] for r in out['results']} == {slug for slug, _ in titles}
+    assert out['coverage']['lexical_nonmatches'] == len(rows)
+    assert all(r['search_match']['relevance_status'] == 'UNVERIFIED' for r in out['results'])
+    assert all(r['search_match']['basis'] == 'local_no_lexical_match' for r in out['results'])
+    assert out['relevant_count'] is None
+
+
+@pytest.mark.parametrize('source', ['events', 'markets'])
+def test_uncertain_local_candidates_keep_existing_cap_and_rank_after_keyword_candidates(poly, monkeypatch, source):
+    titles = [('translated', 'Eleicao no Pais Azul', 999), ('matching', 'Norland election', 1)]
+    rows = ([event(slug=slug, title=title, volume24hr=volume, markets=[]) for slug, title, volume in titles]
+            if source == 'events' else [market(slug=slug, question=title, volume24hr=volume) for slug, title, volume in titles])
+    install(poly, monkeypatch, events=rows if source == 'events' else [],
+            singles=rows if source == 'markets' else [], source=source)
+    out = poly.tool_get_polymarket_events('Norland election', max_results=1)
+    assert len(out['results']) == 1 and out['results'][0]['url'].endswith('/matching')
+    assert out['coverage']['eligible_candidates'] == 2 and out['coverage']['omitted_result_limit'] == 1
+    assert out['coverage']['local_nonlexical_candidates'] == 1
+    assert out['relevant_count'] is None and out['results'][0]['search_match']['relevance_status'] == 'UNVERIFIED'
+
+
+def test_nested_expired_market_keeps_identity_expiry_and_exclusion_reason(poly, monkeypatch):
+    expired = market(id='SYNTH-EXPIRED', slug='expired-child', endDate='2000-01-01T00:00:00Z')
+    active = market(id='SYNTH-ACTIVE', slug='active-child')
+    install(poly, monkeypatch, events=[event(id='SYNTH-PARENT', markets=[expired, active])])
+    group = poly.tool_get_polymarket_events('fed')['results'][0]
+    assert group['market_coverage']['excluded_inactive'] == 1
+    excluded = group['excluded_markets'][0]
+    assert excluded['id'] == 'SYNTH-EXPIRED' and excluded['slug'] == 'expired-child'
+    assert excluded['end_date'] == '2000-01-01T00:00:00Z' and 'expired' in excluded['reasons']
+    assert excluded['parent'] == {'id': 'SYNTH-PARENT', 'slug': 'fed-event'}
+    assert excluded['source'] == '/public-search'
+    assert group['excluded_markets_omitted'] == 0
+
+
+def test_nested_exclusion_sample_declares_omitted_identities(poly, monkeypatch):
+    expired = [market(id=f'OLD-{n}', slug=f'old-{n}', closed=True) for n in range(13)]
+    install(poly, monkeypatch, events=[event(markets=expired + [market()])])
+    group = poly.tool_get_polymarket_events('fed')['results'][0]
+    assert group['market_coverage']['excluded_inactive'] == 13
+    assert len(group['excluded_markets']) == 10 and group['excluded_markets_omitted'] == 3
+    assert all(r['id'] and r['slug'] and 'closed' in r['reasons'] for r in group['excluded_markets'])

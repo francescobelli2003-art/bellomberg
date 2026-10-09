@@ -361,6 +361,17 @@ def compute_sector_exposure(summary: Optional[Dict[str, Any]] = None,
             "by_bucket": by_econ,
             "hhi": round(hhi_econ, 4),
             "effective_n": round(1.0 / hhi_econ, 2) if hhi_econ > 0 else None,
+            "effective_n_metadata": {
+                "definition": "inverse_sector_hhi",
+                "axis": "economic_sector",
+                "weight_basis": "invested_market_value_eur_excluding_cash",
+                "independence_assessed": False,
+                "unknown_bucket_included": True,
+                "multi_sector_baskets_lookthrough": False,
+                "interpretation": _message(
+                    "Numero equivalente di bucket economici equiponderati (1/HHI), inclusi n.d. e panieri multi-settore non scomposti; pesi sul valore di mercato EUR investito, cash escluso. Non misura l'indipendenza statistica di posizioni o fattori.",
+                    "Equivalent number of equally weighted economic buckets (1/HHI), including unknown and multi-sector baskets without look-through; weights on invested EUR market value, excluding cash. Does not measure statistical independence of positions or factors."),
+            },
             "coverage_pct": round((total - econ_nd_val) / total * 100.0, 2) if total > 0 else 0.0,
             "multi_sector_weight_pct": multi_pct,
             # review 1b (MEDIA-2): il degrado FX si dichiara ANCHE qui — questo

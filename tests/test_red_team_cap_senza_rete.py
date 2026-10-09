@@ -7,12 +7,13 @@ MOD-CAP (06/10): il tetto ora si adatta nel punto UNICO del client (llm_client.t
 dal listino del registro richieste dentro una run): le stesse garanzie si provano li'.
 Modelli e numeri inventati."""
 import json
+import sys
 
 import pytest
 import requests
 
 from bellomberg.agents import red_team
-from bellomberg.core import llm_client
+from bellomberg.core import llm_client, current_facts as REAL_CURRENT_FACTS
 from bellomberg.core.request_journal import RequestJournal, request_scope
 from bellomberg.valuation import preparation_ai
 
@@ -92,10 +93,26 @@ def test_senza_registro_lettura_diretta_come_prima(monkeypatch):
 from test_pipeline_replay_artifacts import replay, replay_loop, run_offline, db  # noqa: E402,F401
 
 
-def test_replay_completo_red_team_al_tetto_con_una_lettura(replay, run_offline, monkeypatch):
+@pytest.fixture
+def native_research_replay(replay, monkeypatch):
+    # The archived replay replaces this whole module. New contracts need the real
+    # note capture, frozen context and delivery receipts; only live context stays fake.
+    import bellomberg.core as core_package
+    archived_facts = sys.modules['bellomberg.core.current_facts']
+    monkeypatch.setitem(sys.modules, 'bellomberg.core.current_facts', REAL_CURRENT_FACTS)
+    monkeypatch.setattr(core_package, 'current_facts', REAL_CURRENT_FACTS)
+    for name in ('current_facts_block', 'favorites_block', 'pm_theses_block'):
+        monkeypatch.setattr(REAL_CURRENT_FACTS, name, getattr(archived_facts, name))
+    return replay
+
+
+def test_replay_completo_red_team_al_tetto_con_una_lettura(native_research_replay, run_offline, monkeypatch):
     from bellomberg.agents import consigliere_multi as cm
+    replay = native_research_replay
     monkeypatch.setattr(cm, "_weekly_contract", run_offline.native_weekly_contract)
-    cm.run_multi_agent(language="it")
+    result = cm.run_multi_agent(language="it")
+    assert result['status'] == 'completed', result.get('last_error')
+    assert replay.blackboard.weekly_store.get(REAL_CURRENT_FACTS.RESEARCH_NOTES_STAGE)['policy'] == REAL_CURRENT_FACTS.RESEARCH_NOTES_POLICY
     rossi = [c for c in replay.side_calls if "RISK MANAGER SCETTICO" in str(c.get("system"))]
     # MOD-CAP: il Red Team chiede il cap del contratto; il client vero lo adatta sul filo
     # (qui il client e' finto ad alto livello: l'adattamento si prova in test_tetto_uscita_adattivo).
@@ -152,11 +169,12 @@ def test_allow_list_della_lacuna_per_tipo_non_per_testo():
     assert not wl._red_team_local_failure(TypeError("synthetic"))
 
 
-def test_replay_catalogo_giu_al_red_team_run_completa_con_lacuna(replay, run_offline, monkeypatch):
+def test_replay_catalogo_giu_al_red_team_run_completa_con_lacuna(native_research_replay, run_offline, monkeypatch):
     # Research mode (contratto nativo): il listino non e' leggibile, nessun invio del Red Team,
     # la run arriva in fondo con la lacuna dichiarata.
     from bellomberg.agents import consigliere_multi as cm
     from test_weekly_recovery import _store
+    replay = native_research_replay
     monkeypatch.setattr(cm, "_weekly_contract", run_offline.native_weekly_contract)
 
     def giu(model):
@@ -165,6 +183,7 @@ def test_replay_catalogo_giu_al_red_team_run_completa_con_lacuna(replay, run_off
     monkeypatch.setattr(preparation_ai, "live_metadata", giu)
     result = cm.run_multi_agent(language="it")
     assert result["status"] == "completed", result.get("last_error")
+    assert _store().get(REAL_CURRENT_FACTS.RESEARCH_NOTES_STAGE)['policy'] == REAL_CURRENT_FACTS.RESEARCH_NOTES_POLICY
     assert not [c for c in replay.side_calls if "RISK MANAGER SCETTICO" in str(c.get("system"))]
     assert _store().get("red_team")["gap"].startswith("RedTeamSenzaPreventivo")
     assert not replay.network

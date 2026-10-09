@@ -285,7 +285,10 @@ def portfolio_metrics(benchmark_ticker="SPY"):
         pnl = serie_pnl_rendimento(nav) or []
         cb = nav.get("cost_basis_eur") or []
         if len(pnl) < 10:
-            return {"error": message("storico NAV insufficiente", "insufficient NAV history"), "n": len(pnl)}
+            return {"error": message("storico NAV insufficiente: {n} osservazioni (minimo 10)", "insufficient NAV history: {n} observations (minimum 10)", n=len(pnl)),
+                    "n": len(pnl), "error_code": "INSUFFICIENT_HISTORY",
+                    "calculation": "advanced_metrics_nav", "observations": len(pnl),
+                    "minimum_observations": 10, "observation_basis": "daily_nav_pnl"}
         ratio = np.array([1 + (p_ / c if c else 0) for p_, c in zip(pnl, cb)], dtype=float)
         rets = np.diff(ratio) / ratio[:-1]
         d_ = nav.get("dates") or []

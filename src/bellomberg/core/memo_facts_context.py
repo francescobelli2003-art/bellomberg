@@ -13,7 +13,7 @@ def _digest(value):
                              allow_nan=False, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def collect_memo_facts_context(run_id, cutoff, request, receipts):
+def collect_memo_facts_context(run_id, cutoff, request, receipts, *, evidence_followup=False):
     """Solo contenuti congelati. Il checkpoint iniziale NON attesta retry/nudge."""
     parts, missing, issues = [], ["accepted_wire_request_and_continuations"], []
     request = request if isinstance(request, dict) else {}
@@ -32,18 +32,24 @@ def collect_memo_facts_context(run_id, cutoff, request, receipts):
     for index, receipt in enumerate(receipts):
         entries.append({"id": "receipt-" + str(index), "sha256": _digest(receipt),
                         "receipt": deepcopy(receipt), "attribution": "UNAVAILABLE"})
-    return {"version": POLICY, "run_id": run_id, "cutoff": cutoff,
+    snapshot = {"version": POLICY, "run_id": run_id, "cutoff": cutoff,
             "context": {"status": "PARTIAL" if parts else "UNAVAILABLE",
                         "attestation": {"status": "UNVERIFIED", "basis": "initial_request_checkpoint",
                                         "request_ids": []},
                         "parts": parts, "missing_parts": missing},
             "receipts": entries, "issues": issues}
+    if evidence_followup:
+        from bellomberg.core.evidence_followup_policy import project_receipts
+        snapshot['evidence_scope_followup'] = project_receipts(receipts, run_id=run_id)
+    return snapshot
 
 
 def checkpoint_memo_facts(store, source_memo):
     """Riusa il risultato dopo crash; integrita store fuori dai catch diagnostici."""
     from bellomberg.storage.weekly_run_store import WeeklyRunBlocked
     contract = store.context.get("contract", {})
+    from bellomberg.core.evidence_followup_policy import enabled as followup_enabled
+    followup = followup_enabled(contract)
     if "memo_facts_policy" not in contract:
         return ""
     policy = contract["memo_facts_policy"]
@@ -56,7 +62,7 @@ def checkpoint_memo_facts(store, source_memo):
     # Il callback del Capo salva la Blackboard, non uno stage capo_request separato.
     request = board.data.get("_capo_request") if isinstance(board.data, dict) else None
     snapshot = collect_memo_facts_context(store.run_id, store.context.get("research_started_at"),
-                                          request, board.tool_receipts)
+                                          request, board.tool_receipts, **({'evidence_followup': True} if followup else {}))
     language = store.context.get("language", "it")
     input_hash = _digest({"source_memo": source_memo, "snapshot": snapshot,
                           "language": language, "policy": policy})

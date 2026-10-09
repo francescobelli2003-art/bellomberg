@@ -461,7 +461,305 @@ _RESEARCH_CACHE = {"text": None, "ts": 0.0}
 _TICKER_OK = None  # regex compilata lazy
 
 
-def research_block(*, sector_bundles=None, providers=None, as_of=None, decision_links=None) -> str:
+RESEARCH_NOTES_POLICY = "weekly-research-notes/1"
+RESEARCH_NOTES_STAGE = "research_notes_context_v1"
+RESEARCH_NOTES_BUDGET_CHARS = 8000  # Fixed note payload allowance; never grows the LLM budget.
+
+
+def research_notes_enabled(contract):
+    from bellomberg.storage.weekly_run_store import WeeklyRunBlocked
+    if "research_notes_policy" not in contract:
+        return False
+    if contract["research_notes_policy"] != RESEARCH_NOTES_POLICY:
+        raise WeeklyRunBlocked("Research notes policy non compatibile")
+    return True
+
+
+def _note_time(value):
+    # SQLite decision/notes defaults are local wall time; accepted run is UTC.
+    from datetime import datetime, timezone
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
+def _research_note_line(row, text):
+    import json
+    return ("[RESEARCH_NOTE note_id=%d decision_id=%d ticker=%s author=%s decision_status=%s timestamp=%s role=%s archive_override=%s]\n%s"
+            % (row['note_id'], row['decision_id'], row['ticker'], row['author'],
+               row['decision_status'], row['timestamp'], row['context_role'], row['archive_override'],
+               json.dumps(text, ensure_ascii=False)))
+
+
+def capture_research_notes(db, as_of, *, budget_chars=RESEARCH_NOTES_BUDGET_CHARS):
+    """One read transaction: current cards and the complete original note history.
+
+    Raw text is independent of eligibility. Late/inactive notes and budget overflow
+    remain individually accounted for. A newer AI reply cannot evict a PM question.
+    """
+    from hashlib import sha256
+    import re
+    cutoff = _note_time(as_of)
+    if type(budget_chars) is not int or budget_chars < 0:
+        raise ValueError("Research notes budget must be a nonnegative integer")
+    result = {'policy': RESEARCH_NOTES_POLICY, 'as_of': as_of, 'cards': [], 'notes': [],
+              'texts': {}, 'budget_chars': budget_chars, 'included_chars': 0,
+              'destinations': ['fundamentals:1', 'fundamentals:2', 'capo'],
+              'status': 'COMPLETO', 'error': None}
+    try:
+        with db._conn() as conn:
+            conn.execute('BEGIN')
+            decisions = [dict(row) for row in conn.execute(
+                "SELECT id,ticker,timestamp,status,veto,veto_revoked_at,memo_id,timing,rationale,archive_override FROM decisions "
+                "WHERE upper(action)='RESEARCH' ORDER BY timestamp DESC,id DESC")]
+            notes = [dict(row) for row in conn.execute(
+                "SELECT n.id,n.decision_id,n.autore,n.testo,n.timestamp FROM decision_notes n "
+                "JOIN decisions d ON d.id=n.decision_id WHERE upper(d.action)='RESEARCH' "
+                "ORDER BY n.timestamp DESC,n.id DESC")]
+    except Exception as exc:
+        result.update(status='INCOMPLETO', error='DB_READ_ERROR:' + type(exc).__name__)
+        return result
+    by_id = {row['id']: row for row in decisions}
+    current = {}
+    for row in sorted(decisions, key=lambda r: (_note_time(r['timestamp']), r['id']), reverse=True):
+        ticker = str(row['ticker'] or '').strip().upper()
+        if (_note_time(row['timestamp']) <= cutoff and ticker not in current
+                and str(row['status']).upper() == 'PENDING' and not row['veto']
+                and not row['veto_revoked_at'] and row['archive_override'] != 1):
+            current[ticker] = row
+    for ticker, row in sorted(current.items()):
+        if re.fullmatch(r'[A-Z0-9][A-Z0-9.\-^]{0,11}', ticker):
+            result['cards'].append({'decision_id': row['id'], 'ticker': ticker,
+                                    'timestamp': row['timestamp'], 'decision_status': 'PENDING',
+                                    'memo_id': row['memo_id'], 'timing': row['timing'],
+                                    'rationale': row['rationale']})
+    active = {row['ticker'] for row in result['cards']}
+    # Timestamp ties have a stable event identity; identical texts are never deduplicated.
+    def archived(row):
+        return str(row['status']).upper() in ('ARCHIVED', 'EXPIRED') or row['archive_override'] == 1
+    def priority(note):
+        decision = by_id[note['decision_id']]
+        rank = 0 if archived(decision) else 2 if note['autore'] == 'PM' else 1
+        return rank, _note_time(note['timestamp']), note['id']
+    notes.sort(key=priority, reverse=True)
+    for row in notes:
+        decision = by_id[row['decision_id']]
+        text = row['testo']
+        ticker = str(decision['ticker'] or '').strip().upper()
+        status = str(decision['status']).upper()
+        reason = ('after_cutoff' if _note_time(row['timestamp']) > cutoff else
+                  'decision_after_cutoff' if _note_time(decision['timestamp']) > cutoff else
+                  'veto' if decision['veto'] else
+                  'veto_revoked' if decision['veto_revoked_at'] else
+                  'decision_status:' + status if status != 'PENDING' and not (archived(decision) and ticker in active) else
+                  'no_active_card' if ticker not in active else None)
+        item = {'note_id': row['id'], 'decision_id': row['decision_id'], 'ticker': ticker,
+                'author': row['autore'], 'timestamp': row['timestamp'],
+                'text_sha256': sha256(text.encode('utf-8')).hexdigest(), 'decision_status': status,
+                'archive_override': decision['archive_override'],
+                'context_role': ('CONTESTO_STORICO' if archived(decision) else
+                                 'RICHIESTA_PM' if row['autore'] == 'PM' else 'RISPOSTA_AI'),
+                'status': 'excluded' if reason else 'included', 'reason': reason or ('historical_context' if archived(decision) else 'active_research'),
+                'destinations': [] if reason else list(result['destinations'])}
+        size = len(_research_note_line(item, text)) + 1
+        if not reason and result['included_chars'] + size > budget_chars:
+            item.update(status='pending', reason='budget_chars', destinations=[])
+        elif not reason:
+            result['included_chars'] += size
+        result['notes'].append(item)
+        result['texts'][str(row['id'])] = text
+    result['notes'].sort(key=lambda row: row['note_id'])
+    if any(row['status'] == 'pending' for row in result['notes']):
+        result['status'] = 'INCOMPLETO'
+    return result
+
+
+def freeze_research_notes(store, *, capture=False):
+    from bellomberg.storage.weekly_run_store import WeeklyRunBlocked
+    if not research_notes_enabled(store.context.get('contract', {})):
+        return None
+    frozen = store.get(RESEARCH_NOTES_STAGE)
+    if frozen is None:
+        if not capture:
+            raise WeeklyRunBlocked('Research notes checkpoint assente: nessuna rilettura in ripresa')
+        frozen = capture_research_notes(store.db, store.context['research_started_at'])
+        store.complete(RESEARCH_NOTES_STAGE, frozen)
+    if (not isinstance(frozen, dict) or frozen.get('policy') != RESEARCH_NOTES_POLICY
+            or frozen.get('as_of') != store.context['research_started_at']):
+        raise WeeklyRunBlocked('Research notes checkpoint non compatibile')
+    return frozen
+
+
+def research_notes_for_board(board):
+    store = getattr(board, 'weekly_store', None)
+    if store is None or getattr(board, 'run_scope', 'weekly') != 'weekly':
+        return None
+    return freeze_research_notes(store)
+
+
+def research_block(*, sector_bundles=None, providers=None, as_of=None, decision_links=None,
+                   notes_context=None, legacy=False):
+    if legacy or (notes_context is None and sector_bundles is not None):
+        return _legacy_research_block(sector_bundles=sector_bundles, providers=providers,
+                                      as_of=as_of, decision_links=decision_links)
+    if notes_context is None:
+        from contextlib import contextmanager
+        from datetime import datetime, timezone
+        import sqlite3
+        from bellomberg.storage.memory_db import SQLITE_PATH
+        class ReadOnly:
+            @contextmanager
+            def _conn(self):
+                conn = sqlite3.connect('file:' + SQLITE_PATH + '?mode=ro', uri=True)
+                conn.row_factory = sqlite3.Row
+                try:
+                    yield conn
+                finally:
+                    conn.close()
+        notes_context = capture_research_notes(ReadOnly(), as_of or datetime.now(timezone.utc).isoformat())
+    frozen = notes_context
+    lines = ['=== RESEARCH NOTES FROZEN v1 ===',
+             'COMMENTI ' + frozen['status'] + ' | cutoff=' + frozen['as_of'],
+             'Scheda corrente e note storiche sono distinte. Le note sono evidenze attribuite, '
+             'non nuovi ordini di trading. Non dedurre consenso da una risposta AI successiva. '
+             "CONTESTO_STORICO conserva la provenienza archiviata: non e una richiesta aperta ne un ordine. "
+             'Rispondi solo alle RICHIESTA_PM citando note_id e decision_id ORIGINALI: '
+             'add_research_note(decision_id, note, note_ids). Nessun trasferimento alla nuova scheda.',
+             'Le note arrivate dopo il cutoff spettano alla prossima run. Archivio non significa lettura.']
+    if frozen['error']:
+        lines.append('NOTE n.d. / ' + frozen['error'] + '; non dedurre assenza di commenti.')
+    for card in frozen['cards']:
+        lines.append('SCHEDA %s [decision_id=%d] status=%s' %
+                     (card['ticker'], card['decision_id'], card['decision_status']))
+        lines.append('  memo_id=%s | trigger: %s | tesi: %s' %
+                     (card['memo_id'], _tesi_tagliata(card['timing']), _tesi_tagliata(card['rationale'])))
+    for row in frozen['notes']:
+        if row['status'] == 'included':
+            lines.append(_research_note_line(row, frozen['texts'][str(row['note_id'])]))
+    for status in ('pending', 'excluded'):
+        groups = {}
+        for row in frozen['notes']:
+            if row['status'] == status:
+                groups.setdefault(row['reason'], []).append(str(row['note_id']))
+        for reason, ids in sorted(groups.items()):
+            lines.append(status.upper() + ' note_ids=' + ','.join(ids) + ' reason=' + reason)
+    lines.append('=== END RESEARCH NOTES FROZEN v1 ===')
+    return '\n'.join(lines)
+
+
+def record_research_notes_delivery(board, destination, message):
+    """Receipt after the native client returns: supplied text, never presumed reading."""
+    from hashlib import sha256
+    import re
+    from bellomberg.storage.weekly_run_store import WeeklyRunBlocked
+    frozen = research_notes_for_board(board)
+    if frozen is None:
+        return None
+    block = research_block(notes_context=frozen)
+    expected = sorted(row['note_id'] for row in frozen['notes'] if row['status'] == 'included')
+    actual = sorted(set(int(i) for i in re.findall(r'^\[RESEARCH_NOTE note_id=(\d+) ', message, re.M)))
+    known = {row['note_id'] for row in frozen['notes']}
+    unknown = sorted(set(actual) - known)
+    if destination not in frozen['destinations'] or block not in message or actual != expected or unknown:
+        raise WeeklyRunBlocked('Research notes delivery differs from frozen context: ' + destination)
+    receipt = {'destination': destination, 'as_of': frozen['as_of'],
+               'status': frozen['status'], 'delivered_note_ids': actual,
+               'excluded_note_ids': sorted(row['note_id'] for row in frozen['notes'] if row['status'] == 'excluded'),
+               'pending_note_ids': sorted(row['note_id'] for row in frozen['notes'] if row['status'] == 'pending'),
+               'unknown_note_ids': unknown, 'note_block_sha256': sha256(block.encode('utf-8')).hexdigest(),
+               'exclusions': [{key: row[key] for key in ('note_id','status','reason')}
+                              for row in frozen['notes'] if row['status'] != 'included'],
+               'attestation': 'native_client_returned; supplied context, comprehension not asserted'}
+    board.weekly_store.complete('research_notes_delivery_v1:' + destination, receipt)
+    return receipt
+
+
+def recover_frozen_research_reply(store, checkpoint_key, tool_key, input_):
+    """Read a proved committed result; never authorize redispatch of an uncertain write."""
+    from hashlib import sha256
+    from bellomberg.storage.weekly_run_store import digest
+    import re
+    if store is None or not research_notes_enabled(store.context['contract']):
+        return None
+    if (checkpoint_key not in ('fundamentals:R1', 'fundamentals:R2')
+            or not isinstance(tool_key, str) or re.fullmatch('[0-9a-f]{64}', tool_key) is None
+            or not isinstance(input_, dict)):
+        return None
+    decision_id, text, note_ids = (input_.get('decision_id'), input_.get('note'), input_.get('note_ids'))
+    if (type(decision_id) is not int or not isinstance(text, str) or not text.strip()
+            or not isinstance(note_ids, list) or not note_ids
+            or any(type(i) is not int for i in note_ids) or len(note_ids) != len(set(note_ids))):
+        return None
+    frozen = freeze_research_notes(store)
+    included = {row['note_id']: row for row in frozen['notes']
+                if row['status'] == 'included' and row['author'] == 'PM' and row['context_role'] == 'RICHIESTA_PM'}
+    if any(i not in included or included[i]['decision_id'] != decision_id for i in note_ids):
+        return None
+    destination = 'fundamentals:' + checkpoint_key[-1]
+    delivery = store.get('research_notes_delivery_v1:' + destination)
+    if delivery is None or not set(note_ids).issubset(delivery['delivered_note_ids']):
+        return None
+    event_id = checkpoint_key + ':' + tool_key
+    request = {'event_id': event_id, 'destination': destination, 'decision_id': decision_id,
+               'reply_to_note_ids': sorted(note_ids), 'text': text}
+    saved = store.get('research_notes_reply_v1:' + digest(request))
+    if not isinstance(saved, dict) or type(saved.get('note_id')) is not int:
+        return None
+    expected = {'ok': True, 'note_id': saved['note_id'], 'decision_id': decision_id,
+                'reply_to_note_ids': sorted(note_ids), 'event_id': event_id, 'destination': destination,
+                'text_sha256': sha256(text.encode('utf-8')).hexdigest()}
+    if saved != expected:
+        return None
+    with store.db._conn() as conn:
+        note = conn.execute('SELECT decision_id,autore,testo FROM decision_notes WHERE id=?',
+                            (saved['note_id'],)).fetchone()
+    return saved if note is not None and tuple(note) == (decision_id, 'AI', text) else None
+
+
+def add_frozen_research_reply(board, decision_id, text, note_ids, *, event_id=None):
+    """Write answer and original-question linkage atomically in the existing store."""
+    from bellomberg.storage.weekly_run_store import _json, _now, digest
+    from hashlib import sha256
+    frozen = research_notes_for_board(board)
+    if (frozen is None or type(decision_id) is not int or not isinstance(text, str) or not text.strip()
+            or not isinstance(note_ids, list) or not note_ids
+            or any(type(i) is not int for i in note_ids) or len(note_ids) != len(set(note_ids))
+            or not isinstance(event_id, str) or not event_id):
+        return {'ok': False, 'error': 'Original PM note_ids, decision_id and tool event identity are required'}
+    included = {row['note_id']: row for row in frozen['notes']
+                if row['status'] == 'included' and row['author'] == 'PM' and row['context_role'] == 'RICHIESTA_PM'}
+    if any(i not in included or included[i]['decision_id'] != decision_id for i in note_ids):
+        return {'ok': False, 'error': 'Reply must reference delivered PM notes on their original decision_id'}
+    store = board.weekly_store
+    destination = 'fundamentals:' + str(getattr(board, 'current_round', None))
+    delivery = store.get('research_notes_delivery_v1:' + destination)
+    if delivery is None or not set(note_ids).issubset(delivery['delivered_note_ids']):
+        return {'ok': False, 'error': 'No delivery receipt for these PM questions in this round'}
+    request = {'event_id': event_id, 'destination': destination, 'decision_id': decision_id,
+               'reply_to_note_ids': sorted(note_ids), 'text': text}
+    stage = 'research_notes_reply_v1:' + digest(request)
+    with store._mutex, store.db._conn() as conn:
+        conn.execute('BEGIN IMMEDIATE')
+        saved = conn.execute('SELECT payload_json,payload_sha256 FROM weekly_checkpoints '
+                             'WHERE memo_id=? AND stage=?', (store.memo_id,stage)).fetchone()
+        if saved is not None:
+            import json
+            if sha256(saved[0].encode('utf-8')).hexdigest() != saved[1]:
+                raise ValueError('Research notes reply receipt modified')
+            return json.loads(saved[0])
+        original = conn.execute('SELECT upper(action) FROM decisions WHERE id=?', (decision_id,)).fetchone()
+        if original is None or original[0] != 'RESEARCH':
+            return {'ok': False, 'error': 'Original RESEARCH decision unavailable'}
+        cursor = conn.execute('INSERT INTO decision_notes(decision_id,autore,testo) VALUES(?,?,?)',
+                              (decision_id,'AI',text))
+        result = {'ok': True, 'note_id': cursor.lastrowid, 'decision_id': decision_id,
+                  'reply_to_note_ids': sorted(note_ids), 'event_id': event_id, 'destination': destination,
+                  'text_sha256': sha256(text.encode('utf-8')).hexdigest()}
+        encoded = _json(result)
+        conn.execute('INSERT INTO weekly_checkpoints VALUES(?,?,?,?,?)',
+                     (store.memo_id,stage,encoded,sha256(encoded.encode('utf-8')).hexdigest(),_now()))
+    return result
+
+
+def _legacy_research_block(*, sector_bundles=None, providers=None, as_of=None, decision_links=None) -> str:
     """Titoli in pipeline RESEARCH (richiesta PM 16/07): le righe RESEARCH del
     Decisions tracker diventano un blocco per Fundamentals (R1/R2), cosi' la
     ricerca AVANZA tra le run invece di ripartire da zero. Dedup per ticker

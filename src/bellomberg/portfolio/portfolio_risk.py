@@ -634,6 +634,7 @@ def compute_portfolio_risk(force: bool = False, *, strict_eur: bool = False) -> 
                if p["ticker"] not in valid_internal_tickers and (p.get("peso_pct") or 0) > 0.5]
 
     result = {
+        "_source": "portfolio_risk.compute_portfolio_risk",
         "timestamp": datetime.now().isoformat(),
         "nav_eur": total_eur,
         "portfolio": {
@@ -658,7 +659,20 @@ def compute_portfolio_risk(force: bool = False, *, strict_eur: bool = False) -> 
         # riserva su beta misurato ma con pochi giorni (None se >= BETA_OBS_AFFIDABILE o non misurato)
         "beta_note": beta_note,
         "risk_free_used": 0.0,
-        "sharpe_note": (_message("Sharpe con rf=0 (non excess return); lo Sharpe ufficiale con rf live e' in advanced_metrics (risk_free_used dichiarato li')", 'Sharpe with rf=0 (not excess return); official Sharpe with live rf is in advanced_metrics (risk_free_used declared there)')),
+        "risk_free_status": "zero_rate_convention",
+        "risk_free_source": "portfolio_risk.zero_rate_convention",
+        "sharpe_note": _message("Sharpe con rf=0 (non excess return); advanced_metrics dichiara separatamente il tasso usato e la disponibilita' dei metadati di fonte.", "Sharpe with rf=0 (not excess return); advanced_metrics separately declares the rate used and the availability of source metadata."),
+        "benchmark_ticker": "SPY",
+        "analysis_window": {"start": str(port_r.index[0])[:10],
+                            "end": str(port_r.index[-1])[:10],
+                            "return_observations": int(len(port_r))},
+        "time_scaling": {
+            "method": "sqrt_time", "applied_to": ["vol_annual_pct", "sharpe"],
+            "base_horizon_days": 1, "annualization_days": 252,
+            "assumptions": ["uncorrelated_returns", "constant_variance", "finite_variance"],
+            "assumptions_tested": False, "backtest_status": "not_in_payload",
+            "weekly_var_computed": False,
+        },
         "nav_basis": (_message('perimetro ANALIZZATO (posizioni SKIP/non-yfinance escluse): i VaR EUR scalano su questa base', 'ANALYZED scope (SKIP/non-yfinance positions excluded): EUR VaR scales on this basis')),
         "nav_book_total_eur": float(snap.get("totale_valore_mercato_eur") or 0),
         "per_asset": per_asset,
@@ -676,7 +690,7 @@ def compute_portfolio_risk(force: bool = False, *, strict_eur: bool = False) -> 
         "sample_meta": sample_meta,
         # Gerarchia VaR DICHIARATA (fix 14/07: tre VaR scollegati senza gerarchia)
         "var_hierarchy": {
-            "official": _message('historical_95_1d su rendimenti EUR (questo payload) — validato da var_backtest', 'historical_95_1d on EUR returns (this payload) — validated by var_backtest'),
+            "official": _message('historical_95_1d sulla base rendimenti dichiarata in questo payload; esito di var_backtest da consultare separatamente, non attestato qui', 'historical_95_1d on the return basis declared in this payload; consult var_backtest separately, its outcome is not attested here'),
             "var99_note": _message('VaR99 storico su ~252 obs = 2-3 osservazioni di coda: statisticamente debole, usare con cautela', 'Historical VaR99 over ~252 observations = 2-3 tail observations: statistically weak, use with caution'),
             "attribution": _message('component VaR parametrico Jorion (portfolio_analytics) — SOLO per attribution', 'Parametric Jorion component VaR (portfolio_analytics) — ONLY for attribution'),
             "scenarios": _message('MC FHS + replay storico (portfolio_montecarlo) — scenari e code simulate', 'MC FHS + historical replay (portfolio_montecarlo) — simulated scenarios and tails'),

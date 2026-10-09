@@ -4386,24 +4386,24 @@ class MemoryDB:
                     return None
                 cur = conn.execute(
                     "INSERT INTO decision_notes (decision_id, autore, testo) VALUES (?,?,?)",
-                    (int(decision_id), autore, testo[:2000]))
+                    (int(decision_id), autore, testo))
                 return cur.lastrowid
         except Exception as e:
             print("[memory_db] add_decision_note failed: " + str(e))
             return None
 
-    def get_decision_notes(self, decision_id, n=20):
-        """Thread note di una decisione (vecchie -> nuove). [] se tabella assente
-        (DB non migrato: buco gia' dichiarato in scrittura)."""
+    def get_decision_notes(self, decision_id, n=None):
+        """Thread completo (vecchie -> nuove); limite solo se richiesto esplicitamente.
+        Un errore DB non equivale a un thread vuoto."""
         try:
             with self._conn() as conn:
                 rows = conn.execute(
                     "SELECT id, autore, testo, timestamp FROM decision_notes "
-                    "WHERE decision_id=? ORDER BY timestamp ASC, id ASC LIMIT ?",
-                    (int(decision_id), int(n))).fetchall()
+                    "WHERE decision_id=? ORDER BY timestamp ASC, id ASC" + (" LIMIT ?" if n is not None else ""),
+                    (int(decision_id), int(n)) if n is not None else (int(decision_id),)).fetchall()
                 return [dict(r) for r in rows]
-        except Exception:
-            return []
+        except Exception as exc:
+            raise RuntimeError("Lettura note decisione non disponibile: " + type(exc).__name__) from exc
 
     # ========================================================
     # PM FEEDBACK

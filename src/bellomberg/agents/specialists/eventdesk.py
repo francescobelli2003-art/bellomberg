@@ -6,6 +6,20 @@ from .base import Specialist
 class EventDeskSpecialist(Specialist):
     name = "eventdesk"
     role = "Event Desk - News, Politics & Prediction Markets"
+    # Added only by the accepted follow-up contract; the historical template stays exact.
+    evidence_followup_instructions = (
+        "\nRICERCA POLYMARKET: count tecnico NON e' numero di mercati pertinenti. "
+        "Riporta query esatta, pagine/offset e limiti, candidato con ID/domanda/outcome, "
+        "scadenza e motivo di esclusione o pertinenza ancora UNVERIFIED. Conserva i "
+        "candidati incerti: sinonimi, lingue e titoli incompleti non provano irrilevanza. "
+        "Sport o elezioni di altri paesi non documentano il pricing dell'evento cercato. "
+        "La ricerca locale per parole e il ranking del provider sono solo recupero di "
+        "candidati: giustifica paese, evento e regole di risoluzione dalla fonte. "
+        "Zero match riguarda solo le ricerche eseguite, mai l'intero universo. "
+        "Pricing non misurato = PRICING NON VALUTABILE; delta mancante = n.d., mai zero. "
+        "Variazione nulla ammessa solo da valori/date confrontabili dello stesso mercato "
+        "e outcome. Non avviare raccolte extra per riempire la tabella.\n"
+    )
     tools_used = ["search_news", "tavily_search", "get_polymarket_events",
                   "get_portfolio_live", "get_pending_decisions", "search_past_memos",
                   "get_news_briefing", "get_macro_news_by_topic",

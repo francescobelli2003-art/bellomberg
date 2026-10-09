@@ -1277,7 +1277,7 @@ def tool_get_polymarket_events(query, max_results=10):
     Strategia robusta:
     1. Pulla TOP-N per volume24h (non solo i primi 50 random)
     2. Anche /events endpoint per i mercati raggruppati per evento
-    3. Match LOOSE: qualsiasi keyword della query matcha (OR, no AND)
+    3. Rank LOOSE: keyword OR prima dei candidati senza riscontro lessicale
     4. Include synonyms comuni (es. "war" -> "war|conflict|attack|strike")
     5. Sort by volume24h descending
     """
@@ -1312,7 +1312,9 @@ def tool_get_polymarket_events(query, max_results=10):
         from datetime import datetime as _dt, timezone as _tz
         now = _dt.now(_tz.utc)
         coverage = {"observed_by_source": {}, "excluded_inactive": 0,
-                    "exclusion_reasons": {}, "limits_reached": []}
+                    "exclusion_reasons": {}, "limits_reached": [], "pages": [],
+                    "excluded_candidates": [], "excluded_candidates_omitted": 0,
+                    "lexical_nonmatches": 0}
         inactive_parent_markets = set()
         unknown_parent_markets = set()
         observed_events, observed_markets, candidates = [], [], []
@@ -1350,10 +1352,38 @@ def tool_get_polymarket_events(query, max_results=10):
                     "activity_reasons": negative + uncertain,
                     "provider_state": {key: row.get(key) for key in ("active", "closed", "archived")}}
 
-        def exclude(quality):
+        def exclude(quality, row, source):
             coverage["excluded_inactive"] += 1
             for reason in quality["activity_reasons"]:
                 coverage["exclusion_reasons"][reason] = coverage["exclusion_reasons"].get(reason, 0) + 1
+            if len(coverage["excluded_candidates"]) < 10:
+                coverage["excluded_candidates"].append({"id": row.get("id"), "slug": row.get("slug"),
+                    "source": source, "end_date": row.get("endDate"), "reasons": quality["activity_reasons"]})
+            else:
+                coverage["excluded_candidates_omitted"] += 1
+
+        def page_evidence(source, rows, *, offset=0, limit=500):
+            coverage["pages"].append({"source": source, "query": query,
+                "query_applied_by": "provider" if source == "/public-search" else "local_keyword_scan",
+                "offset": offset, "limit": limit, "returned": len(rows) if isinstance(rows, list) else None,
+                "status": "observed" if isinstance(rows, list) else "unavailable"})
+
+        def search_match(row, source):
+            # Describe lexical evidence, never certify semantic relevance. In particular,
+            # all endpoints retain candidates with missing words, translations or short titles.
+            children = row.get("markets") or []
+            text = " ".join(str(row.get(key) or "") for key in ("title", "question", "slug"))
+            text += " " + str(row.get("description") or "")[:200 if source == "/markets" else 300]
+            if isinstance(children, list):
+                text += " " + " ".join(str(m.get("question") or "") + " " + str(m.get("groupItemTitle") or "")
+                                      for m in children[:30] if isinstance(m, dict))
+            matched = sorted(w for w in set(query_words) if _poly_kw_match(text.lower(), {w}))
+            basis = ("server_search_only" if not matched else "lexical_candidate") if source == "/public-search" else (
+                "lexical_candidate" if _poly_kw_match(text.lower(), all_keywords) else "local_no_lexical_match")
+            return {"relevance_status": "UNVERIFIED", "source": source,
+                    "basis": basis,
+                    "matched_query_terms": matched, "missing_query_terms": sorted(set(query_words) - set(matched)),
+                    "reason": "Candidate only: country, event, outcome and resolution rules require source review; lexical absence is not irrelevance."}
 
         def remember(registry, row, status=None):
             status = status or activity(row)["activity_status"]
@@ -1408,18 +1438,22 @@ def tool_get_polymarket_events(query, max_results=10):
                 fetch_warnings.append(f"{source}: outcomes/outcomePrices JSON non valido ({type(e).__name__}); probabilita' n.d.")
             return {"question": (m.get("question", "") or "")[:question_limit], "outcomes": outcomes,
                     "prices": prices, "volume_24h": m.get("volume24hr"),
+                    "id": m.get("id"), "slug": m.get("slug"), "condition_id": m.get("conditionId"),
+                    "historical_change": {"delta_7d": None, "delta_30d": None, "status": "UNAVAILABLE",
+                        "reason": "COMPARABLE_HISTORY_NOT_FETCHED: same market/outcome, dates and values required; missing is not zero."},
                     "end_date": m.get("endDate", ""), **quality}
 
         def event_projection(ev, source, match=None):
             quality = observed_activity(ev, event_evidence)
             if quality["activity_status"] == "inactive":
-                exclude(quality)
+                exclude(quality, ev, source)
                 return None
             markets = ev.get("markets") or []
             if not isinstance(markets, list):
                 fetch_warnings.append(source + ": markets non e' una lista; copertura n.d.")
                 markets = []
             eligible, excluded, invalid, unknown, active = [], 0, 0, 0, 0
+            excluded_markets = []
             reasons = {}
             for m in markets:
                 if not isinstance(m, dict):
@@ -1430,6 +1464,10 @@ def tool_get_polymarket_events(query, max_results=10):
                     excluded += 1
                     for reason in mq["activity_reasons"]:
                         reasons[reason] = reasons.get(reason, 0) + 1
+                    if len(excluded_markets) < 10:
+                        excluded_markets.append({"id": m.get("id"), "slug": m.get("slug"),
+                            "parent": {"id": ev.get("id"), "slug": ev.get("slug")}, "source": source,
+                            "end_date": m.get("endDate"), "reasons": mq["activity_reasons"]})
                     continue
                 if quality["activity_status"] != "active":
                     mq["activity_status"] = "unknown"
@@ -1451,6 +1489,8 @@ def tool_get_polymarket_events(query, max_results=10):
                       "end_date": ev.get("endDate", ""), "category": ev.get("category"),
                       "url": "https://polymarket.com/event/" + (ev.get("slug", "") or ""),
                       "market_coverage": market_coverage, "market_exclusion_reasons": reasons,
+                      "excluded_markets": excluded_markets,
+                      "excluded_markets_omitted": excluded - len(excluded_markets),
                       **quality,
                       "markets": [market_projection(m, source, mq) for m, mq in eligible[:5]]}
             if match:
@@ -1463,6 +1503,7 @@ def tool_get_polymarket_events(query, max_results=10):
         try:
             sr = _poly_fetch("https://gamma-api.polymarket.com/public-search",
                              {"q": query, "limit_per_type": 12})
+            page_evidence("/public-search", (sr.get("events") or []) if isinstance(sr, dict) else None, limit=12)
             if isinstance(sr, dict):
                 observed_events.extend(sr.get("events") or [])
                 coverage["observed_by_source"]["/public-search"] = len(sr.get("events") or [])
@@ -1491,6 +1532,7 @@ def tool_get_polymarket_events(query, max_results=10):
                     "active": "true", "closed": "false", "limit": 500,
                     "order": "volume24hr", "ascending": "false", "offset": offset,
                 })
+                page_evidence("/events", page, offset=offset)
                 if page is None:
                     fetch_warnings.append(
                         f"/events offset={offset}: {_POLY_CACHE.get('__last_error', 'irraggiungibile')}")
@@ -1523,10 +1565,13 @@ def tool_get_polymarket_events(query, max_results=10):
                         ((m.get("question") or "") + " " + (m.get("groupItemTitle") or ""))
                         for m in matching_markets[:30] if isinstance(m, dict)).lower()
                     haystack = title + " " + slug + " " + description + " " + mkt_txt
-                    if _poly_kw_match(haystack, all_keywords):
-                        item = queue_event(ev, "/events")
-                        if item is not None:
-                            all_results.append(item)
+                    if not _poly_kw_match(haystack, all_keywords):
+                        coverage["lexical_nonmatches"] += 1
+                    # Absence of words cannot reject translated or incomplete candidates.
+                    # The existing result cap is applied after lexical-priority ranking.
+                    item = queue_event(ev, "/events")
+                    if item is not None:
+                        all_results.append(item)
         except Exception as e:
             fetch_warnings.append(f"/events: {type(e).__name__}: {e}")
 
@@ -1539,6 +1584,7 @@ def tool_get_polymarket_events(query, max_results=10):
                     "active": "true", "closed": "false", "limit": 500,
                     "order": "volume24hr", "ascending": "false", "offset": offset,
                 })
+                page_evidence("/markets", page, offset=offset)
                 if page is None:
                     fetch_warnings.append(
                         f"/markets offset={offset}: {_POLY_CACHE.get('__last_error', 'irraggiungibile')}")
@@ -1558,7 +1604,7 @@ def tool_get_polymarket_events(query, max_results=10):
                     description = (m.get("description", "") or "")[:200].lower()
                     haystack = question + " " + slug + " " + description
                     if not _poly_kw_match(haystack, all_keywords):
-                        continue
+                        coverage["lexical_nonmatches"] += 1
                     if slug in seen_slugs:
                         continue  # Already in event group
                     candidates.append(("market", m, "/markets", None))
@@ -1595,20 +1641,24 @@ def tool_get_polymarket_events(query, max_results=10):
             else:
                 quality = market_activity(raw)
                 if quality["activity_status"] == "inactive":
-                    exclude(quality)
+                    exclude(quality, raw, source)
                     continue
                 item = market_projection(raw, source, quality, question_limit=200)
                 item.update(type="single_market", category=raw.get("category"),
                             url="https://polymarket.com/event/" + (raw.get("slug", "") or ""))
             if item is not None:
+                item["search_match"] = search_match(raw, source)
                 all_results.append(item)
 
-        # Sort: prima i match della server search (più pertinenti), poi per volume
-        all_results.sort(key=lambda x: (0 if x.get("match") == "server_search" else 1,
+        # Retrieval order only: server search, lexical candidates, uncertain local
+        # candidates; the same result cap applies. None is verified semantically.
+        all_results.sort(key=lambda x: (0 if x.get("match") == "server_search" else
+                                        2 if x["search_match"]["basis"] == "local_no_lexical_match" else 1,
                                         -(x.get("volume_24h", 0) or 0)))
         coverage["eligible_candidates"] = len(all_results)
         coverage["unknown_activity_candidates"] = sum(r.get("activity_status") == "unknown" for r in all_results)
-        coverage["candidate_count_basis"] = "matched records evaluated locally; observed_by_source also includes unmatched records"
+        coverage["candidate_count_basis"] = "technical candidates evaluated for activity, not verified relevance; lexical nonmatches retained as uncertain within result cap"
+        coverage["local_nonlexical_candidates"] = sum(r["search_match"]["basis"] == "local_no_lexical_match" for r in all_results)
         nested_partial = any(r.get("market_coverage", {}).get("completeness") == "partial" for r in all_results)
         all_results = all_results[:max_results]
         coverage["returned"] = len(all_results)
@@ -1619,6 +1669,9 @@ def tool_get_polymarket_events(query, max_results=10):
             "query": query,
             "expanded_keywords": sorted(all_keywords),
             "count": len(all_results),
+            "count_basis": "technical_candidates_not_verified_relevant_markets",
+            "relevant_count": None,
+            "relevance_status": "NOT_ASSESSED",
             "coverage_verified": False,
             "coverage": coverage,
             "observed_response_completeness": "partial" if local_partial else "complete_observed",
@@ -1629,6 +1682,7 @@ def tool_get_polymarket_events(query, max_results=10):
                     "type=event_group raccoglie più mercati su stesso tema; type=single_market e' singolo. "
                     "Do not aggregate prices across markets: exclusivity and exhaustive coverage are not verified. "
                     "Counts refer only to observed candidates; complete_observed never means the full market universe. "
+                    "Zero candidates is not evidence of market absence. Pricing not measured is not NOT YET PRICED. "
                     "Unknown activity is not evidence of a current tradable probability.",
         }
         if fetch_warnings:
@@ -1689,6 +1743,16 @@ def tool_get_fundamentals(ticker):
             "ticker": ticker,
             "provider_symbol": symbol,
             "name": info.get("longName") or info.get("shortName", ""),
+            "issuer_identity": {
+                "ticker": ticker, "provider_symbol": info.get("symbol"),
+                "name": info.get("longName") or info.get("shortName") or None,
+                "status": "PROVIDER_SYMBOL_MATCH" if info.get("symbol") == symbol else "UNVERIFIED",
+                "basis": "yfinance.info.symbol", "source": "yfinance.info", "observed_at": acquired_at},
+            "metric_metadata": {"debt_to_equity": {
+                "provider_field": "debtToEquity", "source": "yfinance.info", "observed_at": acquired_at,
+                "unit": None, "currency": None, "period_start": None, "period_end": None,
+                "definition": None, "status": "UNVERIFIED",
+                "note": "Valore grezzo del provider; scala/unita' non attestate, non presentare come volte."}},
             "sector": info.get("sector", ""),
             "industry": info.get("industry", ""),
             # Valuation
@@ -2221,6 +2285,15 @@ def _fred_fetch_series(series_id, last_n=24):
                 "realtime_start": _iso(payload.get("realtime_start")),
                 "realtime_end": _iso(payload.get("realtime_end")),
                 "fetched_at": _datetime.now(_timezone.utc).isoformat()}
+        # This endpoint supplies observation/vintage intervals, not a release
+        # calendar. Retrieval time must survive cache hits without rejuvenation.
+        _out["release_metadata"] = {
+            "series_id": str(series_id), "observation_period": _out["latest_observation_date"],
+            "release_date": None, "retrieved_at": _out["fetched_at"],
+            "next_expected_release": None,
+            "release_calendar": {"status": "UNKNOWN", "reason":
+                "FRED observations non attesta date di pubblicazione o calendario; realtime e' vintage"},
+        }
         _FRED_CACHE[_k] = (_t.time(), _out)
         return _out
     except Exception as e:
@@ -2275,6 +2348,9 @@ def tool_get_macro_indicator(indicator, last_n=12):
 
     obs = data['observations']
     result = {'indicator': indicator, 'series_id': series_id, 'description': desc, 'mode': mode}
+    if 'release_metadata' in data:
+        from copy import deepcopy
+        result['release_metadata'] = deepcopy(data['release_metadata'])
     if mode == 'yoy':
         from bellomberg.core.macro_observations import annual_comparison
         frequency, definition = _FRED_YOY_PERIODS[indicator]
@@ -2330,7 +2406,7 @@ def tool_get_macro_dashboard():
                 # silenzio (uk_cpi con ID inesistente e' sparito per mesi cosi')
                 dashboard["indicators"][key] = {"error": result["error"], "description": desc}
             for field in ('quality', 'comparison', 'last_available_date', 'last_available_value',
-                          'year_ago_date', 'year_ago_value'):
+                          'year_ago_date', 'year_ago_value', 'release_metadata'):
                 if field in result:
                     dashboard['indicators'][key][field] = result[field]
         except Exception as e:

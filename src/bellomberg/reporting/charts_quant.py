@@ -493,18 +493,12 @@ def _numeric_tables(risk, mc, ff, *, advanced_metrics_snapshot=UNSET, beta_recon
             reason = {'UNRELIABLE': 'quant.beta_divergent', 'INSUFFICIENT_SOURCES': 'quant.beta_insufficient'}.get(verdict, 'quant.beta_missing')
             flow.append(Paragraph(escape(_t(reason)), body))
 
-    def _rf_text(value):
-        import math
-        if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
-            return _n(value, '.15g')
-        return _t('quote.unavailable')
-
     # --- Tabella metriche di rischio ---
     p = (risk or {}).get("portfolio", {})
     mcd = mc or {}
     rows = [[_t("Metrica"), _t("Valore"), _t("Lettura")]]
     def add(metric, val, reading):
-        rows.append([metric, val, reading])
+        rows.append([metric, val, Paragraph(escape(reading), body) if isinstance(reading, str) else reading])
     if p.get("vol_annual_pct") is not None:
         add(_t("Volatilita' annualizzata"), _fmt(p["vol_annual_pct"], "%"),
             _t("ampiezza tipica delle oscillazioni annue"))
@@ -523,11 +517,15 @@ def _numeric_tables(risk, mc, ff, *, advanced_metrics_snapshot=UNSET, beta_recon
         add(_t("Beta vs S&P 500"), _fmt(p["beta_vs_spy"]),
             _t("sensibilita' al mercato USA; >1 amplifica"))
     if p.get("var_95_1d_pct") is not None:
+        from bellomberg.core.presentation import message
         add(_t("VaR 95% (1 giorno)"), f"{_fmt(p['var_95_1d_pct'],'%')}  ({_fmt(p.get('var_95_1d_eur'),' EUR',0)})",
-            _t("perdita giornaliera superata 1 giorno su 20"))
+            message('quantile storico giornaliero al 95%; frequenza futura non garantita',
+                    'historical daily 95% quantile; future frequency is not guaranteed'))
     if p.get("var_99_1d_pct") is not None:
+        from bellomberg.core.presentation import message
         add(_t("VaR 99% (1 giorno)"), f"{_fmt(p['var_99_1d_pct'],'%')}  ({_fmt(p.get('var_99_1d_eur'),' EUR',0)})",
-            _t("perdita giornaliera superata 1 giorno su 100"))
+            message('quantile storico giornaliero al 99%; frequenza futura non garantita',
+                    'historical daily 99% quantile; future frequency is not guaranteed'))
     if mcd.get("es_95_pct") is not None:
         add(_t("Expected Shortfall 95% (1Y)"), _fmt(mcd["es_95_pct"], "%"),
             _t("perdita media nei peggiori scenari (oltre il VaR)"))
@@ -540,10 +538,9 @@ def _numeric_tables(risk, mc, ff, *, advanced_metrics_snapshot=UNSET, beta_recon
     if len(rows) > 1:
         flow.append(styled(rows, [4.6 * cm, 4.8 * cm, 7.6 * cm], right_cols=(1,)))
 
-    if advanced_metrics_snapshot is not UNSET:
-        flow.append(Paragraph(escape(_t('quant.risk_rf',
-            value=_rf_text((risk or {}).get('risk_free_used')),
-            note=(risk or {}).get('sharpe_note') or _t('quote.unavailable'))), body))
+    from bellomberg.core.evidence_prompt_policy import quant_semantics_notes
+    for note in quant_semantics_notes(risk=risk):
+        flow.append(Paragraph(escape(note), body))
 
     # interpretazione rischio
     notes = []
@@ -579,6 +576,9 @@ def _numeric_tables(risk, mc, ff, *, advanced_metrics_snapshot=UNSET, beta_recon
             v = am.get(k)
             return "n/d" if v is None else v
         bm = am.get("benchmark", {}) or {}
+        def bv(k, suffix=""):
+            value = bm.get(k)
+            return "n/d" if value is None else f"{value}{suffix}"
         perf_rows = [
             [_t("Rendimento/Rischio"), _t("Valore"), _t("Drawdown & Code"), _t("Valore")],
             [f"CAGR", f"{gv('cagr_pct')}%", _t("Max Drawdown"), f"{gv('max_drawdown_pct')}%"],
@@ -590,9 +590,9 @@ def _numeric_tables(risk, mc, ff, *, advanced_metrics_snapshot=UNSET, beta_recon
             [_t("Win rate"), f"{gv('win_rate_pct')}%", _t("Skewness"), f"{gv('skewness')}"],
             [_t("Payoff ratio"), f"{gv('payoff_ratio')}", _t("Kurtosi in eccesso"), f"{gv('excess_kurtosis')}"],
             [_t("Profit factor"), f"{gv('profit_factor')}", _t("Tail ratio"), f"{gv('tail_ratio')}"],
-            [_t("Beta vs ") + am.get('benchmark_ticker','SPY'), f"{bm.get('beta','n/d')}",
-             _t("Alpha annuo"), f"{bm.get('alpha_annual_pct','n/d')}%"],
-            [_t("Information Ratio"), f"{bm.get('information_ratio','n/d')}",
+            [_t("Beta vs ") + am.get('benchmark_ticker','SPY'), bv('beta'),
+             _t("Alpha annuo"), bv('alpha_annual_pct', '%')],
+            [_t("Information Ratio"), bv('information_ratio'),
              _t("Kelly fraction"), f"{gv('kelly_fraction_pct')}%"],
         ]
         pt = Table(perf_rows, colWidths=[4.6*cm, 3.6*cm, 4.6*cm, 4.2*cm], repeatRows=1)
@@ -616,14 +616,8 @@ def _numeric_tables(risk, mc, ff, *, advanced_metrics_snapshot=UNSET, beta_recon
         ]))
         flow.append(pt)
         flow.append(Spacer(1, 0.15 * cm))
-        if advanced_metrics_snapshot is not UNSET:
-            flow.append(Paragraph(escape(_t('quant.advanced_rf',
-                value=_rf_text(am.get('risk_free_used')),
-                status=am.get('risk_free_status') or _t('quote.unavailable'),
-                source=am.get('risk_free_source') or _t('quote.unavailable'),
-                note=am.get('risk_free_note') or _t('quote.unavailable'))), body))
-            flow.append(Paragraph(escape(str(am.get('_source') or _t('quote.unavailable'))
-                + ' | ' + str(am.get('benchmark_alignment') or _t('quote.unavailable'))), body))
+        for note in quant_semantics_notes(advanced=am):
+            flow.append(Paragraph(escape(note), body))
         # lettura sintetica
         sh, so = am.get("sharpe"), am.get("sortino")
         if sh is not None:
@@ -847,12 +841,22 @@ def build_quant_appendix_v2(blackboard=None, portfolio_data=None, macro_data=Non
             story.append(PageBreak())
     except Exception as e:
         print(f"[appendix] numeric tables skip: {e}")
+        from bellomberg.core.presentation import message
+        story.append(Paragraph(message(
+            'QUANT_TABLES_UNAVAILABLE ({kind}): tabelle quantitative n.d.; nessun dato sostitutivo.',
+            'QUANT_TABLES_UNAVAILABLE ({kind}): quantitative tables unavailable; no substitute data.',
+            kind=type(e).__name__), S_cap))
 
     if frozen:
         from xml.sax.saxutils import escape
         entries = quant_snapshot.get('entries', {}) if isinstance(quant_snapshot, dict) else {}
         for slot in SLOTS:
             item = entries.get(slot) or {}
+            if item.get('status') == 'AVAILABLE':
+                from bellomberg.core.presentation import message
+                story.append(Paragraph(escape(message(
+                    'Origine congelata {slot}: {source}.', 'Frozen origin {slot}: {source}.',
+                    slot=slot, source=item.get('source') or _t('quote.unavailable'))), S_cap))
             if item.get('status') != 'AVAILABLE':
                 # Only closed acquisition causes; provider bodies/URLs never enter this note.
                 cause = item.get('cause')

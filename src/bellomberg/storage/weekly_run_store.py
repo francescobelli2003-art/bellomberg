@@ -147,7 +147,15 @@ class WeeklyRunStore:
         incomplete_report = any(checkpoint.get("status") in ("failed", "truncated")
                                 for key, checkpoint in payload.get("specialist_checkpoints", {}).items()
                                 if isinstance(checkpoint, dict) and str(key).split(":", 1)[0] not in gap_owners)
-        def unresolved_tool(tool):
+        def unresolved_tool(checkpoint_key, tool_key, tool):
+            if (isinstance(tool, dict) and tool.get('name') == 'add_research_note'
+                    and 'research_notes_policy' in self.context['contract']):
+                from bellomberg.core.current_facts import recover_frozen_research_reply
+                try:
+                    return recover_frozen_research_reply(self, checkpoint_key, tool_key, tool.get('input')) is None
+                except Exception:
+                    # Invalid/missing evidence remains explicitly uncertain in the public status.
+                    return True
             # Public research is independently journaled: resuming it replays
             # verified bytes or returns the explicit unresolved GET. The issuer
             # binding must already belong to this exact weekly run.
@@ -156,10 +164,10 @@ class WeeklyRunStore:
                 return True
             ticker = (tool.get('input') or {}).get('ticker')
             return not (isinstance(ticker, str) and self.get('company-source-identity:' + ticker.upper()))
-        uncertain_tool = any(unresolved_tool(tool)
-                             for checkpoint in payload.get("specialist_checkpoints", {}).values()
+        uncertain_tool = any(unresolved_tool(checkpoint_key, tool_key, tool)
+                             for checkpoint_key, checkpoint in payload.get("specialist_checkpoints", {}).items()
                              if isinstance(checkpoint, dict)
-                             for tool in (checkpoint.get("inflight_tools") or {}).values())
+                             for tool_key, tool in (checkpoint.get("inflight_tools") or {}).items())
         try:
             book_compatible = current_book_identity(self.db) == self.context["book_identity"]
         except Exception:

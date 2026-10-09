@@ -39,6 +39,119 @@ from bellomberg.market_data.freschezza_trimestrale import as_of_freschezza as _a
 TRADE_IDEA_RED_MAX_TOKENS = 128000
 WEEKLY_RED_MAX_TOKENS = 128000
 
+EVIDENCE_FOLLOWUP_INSTRUCTIONS = (
+    "\nCONTRADDITTORIO SULLE RICEVUTE: ricevi fatti e lacune della run, non solo tesi "
+    "degli altri desk. Verifica periodo/FY/durata, identita' dell'emittente, valuta e "
+    "quotazione dalla ricevuta propria; chiedi evidenza mancante nella critica senza "
+    "nuove chiamate automatiche ai provider. Confermare un dato senza fonte resta "
+    "UNVERIFIED, non PASS. Contraddizione solo per valori o metadati esplicitamente "
+    "incompatibili nella medesima fonte e perimetro; dati corretti non meritano allarmi. "
+    "Dopo la prosa, aggiungi un solo blocco ```evidence_review con JSON {\"claims\": [...]} "
+    "e chiudi con ```. Per ciascun fatto discusso copia source_receipt integralmente "
+    "(sha256/tool/path/index e metadata_paths quando presente) "
+    "dalla ricevuta fornita, metric, value, ticker, issuer_name, period_start, period_end, "
+    "duration, fiscal_year_label, unit, currency, definition, observed_at. Riporta le "
+    "tue affermazioni esplicite in questi campi; null quando non attestati, mai inventare "
+    "metadati. Puoi aggiungere method e perimeter solo se espliciti. Non ricopiare tutti "
+    "i dati: confronta quelli discussi. Nessun claim confrontabile = claims vuoto. "
+    "Il confronto locale riguarda solo questi campi: prosa libera NOT_ASSESSED, "
+    "coincidenza numerica NON prova verita' economica o correttezza del metodo.\n"
+)
+
+
+def _review_evidence_claims(critique, evidence):
+    """Compare a closed declaration grammar with the frozen receipt projection only."""
+    import json
+    import math
+    import re
+    from hashlib import sha256
+    from bellomberg.agents.specialists.base import _checkpoint_digest
+    from bellomberg.core.evidence_followup_policy import POLICY
+    report = {"policy": POLICY, "response_sha256": sha256(critique.encode()).hexdigest(),
+              "evidence_sha256": _checkpoint_digest(evidence), "status": "NOT_ASSESSED",
+              "semantic_scope": "NOT_ASSESSED", "claims": [], "issues": [],
+              "limitations": ["EXPLICIT_FIELDS_ONLY", "NUMERIC_EQUALITY_NOT_ECONOMIC_TRUTH",
+                              "PROSE_AND_OMITTED_CLAIMS_NOT_ASSESSED"]}
+    blocks = re.findall(r'^```evidence_review[^\S\n]*\n(.*?)\n```[^\S\n]*$',
+                        critique.replace('\r\n', '\n'), re.M | re.S)
+    if not blocks and 'evidence_review' not in critique:
+        report["issues"].append("NO_STRUCTURED_CLAIMS")
+        return report
+    def unique(pairs):
+        out = {}
+        for key, value in pairs:
+            if key in out:
+                raise ValueError("duplicate key")
+            out[key] = value
+        return out
+    def nonfinite(value):
+        raise ValueError("nonfinite value")
+    try:
+        if len(blocks) != 1:
+            raise ValueError("one block required")
+        parsed = json.loads(blocks[0], object_pairs_hook=unique, parse_constant=nonfinite)
+        if not isinstance(parsed, dict) or set(parsed) != {"claims"} or not isinstance(parsed["claims"], list):
+            raise ValueError("unsupported review")
+    except (ValueError, TypeError):
+        report.update(status="UNVERIFIED", issues=["REVIEW_FORMAT_UNVERIFIED"])
+        return report
+    required = {"source_receipt", "metric", "value", "ticker", "issuer_name", "period_start",
+                "period_end", "duration", "fiscal_year_label", "unit", "currency", "definition", "observed_at"}
+    allowed = required | {"method", "perimeter"}
+    for index, claim in enumerate(parsed["claims"]):
+        finding = {"index": index, "status": "UNVERIFIED", "reasons": []}
+        report["claims"].append(finding)
+        if not isinstance(claim, dict) or set(claim) - allowed:
+            finding["reasons"].append("UNSUPPORTED_CLAIM")
+            continue
+        ref = claim.get("source_receipt")
+        reference_keys = {'sha256', 'tool', 'path', 'index'}
+        if (not isinstance(ref, dict) or set(ref) not in (reference_keys, reference_keys | {'metadata_paths'})
+                or type(ref.get('index')) is not int or ref['index'] < 0
+                or not isinstance(ref.get('sha256'), str) or not re.fullmatch('[0-9a-f]{64}', ref['sha256'])
+                or not isinstance(ref.get('path'), str) or not ref['path'].startswith('/')
+                or not isinstance(ref.get('tool'), str) or not ref['tool']):
+            finding['reasons'].append('SOURCE_RECEIPT_UNVERIFIED')
+            continue
+        if 'metadata_paths' in ref:
+            paths = ref['metadata_paths']
+            if (not isinstance(paths, list) or not paths
+                    or any(not isinstance(path, str) or (path != '' and not path.startswith('/'))
+                           or re.search(r'~(?![01])', path) for path in paths)
+                    or len(paths) != len(set(paths))):
+                finding['reasons'].append('SOURCE_RECEIPT_UNVERIFIED')
+                continue
+        matches = [fact for fact in evidence.get("facts", [])
+                   if isinstance(ref, dict) and fact.get("source_receipt") == ref]
+        if len(matches) != 1:
+            finding["reasons"].append("SOURCE_RECEIPT_UNVERIFIED")
+            continue
+        fact = matches[0]
+        contradicted, missing = [], []
+        for field in sorted((required | (set(claim) & allowed)) - {"source_receipt"}):
+            actual, stated = fact.get(field), claim.get(field)
+            if (actual is None or actual == '' or stated is None or stated == ''
+                    or type(stated) not in (str, int, float) or type(actual) not in (str, int, float)
+                    or isinstance(stated, float) and not math.isfinite(stated)
+                    or isinstance(actual, float) and not math.isfinite(actual)):
+                missing.append(field)
+            elif field == 'value' and (type(stated) not in (int, float) or fact.get('value_status') != 'AVAILABLE'):
+                missing.append(field)
+            elif actual != stated:
+                contradicted.append(field)
+        if fact.get('identity_basis') in (None, 'UNVERIFIED'):
+            missing.append('identity_basis')
+        finding['reasons'] = ['MISSING_OR_UNSUPPORTED:' + field for field in missing]
+        if contradicted:
+            finding.update(status='CONTRADICTION_EXPLICIT', contradicted_fields=contradicted)
+        elif not missing:
+            finding['status'] = 'CONSISTENT_EXPLICIT'
+    statuses = {row['status'] for row in report['claims']}
+    report['status'] = ('CONTRADICTION_EXPLICIT' if 'CONTRADICTION_EXPLICIT' in statuses else
+                        'UNVERIFIED' if 'UNVERIFIED' in statuses else
+                        'ASSESSED_EXPLICIT' if statuses else 'NOT_ASSESSED')
+    return report
+
 
 # MOD-CAP (06/10, Opus 5.5): il tetto di uscita si adatta al provider nel punto UNICO del
 # client (llm_client.tetto_uscita, prima del preventivo del registro e dell'invio). Qui non
@@ -320,6 +433,8 @@ def run_red_team(blackboard, portfolio_data=None, memory_db=None, *, citation_co
     trade_idea = getattr(blackboard, "run_scope", "weekly") == "trade_idea"
     from bellomberg.core.evidence_prompt_policy import enabled as evidence_prompts_enabled
     evidence_prompts_enabled(blackboard)  # Validate before any best-effort import/config path.
+    from bellomberg.core.evidence_followup_policy import board_enabled
+    board_enabled(blackboard)
     if citation_correction is not None:
         if not trade_idea:
             raise ValueError("Citation correction belongs only to Trade Idea")
@@ -527,8 +642,21 @@ def _run_red_team_loop(blackboard, trade_idea, MODEL_SYNTHESIZER, user_msg,
     _request_inflight = False
     from bellomberg.core.evidence_prompt_policy import select_template, diagnostic_block
     evidence_template = select_template(blackboard, 'red_team', RED_TEAM_PROMPT)
+    from bellomberg.core.evidence_followup_policy import board_enabled, followup_block, project_receipts
+    evidence_followup = board_enabled(blackboard)
+    evidence_snapshot = None
     if saved_checkpoint is None and not trade_idea:
         user_msg += diagnostic_block(blackboard)
+        if evidence_followup:
+            user_msg += followup_block(blackboard)
+            evidence_snapshot = project_receipts(getattr(blackboard, 'tool_receipts', None),
+                                                 run_id=blackboard.weekly_store.run_id)
+    elif evidence_followup:
+        # The accepted request owns its evidence. Never project refreshed live receipts on replay.
+        from bellomberg.storage.weekly_run_store import WeeklyRunBlocked
+        evidence_snapshot = deepcopy(saved_checkpoint.get('evidence_followup_snapshot'))
+        if not isinstance(evidence_snapshot, dict):
+            raise WeeklyRunBlocked('Red Team evidence checkpoint assente')
     try:
         messages = [{"role": "user", "content": user_msg}]
         if trade_idea:
@@ -646,9 +774,11 @@ def _run_red_team_loop(blackboard, trade_idea, MODEL_SYNTHESIZER, user_msg,
             return {"contract": contract, "max_tokens": max_tokens, "status": "running", "user_msg": user_msg,
                 "tools_schema": tools_schema, "messages": messages, "iteration": iteration,
                 "usage": _usage, "usage_unknown": _usage_unknown, "calls": _calls,
-                "pending_tools": pending_tools, "inflight_tools": inflight_tools}
+                "pending_tools": pending_tools, "inflight_tools": inflight_tools,
+                **({"evidence_followup_snapshot": evidence_snapshot} if evidence_followup else {})}
 
         critique = ""
+        critique_raw = ""
         # mini tool-loop (max 3 giri di verifica + risposta finale): il red team
         # VERIFICA i numeri che attacca invece di fidarsi o inventare
         _forced_final = False
@@ -764,6 +894,7 @@ def _run_red_team_loop(blackboard, trade_idea, MODEL_SYNTHESIZER, user_msg,
             # specialists/base: la coda 'I 3 RISCHI...' e' la prima a perdersi)
             _parts = [b.text for b in resp.content if hasattr(b, "text")]
             critique = "\n".join(p for p in _parts if p)
+            critique_raw = critique
             if trade_idea:
                 blackboard.data["_red_team_native_terminal"] = {
                     "response_id": getattr(resp, "id", None),
@@ -792,6 +923,13 @@ def _run_red_team_loop(blackboard, trade_idea, MODEL_SYNTHESIZER, user_msg,
         if not critique:
             critique = SEGNAPOSTO_NESSUNA_CRITICA
             print("[RED_TEAM] WARN: critica vuota, scritto il buco dichiarato")
+        native_issue = motivo_critica_non_utilizzabile(critique)
+        evidence_review = None
+        if evidence_followup:
+            import json as _json
+            evidence_review = _review_evidence_claims(critique_raw, evidence_snapshot)
+            critique += ('\n\n=== RISCONTRO RED TEAM: CAMPI ESPLICITI, PROSA NON VALUTATA ===\n'
+                         + _json.dumps(evidence_review, ensure_ascii=False, sort_keys=True, allow_nan=False))
         # P1 14/07: via Blackboard.write (round 1 = post-R1) invece dell'assegnazione
         # diretta: cosi' la critica PERSISTE nel DB (gate dedicato in base.write) e
         # regenerate_memo non rigenera piu' il memo SENZA red team.
@@ -815,11 +953,12 @@ def _run_red_team_loop(blackboard, trade_idea, MODEL_SYNTHESIZER, user_msg,
             print(f"[RED_TEAM] usage non registrato (procedo): {ue}")
             if checkpoint_key is not None:
                 raise
-        issue = motivo_critica_non_utilizzabile(critique)
+        issue = native_issue
         if getattr(resp, "stop_reason", None) != "end_turn":
             issue = issue or "terminal response incomplete: " + str(getattr(resp, "stop_reason", None))
         checkpoint("red_team_report", {**loop_state(_it + 1),
-            "status": "failed" if issue else "complete", "critique": critique})
+            "status": "failed" if issue else "complete", "critique": critique,
+            **({"critique_raw": critique_raw, "evidence_review": evidence_review} if evidence_followup else {})})
         if issue and checkpoint_key is not None:
             raise ValueError("Red Team incomplete: " + issue)
         print(f"[RED_TEAM] critica generata: {len(critique)} chars")

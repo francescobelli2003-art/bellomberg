@@ -3,7 +3,7 @@ pdf_institutional.py - Memo PDF TOP istituzionale (#183), stile Aurum/Alphadyne.
 Cover con banda laterale + grafici, KPI strip, tabella metriche, corpo memo formattato.
 Font ROBUSTO (Arial su Windows, Liberation su Linux, Helvetica fallback reportlab).
 """
-import os, re
+import os, re, math
 import sys
 from datetime import datetime
 from bellomberg.reporting.i18n import label as _t, number as _n, localized, date_label
@@ -141,6 +141,44 @@ def _draw_lockup(cnv,x,y,size,reg,bold,ink,dim,accent,tagline=True):
     cnv.restoreState()
 
 
+def _finite_number(value):
+    return type(value) in (int, float) and math.isfinite(value)
+
+
+def _allocation_gap(portfolio_data):
+    """Missing weights are a gap, never an empty portfolio or inferred weights."""
+    from bellomberg.core.presentation import message
+    positions = (portfolio_data or {}).get('positions')
+    if not isinstance(positions, list):
+        return message('Allocazione n.d.: posizioni non disponibili.',
+                       'Allocation n/a: positions unavailable.')
+    if not positions:
+        return message('Allocazione non applicabile: 0 posizioni.',
+                       'Allocation not applicable: 0 positions.')
+    weights = [p.get('peso_pct') for p in positions if isinstance(p, dict)
+               and _finite_number(p.get('peso_pct')) and p['peso_pct'] >= 0]
+    if len(weights) != len(positions):
+        return message(f'Allocazione n.d.: pesi disponibili per {len(weights)} su {len(positions)} posizioni.',
+                       f'Allocation n/a: weights available for {len(weights)} of {len(positions)} positions.')
+    if not any(value > 0 for value in weights):
+        return message(f'Allocazione n.d.: nessun peso positivo su {len(positions)} posizioni.',
+                       f'Allocation n/a: no positive weight across {len(positions)} positions.')
+    return None
+
+
+def _wrap_cover_lines(text, font, size, width):
+    """Keep existing line breaks where they fit; measure overflowing text in points."""
+    from textwrap import wrap
+    lines = []
+    for line in wrap(text, 44):
+        limit = len(line)
+        while limit > 1 and any(pdfmetrics.stringWidth(part, font, size) > width
+                                for part in wrap(line, limit)):
+            limit -= 1
+        lines.extend(wrap(line, limit))
+    return lines
+
+
 def _gen_charts(portfolio_data, nav_history):
     """Genera i 3 grafici cover da dati reali. Ritorna (line,hbar,donut) path o None."""
     try:
@@ -152,17 +190,19 @@ def _gen_charts(portfolio_data, nav_history):
     # donut allocazione
     try:
         items=[(p["ticker"],p.get("peso_pct") or 0) for p in positions if (p.get("peso_pct") or 0)>0]
-        nav=(portfolio_data or {}).get("totale_valore_mercato_eur",0)
+        nav=(portfolio_data or {}).get("nav_total_eur")
+        nav_label=f"{nav/1000:.0f}k€" if _finite_number(nav) else _t('quote.unavailable')
         # top_n=10: con ~28 nomi il vecchio top 7 lasciava un "Altri" al 53%, piu'
         # grande di ogni posizione vera -> il grafico non diceva piu' niente
         # top_n=8 = ampiezza della palette categorica validata (oltre, i colori si
         # ripeterebbero e la legenda diventa ambigua). Le posizioni per intero stanno
         # nel grafico "Rendimento per posizione" qui accanto.
         _top=8
-        donut=ci.donut_chart(items,f"NAV\n{nav/1000:.0f}k€",
-                             _t("Allocazione per posizione"),
-                             sub=_t("portfolio.weights", top=min(_top, len(items)), count=len(items)),
-                             top_n=_top)
+        if _allocation_gap(portfolio_data) is None:
+            donut=ci.donut_chart(items,f"NAV\n{nav_label}",
+                                 _t("Allocazione per posizione"),
+                                 sub=_t("portfolio.weights", top=min(_top, len(items)), count=len(positions)),
+                                 top_n=_top)
     except Exception: pass
     # hbar rendimento per posizione: TUTTE le posizioni (richiesta PM 15/07).
     # Prima: sorted(desc)[:8] = solo gli 8 vincitori. Su un book di 28 nomi la cover
@@ -237,14 +277,27 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
     if not bullets: bullets=[bluf[:200]]
 
     pd=portfolio_data or {}
-    mkt_eur=pd.get("totale_valore_mercato_eur",0) or 0
-    pl_eur=pd.get("totale_pl_eur",0) or 0
-    cash=pd.get("cash_disponibile_eur",0) or 0
-    nav_tot=pd.get("nav_total_eur") or (mkt_eur+cash)  # 203: NAV TOTALE esplicito = investito + cash
+    mkt_eur=pd.get("totale_valore_mercato_eur")
+    pl_eur=pd.get("totale_pl_eur")
+    if not _finite_number(pl_eur):
+        pl_eur=None
+    cash=pd.get("cash_disponibile_eur")
+    nav_tot=pd.get("nav_total_eur")
+    def amount(value):
+        return f"{_n(value)} €" if _finite_number(value) else _t('quote.unavailable')
+    n_positions=pd.get('n_positions')
+    if type(n_positions) is not int or n_positions < 0:
+        positions=pd.get('positions')
+        n_positions=len(positions) if isinstance(positions,list) else None
     # audit/11 §4: 'su investito' = cost basis (mkt - pl), non il market value che
     # include gia' il P/L (percentuale sistematicamente sottostimata)
-    _cb=mkt_eur-pl_eur
-    pl_pct=(pl_eur/_cb*100) if _cb>0 else 0
+    _cb=(mkt_eur-pl_eur) if _finite_number(pd.get("totale_valore_mercato_eur")) and pl_eur is not None else None
+    pl_pct=(pl_eur/_cb*100) if _finite_number(_cb) and _cb>0 else None
+    if not _finite_number(pl_pct):
+        pl_pct=None
+    pl_text=(_t('quote.unavailable') if pl_eur is None else
+             f"{_n(pl_eur, '+,.0f')} €  (" +
+             (f"{_n(pl_pct, '+.1f')}%" if pl_pct is not None else _t('quote.unavailable')) + ")")
 
     def draw_cover(cnv,doc):
         cnv.saveState()
@@ -262,12 +315,11 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
         # sintesi
         cnv.setFillColor(AMBER); cnv.setFont(BOLD,9.5)
         cnv.drawString(1.1*cm,Hh-6.7*cm,_t("IN SINTESI"))
-        from textwrap import wrap
         yy=Hh-7.4*cm; cnv.setFont(REG,8.1)
         _floor=1.45*cm   # sopra il disclaimer di cover
         _cut=False
         for b in bullets:
-            _w=wrap(b,44)
+            _w=_wrap_cover_lines(b,REG,8.1,band-0.11*cm-1.5*cm)
             # respiro fra i blocchi: 0.30cm (era 0.12) — con un BLUF in prosa spezzato
             # per frasi e' cio' che distingue un elenco leggibile da un muro
             if yy-len(_w)*0.42*cm < _floor:
@@ -288,6 +340,14 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
             if ch and os.path.exists(ch):
                 ir=ImageReader(ch); iw,ih=ir.getSize(); h=rw*ih/iw
                 cnv.drawImage(ch,rx,yc-h,width=rw,height=h,mask="auto"); yc-=h+0.25*cm
+        if not donut or not os.path.exists(donut):
+            from bellomberg.core.presentation import message
+            gap=_allocation_gap(portfolio_data) or message(
+                'Allocazione n.d.: grafico non disponibile.',
+                'Allocation n/a: chart unavailable.')
+            cnv.setFillColor(GREY); cnv.setFont(REG,8.1)
+            for ln in _wrap_cover_lines(gap,REG,8.1,rw):
+                cnv.drawString(rx,yc-0.42*cm,ln); yc-=0.42*cm
         cnv.setFillColor(GREY); cnv.setFont(ITAL,7); cnv.drawRightString(W-0.7*cm,0.8*cm,_t("Bellomberg Quant Engine   ·   Pagina 1"))
         cnv.restoreState()
 
@@ -360,14 +420,14 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
     # header sezione + KPI strip
     story.append(sec(_t("Sintesi e profilo del portafoglio"),h1))
     kpi=[[_t("NAV TOTALE"),_t("INVESTITO"),_t("CASH"),_t("P/L (su investito)"),_t("POSIZIONI")],
-         [f"{_n(nav_tot)} €",f"{_n(mkt_eur)} €",f"{_n(cash)} €",f"{_n(pl_eur, '+,.0f')} €  ({_n(pl_pct, '+.1f')}%)",
-          str(pd.get('n_positions',len(pd.get('positions',[]))))]]
+         [amount(nav_tot),amount(mkt_eur),amount(cash),pl_text,
+          str(n_positions) if n_positions is not None else _t('quote.unavailable')]]
     kt=Table(kpi,colWidths=[(W-4*cm)/5]*5)
     kt.setStyle(TableStyle([
         ("BACKGROUND",(0,0),(-1,0),LGREY),("LINEABOVE",(0,0),(-1,0),2,NAVY),
         ("FONT",(0,0),(-1,0),REG,7),("TEXTCOLOR",(0,0),(-1,0),GREY),
         ("FONT",(0,1),(-1,1),BOLD,10),("TEXTCOLOR",(0,1),(0,1),NAVY),
-        ("TEXTCOLOR",(3,1),(3,1),GREEN if pl_eur>=0 else RED),
+        ("TEXTCOLOR",(3,1),(3,1),GREY if pl_eur is None else GREEN if pl_eur>=0 else RED),
         ("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),7),
         ("LEFTPADDING",(0,0),(-1,-1),8)]))
     story.append(kt); story.append(Spacer(1,0.4*cm))
@@ -435,11 +495,20 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
     # tabella metriche se risk_data
     if risk_data and isinstance(risk_data,dict):
         p=risk_data.get("portfolio",risk_data)
+        from xml.sax.saxutils import escape as _esc
+        from bellomberg.core.presentation import message
+        from bellomberg.core.evidence_prompt_policy import quant_semantics_notes
+        import math
+        def metric_value(key, suffix=''):
+            value=p.get(key)
+            if type(value) not in (int, float) or not math.isfinite(value):
+                return _t('quote.unavailable')
+            return str(value)+suffix
         mrows=[[_t("Metrica"),_t("Valore"),_t("Lettura")]]
         def add(k,v,r):
             if v is not None: mrows.append([k,v,r])
-        add(_t("Volatilita' annualizzata"),f"{p.get('vol_annual_pct','')}%",_t("oscillazione tipica annua"))
-        add(_t("Sharpe ratio"),f"{p.get('sharpe','')}",_t("rendimento per unita' di rischio"))
+        add(_t("Volatilita' annualizzata"),metric_value('vol_annual_pct','%'),_t("oscillazione tipica annua"))
+        add(_t("Sharpe ratio"),metric_value('sharpe'),_t("rendimento per unita' di rischio"))
         # fix 04/10 (A7, Opus 5.5): beta non misurato (SPY assente/serie corta) = None dal
         # motore -> la cella dice n.d. e la lettura porta il motivo (beta_error), mai «None».
         _beta=p.get("beta_vs_spy")
@@ -457,8 +526,10 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
                     "beta_nota",fontName=REG,fontSize=8,textColor=GREY,leading=10)))
             else:
                 add(_t("Beta vs S&P 500"),f"{_beta}",_t("sensibilita' al mercato USA"))
-        add(_t("VaR 95% (1 giorno)"),f"{p.get('var_95_1d_pct','')}%",_t("perdita 1 giorno su 20"))
-        add(_t("Max Drawdown (1 anno)"),f"{p.get('max_dd_1y_pct','')}%",_t("massima caduta picco-minimo"))
+        add(_t("VaR 95% (1 giorno)"),metric_value('var_95_1d_pct','%'),Paragraph(message(
+            'quantile storico giornaliero al 95%; frequenza futura non garantita',
+            'historical daily 95% quantile; future frequency is not guaranteed'), small))
+        add(_t("Max Drawdown (1 anno)"),metric_value('max_dd_1y_pct','%'),_t("massima caduta picco-minimo"))
         if len(mrows)>1:
             mt=Table(mrows,colWidths=[7*cm,3*cm,(W-4*cm-10*cm)])
             st=[("BACKGROUND",(0,0),(-1,0),OBSIDIAN),("TEXTCOLOR",(0,0),(-1,0),AMBER),
@@ -470,6 +541,8 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
                 ("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),
                 ("LEFTPADDING",(0,0),(-1,-1),6)]
             mt.setStyle(TableStyle(st)); story.append(mt); story.append(Spacer(1,0.5*cm))
+        for note in quant_semantics_notes(risk=risk_data):
+            story.append(Paragraph(_esc(note), small))
 
     # CRUSCOTTO SCORING (#186b): verdetti deterministici degli specialisti
     if scoring_data:

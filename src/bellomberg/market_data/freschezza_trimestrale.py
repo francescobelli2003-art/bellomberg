@@ -344,6 +344,7 @@ def _livello_sec(facts: Any, atteso: str, oggi: date) -> Dict[str, Any]:
                     period_end=lp["period_end"], filing_date=lp.get("filing_date"), form=lp.get("form"),
                     fp=lp.get("fp"), accession=lp.get("accession"), tipo=lp.get("tipo"),
                     etichetta=ETICHETTE[1].format(form=lp.get("form")), valori=valori,
+                    metric_metadata={k: v for k, v in (lp.get("metric_metadata") or {}).items() if k in valori},
                     unita={k: v for k, v in (lp.get("units_non_usd") or {}).items() if k in valori} or None,
                     nota="; ".join(note) or None,
                     da_cache_sec=lettura.get("da_cache"), letto_il=lettura.get("letto_il"))
@@ -708,7 +709,10 @@ def _compatto(esito: Dict[str, Any], *, da_cache: bool, scritto: Optional[float]
                                           ("motivo", (l.get("motivo") or "")[:160] or None))
                         if v is not None} for l in esito.get("livelli") or [] if l.get("stato") != "non_eseguito"]}
     if usato:
-        out.update({k: usato.get(k) for k in ("livello", "etichetta", "period_end", "tipo", "filing_date", "form",
+        out.update({k: usato.get(k) for k in ("livello", "etichetta", "period_end", "period_start", "period_type",
+                                              "duration", "fiscal_year_label", "issuer_identity", "definition",
+                                              "metric_metadata",
+                                              "source_receipt", "observed_at", "tipo", "filing_date", "form",
                                               "fp", "accession", "url", "valori", "unita", "valuta", "nota",
                                               "estratto")
                     if usato.get(k) not in (None, {}, "")})

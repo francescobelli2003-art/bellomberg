@@ -18,7 +18,7 @@ import time
 from hashlib import sha256
 from copy import deepcopy
 from functools import wraps
-from datetime import datetime
+from datetime import datetime, timezone
 from bellomberg.core.llm_client import OpenRouterClient, modello as _modello_llm, somma_usage as _somma_usage
 # Classe reale catturata all'import: i test che sostituiscono OpenRouterClient con una
 # factory non devono rompere il controllo isinstance di _chiama_modello.
@@ -1648,6 +1648,20 @@ class Specialist:
                 "_build_tools_schema[" + self.name + "]", e,
                 "registro LEGACY agent_tools al posto di chat_tools: " +
                 str(len(filtered)) + " tool invece del subset vivo")
+        _notes_context = None
+        if (getattr(self.blackboard, 'weekly_store', None) is not None
+                and 'research_notes_policy' in self.blackboard.weekly_store.context.get('contract', {})):
+            from bellomberg.core.current_facts import research_notes_for_board
+            _notes_context = research_notes_for_board(self.blackboard)
+        if _notes_context is not None:
+            from copy import deepcopy
+            filtered = deepcopy(filtered)
+            for tool in filtered:
+                if tool['name'] == 'add_research_note':
+                    tool['input_schema']['properties']['note_ids'] = {
+                        'type': 'array', 'items': {'type': 'integer'}, 'minItems': 1,
+                        'description': 'Delivered original PM question IDs, all on the given decision_id.'}
+                    tool['input_schema']['required'] = ['decision_id', 'note', 'note_ids']
         from bellomberg.valuation.company_dossier import company_dossier_tool_schema
         filtered.append(company_dossier_tool_schema())
         if callable(getattr(self.blackboard, "company_source_session", None)):
@@ -1837,6 +1851,13 @@ class Specialist:
         if (getattr(self.blackboard, "run_scope", "weekly") == "trade_idea"
                 and name in {"add_guidance", "add_research_note"}):
             return {"ok": False, "error": "Trade Idea: tool di scrittura disabilitato"}
+        if (name == "add_research_note" and getattr(self.blackboard, 'weekly_store', None) is not None
+                and 'research_notes_policy' in self.blackboard.weekly_store.context.get('contract', {})):
+            from bellomberg.core.current_facts import research_notes_for_board, add_frozen_research_reply
+            if research_notes_for_board(self.blackboard) is not None:
+                return add_frozen_research_reply(self.blackboard, input_.get('decision_id'),
+                                                 input_.get('note'), input_.get('note_ids'),
+                                                 event_id=getattr(self, '_research_note_event_id', None))
         if name == "ask_specialist":
             target = input_.get("specialist", "").lower()
             q = input_.get("question", "")
@@ -2718,6 +2739,9 @@ class Specialist:
         # Una fotografia per round; la prossima chiamata vede eventuali modifiche.
         from bellomberg.core.evidence_prompt_policy import select_template, diagnostic_block
         evidence_template = select_template(self.blackboard, self.name, self.system_prompt)
+        from bellomberg.core.evidence_followup_policy import board_enabled as _followup_enabled, instructions as _followup_instructions, followup_block, no_acquisition_notice
+        _evidence_followup = _followup_enabled(self.blackboard)
+        evidence_template += _followup_instructions(self.blackboard)
         mandato = None
         from bellomberg.core import mandato_pm
         text_policy = mandato_pm.text_policy_for_board(self.blackboard)
@@ -2784,6 +2808,8 @@ class Specialist:
             _ctx = "".join(blocchi) + "\n\n" + _ctx
         if saved_checkpoint is None and self.name == 'quant' and round_n == 2:
             _ctx += diagnostic_block(self.blackboard)
+        if saved_checkpoint is None and _evidence_followup:
+            _ctx += followup_block(self.blackboard)
         if task_context is not None and saved_checkpoint is None:
             task_heading = (
                 "\n\nTARGETED TASK: answer the explicit question below using the supplied draft and "
@@ -2796,15 +2822,23 @@ class Specialist:
         # C4 16/07 (richiesta PM): pipeline RESEARCH SOLO a fundamentals e SOLO in R1/R2
         # (R0 e' gia' saturo: 10/10 iterazioni nella run #45 — aggiungere lavoro li'
         # significherebbe recon troncata, non solo costo).
+        _frozen_notes = None
+        if (getattr(self.blackboard, 'weekly_store', None) is not None
+                and 'research_notes_policy' in self.blackboard.weekly_store.context.get('contract', {})):
+            from bellomberg.core.current_facts import research_notes_for_board
+            _frozen_notes = research_notes_for_board(self.blackboard)
         if (saved_checkpoint is None and self.name == "fundamentals" and round_n >= 1
                 and getattr(self.blackboard, "run_scope", "weekly") != "trade_idea"):
             try:
                 from bellomberg.core.current_facts import research_block
-                # Research mode reads filings in its own dossier: no valuation-engine
-                # sector acquisition (provider calls, archived-method text) here.
-                _research = is_research_mode(self.blackboard)
-                _rb = research_block(sector_bundles=None if _research else self._sector_bundles,
-                                     decision_links=None if _research else self._research_decision_links)
+                # New runs use the accepted snapshot; historical rounds keep their legacy request.
+                if _frozen_notes is not None:
+                    _rb = research_block(notes_context=_frozen_notes)
+                else:
+                    _research = is_research_mode(self.blackboard)
+                    _rb = research_block(sector_bundles=None if _research else self._sector_bundles,
+                                         decision_links=None if _research else self._research_decision_links,
+                                         legacy=True)
                 if _rb:
                     _ctx = _rb.strip() + "\n\n" + _ctx
             except Exception as e:
@@ -3087,6 +3121,10 @@ class Specialist:
                             messages=messages,
                             **_kw,
                         )
+                        if self.name == 'fundamentals' and round_n in (1, 2) and _frozen_notes is not None:
+                            from bellomberg.core.current_facts import record_research_notes_delivery
+                            record_research_notes_delivery(self.blackboard, 'fundamentals:' + str(round_n),
+                                                           messages[0]['content'])
                         # Audit 11/09: stop max_tokens e NESSUN testo visibile = la risposta
                         # e' tutta ragionamento. Si ritenta UNA volta la STESSA call (stessi
                         # messaggi) con thinking disabled. La call pagata entra nel conto
@@ -3270,6 +3308,7 @@ class Specialist:
                             "response_id": getattr(response, "id", None),
                             "tool_id": block.id, "name": tname, "input": tinput})
                         replayed_tool = tool_key in _pending_tools
+                        recovered_note = None
                         if not replayed_tool and tool_key in _inflight_tools:
                             from bellomberg.agents.company_research_tools import TOOL_NAMES
                             # These three run-native tools journal the GET intent
@@ -3277,7 +3316,13 @@ class Specialist:
                             # replays durable receipts and rejects an unknown GET;
                             # no other tool receives automatic replay authority.
                             local_reply_replay = reply_completion and tname in RESEARCH_REPLY_LOCAL_TOOLS
-                            if not local_reply_replay and (tname not in TOOL_NAMES or not callable(
+                            note_store = getattr(self.blackboard, 'weekly_store', None)
+                            if (tname == 'add_research_note' and note_store is not None
+                                    and 'research_notes_policy' in note_store.context['contract']):
+                                from bellomberg.core.current_facts import recover_frozen_research_reply
+                                recovered_note = recover_frozen_research_reply(
+                                    note_store, checkpoint_key, tool_key, tinput)
+                            if recovered_note is None and not local_reply_replay and (tname not in TOOL_NAMES or not callable(
                                     getattr(self.blackboard, "company_source_session", None))):
                                 raise RuntimeError("tool dispatch outcome unknown; automatic replay blocked: " + tname)
                         if not replayed_tool:
@@ -3287,7 +3332,9 @@ class Specialist:
                             _inflight_tools[tool_key] = {"name": tname, "input": tinput, "tool_id": block.id}
                             save_checkpoint("specialist_tool_dispatch", {**safe_snapshot,
                                 "pending_tools": _pending_tools, "inflight_tools": _inflight_tools})
+                        self._research_note_event_id = checkpoint_key + ':' + tool_key
                         result = (json.loads(_pending_tools[tool_key]["output_json"]) if replayed_tool
+                                  else recovered_note if recovered_note is not None
                                   else self._execute_meta_tool(tname, tinput))
                         # Audit 11/09 (Fable 5.1): il tool_log registrava SOLO l'input; per
                         # ricostruire cosa un desk avesse letto (il «35%» dal web, il «count
@@ -3303,7 +3350,7 @@ class Specialist:
                         capture_health(self.blackboard, checkpoint_key + ":" + tool_key, tname, result,
                                        desk=self.name, round_n=round_n, output_json=_out_s, input_values=tinput)
                         if not replayed_tool and (getattr(self.blackboard, "run_scope", "weekly") == "trade_idea"
-                                                  or is_research_mode(self.blackboard)):
+                                                  or is_research_mode(self.blackboard) or _evidence_followup):
                             _receipt_truncated = len(_out_s) > 200000
                             self.blackboard.tool_receipts.append({
                                 "tool": tname, "input": tinput,
@@ -3312,6 +3359,9 @@ class Specialist:
                                 "success": _trade_idea_tool_receipt_success(
                                     result, tname, truncated=_receipt_truncated),
                                 "output": _out_s[:200000], "truncated": _receipt_truncated,
+                                **({"run_id": self.blackboard.weekly_store.run_id, "round": round_n,
+                                    "desk": self.name, "observed_at": datetime.now(timezone.utc).isoformat()}
+                                   if _evidence_followup else {}),
                             })
                         if not replayed_tool:
                             self.blackboard.tool_log.append({
@@ -3425,6 +3475,8 @@ class Specialist:
                 and not final_text.startswith(MARCATORE_COLLASSO):
             _marc_nt = ("[ROUND " + str(round_n) + " SENZA TOOL: nessuna chiamata tool in "
                         "questo round; i numeri non sono verificati con i tool]")
+            if _evidence_followup:
+                _marc_nt = no_acquisition_notice(self.blackboard, round_n)
             print("  [" + self.name + "] " + _marc_nt)
             final_text = _marc_nt + "\n\n" + final_text
         if _output_finale_mancante:

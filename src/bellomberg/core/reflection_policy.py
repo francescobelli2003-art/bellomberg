@@ -268,3 +268,47 @@ def memory_projection(store):
 def scorecard_for(store):
     priming = store.get('priming')
     return priming.get('scorecard') if isinstance(priming, dict) else None
+
+
+def descriptive_groups_for(scorecard):
+    """Additive Capo view: retain small valid groups, never alter the lesson producer.
+
+    Eligibility is the existing groups_for verdict. Descriptive statistics still
+    require the same real membership/count/hit evidence, including below 36.
+    Unverified aggregates have null statistics and an explicit cause, not zeroes.
+    """
+    eligible, excluded = _groups_checked(scorecard)
+    result = {'groups': {}, 'issues': list(excluded)}
+    if any(':' not in reason for reason in excluded):
+        return result  # Invalid/missing details or tables: no membership attested.
+    details = scorecard['details']
+    method = scorecard.get('method_note')
+    method = method if isinstance(method, str) and method.strip() else 'n.d.: metodo non dichiarato'
+    candidates = [('overall', scorecard.get('overall'), details)]
+    for field, prefix, member in (('by_action', 'action', 'action'),
+                                 ('by_confidence', 'confidence', 'confidence_bucket'),
+                                 ('by_specialist', 'specialist', 'specialists')):
+        for name, aggregate in scorecard.get(field, {}).items():
+            rows = [r for r in details if (name in r[member] if member == 'specialists'
+                                          else r.get(member) == name)]
+            candidates.append((prefix + ':' + name, aggregate, rows))
+    for key, aggregate, rows in candidates:
+        valid = (isinstance(aggregate, dict) and _count(aggregate.get('n'))
+                 and aggregate['n'] == len(rows) and _count(aggregate.get('hits'))
+                 and aggregate['hits'] == sum(r['hit'] for r in rows)
+                 and all(type(aggregate.get(k)) in (int, float) and math.isfinite(aggregate[k])
+                         for k in ('hit_rate_pct', 'avg_edge_pct')))
+        operational = valid and key in eligible
+        issue = (None if operational else 'BELOW_36' if valid else 'UNVERIFIED_AGGREGATE')
+        if not valid and key + ':UNVERIFIED_AGGREGATE' not in result['issues']:
+            result['issues'].append(key + ':UNVERIFIED_AGGREGATE')
+        result['groups'][key] = {
+            'group_id': key, 'n': aggregate['n'] if valid else None,
+            'hits': aggregate['hits'] if valid else None,
+            'hit_rate_pct': aggregate['hit_rate_pct'] if valid else None,
+            'avg_edge_pct': aggregate['avg_edge_pct'] if valid else None,
+            'descriptive_only': not operational, 'operational_eligible': operational,
+            'status': 'ATTESTED' if valid else 'UNVERIFIED', 'issue': issue,
+            'method_note': method,
+        }
+    return result

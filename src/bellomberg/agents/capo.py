@@ -550,6 +550,12 @@ def scegli_report_specialisti(data, orari=None):
 
 @scoped_language
 def run_capo(blackboard, portfolio_data=None, memory_db=None, sizing_context=None, scoring_context=None):
+    from bellomberg.core.evidence_followup_policy import instructions as _followup_instructions, followup_block
+    _followup_rules = _followup_instructions(blackboard)
+    from bellomberg.core.evidence_followup_policy import board_enabled as _scope_enabled
+    from bellomberg.core import scorecard_scope_policy as _scorecard_policy
+    _scorecard_scope_enabled = _scope_enabled(blackboard)
+    _scorecard_scope = None
     from bellomberg.core.reflection_policy import board_enabled, memory_projection, scorecard_for
     _reflection36 = board_enabled(blackboard)
     CAPO_MODEL = _modello_llm("capo")   # 05/09: dal .env; assente = ConfigurazioneLLMMancante
@@ -572,12 +578,27 @@ def run_capo(blackboard, portfolio_data=None, memory_db=None, sizing_context=Non
             'operational proposal. Do not invent target prices, data, approval or completed Excel. '
             'Mandate, current prices, risk and sizing controls remain binding. The expected '
             'delivery is memo/PDF with source references. Technical failures remain incomplete.')
+    _frozen_notes = None
+    _system += _followup_rules
+    if _scorecard_scope_enabled:
+        _system += _scorecard_policy.INSTRUCTIONS
+    if (getattr(blackboard, 'weekly_store', None) is not None
+            and 'research_notes_policy' in blackboard.weekly_store.context.get('contract', {})):
+        from bellomberg.core.current_facts import research_notes_for_board, research_block
+        _frozen_notes = research_notes_for_board(blackboard)
     _saved_request = getattr(blackboard, "data", {}).get("_capo_request")
     if _saved_request is not None:
         if (_saved_request.get("model") != CAPO_MODEL or _saved_request.get("system") != _system
                 or type(_saved_request.get("max_tokens")) is not int
                 or _saved_request["max_tokens"] not in (64000, CAPO_MAX_TOKENS)):
             raise ValueError("Capo checkpoint contract changed; original request preserved")
+        if _scorecard_scope_enabled:
+            from bellomberg.core.scorecard_scope_policy import format_track_record_scope_for_capo
+            _scorecard_scope = _saved_request.get('scorecard_scope')
+            if (not isinstance(_scorecard_scope, dict)
+                    or _scorecard_scope.get('policy') != _scorecard_policy.POLICY
+                    or format_track_record_scope_for_capo(_scorecard_scope) not in _saved_request['user_message']):
+                raise ValueError('Capo scorecard scope checkpoint changed; original request preserved')
         # G7/C1 (04/10): la ripresa usa l'effort SALVATO con la richiesta originale, mai il
         # CAPO_EFFORT di oggi: con un effort diverso la chiave del journal cambiava e il Capo
         # (Opus, 128k) si pagava di nuovo. Formato vecchio (senza «thinking», scritto prima
@@ -591,7 +612,8 @@ def run_capo(blackboard, portfolio_data=None, memory_db=None, sizing_context=Non
             _thinking = _thinking_capo_o_errore()
         return _execute_capo_request(CAPO_MODEL, _system, _saved_request["user_message"],
                                      _mandato, _saved_request["research_date"],
-                                     max_tokens=_saved_request["max_tokens"], thinking=_thinking)
+                                     max_tokens=_saved_request["max_tokens"], thinking=_thinking, notes_board=blackboard if _frozen_notes is not None else None,
+                                     scorecard_scope=_scorecard_scope)
     print("\n" + "=" * 70)
     print("BELLOMBERG CAPO synthesis (" + CAPO_MODEL + ") - memory-aware v4")  # voce 5: etichetta derivata dal model string, non puo' piu' invecchiare
     print("=" * 70)
@@ -616,6 +638,14 @@ def run_capo(blackboard, portfolio_data=None, memory_db=None, sizing_context=Non
         prompt_for_language("3500-5500 parole, TUTTO IN ITALIANO scorrevole e leggibile. Espandi i ticker col nome esteso alla prima menzione. Spiega ogni metrica tecnica in prosa. Cita le decisioni passate per ID dove rilevante."),
         "",
     ]
+    if _frozen_notes is not None:
+        user_msg_parts.append(research_block(notes_context=_frozen_notes))
+    if _followup_rules:
+        user_msg_parts.append(followup_block(blackboard))
+    if _scorecard_scope_enabled:
+        from bellomberg.core.scorecard_scope_policy import format_track_record_scope_for_capo
+        _scorecard_scope = _scorecard_policy.project(scorecard_for(blackboard.weekly_store))
+        user_msg_parts.append(format_track_record_scope_for_capo(_scorecard_scope))
     filing_context = blackboard.data.get("_filing_context")
     if filing_context:
         user_msg_parts.extend([filing_context, ""])
@@ -840,9 +870,12 @@ def run_capo(blackboard, portfolio_data=None, memory_db=None, sizing_context=Non
         blackboard.data["_capo_request"] = {"model": CAPO_MODEL, "system": _system,
             "max_tokens": CAPO_MAX_TOKENS, "thinking": _thinking,
             "user_message": user_msg, "research_date": research_date}
+        if _scorecard_scope_enabled:
+            blackboard.data['_capo_request']['scorecard_scope'] = _scorecard_scope
         _persist("capo_request", blackboard.data["_capo_request"])
     return _execute_capo_request(CAPO_MODEL, _system, user_msg, _mandato, research_date,
-                                 max_tokens=CAPO_MAX_TOKENS, thinking=_thinking)
+                                 max_tokens=CAPO_MAX_TOKENS, thinking=_thinking, notes_board=blackboard if _frozen_notes is not None else None,
+                                 scorecard_scope=_scorecard_scope)
 
 
 def _thinking_capo_o_errore():
@@ -855,7 +888,7 @@ def _thinking_capo_o_errore():
 
 
 def _execute_capo_request(CAPO_MODEL, _system, user_msg, _mandato, research_date, *, max_tokens,
-                          thinking):
+                          thinking, notes_board=None, scorecard_scope=None):
     """Dispatch only the frozen prompt; a restart never reacquires Capo context."""
     import bellomberg.core.mandato_pm as _mandato_pm
     from bellomberg.agents.specialists.base import timeout_specialisti
@@ -888,6 +921,9 @@ def _execute_capo_request(CAPO_MODEL, _system, user_msg, _mandato, research_date
                     messages=_messages,
                 ) as _stream:
                     response = _stream.get_final_message()
+                if notes_board is not None:
+                    from bellomberg.core.current_facts import record_research_notes_delivery
+                    record_research_notes_delivery(notes_board, 'capo', user_msg)
                 total_usage = somma_usage(total_usage, getattr(response, "usage", None))
                 break
             except Exception as e:
@@ -909,6 +945,7 @@ def _execute_capo_request(CAPO_MODEL, _system, user_msg, _mandato, research_date
         for block in response.content:
             if getattr(block, "type", None) == "text" and getattr(block, "text", None):
                 text += block.text  # 25/06: concatena TUTTI i blocchi text (non solo il primo)
+        _raw_scorecard_text = text
         # 26/07 (Opus 5, pre-V6): un rifiuto dei safeguard e' un HTTP 200 con
         # stop_reason="refusal" -> NON solleva, i 3 retry sopra non scattano e la
         # concatenazione qui produce stringa vuota. Senza questa riga il memo di una
@@ -967,5 +1004,9 @@ def _execute_capo_request(CAPO_MODEL, _system, user_msg, _mandato, research_date
         usage["error"] = (_rif or ("Capo memo collapsed" if _collassato else
                                   "Capo incomplete response: " + str(usage["stop_reason"])))
     usage["request_id"] = getattr(response, "id", None)
+    if scorecard_scope is not None:
+        from bellomberg.core.scorecard_scope_policy import assess, notice
+        usage['scorecard_scope'] = assess(_raw_scorecard_text, scorecard_scope)
+        final += notice(usage['scorecard_scope'])
     print("[CAPO] Done. Tokens: in=" + str(usage["input_tokens"]) + " out=" + str(usage["output_tokens"]))
     return final, usage

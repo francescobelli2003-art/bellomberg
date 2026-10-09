@@ -8,14 +8,21 @@ from test_cablaggio_consigliere_multi import run_offline
 from bellomberg.agents import consigliere_multi as cm
 from bellomberg.agents import weekly_lifecycle as lifecycle
 from bellomberg.agents.specialists.base import Blackboard
+from bellomberg.core import current_facts
 from bellomberg.storage.memory_db import MemoryDB
 from bellomberg.storage.weekly_run_store import WeeklyRunBlocked
 
 
 def archived_store(observed):
     db = MemoryDB()
-    return lifecycle.create_run(db, {'n_positions': 0, 'positions': []}, cm.mandato_o_esci(),
-        observed.native_weekly_contract(analysis_mode=None), 'it')
+    contract = observed.native_weekly_contract(analysis_mode=None)
+    # This archive predates note capture and evidence follow-up, not just research mode.
+    for key in ('research_notes_policy', 'evidence_followup_policy', 'evidence_followup_as_of'):
+        contract.pop(key)
+    store = lifecycle.create_run(db, {'n_positions': 0, 'positions': []}, cm.mandato_o_esci(), contract, 'it')
+    assert not current_facts.research_notes_enabled(store.context['contract'])
+    assert store.get(current_facts.RESEARCH_NOTES_STAGE) is None
+    return store
 
 
 @pytest.mark.parametrize('finalized', [False, True])
@@ -85,6 +92,12 @@ def test_research_delivery_rejects_workbook_history_before_restoring_artifacts(r
     db = MemoryDB()
     store = lifecycle.create_run(db, {'n_positions': 0, 'positions': []}, cm.mandato_o_esci(),
         run_offline.native_weekly_contract(), 'it')
+    # Match native acceptance before testing the later workbook-history boundary.
+    notes = current_facts.freeze_research_notes(store, capture=True)
+    assert notes['policy'] == current_facts.RESEARCH_NOTES_POLICY
+    assert store.get(current_facts.RESEARCH_NOTES_STAGE) == notes
+    monkeypatch.setattr(current_facts, 'capture_research_notes', lambda *a, **k:
+                        pytest.fail('Research delivery recaptured live notes'))
     board = Blackboard(memory_db=db, memo_id=store.memo_id, run_id=store.run_id)
     lifecycle.bind_blackboard(board, store)
     if workbook_trace == 'artifact_bundle':
@@ -98,6 +111,7 @@ def test_research_delivery_rejects_workbook_history_before_restoring_artifacts(r
                         pytest.fail('Research restored artifacts before rejecting workbook history'))
     with pytest.raises(WeeklyRunBlocked, match='workbook activity'):
         cm.run_multi_agent(resume_memo_id=store.memo_id, delivery_only=True, send_email=False)
+    assert store.get(current_facts.RESEARCH_NOTES_STAGE) == notes
     assert not list(tmp_path.rglob('*.xlsx'))
 
 
