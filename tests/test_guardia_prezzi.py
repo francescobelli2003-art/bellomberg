@@ -34,7 +34,7 @@ def test_gbp_al_posto_di_gbx_rifiutato_dal_ratio():
 def test_valute_mischiate_caso_alfa_rifiutato():
     # il trade #46 vero: BUY 1 @ 150 EUR su posizione quotata USD
     g = controlla_trade(prezzo=150, quantita=1, valuta_trade="EUR",
-                        valuta_posizione="USD", ultimo_prezzo=150.04, azione="BUY")
+                        valuta_posizione="USD", ultimo_prezzo=150.13, azione="BUY")
     assert g["esito"] == "rifiuto"
     assert "EUR" in g["motivo"] and "USD" in g["motivo"]
 

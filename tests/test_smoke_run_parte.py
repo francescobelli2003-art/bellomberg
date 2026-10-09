@@ -192,6 +192,7 @@ def _ambiente(variabili, tmp):
         "SEC_CONTACT_EMAIL": "smoke@example.com",
         "NEWS_AUTO_REFRESH_ENABLED": "false", "FILING_AUTO_REFRESH_ENABLED": "false",
         "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8",
+        "PYTHON_DOTENV_DISABLED": "1",
         "PYTHONPATH": str(RADICE / "src"),
     })
     return env
@@ -298,19 +299,71 @@ def test_run_settimanale_arriva_al_capo_e_al_pdf(variabili, tmp_path):
     esito, proc = esegui_run_isolata(variabili, tmp_path, fino="pdf", send_email=True)
     problemi = problemi_della_run(esito) + problemi_della_consegna(esito, tmp_path)
     assert not problemi, ("LA RUN NON ARRIVA AL PDF (log: %s):\n- " % (tmp_path / "esito.log")) + "\n- ".join(problemi)
-    # Ogni ruolo e' passato davvero dal filo: sonda, desk R0/R1/R2, Red Team, Capo, reflection.
+    # Gli slug possono coincidere: la reflection si prova dal ruolo e dai checkpoint persistiti.
     modelli = {r["model"] for r in esito["fornitore"]}
     attesi = {variabili[v] for v in ("CONSIGLIERE_R0_MODEL", "CAPO_MODEL", "RED_TEAM_MODEL",
                                       "REFLECTION_MODEL", "ACTION_EXTRACTOR_MODEL")}
     assert attesi <= modelli, sorted(attesi - modelli)
-    dopo_il_capo = [r for r in esito["fornitore"]
-                    if r["n"] > max(x["n"] for x in esito["fornitore"] if x["model"] == variabili["CAPO_MODEL"])]
-    assert any(r["model"] == variabili["REFLECTION_MODEL"] and r["status"] == 200 for r in dopo_il_capo), \
-        "la reflection non e' passata dal fornitore dopo il Capo"
+    _verifica_reflection(esito, tmp_path)
     assert esito["letture_models"] >= 1   # listino e tetti letti dalla Models API (finta)
     # Il giro dei tool e' passato dal filo (chiamata tool in stream, risultato, report).
     assert any(r.get("tool") and r["stream"] for r in esito["fornitore"]), "nessuna chiamata tool in streaming"
     assert esito["usage_capo"]["stop_reason"] == "end_turn"
+
+
+def _verifica_reflection(esito, tmp, esclusione=None):
+    """Nessuna lezione senza esiti attestati; quella generata resta legata al gruppo sul DB."""
+    import sqlite3
+    from bellomberg.core.reflection_policy import verified_lesson
+    from bellomberg.storage.memory_db import MemoryDB
+    from bellomberg.storage.weekly_run_store import WeeklyRunStore
+
+    percorso = tmp / "data" / "consigliere.db"
+    with sqlite3.connect("file:" + percorso.as_posix() + "?mode=ro", uri=True) as conn:
+        checkpoints = {stage: json.loads(payload) for stage, payload in conn.execute(
+            "SELECT stage, payload_json FROM weekly_checkpoints WHERE memo_id=?",
+            (esito["memo_id"],))}
+    evidence = checkpoints["reflection_input_v1"]
+    result = checkpoints["reflection"]
+    richieste = [r for r in esito["fornitore"] if r.get("phase") == "reflection"]
+    # Riapertura del ledger: prova anche hash e coerenza semantica dei checkpoint salvati.
+    db = MemoryDB.__new__(MemoryDB)
+    db.db_path = str(percorso)  # lettore reale, senza reinizializzare schema/Chroma del DB figlio
+    lezione = verified_lesson(WeeklyRunStore(db, esito["memo_id"]))
+    if esclusione:
+        assert evidence["groups"] == {} and evidence["excluded"] == [esclusione]
+        assert evidence["request"] is None and richieste == []
+        assert result["status"] == "not_generated" and result["cause"] == "NO_ELIGIBLE_GROUPS"
+        assert result["rows"] == [] and result["lesson"] == "" and lezione is None
+        return
+    assert len(richieste) == 1, "la reflection non e' passata una volta dal trasporto"
+    chiamata = richieste[0]
+    assert chiamata["agent"] == "_reflection" and chiamata["status"] == 200
+    assert chiamata["model"] == evidence["request"]["model"]
+    assert chiamata["reflection_groups"] == evidence["groups"]
+    capo = [r for r in esito["fornitore"] if r.get("phase") == "capo" and r.get("agent") == "capo"]
+    assert capo and chiamata["n"] > max(r["n"] for r in capo)
+    assert evidence["groups"]["overall"] == {
+        "n": 36, "hits": 24, "hit_rate_pct": 66.7, "avg_edge_pct": 1.23,
+        "decision_ids": list(range(1, 37)),
+    }
+    assert result["status"] == "generated" and result["cause"] is None
+    assert len(result["rows"]) == 1 and result["rows"][0]["group_ids"] == ["overall"]
+    assert "[src: scorekeeper]" in result["rows"][0]["instruction"]
+    assert lezione == result["lesson"] and lezione
+
+
+@pytest.mark.parametrize("scenario,esclusione", [
+    ("sotto_soglia", "overall:BELOW_36"),
+    ("dettagli_assenti", "MISSING_OUTCOME_DETAILS"),
+])
+def test_reflection_non_qualificata_non_chiama_provider_ma_consegna_pdf(scenario, esclusione, tmp_path):
+    esempio = ff.variabili_env(ENV_EXAMPLE, suffisso="")
+    esito, _ = esegui_run_isolata(esempio, tmp_path, fino="pdf", send_email=True,
+                                 reflection_scenario=scenario)
+    problemi = problemi_della_run(esito) + problemi_della_consegna(esito, tmp_path)
+    assert not problemi, problemi
+    _verifica_reflection(esito, tmp_path, esclusione=esclusione)
 
 
 def test_ripresa_col_checkpoint_red_team_al_cap_vecchio(tmp_path):
@@ -361,6 +414,7 @@ def test_run_settimanale_tutti_i_ruoli_su_gemini_flash_arriva_al_pdf(tmp_path):
     assert not problemi, ("TUTTO GEMINI FLASH NON ARRIVA AL PDF (log: %s):\n- " % (tmp_path / "esito.log")) + "\n- ".join(problemi)
     filo = esito["fornitore"]
     assert filo and {r["model"] for r in filo} == {GEMINI_FLASH}
+    _verifica_reflection(esito, tmp_path)
     assert max(r["max_tokens"] for r in filo) == tetto      # i 128000 sono arrivati come 65536
     for ruolo in ("capo/capo/R3", "red_team/_red_team/R1"):
         assert ("%s: richiesti 128000 token, %s ne accetta %d: uso %d" % (ruolo, GEMINI_FLASH, tetto, tetto)

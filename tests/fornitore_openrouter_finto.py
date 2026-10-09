@@ -131,7 +131,10 @@ class FornitoreFinto:
 
     def gestisci(self, request):
         import httpx
+        from bellomberg.core.request_journal import current_request_scope
         corpo = json.loads(request.content.decode("utf-8"))
+        scope = current_request_scope() or {}
+        ruolo = {k: scope.get(k) for k in ("phase", "agent", "round_n")}
         modello = corpo.get("model")
         stream = bool(corpo.get("stream"))
         with self._lock:
@@ -141,7 +144,7 @@ class FornitoreFinto:
         if no is not None:
             status, messaggio = no
             with self._lock:
-                self.registro.append({"n": n, "model": modello, "stream": stream, "status": status,
+                self.registro.append({**ruolo, "n": n, "model": modello, "stream": stream, "status": status,
                                       "motivo": messaggio, "max_tokens": corpo.get("max_tokens"),
                                       "reasoning": corpo.get("reasoning")})
             return httpx.Response(status, json={"error": {"code": status, "message": messaggio}},
@@ -152,9 +155,10 @@ class FornitoreFinto:
         usage = self._usage(corpo, testo or json.dumps(strumento or {}), meta)
         rid = "gen-finto-%d" % n
         with self._lock:
-            self.registro.append({"n": n, "model": modello, "stream": stream, "status": 200,
+            self.registro.append({**ruolo, "n": n, "model": modello, "stream": stream, "status": 200,
                                   "risposta_model": nome_risposta, "max_tokens": corpo.get("max_tokens"),
                                   "reasoning": corpo.get("reasoning"),
+                                  "reflection_groups": gruppi_reflection(corpo),
                                   "tool": strumento["function"]["name"] if strumento else None})
         fine = "tool_calls" if strumento else "stop"
         if not stream:
@@ -215,12 +219,32 @@ ARGOMENTI_FORZATI = {"emit_action_table": {"table_found": True, "rows": [
     {"action": "HOLD", "ticker": "ZZSMOKE.MI", "size_raw": "0 EUR", "timing": "n.d.", "confidence": "MEDIA"}]}}
 
 
+def gruppi_reflection(corpo):
+    """Riconosce il payload attestato della reflection, mai lo slug (condivisibile col Capo)."""
+    for messaggio in corpo.get("messages") or []:
+        if messaggio.get("role") != "user":
+            continue
+        try:
+            dati = json.loads(messaggio.get("content"))
+        except (TypeError, ValueError):
+            continue
+        if isinstance(dati, dict) and set(dati) == {"eligible_groups"}:
+            return dati["eligible_groups"]
+    return None
+
+
 def testo_sintetico(corpo):
     """Testo di risposta: sopra la soglia dell'annuncio-senza-lavoro dei desk (800 caratteri) e
     del memo collassato del Capo (2000)."""
     filo = json.dumps(corpo.get("messages"), ensure_ascii=False)
     if '"ping"' in filo:
         return "pong"
+    gruppi = gruppi_reflection(corpo)
+    if gruppi is not None:
+        assert "overall" in gruppi, "reflection smoke senza gruppo overall attestato"
+        return json.dumps({"rows": [{"group_ids": ["overall"], "instruction":
+            "Valutare il track record complessivo con cautela: il campione minimo non e' una "
+            "garanzia di affidabilita [src: scorekeeper]."}]})
     paragrafo = ("Analisi sintetica di prova per ZZSMOKE.MI e QQSYN.MI (ticker inventati). Fonti "
                  "ufficiali non disponibili in questa prova: limite dichiarato. Consenso n.d.; nessun "
                  "fair value dichiarato. Scenario base: disciplina operativa; scenario ribassista: "
@@ -369,7 +393,8 @@ def esegui_run(config):
     radice = Path(config["radice"])
     tmp = Path(config["tmp"])
     violazioni = []
-    data_veri = [radice / "data"]
+    data_veri = [radice / "data"] + [p for p in os.environ.get(
+        "BELLOMBERG_SIGILLO_PROTETTE", "").split(os.pathsep) if p]
     _installa_guardie(radice, data_veri, violazioni)
     # .env del PM mai letto: la configurazione e' QUELLA passata dal test (env del processo).
     import dotenv
@@ -425,14 +450,23 @@ def esegui_run(config):
            _load_snapshots=lambda *a, **k: [])
     _finto("bellomberg.core.freshness", check_and_update=lambda cur, *a, **k: {"checked": 0, "stale": []},
            format_for_capo=lambda *a, **k: "", format_for_memo=lambda *a, **k: "")
-    # Scorekeeper (dati di mercato delle call passate): una scheda SINTETICA con 3 call misurate,
-    # cosi' la reflection fa la sua chiamata vera al modello (con n=0 si salta, dichiarato).
-    _scheda = {"computed_at": "2026-10-05T00:00:00", "overall": {"n": 3, "hit_rate_pct": 66.7, "avg_edge_pct": 1.23},
+    # Scorekeeper sintetico: 36 esiti attestati attivano la policy reale; gli scenari negativi
+    # provano che la soglia e i dettagli non sono aggirabili dal provider finto.
+    scenario = config.get("reflection_scenario", "qualificata")
+    if scenario not in ("qualificata", "sotto_soglia", "dettagli_assenti"):
+        raise ValueError("scenario reflection smoke sconosciuto: " + str(scenario))
+    n = 35 if scenario == "sotto_soglia" else 36
+    dettagli = [{"id": i + 1, "memo_id": 700 + i, "action": "BUY", "hit": i < 24,
+                 "confidence_bucket": "ALTA", "specialists": ["quant"], "horizon_used": "4w"}
+                for i in range(n)]
+    _scheda = {"computed_at": "2026-10-05T00:00:00",
+               "overall": {"n": n, "hits": 24, "hit_rate_pct": round(24 / n * 100, 1), "avg_edge_pct": 1.23},
+               "details": dettagli,
                "by_action": {}, "by_confidence": {}, "by_specialist": {}, "n_unmeasurable": 0,
-               "n_directional_candidates": 3, "n_fetch_fail": 0, "degraded": False}
+               "n_directional_candidates": n, "n_fetch_fail": 0, "degraded": False}
+    if scenario == "dettagli_assenti":
+        _scheda.pop("details")
     scorekeeper.compute_scorecard = lambda *a, **k: dict(_scheda)
-    scorekeeper.format_track_record_for_capo = lambda sc, *a, **k: (
-        "TRACK RECORD (prova smoke, sintetico): 3 call misurate, hit-rate 66.7%, edge medio 1.23%")
     _finto("bellomberg.portfolio.portfolio_risk", compute_portfolio_risk=lambda *a, **k: {"error": "prova smoke"})
     _finto("bellomberg.portfolio.portfolio_montecarlo", run_monte_carlo=lambda *a, **k: {"error": "prova smoke"})
     _finto("bellomberg.portfolio.sizing_engine", compute_sizing=lambda *a, **k: {"error": "prova smoke"})
