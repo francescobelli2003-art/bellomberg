@@ -29,6 +29,12 @@ def offline(monkeypatch):
     monkeypatch.setattr(provider, "_get", lambda *a: pytest.fail("unexpected provider request"))
     monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(
         Ticker=lambda symbol: SimpleNamespace(fast_info={"lastPrice": 100})))
+    # 09/10 (B3): i giorni a scadenza si contano sul calendario di New York; i test
+    # costruiscono le date con date.today() locale, quindi l'orologio NY si fissa
+    # a mezzogiorno della stessa data (altrimenti fra 00 e 06 italiane +1 giorno).
+    from datetime import datetime as _dt, time as _time
+    from zoneinfo import ZoneInfo
+    monkeypatch.setattr(vol, "_ny_now", lambda: _dt.combine(date.today(), _time(12), ZoneInfo("America/New_York")))
     vol._CHAIN_CACHE.clear()
 
 

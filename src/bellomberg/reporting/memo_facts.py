@@ -78,7 +78,7 @@ def _claim_metric(text, ticker, token):
     metric = '|'.join(re.escape(name) for name in sorted(names, key=len, reverse=True))
     issuer = r'(?:' + re.escape(ticker) + r'|\[ticker:\s*' + re.escape(ticker) + r'\])'
     measure = r'(?:growth|crescita|variazione|delta|yoy)'
-    duration = r'(?:annual|annuale|yearly|quarterly|trimestrale|ttm|ytd|semiannual|semestrale)'
+    duration = r'(?:annual|annuale|yearly|quarterly|trimestrale|ttm|ytd|semi-?annual|half-yearly|semestrale)'
     paired = r'\d{4}-\d{2}-\d{2}/\d{4}-\d{2}-\d{2}\s+vs\s+\d{4}-\d{2}-\d{2}/\d{4}-\d{2}-\d{2}'
     pattern = (r'\s*' + issuer + r'\s+(?P<metric>' + metric + r')'
                + r'(?:\s+' + measure + r')?(?:\s+' + duration + r')?\s+'
@@ -194,9 +194,46 @@ def _duration(value):
     return values.get(str(value).lower())
 
 
+# Duration a claim's own period label names (FY2031, Q2 2031); an end date names none.
+_IMPLIED_DURATION = {'FY': 'annual', 'CY': 'annual', 'Q': 'quarterly', 'QFY': 'quarterly', 'QCY': 'quarterly'}
+
+
+def _fact_duration(fact):
+    """Duration class of a projected cell: its label, else an unambiguous day span.
+
+    TTM/YTD are never inferred from a day count. A span outside the windows below
+    is a known but UNCLASSIFIED duration; label and span that disagree = CONFLICT.
+    """
+    raw = fact.get('duration')
+    label = None if raw is None or raw == '' else (_duration(raw) or 'UNCLASSIFIED')
+    days = fact.get('duration_days')
+    if isinstance(days, str) and re.fullmatch(r'[0-9]+', days):
+        days = int(days)  # explicit: an integer day count serialised as text
+    spanned = None
+    if type(days) in (int, float):
+        spanned = ('quarterly' if 80 <= days <= 100 else 'semiannual' if 170 <= days <= 190
+                   else 'annual' if 350 <= days <= 380 else 'UNCLASSIFIED')
+    elif days is not None and days != '':
+        # Bool, '91.5', 'n.d.': not a day count. Never a duration: with a label the
+        # cell is incoherent, without one its duration stays unknown.
+        return 'CONFLICT' if label is not None else None
+    if label is None or label == 'ytd' or spanned is None:
+        return label or spanned
+    return label if spanned == ('annual' if label == 'ttm' else label) else 'CONFLICT'
+
+
+# Compound words before 'annual'/'yearly': semi-annual and half-yearly are half years,
+# bi-annual is twice a year or every two years (unclassified), non-annual names none.
+_CLAIM_DURATION_PREFIX = {'semi': 'semiannual', 'half': 'semiannual', 'bi': 'AMBIGUOUS', 'non': None}
+
+
 def _claim_duration(text):
-    found = {_duration(m.group()) for m in re.finditer(
-        r'\b(?:annual|annuale|yearly|quarterly|trimestrale|ttm|ytd|semiannual|semestrale)\b', text, re.I)}
+    found = set()
+    for m in re.finditer(r'(?<![\w-])(?:(semi|half|bi|non)[- ]?(?:annual|yearly)|annual|annuale|yearly'
+                         r'|quarterly|trimestrale|ttm|ytd|semestrale)\b', text, re.I):
+        value = _CLAIM_DURATION_PREFIX[m.group(1).lower()] if m.group(1) else _duration(m.group())
+        if value is not None:
+            found.add(value)
     return next(iter(found)) if len(found) == 1 else 'AMBIGUOUS' if found else None
 
 
@@ -541,7 +578,7 @@ def _followup_attribute(finding, token, clause, receipts, projection, language):
         if (not labels or actual_unit not in ('EUR', 'USD', 'GBP', 'GBX', 'pct')
                 or (raw_unit is not None and raw_unit not in (actual_unit, str(actual_unit) + '/shares')
                     and str(raw_unit).lower() not in _UNIT_SCALE)
-                or (duration and _duration(fact.get('duration')) is None)):
+                or (duration and _fact_duration(fact) is None) or _fact_duration(fact) == 'CONFLICT'):
             incomplete = True
             continue
         if len(labels) != 1:
@@ -549,7 +586,7 @@ def _followup_attribute(finding, token, clause, receipts, projection, language):
             continue
         candidates.append({'value': _numeric(fact['value']), 'exponent': scale,
                            'period': next(iter(labels)), 'unit': actual_unit,
-                           'duration': _duration(fact.get('duration'))})
+                           'duration': _fact_duration(fact)})
     if conflicting:
         finding['dimensions']['semantic_scope'] = 'AMBIGUOUS'
         return
@@ -558,8 +595,21 @@ def _followup_attribute(finding, token, clause, receipts, projection, language):
     if len(matched) > 1:
         finding['dimensions']['semantic_scope'] = 'AMBIGUOUS'
     elif len(matched) == 1:
-        finding['dimensions']['semantic_scope'] = ('CONSISTENT_EXPLICIT' if
-            _semantic_number_attested(token, language, matched[0]) else 'MISMATCH_EXPLICIT')
+        if _semantic_number_attested(token, language, matched[0]):
+            finding['dimensions']['semantic_scope'] = 'CONSISTENT_EXPLICIT'
+        elif not duration and matched[0]['duration'] is None:
+            # Neither claim nor cell (no label, no day count) states a duration: a period
+            # end does not attest H1, quarter or TTM, so a different value proves nothing.
+            finding['semantic_scope_reason'] = 'CELL_DURATION_UNKNOWN'
+        elif not duration and matched[0]['duration'] != _IMPLIED_DURATION.get(kind):
+            # An end date alone does not say Q/H1/FY (nor FY2031 a Q2 cell labelled FY2031):
+            # a different value is no contradiction.
+            finding['semantic_scope_reason'] = 'CLAIM_DURATION_UNDECLARED'
+        else:
+            finding['dimensions']['semantic_scope'] = 'MISMATCH_EXPLICIT'
+    elif duration and any(s['period'] == period and s['unit'] == unit for s in candidates):
+        # Same period and unit, but no cell of the declared duration: nothing to compare.
+        finding['semantic_scope_reason'] = 'DURATION_CELL_UNAVAILABLE'
     elif candidates and not incomplete:
         finding['dimensions']['semantic_scope'] = 'MISMATCH_EXPLICIT'
 

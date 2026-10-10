@@ -2169,17 +2169,18 @@ def dispatch(tool_name: str, tool_input: Dict[str, Any], caller: str = None, *,
             return _stamp(r, f"signal_engine position doctor({tool_input['ticker']})")
 
         if tool_name == "get_vol_surface_summary":
-            from bellomberg.portfolio.vol_surface import build_vol_surface
+            from bellomberg.portfolio.vol_surface import build_vol_surface, compact_iv_context, tool_summary
             r = build_vol_surface(tool_input["ticker"], max_expiries=4)
-            # versione compatta per il contesto agente: via la griglia pesante
+            # versione compatta per il contesto agente. 10/10 (M-7 review v2, Opus 5.5):
+            # numeri e stati, niente griglie/slice/testi di metodo/alias deprecati
+            # (il payload era salito da 2.809 a 6.178 caratteri con la cura v1.6)
             if not r.get("error"):
-                r = {k: v for k, v in r.items()
-                     if k not in ("slices", "moneyness_grid")}
+                r = tool_summary(r)
                 # IV Rank dallo storico raccolto (25/07): n_obs/young dichiarati,
                 # error dichiarato finche' la storia non matura — mai un rank finto
                 try:
                     from bellomberg.market_data.iv_history import get_iv_context
-                    r["iv_history_context"] = get_iv_context(tool_input["ticker"])
+                    r["iv_history_context"] = compact_iv_context(get_iv_context(tool_input["ticker"]))
                 except Exception as e:
                     r["iv_history_context"] = {"error": str(e)}
             return _stamp(r, f"polygon vol surface({tool_input['ticker']})")

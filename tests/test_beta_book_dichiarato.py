@@ -162,7 +162,10 @@ def test_pdf_beta_misurato_stampa_il_numero(tmp_path, monkeypatch):
                           "var_95_1d_pct": -1.4, "max_dd_1y_pct": -7.7},
             "beta_error": None}
     testo = " ".join(_testo_pdf(tmp_path, risk, monkeypatch).split())
-    assert "S&P 500 1.23" in testo and "n.d." not in testo, testo[:2000]
+    # 09/10 (Opus 5.5): con portfolio_data=None i KPI e l'allocazione in cover dicono
+    # giustamente «n.d.» (R13); l'intento qui e' il beta: numero stampato, mai n.d.
+    assert "S&P 500 1.23" in testo, testo[:2000]
+    assert "S&P 500 n.d." not in testo and "motivo n.d." not in testo, testo[:2000]
 
 
 # ---------------------------------------------------------------- f) data del NAV nel log
@@ -300,31 +303,35 @@ def test_pdf_beta_nd_in_inglese_non_lascia_italiano(tmp_path, monkeypatch):
 _RISK_SENZA_BETA = {"portfolio": {"vol_annual_pct": 22.5, "sharpe": 0.78, "beta_vs_spy": None,
                                   "var_95_1d_pct": -3.2, "max_dd_1y_pct": -17.4},
                     "beta_error": "SPY non disponibile: motivo ZZFINTO"}
+# fix score 09/10 (Opus 5.5): la vol si legge contro il TARGET del mandato e la coda contro il
+# budget di stress; senza mandato la vol e' n.d. dichiarata. Mandato SINTETICO.
+_MANDATO_Q = {"rischio": {"volatilita_target_pct": 20, "stress_gfc_pct": 25}}
 
 
 def test_quant_score_dichiara_beta_nd_col_motivo_senza_punti():
     from bellomberg.agents.specialist_scores import quant_score
-    s = quant_score({"positions": []}, _RISK_SENZA_BETA)
+    s = quant_score({"positions": []}, _RISK_SENZA_BETA, mandato=_MANDATO_Q)
     beta = [r for r in s["lines"] if "Beta" in r[0]]
     assert len(beta) == 1, s["lines"]
     assert "n.d." in beta[0][1] and "ZZFINTO" in beta[0][1]
     assert beta[0][2] is None
-    # fuori dal punteggio: 4 metriche misurate (vol, sharpe, var, dd) x 3 punti
-    assert s["max_score"] == 4 * 3
+    # fix score 09/10: Sharpe, VaR e max DD sono INFORMATIVI (performance trailing / stessa
+    # dispersione della vol): l'unica metrica punteggiata qui e' la vol contro il target
+    assert s["max_score"] == 1 * 3
 
 
 def test_quant_score_beta_misurato_resta_punteggiato():
     from bellomberg.agents.specialist_scores import quant_score
     risk = {**_RISK_SENZA_BETA, "portfolio": {**_RISK_SENZA_BETA["portfolio"], "beta_vs_spy": 1.18}}
-    s = quant_score({"positions": []}, risk, beta_reconcile=_GUARDRAIL_OK)
+    s = quant_score({"positions": []}, risk, beta_reconcile=_GUARDRAIL_OK, mandato=_MANDATO_Q)
     beta = [r for r in s["lines"] if "Beta" in r[0]]
     assert beta and beta[0][1] == "1.18" and beta[0][2] is not None
-    assert s["max_score"] == 5 * 3
+    assert s["max_score"] == 2 * 3
 
 
 def test_blocco_contesto_quant_porta_la_riga_nd_senza_typeerror():
     from bellomberg.agents.specialist_scores import quant_score, format_score_block
-    blocco = format_score_block(quant_score({"positions": []}, _RISK_SENZA_BETA))
+    blocco = format_score_block(quant_score({"positions": []}, _RISK_SENZA_BETA, mandato=_MANDATO_Q))
     riga = [r for r in blocco.splitlines() if "Beta" in r and "non punteggiata" in r]
     assert len(riga) == 1 and "ZZFINTO" in riga[0], blocco
 
@@ -338,41 +345,67 @@ _PORT_PIENO = {"vol_annual_pct": 22.5, "sharpe": 0.78, "beta_vs_spy": 1.18,
 _GUARDRAIL_OK = {"verdict": "RECONCILED", "beta_per_decisioni": True,
                  "betas": {"portfolio_risk_spy": 1.18, "factor_model_mkt": 1.1}}  # R-SEG: il motore del rischio e' fra i riconciliati
 _POSIZIONI = {"positions": [{"ticker": "ZZTEST", "valore_mercato_eur": 600.0},
-                            {"ticker": "QQSYN.MI", "valore_mercato_eur": 400.0}]}
+                            {"ticker": "QQSYN.MI", "valore_mercato_eur": 400.0}],
+              "cash_disponibile_eur": 0.0}
+# fix score 09/10: coda e cluster SINTETICI (replay GFC -15% del book, primo cluster 60%)
+_STRESS_Q = {"stress_scenario": "gfc_2008", "stress_fallback": False,
+             "stress_meta": {"window_loss_pct": -15.0, "proxied": {}}}
+_SETTORI_Q = {"econ_axis": {"by_bucket": [{"bucket": "ZZSettore", "weight_pct": 60.0},
+                                          {"bucket": "QQSettore", "weight_pct": 40.0}], "coverage_pct": 100.0}}
+_NEGOZIO_Q = {"veicoli": {}, "origine": "sintetico"}
+_TUTTO_Q = dict(mandato=_MANDATO_Q, stress_data=_STRESS_Q, sector_data=_SETTORI_Q, negozio=_NEGOZIO_Q)
 
 
-@pytest.mark.parametrize("chiave, etichetta", [
-    ("vol_annual_pct", "Volatilit"), ("sharpe", "Sharpe"), ("var_95_1d_pct", "VaR 95"),
-    ("max_dd_1y_pct", "Max Drawdown")])
-def test_quant_score_metrica_mancante_dichiarata_senza_punti(chiave, etichetta):
+def test_quant_score_vol_mancante_dichiarata_senza_punti():
     from bellomberg.agents.specialist_scores import quant_score, format_score_block
     from bellomberg.core.language import language_context
     with language_context("it"):
-        s = quant_score(_POSIZIONI, {"portfolio": {**_PORT_PIENO, chiave: None}}, beta_reconcile=_GUARDRAIL_OK)
+        s = quant_score(_POSIZIONI, {"portfolio": {**_PORT_PIENO, "vol_annual_pct": None}},
+                        beta_reconcile=_GUARDRAIL_OK, **_TUTTO_Q)
         blocco = format_score_block(s)
-    riga = [r for r in s["lines"] if etichetta in r[0]]
+    riga = [r for r in s["lines"] if "Vol" in r[0]]
     assert len(riga) == 1, s["lines"]
     assert riga[0][1] == "n.d.: dato non fornito dal tool" and riga[0][2] is None
-    assert len(s["lines"]) == 7 and s["max_score"] == 6 * 3
-    assert len(s["unscored"]) == 1 and etichetta in s["unscored"][0]
-    assert "Massimo ricalcolato su 6 metriche misurate" in blocco, blocco
+    assert len(s["lines"]) == 6 and s["max_score"] == 5 * 3
+    assert len(s["unscored"]) == 1 and "Vol" in s["unscored"][0]
+    assert "Massimo ricalcolato su 5 metriche misurate" in blocco, blocco
     assert "dato non fornito dal tool" in blocco and "non punteggiata" in blocco
+
+
+@pytest.mark.parametrize("chiave, etichetta", [
+    ("sharpe", "Sharpe"), ("var_95_1d_pct", "VaR 95"), ("max_dd_1y_pct", "Max Drawdown")])
+def test_quant_score_informativa_mancante_dichiarata(chiave, etichetta):
+    # fix score 09/10: Sharpe/VaR/DD fuori punteggio ma MAI spariti: n.d. dichiarato nel blocco
+    from bellomberg.agents.specialist_scores import quant_score, format_score_block
+    from bellomberg.core.language import language_context
+    with language_context("it"):
+        s = quant_score(_POSIZIONI, {"portfolio": {**_PORT_PIENO, chiave: None}},
+                        beta_reconcile=_GUARDRAIL_OK, **_TUTTO_Q)
+        blocco = format_score_block(s)
+    assert not [r for r in s["lines"] if etichetta in r[0]]          # mai punteggiata
+    info = [r for r in s["info"] if etichetta in r[0]]
+    assert len(info) == 1 and info[0][1] == "n.d.: dato non fornito dal tool", s["info"]
+    assert s["unscored"] == [] and s["max_score"] == 6 * 3
+    riga = [r for r in blocco.splitlines() if r.startswith("  - ") and etichetta in r]
+    assert len(riga) == 1 and "fuori punteggio" in riga[0] and "n.d." in riga[0], blocco
 
 
 def test_quant_score_senza_pesi_top_e_hhi_dichiarati_col_motivo():
     from bellomberg.agents.specialist_scores import quant_score
     from bellomberg.core.language import language_context
     with language_context("it"):
-        s = quant_score({"positions": []}, {"portfolio": dict(_PORT_PIENO)}, beta_reconcile=_GUARDRAIL_OK)
-    for etichetta in ("Posizione maggiore", "HHI"):   # «Top position» in italiano
+        s = quant_score({"positions": []}, {"portfolio": dict(_PORT_PIENO)}, beta_reconcile=_GUARDRAIL_OK,
+                        **_TUTTO_Q)
+    for etichetta in ("Primo nome singolo", "HHI"):
         riga = [r for r in s["lines"] if etichetta in r[0]]
         assert len(riga) == 1 and riga[0][2] is None, s["lines"]
         assert "pesi delle posizioni non disponibili" in riga[0][1]
-    assert s["max_score"] == 5 * 3 and len(s["unscored"]) == 2
+    # misurate: vol, replay, beta, cluster
+    assert s["max_score"] == 4 * 3 and len(s["unscored"]) == 2
 
 
 def test_quant_score_tutto_misurato_niente_unscored():
     from bellomberg.agents.specialist_scores import quant_score, format_score_block
-    s = quant_score(_POSIZIONI, {"portfolio": dict(_PORT_PIENO)}, beta_reconcile=_GUARDRAIL_OK)
-    assert s["unscored"] == [] and s["max_score"] == 7 * 3 and len(s["lines"]) == 7
+    s = quant_score(_POSIZIONI, {"portfolio": dict(_PORT_PIENO)}, beta_reconcile=_GUARDRAIL_OK, **_TUTTO_Q)
+    assert s["unscored"] == [] and s["max_score"] == 6 * 3 and len(s["lines"]) == 6
     assert "ricalcolato" not in format_score_block(s)

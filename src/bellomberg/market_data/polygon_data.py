@@ -199,10 +199,62 @@ def get_option_expirations(underlying: str, limit: int = 60) -> Dict[str, Any]:
             "_timestamp": datetime.now().isoformat()}
 
 
+def _num(value: Any) -> Optional[float]:
+    """Numero finito o None (mai 0 inventato al posto di un campo assente)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return float(value)
+
+
+def _ns_to_iso(stamp: Any) -> Optional[str]:
+    value = _num(stamp)
+    if value is None or value <= 0:
+        return None
+    try:
+        return datetime.fromtimestamp(value / 1e9, timezone.utc).isoformat()
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _truncation_reference(results: List[Dict[str, Any]], spot: Optional[float]):
+    """Prezzo attorno a cui CENTRARE un taglio della chain (09/10, A1 audit Vol Deck).
+
+    Ordine: spot passato dal chiamante, poi `underlying_asset.price` osservato
+    (il piu' recente per `last_updated`), poi la mediana degli strike osservati —
+    quest'ultima e' una REGOLA DI TAGLIO dichiarata in coverage, mai uno spot."""
+    ref = _num(spot)
+    if ref is not None and ref > 0:
+        return ref, "spot passato dal chiamante"
+    best = None
+    for c in results:
+        ua = c.get("underlying_asset") if isinstance(c, dict) else None
+        price = _num(ua.get("price")) if isinstance(ua, dict) else None
+        if price is None or price <= 0:
+            continue
+        stamp = _num(ua.get("last_updated")) or 0
+        if best is None or stamp > best[0]:
+            best = (stamp, price)
+    if best is not None:
+        return best[1], "polygon underlying_asset.price"
+    strikes = sorted(s for s in (_num(((c.get("details") or {}) if isinstance(c, dict) else {}).get("strike_price"))
+                                 for c in results) if s is not None)
+    if strikes:
+        return strikes[len(strikes) // 2], "mediana strike osservati (nessuno spot: regola di taglio, NON uno spot)"
+    return None, None
+
+
 def get_options_chain(underlying: str, expiry: Optional[str] = None,
-                      max_contracts: int = 250) -> Dict[str, Any]:
+                      max_contracts: int = 250, spot: Optional[float] = None) -> Dict[str, Any]:
     """Chain snapshot con IV, greeks, OI, volume.
     expiry: 'YYYY-MM-DD' opzionale — se None Polygon ritorna tutte (cap max_contracts).
+
+    09/10 (A1 audit Vol Deck, Opus 5.5): se le righe osservate superano
+    `max_contracts` il taglio NON tiene piu' gli strike piu' bassi (con SPY a 650
+    restavano solo strike <= 599: niente call OTM e ATM spostata di 3,5 punti di
+    vol) ma i contratti piu' VICINI al riferimento (spot passato, poi prezzo del
+    sottostante osservato, poi mediana strike dichiarata), su entrambi i lati.
+    Il taglio e' dichiarato in `coverage.truncation` e lo stato resta PARTIAL.
+    Per una superficie completa si usa vol_surface._complete_chain.
     """
     fuori = _opzioni_non_coperte(underlying, "polygon /v3/snapshot/options")
     if fuori:
@@ -230,22 +282,41 @@ def get_options_chain(underlying: str, expiry: Optional[str] = None,
     issues = []
     if url and not errors:
         issues.append("page_limit")
+    truncation = {"applied": False}
     if len(results) > max_contracts:
         issues.append("output_limit")
+        ref, ref_source = _truncation_reference(results, spot)
+
+        def _distance(c):
+            det = c.get("details", {}) or {}
+            k = _num(det.get("strike_price"))
+            return (abs(k - ref) if k is not None and ref is not None else float("inf"),
+                    str(det.get("expiration_date") or ""), k or 0.0, str(det.get("contract_type") or ""))
+        kept = sorted(results, key=_distance)[:max_contracts]
+        kept_strikes = [s for s in (_num((c.get("details", {}) or {}).get("strike_price")) for c in kept) if s is not None]
+        truncation = {"applied": True, "method": "contratti piu' vicini al riferimento, entrambi i lati",
+                      "reference": ref, "reference_source": ref_source,
+                      "rows_dropped": len(results) - len(kept),
+                      "strike_min_kept": min(kept_strikes) if kept_strikes else None,
+                      "strike_max_kept": max(kept_strikes) if kept_strikes else None}
+    else:
+        kept = results
     coverage = {"status": "UNAVAILABLE" if not results else "PARTIAL" if errors or issues else "COMPLETE",
                 "scope": "requested_snapshot_pages_only",
                 "requests": requests_count, "pages_received": pages, "rows_observed": len(results),
                 "rows_returned": min(len(results), max_contracts), "errors": errors, "issues": issues,
+                "truncation": truncation,
                 "requests_stopped": any(e in {"HTTP 401", "HTTP 403", "HTTP 429"} for e in errors)}
     if not results:
         return {"error": (data or {}).get("error", "no data"),
                 "_body": (data or {}).get("_body", ""), "coverage": coverage,
                 "_source": "polygon /v3/snapshot/options"}
     rows = []
-    for c in results:
+    for c in kept:
         det = c.get("details", {}) or {}
         greeks = c.get("greeks", {}) or {}
         day = c.get("day", {}) or {}
+        quote = c.get("last_quote") if isinstance(c.get("last_quote"), dict) else {}
         rows.append({
             "contract": det.get("ticker"),
             "type": det.get("contract_type"),          # call / put
@@ -259,15 +330,26 @@ def get_options_chain(underlying: str, expiry: Optional[str] = None,
             "oi": c.get("open_interest"),
             "volume": day.get("volume"),
             "close": day.get("close"),
+            # 09/10 (A3/M3/M6/B7 audit Vol Deck): quota, rettifica e moltiplicatore
+            # del contratto; None quando il provider non li manda (mai 0 o 100 inventati).
+            "bid": _num(quote.get("bid")), "ask": _num(quote.get("ask")),
+            "quote_timestamp": _ns_to_iso(quote.get("last_updated")),
+            "quote_timeframe": quote.get("timeframe"),
+            "multiplier": _num(det.get("shares_per_contract")),
+            "adjusted": bool(det.get("additional_underlyings")),
+            # moltiplicatore del contratto (details.shares_per_contract): il GEX lo usa al
+            # posto del 100 fisso quando c'e' (rettifiche societarie, mini) — fix 09/10
+            "shares_per_contract": det.get("shares_per_contract"),
+            # orario della quota del contratto (ns UTC): serve ad allineare lo spot alle quote
+            "quote_timestamp_ns": (c.get("last_quote") if isinstance(c.get("last_quote"), dict) else {}).get("last_updated"),
             # Keep the provider observation; a strike/delta is never its price.
             "underlying_asset": c.get("underlying_asset"),
         })
     rows.sort(key=lambda x: (x.get("expiry") or "", x.get("strike") or 0))
-    rows = rows[:max_contracts]
     return {"underlying": underlying.upper(), "expiry_filter": expiry,
             "n_contracts": len(rows), "n_pages": pages, "chain": rows, "coverage": coverage,
             "_source": "polygon /v3/snapshot/options (paginated)",
-            "_timestamp": datetime.now().isoformat()}
+            "_timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 def _summary_spot_observation(ticker, chain):
@@ -447,7 +529,20 @@ def get_options_summary_polygon(ticker: str, expiry: Optional[str] = None) -> Di
             if best is None or pain < best:
                 best, max_pain = pain, K
 
-        interp = ("P/C alto (>1.2): posizionamento difensivo/hedging prevalente"
+        # fix 09/10 (Opus 5.5, audit SCORE-VOL-QUANT §1.1): chain con righe MANCANTI (errore
+        # HTTP a meta' paginazione o troncamento a max_contracts) = P/C e max pain n.d.
+        # dichiarati: il troncamento per strike taglia le call OTM alte, l'errore le pagine
+        # dopo, e il rapporto si sposta senza che il mercato si muova (regola 14/07).
+        _chain_cov = ch.get("coverage") or {}
+        chain_mancante = _chain_cov.get("status") == "PARTIAL" or bool(_chain_cov.get("errors"))
+        pc_nd = None
+        if chain_mancante:
+            pc_nd = "chain parziale: " + ", ".join(str(x) for x in (list(_chain_cov.get("errors") or [])
+                                                                     + list(_chain_cov.get("issues") or [])))
+            pc = None
+            max_pain = None
+        interp = ("n.d. (" + pc_nd + ")" if pc_nd else
+                  "P/C alto (>1.2): posizionamento difensivo/hedging prevalente"
                   if pc and pc > 1.2 else
                   "P/C basso (<0.7): posizionamento speculativo rialzista"
                   if pc and pc < 0.7 else "P/C neutrale")
@@ -470,6 +565,7 @@ def get_options_summary_polygon(ticker: str, expiry: Optional[str] = None) -> Di
             "total_call_oi": total_call_oi,
             "total_put_oi": total_put_oi,
             "put_call_oi_ratio": pc,
+            "put_call_oi_ratio_nd": pc_nd,
             "interpretation_pc": interp,
             "max_pain_strike": max_pain,
             "max_pain_vs_spot_pct": None,

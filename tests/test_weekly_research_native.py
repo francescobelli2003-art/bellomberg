@@ -358,3 +358,143 @@ def test_native_reply_crash_proof_export_is_optional(research_weekly, monkeypatc
     monkeypatch.delenv('BELLOMBERG_OFFLINE_TEST_SANDBOX', raising=False)
     test_native_note_reply_crash_recovery_is_verified_and_never_redispatched(
         research_weekly, monkeypatch, tmp_path, 'before_commit')
+
+
+def test_frozen_notes_block_framed_by_whitespace_is_delivered_byte_identical(
+        research_weekly, monkeypatch, tmp_path):
+    """df317cf (smoke weekly rossa, 09/10): il desk inseriva `research_block(...).strip()`
+    mentre la ricevuta cercava il blocco NON strippato -> `Research notes delivery differs
+    from frozen context: fundamentals:1` DOPO la chiamata pagata. Il blocco con cornice di
+    spazi (come lo stub dello smoke) deve arrivare al modello identico a quello attestato."""
+    from bellomberg.core import current_facts as note_facts
+    rendered = note_facts.research_block
+
+    def framed(*args, **kwargs):
+        return '\n\n' + rendered(*args, **kwargs) + '\n'
+
+    monkeypatch.setattr(note_facts, 'research_block', framed)
+    # Stessa run nativa completa (desk, Red Team, Capo, PDF, ricevute note): deve completare.
+    test_native_weekly_sources_all_desks_red_capo_pdf_and_two_exact_recoveries(
+        research_weekly, monkeypatch, tmp_path)
+    store = _store()
+    block = framed(notes_context=store.get('research_notes_context_v1'))
+    for destination in ('fundamentals:1', 'fundamentals:2', 'capo'):
+        receipt = store.get('research_notes_delivery_v1:' + destination)
+        assert receipt['note_block_sha256'] == sha256(block.encode('utf-8')).hexdigest()
+
+
+def test_frozen_notes_missing_from_desk_message_blocks_before_paid_call(research_weekly, monkeypatch, tmp_path):
+    """La guardia confronta consegna e contesto congelato PRIMA della chiamata a pagamento:
+    se il blocco note non e' nel messaggio di Fundamentals R1, nessuna richiesta parte."""
+    from bellomberg.agents.specialists import base
+    from bellomberg.core import current_facts as note_facts
+    from bellomberg.storage.weekly_run_store import WeeklyRunBlocked
+    rendered = note_facts.research_block
+    failures = []
+
+    def lost_once(*args, **kwargs):
+        if not failures:
+            failures.append('insertion')
+            raise RuntimeError('synthetic notes rendering failure at desk insertion')
+        return rendered(*args, **kwargs)
+
+    monkeypatch.setattr(note_facts, 'research_block', lost_once)
+    dispatched = []
+    original_call = base.Specialist._chiama_modello
+
+    def counted(self, **kw):
+        dispatched.append((self.name, getattr(self.blackboard, 'current_round', None)))
+        if dispatched[-1] == ('fundamentals', 1):
+            # BaseException: no application `except Exception` can turn it into a gap.
+            pytest.fail('paid Fundamentals R1 request dispatched without the frozen notes block')
+        return original_call(self, **kw)
+
+    monkeypatch.setattr(base.Specialist, '_chiama_modello', counted)
+    with pytest.raises(WeeklyRunBlocked, match='differs from frozen context: fundamentals:1'):
+        test_native_weekly_sources_all_desks_red_capo_pdf_and_two_exact_recoveries(
+            research_weekly, monkeypatch, tmp_path)
+    assert failures == ['insertion']
+    assert ('fundamentals', 1) not in dispatched, dispatched
+    assert _store().get('research_notes_delivery_v1:fundamentals:1') is None
+
+
+def test_desk_reports_citing_excluded_or_new_note_ids_do_not_block_r2_or_capo(
+        research_weekly, monkeypatch, tmp_path):
+    """Opus 5.5 (10/10, riserva 1): gli id si contano SOLO nel blocco note attestato. Un
+    report R1 che cita a inizio riga una nota esclusa (802, veto) o una nota che non esiste
+    nel contesto congelato (la risposta AI scritta in questa run) entra grezzo nel messaggio
+    R2 e in quello del Capo: non deve fermare la run."""
+    import sys
+    module = sys.modules[__name__]
+    original = module._provider_reply
+    cited = ('[RESEARCH_NOTE note_id=802 decision_id=903 ticker=SYNTH-B] quoted excluded note\n'
+             '[RESEARCH_NOTE note_id=99999 decision_id=901 ticker=SYNTH-A] reply written in this run\n')
+    reached = set()
+
+    def citing(body, text, tool_calls=None, *, ident):
+        rendered = json.dumps(body, ensure_ascii=False)
+        if 'RESEARCH NOTES FROZEN v1' in rendered and 'note_id=99999' in rendered:
+            if 'ROUND 1 - FIRST DRAFT WITH ANALYSIS' in rendered:
+                reached.add('fundamentals:1')
+            elif 'ROUND 2 - CROSS-REVIEW AND REFINEMENT' in rendered:
+                reached.add('fundamentals:2')
+            elif 'I tuoi specialisti hanno finito' in rendered:
+                reached.add('capo')
+        return original(body, cited + text if text else text, tool_calls, ident=ident)
+
+    monkeypatch.setattr(module, '_provider_reply', citing)
+    test_native_weekly_sources_all_desks_red_capo_pdf_and_two_exact_recoveries(
+        research_weekly, monkeypatch, tmp_path)
+    assert reached == {'fundamentals:1', 'fundamentals:2', 'capo'}, reached
+    store = _store()
+    for destination in ('fundamentals:1', 'fundamentals:2', 'capo'):
+        receipt = store.get('research_notes_delivery_v1:' + destination)
+        assert receipt['delivered_note_ids'] == [801, 803] and receipt['unknown_note_ids'] == []
+
+
+def test_frozen_notes_lost_only_in_r2_blocks_before_paid_r2_call(research_weekly, monkeypatch, tmp_path):
+    """Opus 5.5 (10/10, riserva 2 e 5): il controllo pre-chiamata copre anche R2. Il blocco si
+    perde SOLO all'inserimento di R2: R1 e' consegnato con ricevuta, nessuna richiesta R2
+    pagata parte, e l'usage dell'iterazione fermata non conta una chiamata mai spedita."""
+    import sys
+    from bellomberg.agents.specialists import base
+    from bellomberg.core import current_facts as note_facts
+    from bellomberg.storage.weekly_run_store import WeeklyRunBlocked
+    rendered = note_facts.research_block
+    lost = []
+
+    def lost_in_r2(*args, **kwargs):
+        caller = sys._getframe(1)
+        if caller.f_code.co_filename == base.__file__ and caller.f_locals.get('round_n') == 2:
+            lost.append(2)
+            raise RuntimeError('synthetic notes rendering failure at R2 insertion')
+        return rendered(*args, **kwargs)
+
+    monkeypatch.setattr(note_facts, 'research_block', lost_in_r2)
+    dispatched, usage_rows = [], []
+    original_call = base.Specialist._chiama_modello
+
+    def counted(self, **kw):
+        dispatched.append((self.name, getattr(self.blackboard, 'current_round', None)))
+        if dispatched[-1] == ('fundamentals', 2):
+            pytest.fail('paid Fundamentals R2 request dispatched without the frozen notes block')
+        return original_call(self, **kw)
+
+    original_usage = base.Blackboard.record_usage
+
+    def recorded(self, agent, round_n, model, usage, *args, **kwargs):
+        usage_rows.append((agent, round_n, kwargs.get('api_calls'), kwargs.get('status')))
+        return original_usage(self, agent, round_n, model, usage, *args, **kwargs)
+
+    monkeypatch.setattr(base.Specialist, '_chiama_modello', counted)
+    monkeypatch.setattr(base.Blackboard, 'record_usage', recorded)
+    with pytest.raises(WeeklyRunBlocked, match='differs from frozen context: fundamentals:2'):
+        test_native_weekly_sources_all_desks_red_capo_pdf_and_two_exact_recoveries(
+            research_weekly, monkeypatch, tmp_path)
+    assert lost == [2]
+    assert ('fundamentals', 1) in dispatched and ('fundamentals', 2) not in dispatched, dispatched
+    store = _store()
+    assert store.get('research_notes_delivery_v1:fundamentals:1')['delivered_note_ids'] == [801, 803]
+    assert store.get('research_notes_delivery_v1:fundamentals:2') is None
+    assert [row for row in usage_rows if row[:2] == ('fundamentals', 2)] == [
+        ('fundamentals', 2, 0, 'api_error')]

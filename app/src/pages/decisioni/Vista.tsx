@@ -9,11 +9,13 @@ import {
 import { Segmenti } from '@/components/nuova/Card';
 import IconaTitolo from '@/components/nuova/IconaTitolo';
 import type { Decision, DecisionEvent, DecisionNote } from '@/lib/api';
+import type { TradeIdeaStorage } from '@/lib/tradeIdeas';
+import { storageActionText } from '@/components/TradeIdeaStorageNotice';
 import { t as tr, type Chiave, type Parametri } from '@/i18n/t';
 import { localeDi, type Lingua } from '@/i18n/lingua';
-import { statoDivergenza, decisioneCompatibile } from '@/lib/trade-entry';
+import { statoDivergenza, decisioneCompatibile, collegamentoSospeso } from '@/lib/trade-entry';
 import {
-  GIORNI_FERMA, giorniDa, isHold, isResearch, perMese, ricercaFerma, stessoTitolo, ultimaAttivita, vociVista,
+  GIORNI_FERMA, attivitaIgnota, giorniDa, isHold, isResearch, perMese, ricercaFerma, statoNote, stessoTitolo, ultimaAttivita, vociVista,
   type Esito, type FiltroChiuse,
 } from './logica';
 import type { AzioniDecisioni, DatiDecisioni } from './tipi';
@@ -182,7 +184,7 @@ function ElencoRicerche({ d, a }: { d: DatiDecisioni; a: AzioniDecisioni }) {
     return <Riga key={x.id} d={d} a={a} x={x} sotto={x.timing || primaRiga(x.rationale) || w('research', { id: x.id })}
       destra={x.status !== 'PENDING' ? <Pill tono="off">{w('stoppedPill', { status: statoTesto(x.status).toLowerCase() })}</Pill>
         : <Pill tono={ferma ? 'warn' : 'acc'}>{gg == null ? w('na') : w('since', { n: gg })}</Pill>}
-      piede={conta('notesCount', n)} />;
+      piede={statoNote(x) === 'unavailable' ? w('notesUnavailable') : conta('notesCount', n)} />;
   };
   const g = d.gruppi;
   return <>
@@ -303,6 +305,18 @@ function Provenienza({ x }: { x: Decision }) {
   return <div className="dc-note is-bad" role="status"><TriangleAlert size={16} aria-hidden="true" /><span><b>{w('ideaBlocked')}</b> {idea.destination_reason || ''}</span></div>;
 }
 
+/* R14 seguito (B2): provenienza Trade Idea non letta. Una riga per la pagina, non per decisione: le righe
+   senza `trade_idea` non dicono «nessuna Trade Idea». Rimedio dal contratto storage (lookup_failed = accesso). */
+function ProvenienzaIllegibile({ s }: { s: TradeIdeaStorage }) {
+  const valida = typeof s?.status === 'string' && typeof s?.action === 'string';
+  return <div className="dc-note is-warn" role="status" data-dc-ti-storage={valida ? s.status : 'unknown'}>
+    <TriangleAlert size={16} aria-hidden="true" />
+    <span><b>{w('ideaProvenanceUnreadable')}</b> {w('ideaProvenanceUnreadableWhy')}{' '}
+      {valida ? storageActionText(tr, s) : null}{' '}
+      {tr('tradeidea.storageCode', { code: (valida && s.error_code) || w('na') })}</span>
+  </div>;
+}
+
 /* ── dettaglio operativa ──────────────────────────────────────────── */
 const RISCHIO: Record<string, [string, Tono]> = { OPERATIVE: ['rOperative', 'ok'], BLOCKED: ['rBlocked', 'bad'], OVERRIDE_PENDING: ['rOverride', 'warn'], CHECK_UNAVAILABLE: ['rUnavailable', 'warn'] };
 const TITOLO_BLOCCO: Record<string, string> = { BLOCKED: 'blockedTitle', OVERRIDE_PENDING: 'overrideTitle', CHECK_UNAVAILABLE: 'unavailableTitle' };
@@ -359,6 +373,9 @@ function ChiudiDecisione({ d, a, x }: { d: DatiDecisioni; a: AzioniDecisioni; x:
   const eurErr = d.letturaEur && !d.letturaEur.ok ? d.letturaEur.motivo : null;
   // in Archivio niente Riapri: una proposta riaperta li' resterebbe PENDING fuori da «Da decidere»
   const chiusa = x.status !== 'PENDING', archiviata = d.vista === 'arch';
+  // 10/10 (Opus 5.5): provenienza Trade Idea non letta = collegamento sospeso, pulsante spento col motivo
+  const collegabile = decisioneCompatibile(x, x.ticker, x.action, false, d.tradeIdeaStorage);
+  const sospeso = !collegabile && collegamentoSospeso(x, d.tradeIdeaStorage) && decisioneCompatibile(x, x.ticker, x.action);
   return (
     <div className="dc-box" data-dc-chiudi={x.id}>
       <h3><Gavel size={16} aria-hidden="true" />{w(chiusa ? 'fixTitle' : 'closeTitle')}</h3>
@@ -385,12 +402,16 @@ function ChiudiDecisione({ d, a, x }: { d: DatiDecisioni; a: AzioniDecisioni; x:
       <div className="dc-row-act">
         <button type="button" className="bbn-btn is-primary" data-dc-azione="conferma" disabled={d.saving} onClick={a.confermaEsito}>
           <Check size={15} aria-hidden="true" />{w('confirm', { status: statoTesto(d.esito).toLowerCase() })}</button>
-        {decisioneCompatibile(x, x.ticker, x.action) && <button type="button" className="bbn-btn" data-dc-azione="collega" onClick={() => a.collegaTrade(x)}>
+        {(collegabile || sospeso) && <button type="button" className="bbn-btn" data-dc-azione="collega" disabled={sospeso}
+          title={sospeso ? w('linkTradeSuspended') : undefined} aria-describedby={sospeso ? `dc-collega-sospeso-${x.id}` : undefined}
+          onClick={sospeso ? undefined : () => a.collegaTrade(x)}>
           <Plus size={15} aria-hidden="true" />{w('linkTrade')}</button>}
         {statoDivergenza(x) !== null && <button type="button" className="bbn-btn" data-dc-azione="divergenza" onClick={() => a.divergenza(x)}>{w('record_manual_divergence')}</button>}
         {chiusa && !x.veto && !archiviata && <button type="button" className="bbn-btn" data-dc-azione="riapri" disabled={d.saving} onClick={a.riapri}>
           <RotateCcw size={15} aria-hidden="true" />{w('reopen')}</button>}
       </div>
+      {sospeso && <div className="dc-note is-warn" role="status" id={`dc-collega-sospeso-${x.id}`} data-dc-collega-sospeso={x.id}>
+        <TriangleAlert size={16} aria-hidden="true" /><span>{w('linkTradeSuspended')}</span></div>}
     </div>
   );
 }
@@ -491,20 +512,22 @@ function Turno({ d, n }: { d: DatiDecisioni; n: DecisionNote }) {
 function DettaglioRicerca({ d, a, x }: { d: DatiDecisioni; a: AzioniDecisioni; x: Decision }) {
   const note = [...(x.notes || [])].sort((p, q) => (p.timestamp || '').localeCompare(q.timestamp || ''));
   const archiviata = d.vista === 'arch', aperta = x.status === 'PENDING' && !archiviata;
-  const ferma = ricercaFerma(x);
+  const ferma = ricercaFerma(x), illeggibili = statoNote(x) === 'unavailable';
   return <>
     <Testata d={d} a={a} x={x} />
     <div className="dc-det-body">
       <div className="dc-cond"><Target size={16} aria-hidden="true" /><span><b>{w('condition')}</b>{x.timing || w('conditionNone')}</span></div>
       {ferma && <div className="dc-note is-warn" data-dc-ferma={x.id}><TriangleAlert size={16} aria-hidden="true" />
         <span><b>{w('staleTitle', { n: giorniDa(ultimaAttivita(x)) ?? 0 })}</b> {w('staleWhy')}</span></div>}
+      {attivitaIgnota(x) && !archiviata && <div className="dc-note" data-dc-attivita-ignota={x.id}><TriangleAlert size={16} aria-hidden="true" />
+        <span><b>{w('activityUnknownTitle')}</b> {w('activityUnknownWhy')}</span></div>}
       {!archiviata && x.status !== 'PENDING' && <div className="dc-note"><TriangleAlert size={16} aria-hidden="true" />
         <span><b>{w('notWorked')}</b> {w('notWorkedWhy', { status: statoTesto(x.status).toLowerCase() })}</span></div>}
       {archiviata && <div className="dc-note"><Archive size={16} aria-hidden="true" /><span>{w('archiveResNote')}</span></div>}
       <Provenienza x={x} />
       <Fissata d={d} a={a} x={x} />
       {x.outcome_notes && <p className="dc-quote">{x.outcome_notes}</p>}
-      <Sezione titolo={w('conversation')} nota={conta('notesCount', note.length)}>{null}</Sezione>
+      <Sezione titolo={w('conversation')} nota={illeggibili ? w('notesUnavailable') : conta('notesCount', note.length)}>{null}</Sezione>
       <div className="dc-conv" data-dc-conv={x.id}>
         {x.rationale && <div className="dc-turn">
           <div className="dc-ansh"><span className="dc-bot" aria-hidden="true"><Bot size={14} /></span><span className="nm">{w('committee')}</span>
@@ -513,7 +536,10 @@ function DettaglioRicerca({ d, a, x }: { d: DatiDecisioni; a: AzioniDecisioni; x
           <span className="dc-mini">{w('archivedText')}</span>
         </div>}
         {note.map(n => <Turno key={n.id} d={d} n={n} />)}
-        {!note.length && aperta && <div className="dc-empty"><b>{w('noNotes')}</b>{w('noNotesWhy')}</div>}
+        {illeggibili ? <div className="dc-note is-warn" role="alert" data-dc-note-illeggibili={x.id}><TriangleAlert size={16} aria-hidden="true" />
+          <span><b>{w('notesUnavailableTitle')}</b> {w('notesUnavailableWhy')}</span>
+          <button type="button" className="bbn-btn is-sm" onClick={a.riprova}><RefreshCw size={14} aria-hidden="true" />{w('retry')}</button></div>
+          : !note.length && aperta && <div className="dc-empty"><b>{w('noNotes')}</b>{w('noNotesWhy')}</div>}
       </div>
       {aperta && <>
         <div className="dc-comp">
@@ -590,6 +616,7 @@ export default function VistaDecisioni({ d, a }: { d: DatiDecisioni; a: AzioniDe
     <div className="bbn-decisioni">
       <Intestazione d={d} a={a} />
       <DaFare d={d} a={a} />
+      {d.tradeIdeaStorage && <ProvenienzaIllegibile s={d.tradeIdeaStorage} />}
       {d.targetMancante && <p className="dc-note is-warn">{w('notFound', { id: d.target ?? '' })}</p>}
       {d.stimate > 0 && <p className="dc-note">{w('archiveEstimated', { n: d.stimate })}</p>}
       <div className="dc-body">

@@ -148,7 +148,9 @@ def test_percentile_a_mano_min_max_e_giovinezza(db):
     for day, iv in [("2026-07-01", 0.20), ("2026-07-02", 0.25),
                     ("2026-07-03", 0.35), ("2026-07-06", 0.30)]:
         _seed(db, "SPY", day, [("2026-08-21", 30, iv)])
-    ctx = get_iv_context("SPY", db_path=db)
+    # 10/10 (MA-2 review v2): sotto la storia minima (20 giorni) il rank e' n.d.
+    assert "insufficiente" in get_iv_context("SPY", db_path=db)["error"]
+    ctx = get_iv_context("SPY", db_path=db, min_obs=2)
     assert ctx["error"] is None
     assert ctx["iv_front_current"] == pytest.approx(0.30)
     assert ctx["iv_percentile"] == pytest.approx(75.0)
@@ -167,7 +169,10 @@ def test_front_scarta_0dte_ma_fa_fallback_se_solo_0dte(db):
     ctx = get_iv_context("SPY", db_path=db)
     # front per giorno = expiry >= 2g: [0,20 · 0,40], NON gli 0DTE
     assert ctx["iv_front_current"] == pytest.approx(0.40)
-    assert ctx["iv_percentile"] == pytest.approx(100.0)
+    # 09/10 (A2): il percentile del front e' SECONDARIO; il rank vero e' sull'IV
+    # 30g costante, qui n.d. (nessuna scadenza oltre i 30g) e dichiarato
+    assert ctx["iv_front_percentile"] == pytest.approx(100.0)
+    assert ctx.get("iv_percentile") is None and "30g" in ctx["error"]
     _seed(db, "SPY", "2026-07-03", [("2026-07-03", 0, 0.05)])
     ctx2 = get_iv_context("SPY", db_path=db)
     assert ctx2["iv_front_current"] == pytest.approx(0.05)  # solo 0DTE: fallback

@@ -37,6 +37,8 @@ CAPO_MAX_TOKENS = 128000  # PM 02/10: nuovo lavoro; i checkpoint già pagati con
 # -> marcatore dichiarato. Refusal e max_tokens FUORI perimetro (hanno gia'
 # le loro dichiarazioni).
 SOGLIA_COLLASSO_MEMO = 2000
+# Opus 5.5 (10/10): ricevuta note Ricerca del Capo non scritta dopo lo stream pagato.
+RICEVUTA_NOTE_MANCANTE = "[RICEVUTA NOTE MANCANTE:"
 NUDGE_COLLASSO_MEMO = ("Hai risposto con poche righe che RIPETONO l'input invece di "
                        "scrivere il memo. Scrivi ORA il memo settimanale COMPLETO, in "
                        "italiano, con tutte le sezioni previste dal system prompt, "
@@ -900,6 +902,7 @@ def _execute_capo_request(CAPO_MODEL, _system, user_msg, _mandato, research_date
     from bellomberg.core.llm_client import somma_usage
     total_usage = None
     api_calls = 0
+    notes_receipt_error = None
     while True:
         response = None
         last_err = None
@@ -912,6 +915,9 @@ def _execute_capo_request(CAPO_MODEL, _system, user_msg, _mandato, research_date
                 # Effort congelato con la richiesta (G7/C1): lo stesso anche per il nudge.
                 if isinstance(thinking, Exception):
                     raise thinking   # CAPO_EFFORT non valida: dichiarata, nessuna call
+                if notes_board is not None:
+                    from bellomberg.core.current_facts import check_research_notes_delivery
+                    check_research_notes_delivery(notes_board, 'capo', user_msg)  # before paying
                 api_calls += 1
                 with client.messages.stream(
                     model=CAPO_MODEL,
@@ -921,9 +927,8 @@ def _execute_capo_request(CAPO_MODEL, _system, user_msg, _mandato, research_date
                     messages=_messages,
                 ) as _stream:
                     response = _stream.get_final_message()
-                if notes_board is not None:
-                    from bellomberg.core.current_facts import record_research_notes_delivery
-                    record_research_notes_delivery(notes_board, 'capo', user_msg)
+                # Paid stream returned: its usage is counted BEFORE (and apart from) the
+                # notes receipt below, so a receipt failure never erases the Capo cost.
                 total_usage = somma_usage(total_usage, getattr(response, "usage", None))
                 break
             except Exception as e:
@@ -940,6 +945,16 @@ def _execute_capo_request(CAPO_MODEL, _system, user_msg, _mandato, research_date
                                 complete=False, error_type=type(last_err).__name__,
                                 request_id=getattr(last_err, "request_id", None))
             return "[CAPO ERROR]: " + str(last_err), failed_usage
+        if notes_board is not None and notes_receipt_error is None:
+            # Receipt after the native client returned (Opus 5.5, 10/10): outside the
+            # stream's try. The block was verified identical BEFORE the stream; a receipt
+            # that cannot be written is declared on the memo and in usage, never silent.
+            try:
+                from bellomberg.core.current_facts import record_research_notes_delivery
+                record_research_notes_delivery(notes_board, 'capo', user_msg)
+            except Exception as e:
+                notes_receipt_error = type(e).__name__ + ": " + str(e)
+                print("[CAPO] ricevuta note Ricerca NON scritta: " + notes_receipt_error[:200])
 
         text = ""
         for block in response.content:
@@ -977,6 +992,10 @@ def _execute_capo_request(CAPO_MODEL, _system, user_msg, _mandato, research_date
         text = _marc + "\n\n" + text
     if not text:
         text = "[CAPO] No output"
+    if notes_receipt_error is not None:
+        text = (RICEVUTA_NOTE_MANCANTE + " capo - " + notes_receipt_error[:300]
+                + ". Il blocco note e' stato verificato identico a quello congelato PRIMA dello "
+                  "stream; la ricevuta di consegna non e' stata scritta.]\n\n" + text)
     if getattr(response, "stop_reason", None) == "max_tokens":
         print("[CAPO] WARNING: output a max_tokens (" + str(max_tokens) + "): possibile troncamento del memo")
         text += ("\n\n> *[NOTA AUTOMATICA: la sintesi ha raggiunto il limite di output e potrebbe essere "
@@ -1004,6 +1023,11 @@ def _execute_capo_request(CAPO_MODEL, _system, user_msg, _mandato, research_date
         usage["error"] = (_rif or ("Capo memo collapsed" if _collassato else
                                   "Capo incomplete response: " + str(usage["stop_reason"])))
     usage["request_id"] = getattr(response, "id", None)
+    if notes_receipt_error is not None:
+        # Stream paid and memo kept: the missing receipt travels with the memo (validate_memo
+        # requires the marker whenever this field is set).
+        usage["research_notes_receipt"] = "missing"
+        usage["research_notes_receipt_error"] = notes_receipt_error[:2000]
     if scorecard_scope is not None:
         from bellomberg.core.scorecard_scope_policy import assess, notice
         usage['scorecard_scope'] = assess(_raw_scorecard_text, scorecard_scope)

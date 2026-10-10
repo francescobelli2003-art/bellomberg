@@ -25,7 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Bellomberg } from '@/lib/api';
-import type { Decision, MktSearchHit, MovimentoCassa, PortfolioSnapshot, Position } from '@/lib/api';
+import type { Decision, DecisionsResponse, MktSearchHit, MovimentoCassa, PortfolioSnapshot, Position } from '@/lib/api';
 import { portfolioValues } from '@/lib/portfolio-values';
 import { congelaAnteprima, corpoIdentita, dataTrade, decisioneCompatibile, legameIniziale, legameTrade, righeLegame, totaliMovimenti, FrontendTradeError, statoDivergenza, etichettaStatoDivergenza, spiegazioneDivergenza } from '@/lib/trade-entry';
 import type { TradeRequest, TradePreview, TradeResult } from '@/lib/trade-entry';
@@ -307,8 +307,9 @@ function TradeOperationEntry({ view, onTestata, ricarica }: {
     };
     if (d.status === 'fulfilled' && Array.isArray(d.value?.decisions)) {
       setDecisions(d.value.decisions); setDecisionsErr(null);
+      setTiStorage(d.value.trade_idea_storage ?? null);
     } else {
-      setDecisions([]);
+      setDecisions([]); setTiStorage(null);
       setDecisionsErr(d.status === 'rejected' ? testo(d.reason) : tr('trade.invalid_decisions'));
     }
 
@@ -396,8 +397,8 @@ function TradeOperationEntry({ view, onTestata, ricarica }: {
   /** Decisione collegabile al trade che si sta scrivendo: stesso ticker inserito,
    *  oppure la decisione GIA' scelta con un ticker broker diverso (alias che il
    *  backend accetta solo con la verifica ISIN confermata insieme al trade). */
-  const compatibileQui = (d: Decision) => decisioneCompatibile(d, tickerUp, action)
-    || (String(d.id) === selectedDecision && decisioneCompatibile(d, tickerUp, action, true));
+  const compatibileQui = (d: Decision) => decisioneCompatibile(d, tickerUp, action, false, tiStorage)
+    || (String(d.id) === selectedDecision && decisioneCompatibile(d, tickerUp, action, true, tiStorage));
   useEffect(() => {
     setIdentityIsin(''); setIdentitySource(''); setIdentityVerifiedAt(''); setIdentityReason('');
   }, [selectedDecision, manualDivergenceDecision, tickerUp]);
@@ -510,7 +511,7 @@ function TradeOperationEntry({ view, onTestata, ricarica }: {
         ticker: tickerUp, action, quantita: qtyN, prezzo: priceN, valuta,
         note: note || undefined, pm_rationale: rationale || undefined,
         data: dataTrade(tradeDay, tradeTime, oggiISO()),
-        ...legameTrade(selectedDecision, decisions, tickerUp, action, !!identita),
+        ...legameTrade(selectedDecision, decisions, tickerUp, action, !!identita, tiStorage),
         ...(identita ? { instrument_identity: identita } : {}),
         ...(manualDivergenceDecision ? { manual_divergence: {
           decision_id: Number(manualDivergenceDecision), reason: manualDivergenceReason.trim() } } : {}),
@@ -847,6 +848,8 @@ function TradeOperationEntry({ view, onTestata, ricarica }: {
   const [mercato, setMercato] = useState<{ q: string; stato: 'attesa' | 'ok' | 'errore'; righe: MktSearchHit[] } | null>(null);
   const [valutaQuotata, setValutaQuotata] = useState<{ ticker: string; valuta: string; gestita: boolean } | null>(null);
   const [dettagli, setDettagli] = useState(false);
+  // 10/10 (Opus 5.5): `trade_idea_storage` di GET /decisions (in coda agli hook: v. avviso sopra)
+  const [tiStorage, setTiStorage] = useState<DecisionsResponse['trade_idea_storage']>(null);
   const tickerScelto = useRef('');
   const w = parole();
 
@@ -1135,6 +1138,10 @@ function TradeOperationEntry({ view, onTestata, ricarica }: {
                     <div className={'te-help' + (decisionsErr ? ' is-bad' : '')}>
                       {decisionsErr ? tr('trade.decisions_unavailable', { a: decisionsErr }) : tr('trade.decision_help')}
                     </div>
+                    {/* 10/10 (Opus 5.5): provenienza Trade Idea non letta = nessuna decisione senza
+                        `trade_idea` e' collegabile; il motivo si dichiara, non si lascia un menu vuoto muto. */}
+                    {!decisionsErr && tiStorage != null && <div className="te-note is-warn" role="status" data-te-collega-sospeso>
+                      {tr('trade.link_suspended_unreadable')}</div>}
                   </div>
 
                   <div className="te-field">

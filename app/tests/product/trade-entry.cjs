@@ -98,6 +98,25 @@ test('blocked proposal is not linkable; different execution ticker needs recorde
   assert.throws(() => legameTrade('31', [blocked], 'BROKER.DE', 'BUY', true));
 });
 
+test('unreadable Trade Idea provenance suspends the link of a decision without trade_idea (10/10)', () => {
+  const { collegamentoSospeso, decisioneCompatibile, legameTrade } = helpers();
+  const storage = { status: 'lookup_failed', error_code: 'trade_idea_lookup_failed', update_required: false, action: 'check_database_access' };
+  const plain = { ...decision, trade_idea: null };
+  assert.equal(decisioneCompatibile(plain, 'SYNTH', 'BUY'), true, 'provenance read (no storage): linkable as before');
+  assert.equal(decisioneCompatibile(plain, 'SYNTH', 'BUY', false, storage), false);
+  assert.equal(decisioneCompatibile(plain, 'BROKER.DE', 'BUY', true, storage), false, 'the alias path is suspended too');
+  assert.equal(collegamentoSospeso(plain, storage), true);
+  assert.equal(collegamentoSospeso(plain, null), false);
+  // una trade_idea presente e' stata letta: si valuta come sempre
+  const read = { ...decision, trade_idea: { technical_status: 'completed', destination_kind: 'dcn', artifacts_ready: true } };
+  assert.equal(collegamentoSospeso(read, storage), false);
+  assert.equal(decisioneCompatibile(read, 'SYNTH', 'BUY', false, storage), true);
+  assert.throws(() => legameTrade('31', [plain], 'SYNTH', 'BUY', false, storage),
+    e => /collegamento sospeso|linking suspended/.test(e.message));
+  assert.equal(legameTrade('31', [plain], 'SYNTH', 'BUY').linked_decision_id, 31);
+  assert.equal(JSON.stringify(legameTrade('unknown', [plain], 'SYNTH', 'BUY', false, storage)), JSON.stringify({ senza_decisione: false }));
+});
+
 test('confirmation freezes the server historical FX and exact linked request', () => {
   const { congelaAnteprima } = helpers();
   const input = { ...body };
@@ -329,7 +348,9 @@ test('Trade Entry page: preview never writes, commit reads the frozen body, menu
   const commit = src.slice(src.indexOf('const commit = async'), src.indexOf('const pendingRows'));
   assert.ok(commit.includes('p.body.manual_divergence') && !/\bmanualDivergence(Decision|Reason)\b/.test(commit), 'commit reads live form state');
   assert.ok(src.slice(src.indexOf('const pendingRows'), src.indexOf('if (v.ricalcolo)')).includes('righeLegame(v)'));
-  assert.ok(src.includes('decisioneCompatibile(d, tickerUp, action)'));
+  assert.ok(src.includes('decisioneCompatibile(d, tickerUp, action, false, tiStorage)'));
+  assert.ok(src.includes('decisioneCompatibile(d, tickerUp, action, true, tiStorage)'));
+  assert.ok(src.includes('legameTrade(selectedDecision, decisions, tickerUp, action, !!identita, tiStorage)'));
   const api = fs.readFileSync(path.resolve(__dirname, '../../src/lib/api.ts'), 'utf8');
   assert.ok(!api.includes("'/instrument-identities/verify'"));
 });

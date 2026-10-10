@@ -1,5 +1,5 @@
 import { API_BASE, clearSessionAndReload, requestHeaders } from './api';
-import { tradeIdeaRequest, TradeIdeaApiError } from './tradeIdeas';
+import { tradeIdeaRequest, TradeIdeaApiError, tradeIdeaApiError } from './tradeIdeas';
 import { t } from '../i18n/t';
 
 export type ResearchObject = Record<string, unknown>;
@@ -52,8 +52,7 @@ export async function researchArtifactBlob(event: ResearchEvent): Promise<Blob> 
   const response = await fetch(API_BASE + event.artifact.download_url, {headers: requestHeaders(), cache: 'no-store'});
   if (response.status === 401 || response.status === 403) clearSessionAndReload();
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new TradeIdeaApiError(String(body.detail || response.status), response.status);
+    throw tradeIdeaApiError(await response.json().catch(() => null), response.status);
   }
   return response.blob();
 }

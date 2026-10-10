@@ -179,6 +179,91 @@ def _wrap_cover_lines(text, font, size, width):
     return lines
 
 
+_KPI_SIZE = 10        # corpo dei valori del KPI strip (invariato)
+_KPI_MIN_SIZE = 8     # minimo dichiarato su UNA riga; sotto si va a capo a questo corpo
+_KPI_PAD_L = 8        # padding sinistro della cella (gia' in uso)
+_KPI_PAD_R = 6        # padding destro = default reportlab, ora esplicito
+_ACTION_SIZE = 7.4    # corpo delle celle dell'action table (invariato)
+_VALUE_FLOOR = 6.5    # corpo minimo assoluto leggibile di un importo ridotto: mai sotto
+
+# Punto di a capo DOPO un separatore delle migliaia: cifra + «.» o «,» + esattamente tre
+# cifre. «1234,5» (decimale) non e' un punto di a capo; un gruppo di cifre non si spezza.
+_THOUSANDS_BREAK = re.compile(r"(?<=\d[.,])(?=\d{3}(?!\d))")
+
+
+def _amount_lines(text, font, size, width):
+    """Fix 10/10 (Opus 5.5): righe di un valore che non entra in `width` al corpo `size`.
+    Si va a capo prima della percentuale («  ("), poi fra le parole (la valuta resta
+    con l'importo), poi dopo un
+    separatore delle migliaia: mai dentro un gruppo di cifre, mai troncato. Solo una
+    sequenza senza separatori piu' larga della cella intera (caso patologico) si spezza
+    al carattere, perche' l'alternativa sarebbe sbordare o tagliare."""
+    def fits(s):
+        return pdfmetrics.stringWidth(s, font, size) <= width
+    lines = []
+    head, sep, tail = text.partition("  (")
+    for part in ([head, "(" + tail] if sep else [text]):
+        current = ""
+        # Una valuta breve («€», «EUR») resta attaccata all'importo che la precede.
+        for gap, word in re.findall(r"(\s*)(\S+(?:\s+[^\s\d(]{1,3}(?=\s|$))?)", part):
+            if current and fits(current + gap + word):
+                current += gap + word
+                continue
+            if current:
+                lines.append(current)
+                current = ""
+            for chunk in _THOUSANDS_BREAK.split(word):
+                if fits(current + chunk):
+                    current += chunk
+                    continue
+                if current:
+                    lines.append(current)
+                current = chunk
+                while not fits(current):
+                    cut = max((i for i in range(1, len(current)) if fits(current[:i])), default=1)
+                    lines.append(current[:cut])
+                    current = current[cut:]
+        if current:
+            lines.append(current)
+    return lines
+
+
+def _fit_kpi_value(text, font, width, size=_KPI_SIZE, min_size=_KPI_MIN_SIZE):
+    """Fix 09/10 (Opus 5.5): il valore KPI deve stare nella SUA cella, misurato in
+    punti col font registrato. Prima la cella P/L a corpo fisso sbordava sulla
+    colonna POSIZIONI («(+32,8%)3»). Ordine: corpo pieno se entra; altrimenti corpo
+    ridotto fino a min_size su una riga; oltre, a capo a min_size (importo /
+    percentuale, poi al separatore delle migliaia: _amount_lines).
+    Fix 10/10 (Opus 5.5): prima il ramo a capo usava il corpo che faceva entrare la
+    riga piu' larga e un importo senza parentesi scendeva senza limite (NAV a 15 cifre
+    6,3 pt con DejaVu); ora il corpo non scende mai sotto min_size (8 > _VALUE_FLOOR)
+    e il valore resta tutto. Ritorna (testo, corpo)."""
+    if pdfmetrics.stringWidth(text, font, size) <= width:
+        return text, size
+    one_line = math.floor(size * width / pdfmetrics.stringWidth(text, font, size) * 10) / 10
+    if one_line >= min_size:
+        return text, one_line
+    return "\n".join(_amount_lines(text, font, min_size, width)), min_size
+
+
+def _fit_action_amount(text, font, width, size=_ACTION_SIZE, floor=_VALUE_FLOOR):
+    """Fix 10/10 (Opus 5.5): cella EUR dell'action table (1,5 cm). splitLongWords
+    spezzava un importo dentro le cifre («1.234.567» a capo «.890»). Se ogni parola
+    entra: invariato. Altrimenti corpo ridotto fino a `floor` perche' la parola piu'
+    larga stia su una riga; oltre, corpo pieno e a capo dopo i separatori delle
+    migliaia (_amount_lines). Ritorna (righe o None, corpo)."""
+    words = text.split()
+    if not words:
+        return None, size
+    widest = max(pdfmetrics.stringWidth(word, font, 1) for word in words)
+    if widest * size <= width:
+        return None, size
+    one_line = math.floor(width / widest * 10) / 10
+    if one_line >= floor:
+        return None, one_line
+    return _amount_lines(text, font, size, width), size
+
+
 def _gen_charts(portfolio_data, nav_history):
     """Genera i 3 grafici cover da dati reali. Ritorna (line,hbar,donut) path o None."""
     try:
@@ -419,17 +504,21 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
     story=[NextPageTemplate("body"),PageBreak()]
     # header sezione + KPI strip
     story.append(sec(_t("Sintesi e profilo del portafoglio"),h1))
+    kpi_w=(W-4*cm)/5
+    kpi_fit=[_fit_kpi_value(v,BOLD,kpi_w-_KPI_PAD_L-_KPI_PAD_R) for v in
+             [amount(nav_tot),amount(mkt_eur),amount(cash),pl_text,
+              str(n_positions) if n_positions is not None else _t('quote.unavailable')]]
     kpi=[[_t("NAV TOTALE"),_t("INVESTITO"),_t("CASH"),_t("P/L (su investito)"),_t("POSIZIONI")],
-         [amount(nav_tot),amount(mkt_eur),amount(cash),pl_text,
-          str(n_positions) if n_positions is not None else _t('quote.unavailable')]]
-    kt=Table(kpi,colWidths=[(W-4*cm)/5]*5)
+         [v for v,_ in kpi_fit]]
+    kt=Table(kpi,colWidths=[kpi_w]*5)
     kt.setStyle(TableStyle([
         ("BACKGROUND",(0,0),(-1,0),LGREY),("LINEABOVE",(0,0),(-1,0),2,NAVY),
         ("FONT",(0,0),(-1,0),REG,7),("TEXTCOLOR",(0,0),(-1,0),GREY),
-        ("FONT",(0,1),(-1,1),BOLD,10),("TEXTCOLOR",(0,1),(0,1),NAVY),
+        ("FONT",(0,1),(-1,1),BOLD,_KPI_SIZE),("TEXTCOLOR",(0,1),(0,1),NAVY),
         ("TEXTCOLOR",(3,1),(3,1),GREY if pl_eur is None else GREEN if pl_eur>=0 else RED),
         ("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),7),
-        ("LEFTPADDING",(0,0),(-1,-1),8)]))
+        ("LEFTPADDING",(0,0),(-1,-1),_KPI_PAD_L),("RIGHTPADDING",(0,0),(-1,-1),_KPI_PAD_R)]+
+        [("FONT",(i,1),(i,1),BOLD,s,s*1.2) for i,(_,s) in enumerate(kpi_fit) if s!=_KPI_SIZE]))
     story.append(kt); story.append(Spacer(1,0.4*cm))
 
     # 203: ACTION TABLE renderizzata come pannello (il vecchio renderer la SCARTAVA)
@@ -464,6 +553,9 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
             action_body=ParagraphStyle("action_body",fontName=REG,fontSize=7.4,
                                        textColor=INK,leading=8.8,spaceBefore=0,spaceAfter=0,
                                        splitLongWords=1)
+            # Keep a full-width timing column; long prose wraps instead of entering
+            # the confidence column or being clipped at the page edge.
+            action_widths=[2.1*cm,2.6*cm,1.5*cm,7.9*cm,2.9*cm]
             headers=[_t("Azione"),"Ticker","EUR",_t("Timing"),_t("Confidence")]
             adata=[[Paragraph(inline(cell),action_header) for cell in headers]]
             for r_ in arows:
@@ -474,11 +566,19 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
                     style=ParagraphStyle("action_body_{}_{}".format(len(adata),j),
                                          parent=action_body,fontName=BOLD if j in (0,1) else REG,
                                          textColor=col if j==0 else INK)
-                    row.append(Paragraph(inline(cell),style))
+                    markup=inline(cell)
+                    if j==2:
+                        # fix 10/10 (Opus 5.5): l'importo non si spezza dentro le cifre
+                        # (_fit_action_amount); misurato in grassetto se il Capo lo marca.
+                        plain=(cell or "").replace("*","")
+                        a_lines,a_size=_fit_action_amount(plain,BOLD if "**" in (cell or "") else REG,
+                                                          action_widths[2]-4-4)  # LEFT/RIGHTPADDING 4
+                        if a_lines:
+                            markup="<br/>".join(inline(line) for line in a_lines)
+                        if a_size!=_ACTION_SIZE:
+                            style.fontSize=a_size; style.leading=a_size*8.8/_ACTION_SIZE
+                    row.append(Paragraph(markup,style))
                 adata.append(row)
-            # Keep a full-width timing column; long prose wraps instead of entering
-            # the confidence column or being clipped at the page edge.
-            action_widths=[2.1*cm,2.6*cm,1.5*cm,7.9*cm,2.9*cm]
             att=Table(adata,colWidths=action_widths,repeatRows=1)
             asty=[("BACKGROUND",(0,0),(-1,0),OBSIDIAN),("TEXTCOLOR",(0,0),(-1,0),AMBER),
                   ("ALIGN",(2,1),(2,-1),"RIGHT"),
@@ -557,12 +657,37 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
                 # tarano davvero le bande (0-25 basso / 25-50 medio / 50-72 elevato /
                 # 72+ critico) — e si tiene il grezzo accanto per tracciabilita'.
                 data=[[_t("Dominio"),_t("Verdetto"),_t("Rischio\n0-100"),_t("Score\ngrezzo")]]
+                # Opus 5.5 09/10: le celle stringa NON vanno a capo da sole e il verdetto con i
+                # buchi dichiarati (256-395 pt misurati) usciva dalla colonna (7.4 cm = 209.8 pt,
+                # 6+6 pt di padding). Si va a capo MISURANDO il font vero con stringWidth.
+                from reportlab.pdfbase.pdfmetrics import stringWidth as _sw
+                _larghezza_verdetto = 7.4*cm - 12
+
+                def _a_capo(testo, font, size, larghezza):
+                    righe=[]; corrente=""
+                    for parola in str(testo).split():
+                        prova=(corrente+" "+parola) if corrente else parola
+                        if corrente and _sw(prova, font, size) > larghezza:
+                            righe.append(corrente); corrente=parola
+                        else:
+                            corrente=prova
+                        while _sw(corrente, font, size) > larghezza and len(corrente) > 1:
+                            # parola piu' larga della colonna: si spezza a caratteri
+                            n=len(corrente)
+                            while n > 1 and _sw(corrente[:n], font, size) > larghezza:
+                                n-=1
+                            righe.append(corrente[:n]); corrente=corrente[n:]
+                    if corrente:
+                        righe.append(corrente)
+                    return "\n".join(righe)
                 for r in srows:
                     mx=r.get("max_score") or 0
                     idx="{:.0f}".format(100.0*r["score"]/mx) if mx else "n.d."
                     # riga dichiarata n.d.: cella grezzo VUOTA, non "None/None"
-                    grezzo="{}/{}".format(r["score"], r["max_score"]) if mx else ""
-                    data.append([r["label"], r["verdict"], idx, grezzo])
+                    # virgola decimale in italiano («6,32/18», fix v2 10/10 Opus 5.5)
+                    grezzo=(_n(r["score"], "g") + "/" + _n(r["max_score"], "g")) if mx else ""
+                    data.append([r["label"], _a_capo(r["verdict"], BOLD, 8.5, _larghezza_verdetto),
+                                 idx, grezzo])
                 stt=Table(data, colWidths=[4.2*cm, 7.4*cm, 2.4*cm, (W-4*cm-14*cm)])
                 sty=[("BACKGROUND",(0,0),(-1,0),OBSIDIAN),("TEXTCOLOR",(0,0),(-1,0),AMBER),
                      ("FONT",(0,0),(-1,0),BOLD,8),("FONT",(0,1),(-1,-1),REG,8.5),
@@ -583,6 +708,11 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
                         continue
                     frac=r["score"]/r["max_score"]
                     col=GREEN if frac<0.25 else (GOLD_TXT if frac<0.5 else (ORANGE if frac<0.72 else RED))
+                    if col is GREEN and r.get("componente_nd"):
+                        # v2 10/10 (Opus 5.5): una componente n.d. (Event Desk senza news) non si
+                        # colora "rischio basso": il verde rassicura su una meta' non misurata.
+                        # Le fasce piu' alte restano colorate: sono un MINIMO, gia' vero.
+                        col=GREY
                     sty.append(("TEXTCOLOR",(1,i),(1,i),col))
                     sty.append(("TEXTCOLOR",(2,i),(2,i),col))
                 stt.setStyle(TableStyle(sty)); story.append(stt)
@@ -592,8 +722,15 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
                     "varia col numero di metriche disponibili per ciascuno specialista. "
                     "Bande: &lt;25 basso · 25-50 medio · 50-72 elevato · &ge;72 critico."), small))
                 story.append(Spacer(1,0.4*cm))
-        except Exception:
-            pass
+        except Exception as _e:
+            # Opus 5.5 09/10: il cruscotto che fallisce si DICHIARA (prima `pass`: la
+            # sezione spariva dal PDF senza una riga). Stesso rimedio del sizing qui sotto.
+            _m=(type(_e).__name__+": "+str(_e)).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+            from bellomberg.core.presentation import message as _msg
+            story.append(Paragraph(_msg("[n.d.] Cruscotto non disponibile: {m}. Buco dichiarato: "
+                                        "nessun dato sostitutivo.",
+                                        "[n/a] Risk dashboard unavailable: {m}. Declared gap: "
+                                        "no substitute data.", m=_m), small))
 
     # SIZING headroom chart (#184): esposizione vs limiti di rischio.
     # Il grafico OGGI c'e' (verificato sul memo vero): qui si chiude solo il buco

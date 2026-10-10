@@ -101,6 +101,7 @@ def test_feed_counts_partial_classification_and_keeps_valid_items(tmp_path, monk
     monkeypatch.setattr(na, "providers_blocked", lambda: {})
     monkeypatch.setattr(na, "_scrivi_stato_giro", lambda _out: None)
     monkeypatch.setattr(na, "_fetch_tiingo", lambda *_args: [])   # feed generale (passo 2.5): rete
+    monkeypatch.setattr(na, "_fetch_gnews_top", lambda *_a, **_k: [])   # 10/10 passo 2.4: rete
     results = iter([
         {"sentiment": "neutral", "sentiment_score": 0, "relevance": 5,
          "headline_it": "", "why_matters": "", "_classification_status": "classified"},
@@ -139,6 +140,7 @@ def _giro_finto(tmp_path, monkeypatch, esiti, n=2):
     # il feed generale Tiingo (passo 2.5 di auto_pull_feed) passa dal wrapper anche con
     # search_news_* finti: con la chiave del .env interrogava api.tiingo.com davvero
     monkeypatch.setattr(na, "_fetch_tiingo", lambda *_args: [])
+    monkeypatch.setattr(na, "_fetch_gnews_top", lambda *_a, **_k: [])   # 10/10 passo 2.4: rete
     it = iter(esiti)
     monkeypatch.setattr(na, "_classify_with_haiku", lambda *_args: next(it))
     return db

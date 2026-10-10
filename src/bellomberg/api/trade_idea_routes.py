@@ -255,9 +255,14 @@ def _public_run(run, cost=None):
     models = run.get("models") or {}
     model_list = ([{"role": role, **spec} for role, spec in models.items()]
                   if isinstance(models, dict) else models)
-    output = {k: v for k, v in run.items() if k != "catalog_snapshot"}
+    output = {k: v for k, v in run.items()
+              if k not in ("catalog_snapshot", "source_qualification_execution")}
     from bellomberg.agents.trade_idea import source_qualification_summary
-    output["source_qualification"] = source_qualification_summary(run.get("source_qualification") or {})
+    # 09/10 (B6, Opus 5.5): execution_status anche sulle run salvate; marcatore assente
+    # (run accettate prima del 09/10) = "unknown_legacy" DICHIARATO, mai "completed" inventato.
+    output["source_qualification"] = source_qualification_summary(
+        run.get("source_qualification") or {},
+        execution_status=run.get("source_qualification_execution") or "unknown_legacy")
     output["models"] = model_list
     output["identity"] = {"ticker": run["ticker"], "name": run.get("company_name"),
         "exchange": run.get("exchange"), "currency": run.get("currency"),
@@ -673,8 +678,12 @@ def install_trade_idea_routes(app, require_session, *, db_path=SQLITE_PATH,
                                        **({"document_sources": body.document_sources} if body.document_sources else {}))
         if not checked["ok"]:
             raise HTTPException(start_refusal_code(checked["reasons"]), "; ".join(checked["reasons"]))
-        if not source_verified:
-            raise HTTPException(428, "Controverifica delle fonti del preflight non eseguita")
+        # 10/10 (R14b M5, Opus 5.5): il marcatore salvato e' la MISURA del preflight
+        # (execution_status), non un letterale; serve anche la controverifica tornata qui.
+        measured_execution = (checked.get("source_qualification") or {}).get("execution_status")
+        if not source_verified or measured_execution != "completed":
+            raise HTTPException(428, "Controverifica delle fonti del preflight non eseguita "
+                                     "(execution_status=" + str(measured_execution) + ")")
         if (checked.get('execution_policy') != CURRENT_EXECUTION_POLICY or
                 cached.get('execution_policy') != CURRENT_EXECUTION_POLICY or
                 checked['models'] != cached['models'] or
@@ -701,6 +710,8 @@ def install_trade_idea_routes(app, require_session, *, db_path=SQLITE_PATH,
                    "budget_limit_usd": checked["budget"]["limit_usd"],
                    "cost_acknowledged": True,
                    "authorization": authorization, "source_qualification": qualification,
+                   # controverifica eseguita e tornata (guardia 428 sopra): la misura del preflight
+                   "source_qualification_execution": measured_execution,
                    "models": {item["role"]: {"model": item["model"],
                                               "reasoning_effort": item["reasoning_effort"]}
                               for item in checked["models"]},

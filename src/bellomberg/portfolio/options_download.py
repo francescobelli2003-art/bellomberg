@@ -103,6 +103,7 @@ class OptionsDownloadManager:
                    "started_at": _now(), "updated_at": _now(), "snapshot_at": None,
                    "spot": None, "spot_source": None, "spot_error": None, "spot_timestamp": None,
                    "spot_timeframe": None, "spot_timestamp_ns": None,
+                   "spot_qualified": False, "spot_fallback": False, "spot_alignment": None,
                    "_rows": {}, "_catalog_after": None, "_key": key, "_worker": False,
                    "_pause": False, "_restart": False, "_created": now, "_access": now, "_spot_attempted": False}
             for expiry in expiries or []:
@@ -162,7 +163,9 @@ class OptionsDownloadManager:
                 if job["_pause"]:
                     return
                 job.update(state="running", updated_at=_now())
-            self._observe_spot(job)
+            # 10/10 (ordine PM, Opus 5.5): niente yfinance PRIMA delle pagine Polygon:
+            # lo spot primario e' il sottostante nelle pagine stesse (_accept_page);
+            # yfinance e' il ripiego a fine download, solo se nessuna pagina lo porta.
             while True:
                 with self._lock:
                     if job["_pause"]:
@@ -187,6 +190,7 @@ class OptionsDownloadManager:
                             return
                     continue
                 if pending is None:
+                    self._observe_spot(job)   # ripiego dichiarato, solo se spot ancora assente
                     with self._lock:
                         if job["_pause"]:
                             return
@@ -243,10 +247,20 @@ class OptionsDownloadManager:
             row["data"] = merged
             if previous is not None:
                 row["superseded_contracts"] += len(old_keys - merged.keys())
-        if job["spot"] is None and vol._finite(page.get("spot"), positive=True) is not None:
+        if (job["spot"] is None or job["spot_source"] != "Polygon underlying snapshot") \
+                and vol._finite(page.get("spot"), positive=True) is not None:
+            # Polygon primario: sostituisce anche un ripiego yfinance gia' letto.
+            ns = vol._finite(page.get("spot_timestamp_ns"), positive=True)
+            iso = None
+            if ns is not None:
+                try:
+                    iso = datetime.fromtimestamp(ns / 1e9, timezone.utc).isoformat()
+                except (OverflowError, OSError, ValueError):
+                    iso = None
             job.update(spot=page["spot"], spot_source="Polygon underlying snapshot",
-                       spot_timestamp=page.get("_timestamp"), spot_timeframe=page.get("spot_timeframe"),
-                       spot_timestamp_ns=page.get("spot_timestamp_ns"), spot_error=None)
+                       spot_timestamp=iso or page.get("_timestamp"), spot_timeframe=page.get("spot_timeframe"),
+                       spot_timestamp_ns=page.get("spot_timestamp_ns"), spot_error=None,
+                       spot_qualified=iso is not None, spot_fallback=False, spot_alignment=None)
         error = page.get("error")
         nxt = page.get("next_cursor")
         if not error and not page.get("complete") and (not nxt or nxt == cursor or nxt in row["seen"]):
@@ -259,19 +273,25 @@ class OptionsDownloadManager:
             row["cursor"] = nxt
         job["updated_at"] = _now()
 
-    def _observe_spot(self, job):
+    def _observe_spot(self, job, *, on_demand=False):
         with self._lock:
-            if job["spot"] is not None or job["_spot_attempted"] or job["_pause"]:
+            if job["spot"] is not None or job["_spot_attempted"] or (job["_pause"] and not on_demand):
                 return
             job["_spot_attempted"] = True
+            stamps = [c.get("quote_timestamp") for row in job["_rows"].values() for c in row["data"].values()]
+        # MA-1 (review v2, 10/10, Opus 5.5): sul piano del PM le pagine non portano il
+        # prezzo del sottostante; prima del lastPrice (tempo reale, non qualificato)
+        # si prova la barra yfinance 1m all'ora delle quote scaricate (qualificata
+        # entro tolleranza). Stessa funzione pubblica della superficie.
         try:
-            import yfinance as yf
-            observed = yf.Ticker(job["ticker"]).fast_info["lastPrice"]
-            spot = vol._finite(observed, positive=True)
-            if spot is None:
+            from bellomberg.market_data.spot_alignment import quote_anchor, resolve_spot
+            res = resolve_spot(job["ticker"], anchor=quote_anchor(stamps, future_tolerance_seconds=vol.STALE_QUOTE_SECONDS))
+            if res["spot"] is None:
                 raise ValueError(_ui_text('prezzo assente o non finito', 'Missing or non-finite price'))
             with self._lock:
-                job.update(spot=spot, spot_source="yfinance lastPrice", spot_timestamp=_now())
+                job.update(spot=float(res["spot"]), spot_source=res["spot_source"],
+                           spot_timestamp=res["spot_timestamp"], spot_qualified=bool(res["spot_qualified"]),
+                           spot_fallback=bool(res["spot_fallback"]), spot_alignment=res["spot_alignment"])
         except Exception as exc:
             with self._lock:
                 job["spot_error"] = _ui_text(f'spot yfinance assente ({type(exc).__name__}); serve un prezzo osservato nelle pagine Polygon', f'Missing yfinance spot ({type(exc).__name__}); an observed price in the Polygon pages is required')
@@ -308,7 +328,13 @@ class OptionsDownloadManager:
                     "superseded_contracts": row["superseded_contracts"], "page_revisions": len(row["revisions"]),
                     "_timestamp": job["updated_at"], "_source": _ui_text("Polygon option-chain snapshot (memoria)", "Polygon option-chain snapshot (in memory)")}
 
-    def surface(self, job_id):
+    def surface(self, job_id, *, include_context=False):
+        with self._lock:
+            job = self._job(job_id)
+            need_fallback = job["spot"] is None and not job.get("_spot_attempted") and not job["_worker"]
+        if need_fallback:
+            # download parziale/in pausa senza prezzo nelle pagine: ripiego dichiarato
+            self._observe_spot(job, on_demand=True)
         with self._lock:
             job = self._job(job_id)
             if not job["expirations"]:
@@ -318,13 +344,28 @@ class OptionsDownloadManager:
                                      "requested": [], "loaded": [], "excluded": [], "errors": [],
                                      "selection_mode": "explicit", "catalog_note": _ui_text('Catalogo del download in memoria', 'In-memory download catalog')}}
             snapshot = {"spot": job["spot"], "spot_source": job["spot_source"],
+                        "spot_timestamp": job["spot_timestamp"], "spot_timeframe": job["spot_timeframe"],
+                        "spot_qualified": job.get("spot_qualified"), "spot_fallback": job.get("spot_fallback"),
+                        "spot_alignment": job.get("spot_alignment"),
                         "download_complete": job["download_complete"], "chains": {
                             expiry: {"chain": deepcopy(list(row["data"].values())), "complete": row["complete"],
                                      "continuation_error": row["error"]}
                             for expiry, row in job["_rows"].items()}}
             ticker, expiries, stamp = job["ticker"], list(job["expirations"]), job["snapshot_at"] or job["updated_at"]
-        out = vol.build_vol_surface(ticker, expiries=expiries, include_context=False, _snapshot=snapshot)
+        out = vol.build_vol_surface(ticker, expiries=expiries, include_context=include_context, _snapshot=snapshot)
         out.update(download_id=job_id, snapshot_at=stamp, _timestamp=stamp)
+        return out
+
+    def context(self, job_id):
+        """A4 audit Vol Deck (09/10, Opus 5.5): superficie + contesto calcolati
+        sull'ISTANTANEA del job — nessuna chain riscaricata, stesso snapshot_at del
+        laboratorio. RV (chiusure yfinance) e IV rank (DB) non sono chain; il GEX
+        fa il suo fetch e `context_sources` lo dichiara con l'ora."""
+        out = self.surface(job_id, include_context=True)
+        if out.get("error"):
+            return out
+        out.update(vol.context_panels(out.get("ticker") or self._job(job_id)["ticker"]))
+        out["context_sources"]["surface"] = _ui_text('istantanea del download in memoria: nessuna chain riscaricata', 'In-memory download snapshot: no chain re-downloaded')
         return out
 
 

@@ -19,8 +19,14 @@ PORTAFOGLIO = {"positions": [
 
 
 def _search_news_parziale(query, max_results=10):
-    return {"query": query, "count": 3,
-            "news": [{"title": "notizia %d su %s" % (i, query), "descrizione": ""} for i in range(3)],
+    # v2 10/10 (Opus 5.5): con gnews e thenewsapi mute restano marketaux (tetto 5) e yfinance
+    # (tetto 5): INTENSO (>=16 distinti da >=2 fonti) e' irraggiungibile, i nomi sono n.d. e
+    # l'Event Desk dichiara «news n.d.» col conteggio delle FONTI mute (non dei nomi).
+    from datetime import datetime, timezone
+    oggi = datetime.now(timezone.utc).isoformat()
+    return {"query": query, "count": 6,
+            "news": [{"title": "notizia %d su %s" % (i, query), "descrizione": "", "data": oggi}
+                     for i in range(6)],
             "fonti": {"marketaux": "live", "thenewsapi": "SKIP_BUDGET", "gnews": "SKIP_COOLDOWN",
                       "yfinance": "live"},
             "copertura": "PARZIALE", "fonti_mute": ["gnews", "thenewsapi"],
@@ -36,7 +42,7 @@ def test_il_verdetto_conta_le_fonti_mute_sul_totale_delle_fonti(monkeypatch):
     monkeypatch.setattr(agent_tools, "tool_get_polymarket_events", _senza_polymarket)
     s = ss.eventdesk_score(PORTAFOGLIO)
     assert s is not None
-    assert "(news: 2/4 fonti mute)" in s["verdict"], s["verdict"]
+    assert "(news n.d.: 2/4 mute)" in s["verdict"], s["verdict"]
     assert "6/6" not in s["verdict"], s["verdict"]
     m = s["metrics"]["news"]
     assert m["n_fonti_mute"] == 2 and m["n_fonti_candidate"] == 4
@@ -57,7 +63,7 @@ def test_il_suffisso_sta_nella_colonna_del_pdf_nel_caso_peggiore(monkeypatch):
     monkeypatch.setattr(agent_tools, "tool_search_news", _search_news_parziale)
     monkeypatch.setattr(agent_tools, "tool_get_polymarket_events", _senza_polymarket)
     s = ss.eventdesk_score(PORTAFOGLIO)
-    peggiore = "EVENTI IN FERMENTO" + s["verdict"][s["verdict"].index(" (news:"):]
+    peggiore = "EVENTI IN FERMENTO" + s["verdict"][s["verdict"].index(" (news"):]
     assert stringWidth(peggiore, "Helvetica-Bold", 8.5) <= 203, peggiore
 
 
@@ -69,3 +75,23 @@ def test_copertura_piena_nessun_suffisso(monkeypatch):
     monkeypatch.setattr(agent_tools, "tool_get_polymarket_events", _senza_polymarket)
     s = ss.eventdesk_score(PORTAFOGLIO)
     assert "(news:" not in s["verdict"], s["verdict"]
+
+
+def test_news_misurate_con_fonti_mute_tengono_il_conteggio_delle_fonti(monkeypatch):
+    """v2 10/10: con gnews + yfinance vivi il flusso intenso si accerta (18 distinti da 2
+    fonti): le news NON sono n.d. e il suffisso resta quello della copertura parziale."""
+    from datetime import datetime, timezone
+    oggi = datetime.now(timezone.utc).isoformat()
+
+    def cerca(query, max_results=10):
+        return {"query": query, "count": 18,
+                "news": [{"title": "notizia %d su %s" % (i, query), "descrizione": "", "data": oggi,
+                          "fonte": ("GNews (ZZ)", "Yahoo Finance (ZZ)")[i % 2]} for i in range(18)],
+                "fonti": {"marketaux": "SKIP_BUDGET", "thenewsapi": "SKIP_BUDGET", "gnews": "live",
+                          "yfinance": "live"},
+                "copertura": "PARZIALE", "fonti_mute": ["marketaux", "thenewsapi"]}
+    monkeypatch.setattr(agent_tools, "tool_search_news", cerca)
+    monkeypatch.setattr(agent_tools, "tool_get_polymarket_events", _senza_polymarket)
+    s = ss.eventdesk_score(PORTAFOGLIO)
+    assert "(news: 2/4 fonti mute)" in s["verdict"] and "n.d.:" in s["verdict"], s["verdict"]
+    assert s["componente_nd"] is None

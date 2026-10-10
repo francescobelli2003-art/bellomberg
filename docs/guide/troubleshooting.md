@@ -16,6 +16,7 @@
 | Trade Idea reports `schema_absent` / `schema_partial` or "run explicit migration" | Updated code with storage not yet installed completely | Follow the [explicit storage upgrade](../TRADE_IDEA.md#aggiornamento-storage), dry-run first; source qualification may be `not_run`, which is not a source outage |
 | Trade Idea reports `db_missing` | Backend configuration and actual database path | Verify the existing data location; the migration does not create a missing database or replace your portfolio |
 | Trade Idea reports `schema_incompatible` / `db_unreadable` | Schema compatibility, permissions and SQLite integrity | Preserve the database and seek diagnosis; do not run apply blindly or delete tables |
+| Trade Idea reports `db_busy` (action `retry`) | Which process holds the SQLite lock (a writer or backup in progress) | Retry once the writer finishes; this is a transient lock, not a missing migration: do not run the migration |
 | Opening-position confirmation returns 409 | Preview age and whether the book changed | Obtain a new preview from the current book; the old confirmation token cannot be reused |
 | Opening-position confirmation has an uncertain outcome | Saved opening-position register | Read back the record before taking another action; do not automatically repeat a write |
 | Briefing cache is unreadable | Declared cache error and original diagnostic | Preserve the file and investigate it; this is different from a briefing that has never been generated |

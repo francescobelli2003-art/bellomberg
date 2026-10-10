@@ -24,6 +24,7 @@ import os
 import subprocess
 import sys
 import types
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -143,6 +144,7 @@ def provider_finti(monkeypatch):
     # montano i loro tiingo_news/finnhub_news finti in sys.modules e contano le chiamate (zero
     # rete: gli stub dei moduli ci sono sempre, piu' in basso, anche con le chiavi vere del .env).
     tiingo = types.ModuleType("tiingo_news")
+    tiingo.tiingo_spenta = lambda: False   # 10/10: interruttore della fonte (accesa nei finti)
     tiingo.tiingo_available = lambda: False
     tiingo.fetch_tiingo_news = lambda *a, **k: []
     tiingo.last_status = lambda: None
@@ -209,7 +211,9 @@ def test_nuovo_ticker_xetra_senza_termini_cerca_il_nome_yahoo(
 
     query_testuali = [query for provider, query in provider_finti
                       if provider in {"newsapi", "thenewsapi", "gnews"}]
-    assert query_testuali == ['"Beta Robotics, Inc."'] * 3
+    # 10/10: nome Yahoo SENZA suffisso legale (la frase '"Beta Robotics, Inc."' non compare
+    # nei titoli: probe GNews 10/10 a 0-1 articoli), e .DE -> anche GNews in tedesco
+    assert query_testuali == ['"Beta Robotics"'] * 4
     assert any("Beta Robotics" in r and "BETA.DE" in r for r in log_catturato)
 
 
@@ -253,6 +257,7 @@ def test_xetra_con_match_yahoo_us_univoco_usa_il_simbolo_us_ma_tagga_quello_real
         }])
     chiamate_tiingo = []
     tiingo = types.ModuleType("tiingo_news")
+    tiingo.tiingo_spenta = lambda: False   # 10/10: qui si prova l'instradamento a fonte ACCESA
     tiingo.tiingo_available = lambda: True
     tiingo.fetch_tiingo_news = lambda tickers, **k: chiamate_tiingo.append(list(tickers)) or []
     monkeypatch.setitem(sys.modules, "bellomberg.market_data.tiingo_news", tiingo)
@@ -304,6 +309,7 @@ def test_xetra_con_due_match_us_non_sceglie_un_ticker_arbitrario(
                         lambda ticker, n: chiamate_yahoo.append(ticker) or [])
     chiamate_tiingo = []
     tiingo = types.ModuleType("tiingo_news")
+    tiingo.tiingo_spenta = lambda: False   # 10/10: qui si prova l'instradamento a fonte ACCESA
     tiingo.tiingo_available = lambda: True
     tiingo.fetch_tiingo_news = lambda tickers, **k: chiamate_tiingo.append(tickers) or []
     monkeypatch.setitem(sys.modules, "bellomberg.market_data.tiingo_news", tiingo)
@@ -355,6 +361,7 @@ def test_alias_finnhub_esplicito_precede_la_scoperta_automatica(
                         lambda ticker, n: chiamate_yahoo.append(ticker) or [])
     chiamate_tiingo = []
     tiingo = types.ModuleType("tiingo_news")
+    tiingo.tiingo_spenta = lambda: False   # 10/10: qui si prova l'instradamento a fonte ACCESA
     tiingo.tiingo_available = lambda: True
     tiingo.fetch_tiingo_news = lambda tickers, **k: chiamate_tiingo.append(list(tickers)) or []
     monkeypatch.setitem(sys.modules, "bellomberg.market_data.tiingo_news", tiingo)
@@ -627,7 +634,9 @@ def test_auto_pull_feed_e_cablato_sul_giro_news(tmp_path, monkeypatch, provider_
     # un item finto per far passare il classificatore (cosi' il contesto e' misurabile)
     monkeypatch.setattr(na, "search_news_global",
                         lambda q, **k: [{"title": "Notizia finta", "url": "https://example.invalid/1",
-                                         "published_at": "2026-09-04T10:00:00"}])
+                                         # 10/10 v2: data RELATIVA (il giro scarta i piu' vecchi di `days`)
+                                         "published_at": (datetime.now(timezone.utc)
+                                                          - timedelta(hours=1)).isoformat()}])
     out = na.auto_pull_feed(days=1, classify=True, max_per_ticker=1, max_per_theme=1)
     assert cercati == ["ACME.MI", "BETA.DE"]
     assert contesti and contesti[0] == ["ACME.MI (4.3%)"]

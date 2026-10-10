@@ -47,10 +47,14 @@ def _voce_json(catalogo, chiave):
 
 def _schede_vol_deck():
     pagina = _sorgente('app/src/pages/VolSurfacePage.tsx')
-    blocco = re.search(r"\(\[([^\]]+)\] as const\)\.map\(mode =>", pagina)
+    # Inline form `([...] as const).map(mode =>` or named form
+    # `const xs = [...] as const;` + `xs.map(mode =>` (Vol Deck v2, 10/10 Opus 5.5).
+    blocco = (re.search(r"\(\[([^\]]+)\] as const\)\.map\(mode =>", pagina)
+              or next((m for m in re.finditer(r"const (\w+) = \[([^\]]+)\] as const;", pagina)
+                       if re.search(rf"\b{m.group(1)}\.map\(mode =>", pagina)), None))
     assert blocco, 'elenco delle schede non trovato in VolSurfacePage.tsx'
     catalogo = _sorgente('app/src/i18n/it/voldeck.ts')
-    return [re.search(rf"\b{i}: '([^']+)'", catalogo).group(1) for i in re.findall(r"'([a-z]+)'", blocco.group(1))]
+    return [re.search(rf"\b{i}: '([^']+)'", catalogo).group(1) for i in re.findall(r"'([a-z]+)'", blocco.group(blocco.lastindex))]
 
 
 def _schede_progressi():

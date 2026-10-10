@@ -171,7 +171,11 @@ def test_scorers_do_not_turn_invalid_metric_into_risk_points(value):
     import bellomberg.agents.specialist_scores as ss
     assert ss.quant_score(risk_data={"portfolio": {"vol_annual_pct": value}}) is None
     assert ss.macro_score({"indicators": {"vix_close": {"value": value}}}) is None
-    assert ss.options_score(options_data={"atm_iv_call_pct": value, "nearest_expiry": __import__("datetime").date.today().isoformat()}) is None
+    # R02-c (09/10, Opus 5.5): IV invalida = n.d. DICHIARATO (prima: None muto)
+    options = ss.options_score(options_data={"atm_iv_call_pct": value, "nearest_expiry": __import__("datetime").date.today().isoformat()})
+    assert options["score"] is None and options["max_score"] is None
+    # fix score 09/10 (Opus 5.5): l'IV di una scadenza e' informativa; invalida = n.d. fra le info
+    assert any("IV non valida" in r[1] for r in options["info"]) and options["metrics"]["atm_iv"] is None
     assert ss.crypto_score({"highest_funding_long_pressure": [{"funding_annualized_pct": value}]}) is None
     assert ss.politics_score({"synthetic topic": value}) is None
 
@@ -286,14 +290,25 @@ def test_hybrid_oi_keeps_the_ibkr_expiry(monkeypatch):
 
 def test_scorers_keep_real_zero_and_disclose_an_invalid_partial_metric():
     import bellomberg.agents.specialist_scores as ss
-    result = ss.quant_score(risk_data={"portfolio": {"vol_annual_pct": float("nan"), "sharpe": 0}})
+    # fix score 09/10 (Opus 5.5): lo Sharpe e' informativo (fuori punteggio); lo zero vero resta
+    # nei metrics e il punteggio poggia sulla sola metrica misurata (beta 0,0 vera, RECONCILED)
+    result = ss.quant_score(risk_data={"portfolio": {"vol_annual_pct": float("nan"), "sharpe": 0, "beta_vs_spy": 0.0}},
+                            beta_reconcile={"verdict": "RECONCILED", "beta_per_decisioni": True,
+                                            "betas": {"portfolio_risk_spy": 0.0}},
+                            mandato={"rischio": {"volatilita_target_pct": 20, "stress_gfc_pct": 25}})
     assert result["metrics"]["vol_annual_pct"] is None
-    assert result["metrics"]["sharpe"] == 0
-    assert result["max_score"] == 3
-    result = ss.crypto_score({"highest_funding_long_pressure": [
-        {"funding_annualized_pct": float("nan")}, {"funding_annualized_pct": 0}]})
+    assert result["metrics"]["sharpe"] == 0 and result["metrics"]["beta_vs_spy"] == 0
+    assert result["max_score"] == 3 and result["score"] == 0
+    # fix 09/10 (Opus 5.5): crypto legge i MAJOR pesati per OI da top_10_perps_by_oi, non i
+    # top-5 funding dell'intero universo. Lo zero reale resta zero, il NaN (SOL) si scarta;
+    # funding 0 = 10,95 punti SOTTO il tasso base: 1 punto di pressione short, non 0.
+    result = ss.crypto_score({"top_10_perps_by_oi": [
+        {"asset": "BTC", "funding_annualized_pct": 0, "oi_usd_m": 100},
+        {"asset": "ETH", "funding_annualized_pct": 0, "oi_usd_m": 50},
+        {"asset": "SOL", "funding_annualized_pct": float("nan"), "oi_usd_m": 10}]})
     assert result["metrics"]["funding_ann_pct"] == 0
-    assert result["score"] == 0
+    assert result["metrics"]["major_usati"] == ["BTC", "ETH"]
+    assert result["score"] == 1 and result["metrics"]["direzione"] == "short"
 
 
 def test_politics_reads_the_actual_polymarket_tool_contract(monkeypatch):

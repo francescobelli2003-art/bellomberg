@@ -12,6 +12,7 @@ Sostituisce charts_agent.build_quant_appendix come builder dell'appendice:
 Ogni grafico e' guarded: se un modulo/dato manca, il grafico viene saltato
 senza far fallire l'appendice. API compatibile col vecchio builder.
 """
+import math
 import os
 from datetime import datetime
 from bellomberg.reporting.i18n import label as _t, number as _n, localized, date_label
@@ -68,7 +69,7 @@ def _horizon_label(mc):
             return "{:.0f}M".format(float(y) * 12)
     except (TypeError, ValueError):
         pass
-    return _t("{} gg").format(d) if d else "n/d"
+    return _t("{} gg").format(d) if d else _t("quote.unavailable")
 
 
 def _returns_from_nav(nav_hist):
@@ -424,9 +425,19 @@ def chart_corr_heatmap(corr_obj, risk_obj=None, n_total=None):
 # BUILDER (API compatibile con charts_agent.build_quant_appendix)
 # ============================================================
 
-def _fmt(v, suffix="", dec=2):
+def _absent(v):
+    """Fix 10/10 (Opus 5.5): None, NaN e infinito sono dati assenti («n.d.»), mai «nan%»."""
     if v is None:
-        return "n/d"
+        return True
+    try:
+        return not math.isfinite(v)
+    except TypeError:
+        return False
+
+
+def _fmt(v, suffix="", dec=2):
+    if _absent(v):
+        return _t("quote.unavailable")
     try:
         return f"{float(v):,.{dec}f}{suffix}"
     except (TypeError, ValueError):
@@ -544,13 +555,14 @@ def _numeric_tables(risk, mc, ff, *, advanced_metrics_snapshot=UNSET, beta_recon
 
     # interpretazione rischio
     notes = []
-    if p.get("sharpe") is not None:
+    # 10/10 (Opus 5.5): NaN/inf non e' un numero da leggere («Sharpe n.d. distrugge valore»).
+    if not _absent(p.get("sharpe")):
         notes.append(_t("Lo Sharpe a {} indica che il portafoglio {}.")
                      .format(_fmt(p["sharpe"]),
                              _t("remunera bene il rischio assunto") if p["sharpe"] > 0.5 else
                              _t("rende poco rispetto al rischio") if p["sharpe"] >= 0 else
                              _t("sta distruggendo valore corretto per il rischio")))
-    if p.get("beta_vs_spy") is not None and not beta_note:
+    if not _absent(p.get("beta_vs_spy")) and not beta_note:
         notes.append(_t("Con beta {} verso l'S&P 500, il book {} i movimenti del mercato USA.")
                      .format(_fmt(p["beta_vs_spy"]),
                              _t("amplifica") if p["beta_vs_spy"] > 1.1 else
@@ -572,28 +584,30 @@ def _numeric_tables(risk, mc, ff, *, advanced_metrics_snapshot=UNSET, beta_recon
         am = advanced_metrics_snapshot if isinstance(advanced_metrics_snapshot, dict) else {}
     if am and not am.get("error"):
         flow.extend(_sec(_t("Metriche di Performance Istituzionali (vs benchmark)"), h2, 0.8))
-        def gv(k):
+        # 09/10 (Opus 5.5): assente = «n.d.» localizzato, e il suffisso «%» segue solo
+        # un numero (prima «n/d%»), come gia' bv() per le celle benchmark.
+        def gv(k, suffix=""):
             v = am.get(k)
-            return "n/d" if v is None else v
+            return _t("quote.unavailable") if _absent(v) else f"{v}{suffix}"
         bm = am.get("benchmark", {}) or {}
         def bv(k, suffix=""):
             value = bm.get(k)
-            return "n/d" if value is None else f"{value}{suffix}"
+            return _t("quote.unavailable") if _absent(value) else f"{value}{suffix}"
         perf_rows = [
             [_t("Rendimento/Rischio"), _t("Valore"), _t("Drawdown & Code"), _t("Valore")],
-            [f"CAGR", f"{gv('cagr_pct')}%", _t("Max Drawdown"), f"{gv('max_drawdown_pct')}%"],
-            [_t("Volatilita' annua"), f"{gv('vol_annual_pct')}%", _t("Durata max DD (gg)"), f"{gv('max_dd_duration_days')}"],
+            [f"CAGR", gv('cagr_pct', '%'), _t("Max Drawdown"), gv('max_drawdown_pct', '%')],
+            [_t("Volatilita' annua"), gv('vol_annual_pct', '%'), _t("Durata max DD (gg)"), f"{gv('max_dd_duration_days')}"],
             [f"Sharpe", f"{gv('sharpe')}", _t("Ulcer Index"), f"{gv('ulcer_index')}"],
             [f"Sortino", f"{gv('sortino')}", _t("Recovery Factor"), f"{gv('recovery_factor')}"],
-            [f"Calmar", f"{gv('calmar')}", "CVaR 95% (ES)", f"{gv('cvar_95_1d_pct')}%"],
-            [f"Omega", f"{gv('omega')}", "CVaR 99%", f"{gv('cvar_99_1d_pct')}%"],
-            [_t("Win rate"), f"{gv('win_rate_pct')}%", _t("Skewness"), f"{gv('skewness')}"],
+            [f"Calmar", f"{gv('calmar')}", "CVaR 95% (ES)", gv('cvar_95_1d_pct', '%')],
+            [f"Omega", f"{gv('omega')}", "CVaR 99%", gv('cvar_99_1d_pct', '%')],
+            [_t("Win rate"), gv('win_rate_pct', '%'), _t("Skewness"), f"{gv('skewness')}"],
             [_t("Payoff ratio"), f"{gv('payoff_ratio')}", _t("Kurtosi in eccesso"), f"{gv('excess_kurtosis')}"],
             [_t("Profit factor"), f"{gv('profit_factor')}", _t("Tail ratio"), f"{gv('tail_ratio')}"],
             [_t("Beta vs ") + am.get('benchmark_ticker','SPY'), bv('beta'),
              _t("Alpha annuo"), bv('alpha_annual_pct', '%')],
             [_t("Information Ratio"), bv('information_ratio'),
-             _t("Kelly fraction"), f"{gv('kelly_fraction_pct')}%"],
+             _t("Kelly fraction"), gv('kelly_fraction_pct', '%')],
         ]
         pt = Table(perf_rows, colWidths=[4.6*cm, 3.6*cm, 4.6*cm, 4.2*cm], repeatRows=1)
         pt.setStyle(TableStyle([

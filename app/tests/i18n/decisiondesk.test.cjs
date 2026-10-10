@@ -263,3 +263,31 @@ test('archived operative decisions keep Close, Veto and Link trade; archived res
   assert.ok(res.action('ricerca-ripristina'), 'fixture: research restore is there');
   for (const name of ['conferma', 'veto', 'collega']) assert.equal(res.action(name), undefined, `${name} is not offered on research`);
 });
+
+// R01 (09/10/2026, Opus 5.5): note Ricerca illeggibili = n.d., mai «nessuna nota», mai «ferma», mai «da fare».
+test('unreadable research notes are declared, not shown as an empty thread or an idle research', async () => {
+  const old = new Date(Date.now() - 20 * 86400_000).toISOString().slice(0, 19);
+  const broken = decision({ action: 'RESEARCH', timestamp: old, notes: [], notes_status: 'unavailable', notes_error: 'decision_notes_unavailable' });
+  const open = async data => {
+    const ui = retained({ data }); await ui.ready('it');
+    const strip = ui.render('it');
+    ui.find(p => p.onClick && p['aria-pressed'] !== undefined && /In ricerca/.test(words(p.children))).props.onClick();
+    return { ui, strip };
+  };
+  const { ui, strip } = await open([broken]);
+  const it = ui.render('it'), en = ui.render('en');
+  assert.match(it, /note non disponibili/); assert.match(en, /notes unavailable/);
+  assert.match(it, /Note non disponibili:/); assert.match(en, /Notes unavailable:/);
+  assert.match(it, /Attività recente non verificabile/); assert.match(en, /Recent activity unavailable/);
+  for (const html of [it, en]) {
+    assert.doesNotMatch(html, /nessuna nota|no notes|Nessuna nota ancora|No notes yet/);
+    assert.doesNotMatch(html, /Ferma da|Idle for/);
+  }
+  assert.doesNotMatch(strip, /ferm[ae] da più di/, 'not counted in the to-do strip');
+  // controprova: stesse date con le note LEGGIBILI e vuote → zero vero, ricerca ferma, contata
+  const empty = await open([{ ...broken, notes_status: 'available', notes_error: null }]);
+  const ok = empty.ui.render('it');
+  assert.match(ok, /nessuna nota/); assert.match(ok, /Nessuna nota ancora/); assert.match(ok, /Ferma da 20 giorni/);
+  assert.doesNotMatch(ok, /note non disponibili|Attività recente non verificabile/);
+  assert.match(empty.strip, /ferma da più di/);
+});

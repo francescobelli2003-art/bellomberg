@@ -277,9 +277,22 @@ def gnews_safe_query(query):
     q = str(query or "").strip()
     if not q:
         return q
+    toks = [m.group(0) for m in re.finditer(r'"[^"]*"|\S+', q)]
+    # 10/10 v2 (Opus 5.5): le parentesi SOLE come token («(» e «)» separati da spazi) restano
+    # se si chiudono tutte, in ordine: l'API le ammette (docs.gnews.io/openapi.yaml: «AND, OR,
+    # NOT and parentheses; OR takes precedence over AND») e servono a '"Nome" AND ( X OR Y )'.
+    # Sbilanciate -> scartate come prima (il '"("' quotato era il 400 del 21/07).
+    aperte, bilanciate = 0, True
+    for tok in toks:
+        aperte += (tok == "(") - (tok == ")")
+        if aperte < 0:
+            bilanciate = False
+    bilanciate = bilanciate and aperte == 0
     out = []
-    for m in re.finditer(r'"[^"]*"|\S+', q):
-        tok = m.group(0)
+    for tok in toks:
+        if tok in ("(", ")") and bilanciate:
+            out.append(tok)
+            continue
         if not any(ch.isalnum() for ch in tok):
             # 21/07: token di SOLA punteggiatura ('(', '&', '-') -> 400 anche
             # quotato (misurato: '"("' rifiutato dal parser). Si scarta.
@@ -290,7 +303,16 @@ def gnews_safe_query(query):
             out.append(tok)
         else:
             out.append('"' + tok.replace('"', '') + '"')
-    return " ".join(out)
+    # parentesi attaccate come nell'esempio della documentazione: «(i7 OR i9)»
+    uniti: list = []
+    for tok in out:
+        if uniti and uniti[-1].endswith("(") and (tok != ")"):
+            uniti[-1] += tok
+        elif tok == ")" and uniti:
+            uniti[-1] += tok
+        else:
+            uniti.append(tok)
+    return " ".join(uniti)
 
 
 def _mappa_gnews(articoli, query):
@@ -347,6 +369,10 @@ def fetch_gnews(query, max_news=10):
     params = {
         "q": gnews_safe_query(query),
         "lang": "en",
+        # 10/10 v2 (Opus 5.5): campi e ordine ESPLICITI come in news_aggregator._fetch_gnews
+        # (sono i default dell'API oggi: le quantita' non cambiano, `max` resta quello sotto)
+        "in": "title,description",
+        "sortby": "publishedAt",
         "max": min(max_news, 25),  # Opus 4.8 16/07: piano Essential (free era 10)
         "apikey": GNEWS_API_KEY,
     }

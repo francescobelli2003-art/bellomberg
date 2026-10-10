@@ -21,6 +21,15 @@ from bellomberg.reporting import charts_quant as cq
 from bellomberg.reporting import pdf_institutional as pi
 
 
+@pytest.fixture(autouse=True)
+def rates_charts_in_tmp(monkeypatch, tmp_path):
+    """build_quant_appendix_v2 draws the rates charts too: OUT_DIR is computed at import
+    from REPORT_DIR, so without this a bare pytest wrote <repo>/report/rates_charts
+    (same cure as test_quant_snapshot_memo15.py). 09/10 (Opus 5.5)."""
+    from bellomberg.reporting import charts_rates
+    monkeypatch.setattr(charts_rates, 'OUT_DIR', str(tmp_path / 'rates'))
+
+
 @pytest.fixture
 def synthetic_risk(monkeypatch):
     dates = pd.bdate_range('2032-01-02', periods=80)
@@ -257,6 +266,45 @@ def test_null_benchmark_metrics_and_valid_zero_in_real_pdf(tmp_path, monkeypatch
         output_path=str(tmp_path / 'null-benchmark.pdf'), language=language))
     text = _pdf_text_and_images(path)
     assert not re.search(r'\bNone\b', text), text
+    # 09/10 (Opus 5.5): absent metrics say the localized n.d./n/a, never «n/d», never
+    # with a «%» glued to it, and a missing origin does not end in a double dot.
+    absent = 'n.d.' if language == 'it' else 'n/a'
+    assert 'n/d' not in text and absent + '%' not in text and 'n.d..' not in text, text
+    assert ('CAGR ' + absent) in text and ('origine n.d.' if language == 'it' else 'origin n/a.') in text, text
     if value == 0.0:
         assert text.count('0.0') >= 3, text
     assert snapshot == before
+
+
+def _table_texts(flow):
+    from reportlab.platypus import Table
+    out = []
+    for item in flow:
+        if isinstance(item, Table):
+            out.extend(str(cell) for row in item._cellvalues for cell in row if isinstance(cell, str))
+    return out
+
+
+@pytest.mark.parametrize('language', ['it', 'en'])
+@pytest.mark.parametrize('bad', [float('nan'), float('inf'), -float('inf'), np.float64('nan')],
+                         ids=['nan', 'inf', 'minus_inf', 'numpy_nan'])
+def test_nan_and_inf_metrics_are_unavailable_not_nan_percent(language, bad):
+    """10/10 (Opus 5.5): NaN/inf printed «nan%»/«inf» in _fmt, gv and bv; now the
+    localized n.d./n/a, and no reading is written about a non-number."""
+    absent = 'n.d.' if language == 'it' else 'n/a'
+    risk = {'portfolio': {'vol_annual_pct': bad, 'sharpe': bad, 'beta_vs_spy': bad,
+                          'max_dd_1y_pct': 12.34567}}
+    am = {'cagr_pct': bad, 'max_drawdown_pct': bad, 'sharpe': bad, 'win_rate_pct': 56.78901,
+          'benchmark_ticker': 'ZZBENCH',
+          'benchmark': {'beta': bad, 'alpha_annual_pct': bad, 'information_ratio': bad}}
+    with language_context(language):
+        assert cq._fmt(bad, '%') == absent
+        flow = cq._numeric_tables(risk, {}, {}, advanced_metrics_snapshot=am)
+    cells = _table_texts(flow)
+    assert cells and not any(re.search(r'\b(?:nan|inf)\b', c, re.IGNORECASE) for c in cells), cells
+    assert absent + '%' not in cells and cells.count(absent) >= 8, cells
+    assert '56.78901%' in cells  # a real number keeps its suffix
+    from reportlab.platypus import Paragraph
+    prose = ' '.join(item.getPlainText() for item in flow if isinstance(item, Paragraph))
+    for sentence in ('Lo Sharpe a', 'A Sharpe ratio of', 'Con beta', 'With a beta of'):
+        assert sentence not in prose, prose

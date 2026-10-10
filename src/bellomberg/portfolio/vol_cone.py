@@ -11,7 +11,8 @@ affiancata alla term structure ATM IV corrente (riuso vol_surface, Polygon).
 Convenzioni DICHIARATE (regola no-fallback 14/07):
 - realized = rendimenti SEMPLICI giornalieri (pct_change), std CAMPIONARIA
   (ddof=1) sulla finestra, annualizzata sqrt(252): la STESSA convenzione della
-  rv30 di vol_surface (che usa finestra 22g) — mai due definizioni di rv in casa;
+  RV di vol_surface (dal 09/10 finestra 21 sedute, come la finestra 21 qui: prima
+  vol_surface usava 22 e il BASIS lo negava) — mai due definizioni di rv in casa;
 - percentili con interpolazione lineare (formula numpy 'linear', implementata
   a mano e testata a valori a mano);
 - confronto IV-vs-cone: i days delle expiry sono di CALENDARIO (vol_surface),
@@ -30,7 +31,7 @@ Convenzioni DICHIARATE (regola no-fallback 14/07):
   implied.error non si cacha, il prossimo tentativo ritenta Polygon.
 """
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 from bellomberg.core.language import scoped_language
 from bellomberg.core.presentation import message as _message, render_payload
@@ -45,7 +46,7 @@ _CACHE: Dict[str, Dict[str, Any]] = {}
 
 BASIS = ("realized: rendimenti semplici giornalieri su chiusure yfinance "
          + HISTORY_PERIOD + ", std campionaria (ddof=1) rolling per finestra, "
-         "annualizzata sqrt(252) — stessa convenzione della rv30 di vol_surface; "
+         "annualizzata sqrt(252) — stessa convenzione della RV 21 sedute di vol_surface; "
          "percentili a interpolazione lineare; confronto = % dei valori realized "
          "<= ATM IV della expiry abbinata (days di calendario convertiti in "
          "borsa x252/365, poi finestra piu' vicina)")
@@ -190,6 +191,8 @@ def compute_vol_cone(ticker: str, force: bool = False) -> Dict[str, Any]:
     implied: Dict[str, Any]
     try:
         from bellomberg.portfolio.vol_surface import build_vol_surface
+        # 09/10 (M7 audit Vol Deck): default di build_vol_surface ora 6 scadenze,
+        # cosi' la selezione tiene front, le due a cavallo dei 30g e la coda lunga.
         vs = build_vol_surface(ticker)
         if vs.get("error"):
             implied = {"error": _message("vol_surface: {error}", "vol_surface: {error}", error=vs['error'])}
@@ -200,6 +203,13 @@ def compute_vol_cone(ticker: str, force: bool = False) -> Dict[str, Any]:
                                   for s in (vs.get("slices") or [])
                                   if s.get("atm_iv") is not None
                                   and s.get("days") is not None],
+                       # A1/M6 (09/10): copertura e istante della superficie fino alla UI
+                       "coverage_complete": bool((vs.get("coverage") or {}).get("complete")),
+                       "partial_expiries": list((vs.get("coverage") or {}).get("partial_expiries") or []),
+                       "excluded_expiries": list((vs.get("coverage") or {}).get("excluded") or []),
+                       "error_expiries": list((vs.get("coverage") or {}).get("errors") or []),
+                       "snapshot_at": vs.get("snapshot_at") or vs.get("_timestamp"),
+                       "market_session": vs.get("market_session"),
                        "src": "vol_surface (Polygon chains)"}
     except Exception as e:
         implied = {"error": f"vol_surface: {e}"}
@@ -230,7 +240,7 @@ def compute_vol_cone(ticker: str, force: bool = False) -> Dict[str, Any]:
 
     out = {
         "ticker": ticker,
-        "asof": datetime.now().isoformat(),
+        "asof": datetime.now(timezone.utc).isoformat(),
         "period": HISTORY_PERIOD,
         "realized": {"windows": cone["windows"], "n_returns": cone["n_returns"]},
         "implied": implied,
@@ -238,7 +248,7 @@ def compute_vol_cone(ticker: str, force: bool = False) -> Dict[str, Any]:
         "basis": _message(BASIS,
                           "realized: daily simple returns on yfinance closing prices " + HISTORY_PERIOD
                           + ", rolling sample standard deviation (ddof=1), annualized by sqrt(252) — "
-                          "same convention as vol_surface rv30; linearly interpolated percentiles; "
+                          "same convention as vol_surface 21-session RV; linearly interpolated percentiles; "
                           "comparison = % of realized values <= matched expiry ATM IV "
                           "(calendar days converted to trading days x252/365, then nearest window)"),
         "src": "vol_cone (closes yfinance; implied vol_surface/Polygon)",

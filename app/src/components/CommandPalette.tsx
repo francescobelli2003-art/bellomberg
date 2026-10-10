@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Bellomberg, API_BASE } from '../lib/api';
 import RunConfirmDialog from './RunConfirmDialog';
 import { conservaDettaglioRun, dettaglioLeggibile, statusHttp } from '../lib/mandato';
+import { controlloAttivaSaltato, testoControlloAttiva } from '../lib/tradeIdeaActiveCheck';
 import { useLingua, useT } from '../i18n/provider';
 import type { Chiave } from '../i18n/t';
 import { createNewsRefreshWatcher, esitoGiro, NewsRefreshError } from '../lib/news-refresh';
@@ -91,13 +92,19 @@ export default function CommandPalette() {
   }, [close]);
   const runConsigliere = useCallback(async () => {
     setBusy({ key: 'settings.run_starting' });
-    try { await Bellomberg.runConsigliere(); setBusy({ key: 'settings.run_started' }); setTimeout(() => { setBusy(null); close(); }, 900); }
+    try {
+      const r = await Bellomberg.runConsigliere();
+      // R14 seguito (B4): controllo «Trade Idea attiva» non eseguito = dichiarato e la palette resta aperta a mostrarlo
+      const check = controlloAttivaSaltato(r);
+      if (check) { setBusy({ key: 'settings.run_started', detail: testoControlloAttiva(tr, check) }); return; }
+      setBusy({ key: 'settings.run_started' }); setTimeout(() => { setBusy(null); close(); }, 900);
+    }
     catch (e) {
       const detail = dettaglioLeggibile(e);
       setBusy({ key: 'settings.command_failed', detail });
       if (statusHttp(e) === 428) { conservaDettaglioRun(detail); close(); navigate('/mandato'); }
     }
-  }, [close, navigate]);
+  }, [close, navigate, tr]);
 
   const items: Item[] = useMemo(() => {
     const base: Item[] = [];

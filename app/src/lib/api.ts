@@ -5,6 +5,8 @@ import type { TradeRequest, TradeResult, TradePreview } from './trade-entry';
 import type { OpeningPreview, OpeningRequest, OpeningResult } from './position-opening';
 import type { AnteprimaMandato, StatoMandato, ValoriMandato } from './mandato';
 import type { NewsRefreshJob, NewsRefreshJobResponse, NewsRefreshResponse } from './news-refresh';
+import type { TradeIdeaStorage } from './tradeIdeas';
+import type { TradeIdeaActiveCheck } from './tradeIdeaActiveCheck';
 
 export const API_BASE = (window as any).bellomberg?.apiUrl || 'http://127.0.0.1:8765';
 
@@ -377,6 +379,23 @@ export interface DecisionEvent {
   created_at: string;
 }
 
+/** GET /decisions. `trade_idea_storage` (R14 seguito, B2): null = provenienza Trade Idea letta (o nessuna
+ *  tabella Trade Idea); un oggetto = provenienza NON leggibile (storage non pronto o `lookup_failed`), e allora
+ *  il `trade_idea: null` delle righe vuol dire «non letto», non «nessuna Trade Idea». */
+export interface DecisionsResponse {
+  decisions: Decision[];
+  watch_provenance_error?: unknown;
+  trade_idea_storage?: TradeIdeaStorage | null;
+}
+
+/** POST /consigliere/run: `trade_idea_active_check` dichiara se il controllo «Trade Idea attiva» è stato fatto. */
+export interface ConsigliereRunStart {
+  task_id: string;
+  status?: string;
+  message?: string;
+  trade_idea_active_check?: TradeIdeaActiveCheck | null;
+}
+
 export interface Decision {
   id: number;
   trade_idea?: {
@@ -423,6 +442,10 @@ export interface Decision {
   archive_override?: number | null;
   // F10 v3: thread note PM<->AI (solo righe RESEARCH)
   notes?: DecisionNote[];
+  // R01: esito della lettura del registro note, SOLO sulle righe RESEARCH (sulle operative i campi mancano:
+  // non applicabile). 'unavailable' + notes [] = filo non letto, non «zero note».
+  notes_status?: 'available' | 'unavailable';
+  notes_error?: 'decision_notes_unavailable' | null;
   // F10 opzione A (PM 22/07): veto eterno — flag + motivo + date (revoca inclusa)
   veto?: number | null;
   veto_reason?: string | null;
@@ -1676,7 +1699,7 @@ export const Bellomberg = {
   decisions: (status?: string, limit = 30) => {
     const params: Record<string, string|number> = { limit };
     if (status) params.status = status;
-    return api.get<{decisions: Decision[]}>('/decisions', { params }).then(r => r.data);
+    return api.get<DecisionsResponse>('/decisions', { params }).then(r => r.data);
   },
   updateDecision: (id: number, body: any) =>
     api.post(`/decisions/${id}/update`, body).then(r => r.data),
@@ -1774,7 +1797,7 @@ export const Bellomberg = {
     api.post<MonteCarloResult>('/portfolio/montecarlo/v3', body, { timeout: 120000 }).then(r => r.data),
   validateTicker: (symbol: string) =>
     api.get<TickerValidation>('/portfolio/validate_ticker', { params: { symbol }, timeout: 15000 }).then(r => r.data),
-  runConsigliere: () => api.post('/consigliere/run').then(r => r.data),
+  runConsigliere: () => api.post<ConsigliereRunStart>('/consigliere/run').then(r => r.data),
   weeklyRecoveries: () => api.get<{ runs: WeeklyRecovery[]; reason?: string }>('/consigliere/runs').then(r => r.data),
   recoverConsigliere: (memoId: number, deliveryOnly: boolean) => api.post<{ task_id: string }>('/consigliere/run', {
     resume_memo_id: memoId, delivery_only: deliveryOnly, authorize_new_ai: !deliveryOnly, send_email: false,

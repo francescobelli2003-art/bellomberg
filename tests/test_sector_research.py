@@ -126,6 +126,9 @@ def test_score_rejects_workbook_changed_after_valid_generation(tmp_path, monkeyp
     assert payload["valuation_usability"]["usable"], payload["valuation_usability"]
     workbook = Path(payload["path"])
     payload["_timestamp"] = date.today().isoformat()
+    # 09/10 (Opus 5.5): MOS sul prezzo corrente; qui si prova lo sha del workbook
+    from test_score_fondamentali_news_correzione import prezzo_corrente_uguale_al_modello
+    prezzo_corrente_uguale_al_modello(monkeypatch)
     sidecar = workbook.with_suffix(".payload.json")
     sidecar.write_text(json.dumps(payload), encoding="utf-8")
     monkeypatch.setattr(specialist_scores, "REPORT_DIR", tmp_path)
@@ -133,7 +136,9 @@ def test_score_rejects_workbook_changed_after_valid_generation(tmp_path, monkeyp
     portfolio = {"positions": [{"ticker": SYMBOL, "peso_pct": 100}]}
     assert specialist_scores.fundamentals_score(portfolio) is not None
     workbook.write_bytes(b"changed by analyst without revalidation")
-    assert specialist_scores.fundamentals_score(portfolio) is None
+    # v2 10/10 (Opus 5.5): n.d. dichiarato col motivo (dict), non None
+    ko = specialist_scores.fundamentals_score(portfolio)
+    assert ko["score"] is None and "FV/prezzo assenti o non validi: " + SYMBOL in ko["verdict"]
 
 
 

@@ -177,6 +177,9 @@ export const decisiondesk = {
   "unavailableTitle": "Controllo rischio non verificabile:",
   "blockedWhy": "Non si può segnare come eseguita; puoi chiuderla o registrare un'operazione manuale correlata.",
   "ideaBlocked": "La ricerca Trade Idea collegata non è completa:",
+  "ideaProvenanceUnreadable": "Provenienza Trade Idea non leggibile:",
+  "ideaProvenanceUnreadableWhy": "il collegamento alle run Trade Idea non è stato letto: una riga senza collegamento non significa «nessuna Trade Idea».",
+  "linkTradeSuspended": "Provenienza Trade Idea non leggibile: collegamento sospeso finché non si legge.",
   "vetoBanner": "Veto attivo dal {date}:",
   "vetoBannerWhy": "La run deve citare il veto n. {id} e dichiarare fatti nuovi per riproporla.",
   "revoke": "Revoca il veto…",
@@ -253,5 +256,10 @@ export const decisiondesk = {
   "aSELL": "Vendi",
   "aADD": "Aumenta",
   "aTRIM": "Riduci",
-  "aHOLD": "Mantieni"
+  "aHOLD": "Mantieni",
+  "notesUnavailable": "note non disponibili",
+  "notesUnavailableTitle": "Note non disponibili:",
+  "notesUnavailableWhy": "la lettura del registro note è fallita. Il filo non è vuoto per forza; riprova più tardi.",
+  "activityUnknownTitle": "Attività recente non verificabile.",
+  "activityUnknownWhy": "Le note non sono leggibili: non si può dire se la ricerca è ferma."
 };

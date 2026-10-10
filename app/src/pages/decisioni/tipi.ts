@@ -1,4 +1,5 @@
 import type { Decision, DecisionEvent } from '@/lib/api';
+import type { TradeIdeaStorage } from '@/lib/tradeIdeas';
 import type { LetturaNumero } from '@/lib/cassa';
 import type { Lingua } from '@/i18n/lingua';
 import type { Esito, FiltroChiuse, Gruppi, TipoArchivio, Vista } from './logica';
@@ -36,6 +37,8 @@ export interface DatiDecisioni {
   dialogo: Dialogo;
   holdEsclusi: number[];
   eventi: { id: number; lista: DecisionEvent[] | null; err: string | null } | null;
+  /** R14 seguito: provenienza Trade Idea non leggibile (diagnosi di GET /decisions), null = letta. */
+  tradeIdeaStorage: TradeIdeaStorage | null;
 }
 
 export interface AzioniDecisioni {

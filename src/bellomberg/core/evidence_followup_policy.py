@@ -78,13 +78,45 @@ def _status(value):
     return 'DECLARED' if value is not None and value != '' else 'UNVERIFIED'
 
 
+# Weekly committee rounds that acquire tools: R0 recon, R1 draft, R2 review
+# (consigliere_multi: run_round 0, 1, then 2). The Capo (3) only reads.
+ROUNDS = (0, 1, 2)
+
+
+def _provenance_issue(receipt, run_id, round_number=None):
+    """Run/round are attested by the receipt itself, never inherited from the caller.
+
+    ``run_id``: the caller's run (None = no run to compare; the receipt must still
+    attest its own run and round). ``round_number``: the caller's current round
+    (None = not known); a later receipt round is incoherent. A current round that
+    is not an int cannot be compared: CURRENT_ROUND_UNATTESTED, never a skipped check.
+    """
+    if receipt.get('run_id') in (None, ''):
+        return 'RECEIPT_RUN_UNATTESTED'
+    if run_id is not None and receipt['run_id'] != run_id:
+        return 'RECEIPT_RUN_DIFFERS'
+    if receipt.get('round') is None:
+        return 'RECEIPT_ROUND_UNATTESTED'
+    if round_number is not None and type(round_number) is not int:
+        return 'CURRENT_ROUND_UNATTESTED'
+    value = receipt['round']
+    if (type(value) is not int or value not in ROUNDS
+            or (type(round_number) is int and value > round_number)):
+        return 'RECEIPT_ROUND_INCOHERENT'
+    return None
+
+
 def project_fact(receipt, metric, *, path='', run_id=None, round_number=None):
     """Project one field at a JSON-pointer object path; never search other desks.
 
     ``source_receipt.path`` identifies the value, not merely the enclosing tool.
     Only metadata on this object or its metric-specific dictionary is admitted.
-    ``run_id``/``round_number`` are fallback *transport* identifiers from the caller.
+    ``run_id``/``round_number`` are the caller's run/current round, checked against
+    the receipt's own; a receipt without them is not attested (ValueError).
     """
+    issue = _provenance_issue(receipt, run_id, round_number)
+    if issue:
+        raise ValueError(issue)
     payload = json.loads(receipt['output'])
     node = _pointer(payload, path)
     # Explicit statement containers: compact Italian output and native SEC cells.
@@ -126,7 +158,7 @@ def project_fact(receipt, metric, *, path='', run_id=None, round_number=None):
                               'metadata_paths': metadata_paths},
            'source': receipt.get('source') or field('source'),
            'source_status': field('status', 'stato'), 'source_error': field('error'),
-           'run_id': receipt.get('run_id', run_id), 'round': receipt.get('round', round_number),
+           'run_id': receipt.get('run_id'), 'round': receipt.get('round'),
            'observed_at': receipt.get('observed_at') or receipt.get('timestamp') or field('observed_at', 'acquired_at'),
            'period_start': field('period_start'), 'period_end': field('period_end', 'fiscal_date'),
            'provider_bucket': field('period'), 'fiscal_year_label': field('fiscal_year_label'),
@@ -149,7 +181,7 @@ _FIELDS = {'revenue', 'eps', 'net_income', 'debt_to_equity', 'free_cashflow', 'o
            'mnav_equity_basic', 'mnav_dtl_addback', 'EPS riportato'}
 
 
-def project_receipts(receipts, *, run_id=None):
+def project_receipts(receipts, *, run_id=None, round_number=None):
     """Read actual run receipts only; unknown shapes remain explicitly unassessed."""
     out = {'policy': POLICY, 'facts': [], 'issues': [], 'semantic_scope': 'NOT_ASSESSED'}
     if not isinstance(receipts, list):
@@ -159,8 +191,9 @@ def project_receipts(receipts, *, run_id=None):
         try:
             if receipt.get('success') is not True or receipt.get('truncated') is not False:
                 raise ValueError('RECEIPT_UNAVAILABLE')
-            if run_id is not None and receipt.get('run_id') not in (None, run_id):
-                out['issues'].append({'code': 'RECEIPT_RUN_DIFFERS', 'receipt_index': index})
+            provenance = _provenance_issue(receipt, run_id, round_number)
+            if provenance:
+                out['issues'].append({'code': provenance, 'receipt_index': index})
                 continue
             payload = json.loads(receipt['output'])
             if not isinstance(payload, dict):
@@ -178,7 +211,8 @@ def project_receipts(receipts, *, run_id=None):
                         return
                     for key, value in node.items():
                         if key in _FIELDS or key == 'avg' and path.split('/')[1:2] in (['eps_estimates'], ['revenue_estimates']):
-                            fact = project_fact(receipt, key, path=path, run_id=run_id)
+                            fact = project_fact(receipt, key, path=path, run_id=run_id,
+                                                round_number=round_number)
                             if key == 'avg':
                                 fact['metric'] = {'eps_estimates': 'eps', 'revenue_estimates': 'revenue'}[path.split('/')[1]]
                             fact['source_receipt']['index'] = index
@@ -211,13 +245,14 @@ def followup_block(board):
         data['risk_data'] = synthesis.get('risk_data')
     # Desk acquisitions already in the durable receipt stream; never tool-health or a new fetch.
     quant_sources = {}
+    current_round = getattr(board, 'current_round', None)
     for receipt in getattr(board, 'tool_receipts', None) or []:
         if not isinstance(receipt, dict):
             continue
         field_name = {'get_sector_exposure': 'sector_exposure', 'get_var_backtest': 'var_backtest'}.get(receipt.get('tool'))
         if (field_name is None or receipt.get('truncated') is not False
-                or receipt.get('run_id') not in (None, store.run_id)):
-            continue
+                or _provenance_issue(receipt, store.run_id, current_round)):
+            continue  # Provenance gap stays declared in project_receipts issues below.
         try:
             value = json.loads(receipt['output'])
             if isinstance(value, dict) and (receipt.get('success') is True or value.get('error') or value.get('error_code')):
@@ -227,7 +262,8 @@ def followup_block(board):
                                               'observed_at': receipt.get('observed_at') or receipt.get('timestamp')}
         except (ValueError, TypeError, KeyError):
             continue  # Unusable receipt remains visible in project_receipts issues below.
-    payload = project_receipts(getattr(board, 'tool_receipts', None), run_id=store.run_id)
+    payload = project_receipts(getattr(board, 'tool_receipts', None), run_id=store.run_id,
+                               round_number=current_round)
     payload.update(as_of=as_of, quant=quant_semantics(data), freshness=deepcopy(priming.get('freshness_report')),
                    quant_sources=quant_sources,
                    quant_acquisition={'var_contribution': deepcopy(priming.get('var_contribution_acquisition'))},
@@ -240,7 +276,8 @@ def no_acquisition_notice(board, round_number):
     rows = getattr(board, 'tool_receipts', None)
     run_id = getattr(getattr(board, 'weekly_store', None), 'run_id', None)
     available = [r for r in rows or [] if isinstance(r, dict) and r.get('success') is True
-                 and r.get('truncated') is False and r.get('run_id') in (None, run_id)]
+                 and r.get('truncated') is False and run_id is not None
+                 and not _provenance_issue(r, run_id, round_number)]
     times = sorted({str(r.get('observed_at') or r.get('timestamp') or 'n.d.') for r in available})
     detail = ('Ricevute della run disponibili per eventuale riuso; acquisizioni: ' + ', '.join(times)
               if available else 'Nessuna ricevuta della run disponibile per il riuso')

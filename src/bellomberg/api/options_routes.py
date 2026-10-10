@@ -66,6 +66,33 @@ def create_options_router(require_session):
     def downloaded_surface(job_id: str):
         return download_call("surface", job_id)
 
+    @router.get("/strategy/rate")
+    def strategy_rate():
+        """09/10 (Opus 5.5, audit M4): short USD rate for the laboratory, with its source and date.
+
+        FRED DGS3MO (3-month Treasury constant maturity, percent). A missing or failed series is
+        declared (`status: error`, `value: null`): the client asks the user, never a silent 0.
+        """
+        source = "FRED DGS3MO"  # 3-month US Treasury constant maturity (H.15)
+        try:
+            from bellomberg.market_data.macro_rates import MAX_STALE_DAILY, _fred_curve, _is_stale
+            points, gaps, as_of = _fred_curve({"3M": "DGS3MO"}, 10)
+        except Exception as exc:  # provider/import failure is reported, not replaced
+            return {"value": None, "percent": None, "date": None, "source": source, "status": "error",
+                    "error": f"{type(exc).__name__}: {exc}"}
+        point = next((p for p in points if p.get("tenor") == "3M"), None)
+        value = point.get("value") if point else None
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not -100 < value < 100:
+            reason = (gaps[0].get("reason") if gaps else None) or _ui_text('nessuna osservazione', 'no observation')
+            return {"value": None, "percent": None, "date": None, "source": source, "status": "error", "error": str(reason)}
+        return {"value": value / 100, "percent": value, "date": point.get("date"), "source": source,
+                "status": "stale" if _is_stale(point.get("date"), MAX_STALE_DAILY) else "solid", "error": None}
+
+    @router.get("/download/{job_id}/context")
+    def downloaded_context(job_id: str):
+        # A4 audit Vol Deck (09/10): contesto sull'istantanea del job, senza refetch delle chain.
+        return download_call("context", job_id)
+
     @router.post("/strategy/simulate")
     def simulate(body: dict = Body(...)):
         from bellomberg.portfolio.options_strategy import simulate_strategy

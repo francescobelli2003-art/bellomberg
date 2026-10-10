@@ -110,6 +110,7 @@ def _regenerate(db, memo_id, rows, bb, *, memo_sha256=None, portfolio_snapshot=N
         _log("risk skip: " + str(e))
 
     sizing_context = None
+    _stress = None   # letto anche dal punteggio quant (fix score 09/10)
     try:
         from bellomberg.portfolio.sizing_engine import compute_sizing, format_for_capo
         _stress = None
@@ -135,12 +136,33 @@ def _regenerate(db, memo_id, rows, bb, *, memo_sha256=None, portfolio_snapshot=N
     scoring_context = None
     try:
         import bellomberg.agents.specialist_scores as S
-        cache = {}
-        for name, fn in [("quant", lambda: S.quant_score(portfolio, risk_data)),
+        # v2 10/10 (Opus 5.5, riserva ALTO 1c): la cache degli score della RUN (snapshot del
+        # blackboard ripristinato) e' la misura che il comitato ha visto: si riusa. Ricalcolare
+        # oggi rimetterebbe lo score fundamentals su quote invecchiate (n.d.) e su un book
+        # diverso. NB: questo helper legacy e' disabilitato (raise in testa); la ripresa vera
+        # (run_multi_agent resume) ripristina gia' bb.data["_score_cache"] dallo snapshot.
+        cache = dict(bb.data.get("_score_cache") or {})
+        # fix score 09/10 (Opus 5.5): il rischio book vuole coda (replay GFC gia' calcolato
+        # sopra per il sizing), mandato e cluster; un guasto passa come {"error"} dichiarato
+        try:
+            from bellomberg.core import mandato_pm as _mp
+            _mandato_q = _mp.carica()
+        except Exception as _me:
+            _mandato_q = {"error": type(_me).__name__ + ": " + str(_me)[:160]}
+        try:
+            from bellomberg.portfolio.portfolio_sectors import compute_sector_exposure
+            _settori_q = compute_sector_exposure(summary=portfolio)
+        except Exception as _xe:
+            _settori_q = {"error": type(_xe).__name__ + ": " + str(_xe)[:160]}
+        _stress_q = _stress if _stress is not None else {"error": "replay GFC non disponibile in questo recupero"}
+        for name, fn in [("quant", lambda: S.quant_score(portfolio, risk_data, stress_data=_stress_q,
+                                                         mandato=_mandato_q, sector_data=_settori_q)),
                          ("macro", S.macro_score), ("crypto", S.crypto_score),
                          ("eventdesk", lambda: S.eventdesk_score(portfolio)),
                          ("fundamentals", lambda: S.fundamentals_score(portfolio)),
                          ("options", lambda: S.options_score(portfolio_data=portfolio))]:
+            if cache.get(name):
+                continue   # score della run: non ricalcolato
             try:
                 sc = fn()
                 if sc: cache[name] = sc

@@ -546,3 +546,28 @@ def test_fine_run_chiude_il_pool_del_pre_run(run_offline, monkeypatch):
     monkeypatch.setattr(cm, "_try_correlation_matrix", lambda *a, **k: None)
     cm.run_multi_agent()
     assert eventi == ["init", "avvia", "chiudi"]
+
+
+# ------------------------------------------ 4. freschezza del funding Hyperliquid (09/10)
+
+def test_freschezza_funding_usa_l_istante_dichiarato_dal_tool(run_offline, monkeypatch):
+    """Fix 09/10 (Opus 5.5): il funding dei major entra nel controllo di freschezza con la
+    data di acquisizione dichiarata dal tool, non piu' «data osservazione assente». Il
+    valore al tasso base 10,95% passa com'e': la freschezza la decide la data."""
+    visti = []
+    # due percorsi (storico e release-freshness/1, scelto dal contratto della run): entrambi spiati
+    _modulo_finto(monkeypatch, "bellomberg.core.freshness",
+                  check_and_update=lambda cur: visti.append(cur) or {"checked": len(cur), "stale": []},
+                  check_release_freshness=lambda cur, as_of: visti.append(cur) or {"checked": len(cur), "stale": []},
+                  project_macro_observation=lambda ind: dict(ind),
+                  format_for_capo=lambda r: "", format_for_memo=lambda r: "")
+    monkeypatch.setattr(agent_tools, "tool_get_hyperliquid_intel", lambda: {
+        "fetched_at_utc": "2031-03-17T11:00:00+00:00",
+        "top_10_perps_by_oi": [{"asset": "BTC", "funding_annualized_pct": 10.95, "oi_usd_m": 900},
+                               {"asset": "ZQALT", "funding_annualized_pct": 99.0, "oi_usd_m": 5}]})
+    cm.run_multi_agent()
+    assert visti, "il controllo di freschezza non e' stato chiamato"
+    riga = visti[0]["hl_funding:BTC"]
+    assert riga["value"] == 10.95 and riga["obs_date"] == "2031-03-17", riga
+    assert riga["retrieved_at"] == "2031-03-17T11:00:00+00:00"
+    assert "hl_funding:ZQALT" not in visti[0]

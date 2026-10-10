@@ -30,6 +30,7 @@ from bellomberg.agents import chat_tools, consigliere_multi as cm, capo, red_tea
 from bellomberg.agents import action_validator as REAL_ACTION_VALIDATOR
 from bellomberg.agents.specialists import base
 from bellomberg.core import llm_client, llm_pricing
+from bellomberg.core import current_facts as REAL_CURRENT_FACTS
 from bellomberg.reporting import pdf_institutional, charts_institutional
 from bellomberg.storage import memory_db
 from bellomberg.valuation import dcf_engine, preparation_ai
@@ -88,7 +89,11 @@ def replay(run_offline, db, tmp_path, monkeypatch, replay_loop):
         "id": model, "context_length": 1_000_000, "top_provider": {"max_completion_tokens": 65536},
         "pricing": {"prompt": "0.000001", "completion": "0.000002"}})
 
-    def research_block(*, sector_bundles, decision_links):
+    def research_block(*, sector_bundles=None, decision_links=None, notes_context=None, legacy=False):
+        if notes_context is not None:
+            # T1 (df317cf): new runs deliver the accepted frozen notes, rendered by the
+            # real function the delivery guard also uses (never a replay paraphrase).
+            return REAL_CURRENT_FACTS.research_block(notes_context=notes_context)
         # Actual prepare_sector_analysis via the shared fixture, on explicit synthetic
         # provider records. Only the research queue that requests it is simulated.
         bundle = bundle_for(profile="manufacturing")
@@ -98,7 +103,12 @@ def replay(run_offline, db, tmp_path, monkeypatch, replay_loop):
 
     facts = _modulo_finto(monkeypatch, "bellomberg.core.current_facts",
         current_facts_block=lambda: "SYNTHETIC REPLAY: empty portfolio; no live facts.",
-        favorites_block=lambda: "", pm_theses_block=lambda: "", research_block=research_block)
+        favorites_block=lambda: "", pm_theses_block=lambda: "", research_block=research_block,
+        # T1 research notes: the real freeze/receipt/reply code on the replay's synthetic DB.
+        **{name: getattr(REAL_CURRENT_FACTS, name) for name in (
+            "research_notes_enabled", "freeze_research_notes", "research_notes_for_board",
+            "check_research_notes_delivery", "record_research_notes_delivery",
+            "recover_frozen_research_reply", "add_frozen_research_reply")})
     import bellomberg.core as core_package
     monkeypatch.setattr(core_package, "current_facts", facts, raising=False)
 

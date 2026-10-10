@@ -368,6 +368,8 @@ def news_blocked_sources(monkeypatch, tmp_path):
     for attr in ('NEWSAPI_KEY', 'THENEWSAPI_KEY', 'GNEWS_KEY'):
         monkeypatch.setattr(news, attr, 'synthetic-key')
     monkeypatch.setattr(tiingo_news, 'tiingo_available', lambda: True)
+    # 10/10: Tiingo SPENTA per decisione PM; qui si provano le frasi della fonte ACCESA
+    monkeypatch.setattr(tiingo_news, 'FONTE_SPENTA', False)
     monkeypatch.setattr(news, 'PERCORSO_TERMINI', str(EXAMPLES_DIR / 'news_search_terms.example.json'))
     monkeypatch.setattr(news, '_NEWS_RATE_PATH', str(tmp_path / 'news_rate_state.json'))
     # 04/10 (B2): esiti Tiingo/Finnhub di altri test fuori dai dict esatti qui sotto

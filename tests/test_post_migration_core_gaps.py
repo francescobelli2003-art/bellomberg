@@ -19,7 +19,16 @@ def score_inputs(monkeypatch, tmp_path):
         "origine": "synthetic", "motivo": None, "veicoli": {},
     })
     monkeypatch.setattr(specialist_scores, "REPORT_DIR", tmp_path)
+    # 09/10 (Opus 5.5): MOS sul prezzo corrente; qui l'oggetto sono i FV/prezzi invalidi
+    from test_score_fondamentali_news_correzione import prezzo_corrente_uguale_al_modello
+    prezzo_corrente_uguale_al_modello(monkeypatch)
     return {"positions": [{"ticker": "SYNTH", "peso_pct": 100}]}, tmp_path
+
+
+def _nd(result):
+    """v2 10/10 (Opus 5.5): nessun nome misurabile = n.d. DICHIARATO (dict), non None."""
+    return (isinstance(result, dict) and result["score"] is None and result["max_score"] is None
+            and result["verdict"].startswith("n.d. - ") and result["metrics"]["n_valued"] == 0)
 
 
 def _score(score_inputs, source, fair_value, price=_USE_MODEL_PRICE, **extra):
@@ -52,33 +61,37 @@ def _score(score_inputs, source, fair_value, price=_USE_MODEL_PRICE, **extra):
 ])
 def test_invalid_valuation_never_becomes_a_scored_name(score_inputs, source, fair_value, price):
     assert _score(score_inputs, source, 14.13)["metrics"]["n_valued"] == 1
-    assert _score(score_inputs, source, fair_value, price) is None
+    assert _nd(_score(score_inputs, source, fair_value, price))
 
 
 @pytest.mark.parametrize("source", ["injected", "sidecar"])
 def test_zero_fair_value_is_not_missing_or_replaced(score_inputs, source):
     result = _score(score_inputs, source, 0, fair_value_weighted=200)
+    # FV zero = -100%, troncato al tetto dichiarato -50% (09/10): presente, non mancante
     assert result["metrics"] == {
-        "avg_mos_pct": -100.0, "n_valued": 1, "n_cheap": 0, "n_rich": 1,
+        "mos_book_pct": -50.0, "n_valued": 1, "copertura_book_pct": 100.0,
+        "quota_cara_pct": 100.0, "quota_sconto_pct": 0.0, "n_troncati": 1,
+        # v2 10/10: cari/troncati citati nel verdetto, nomi col prezzo da seconda fonte
+        "quota_cari_troncati_pct": 100.0, "n_proxy_prezzo": 0,
     }
 
 
 def test_absent_final_value_can_use_lower_priority_present_value(score_inputs):
     result = _score(score_inputs, "sidecar", None, fair_value_weighted=14.13)
-    assert result["metrics"]["avg_mos_pct"] == 41.3
+    assert result["metrics"]["mos_book_pct"] == 41.3
 
 
 def test_invalid_final_value_cannot_silently_use_lower_priority_value(score_inputs):
-    assert _score(score_inputs, "sidecar", float("nan"), fair_value_weighted=14.13) is None
+    assert _nd(_score(score_inputs, "sidecar", float("nan"), fair_value_weighted=14.13))
 
 
 @pytest.mark.parametrize("source", ["injected", "sidecar"])
 def test_flagged_valuation_remains_excluded(score_inputs, source):
-    assert _score(score_inputs, source, 14.13, valuation_flagged=True) is None
+    assert _nd(_score(score_inputs, source, 14.13, valuation_flagged=True))
 
 
 def test_sidecar_sanity_block_remains_excluded(score_inputs):
-    assert _score(score_inputs, "sidecar", 14.13, sanity={"severity": "BLOCK"}) is None
+    assert _nd(_score(score_inputs, "sidecar", 14.13, sanity={"severity": "BLOCK"}))
 
 
 def test_partial_score_declares_name_with_invalid_valuation(score_inputs):
@@ -91,7 +104,7 @@ def test_partial_score_declares_name_with_invalid_valuation(score_inputs):
         "BAD": {**documented, "ticker": "BAD", "fair_value": float("nan")},
     })
     assert result["metrics"]["n_valued"] == 1
-    assert result["metrics"]["avg_mos_pct"] == 41.3
+    assert result["metrics"]["mos_book_pct"] == 41.3
     assert "1/2 nomi valutati" in result["verdict"]
     assert "FV/prezzo assenti o non validi: BAD" in result["verdict"]
 

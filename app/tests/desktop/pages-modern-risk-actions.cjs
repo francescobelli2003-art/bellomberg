@@ -151,14 +151,24 @@ const optionSurface = { ticker: 'SYNV', spot_est: 100, spot_source: 'synthetic f
     download_complete: true }, expected_move_pct: 12, expected_move_days: 80, realized_vol_30d: .21,
   iv_rv_spread_front: .04, term_slope_front_to_60d: .04, rv_percentile_1y: 62, next_earnings: null,
   gex: null };
-const strategyResult = { currency: 'USD', model: 'Black-Scholes-Merton European', model_source: 'synthetic fixture',
-  greek_units: { delta: 'shares', gamma: 'per dollar', vega: 'per IV point', theta: 'per day', rho: 'per rate point' },
-  entry_cost: 520, net_premium: 520, fees: 0, entry_kind: 'debit', same_expiry: true, expiry_days: 80,
-  breakevens: [105.2], max_profit: 4480, max_loss: 520, unlimited_profit: true, unlimited_loss: false,
-  today: { price: 100, pnl: 0, delta: 3.8, gamma: .03, vega: 12, theta: -4, rho: 2 },
-  scenario: { price: 108, pnl: 280, delta: 4.1, gamma: .02, vega: 10, theta: -3, rho: 2.4 },
-  curve: [90, 95, 100, 105, 110].map((price, i) => ({ price, expiry: [-520, -520, -520, -20, 480][i], today: [-300, -120, 0, 90, 220][i], scenario: [-250, -80, 80, 220, 420][i] })),
-  heatmap: [], assumptions: { fixture: true }, limits: ['Synthetic fixture; not a live quote.'] };
+// 10/10 (Opus 5.5): a COMPLETE engine response (the builder validates the shape before reading it).
+const strategyRate = { value: .04, percent: 4, date: '2026-10-09', source: 'FRED DGS3MO', status: 'solid', error: null };
+const enginePoint = (price, pnl) => ({ price, pnl, delta: 38, gamma: .03, vega: 12, theta: -4, rho: 2 });
+function engineResult(entry) {
+  return { currency: 'USD', model: 'Black-Scholes-Merton European', model_source: 'synthetic fixture',
+    greek_units: { delta: 'shares', gamma: 'per dollar', vega: 'per IV point', theta: 'per day', rho: 'per rate point' },
+    entry_cost: entry, net_premium: entry, fees: 0, entry_kind: 'debit', same_expiry: true, expiry_days: 80, expiry_basis: 'exact',
+    tail_limit: null, breakevens: [100 + entry / 100], breakeven_intervals: [], max_profit: null, max_loss: entry,
+    unlimited_profit: true, unlimited_loss: false, unlimited_loss_reason: null, tail_reference: null,
+    vol_model: 'forward', vol_model_basis: 'synthetic fixture', forward_vols: [],
+    probability_of_profit: { value: .42, sigma: .25, horizon_days: 80, basis: 'synthetic fixture' },
+    legs: [{ index: 0, type: 'call', side: 'buy', value: 5, pnl_today: 0, delta: 52, gamma: 3, vega: 12, theta: -4, rho: 2 }],
+    today: enginePoint(100, 0), scenario: enginePoint(100, 0),
+    curve: [90, 95, 100, 105, 110].map((price, i) => ({ price, expiry: [-entry, -entry, -entry, 500 - entry, 1000 - entry][i],
+      today: [-300, -120, 0, 90, 220][i], scenario: [-300, -120, 0, 90, 220][i] })),
+    heatmap: [0, 40, 80].map(days => ({ elapsed_days: days, cells: [90, 100, 110].map(price => enginePoint(price, price - 100 - entry / 10)) })),
+    assumptions: { fixture: true }, limits: ['Synthetic fixture; not a live quote.'] };
+}
 
 async function run(q) {
   await q.executeScenario('factors', 'populated-recalc-preserves-controller-across-mode-switch', async () => {
@@ -287,7 +297,7 @@ async function run(q) {
       [routeSurface]: optionSurface,
       [routeChain]: optionChain,
     }, setWrite: { '/options/download/SYNV': optionDownload('running'),
-      '/options/strategy/simulate': { body: strategyResult, delayMs: 1600 } } });
+      '/options/strategy/simulate': { body: engineResult(520), delayMs: 1600 } } });
     await q.toggle('classic'); await q.visit('/vol');
     await q.waitFor(() => !!document.querySelector('#va-ticker'), 'volatility ticker input');
     await q.setValue('#va-ticker', 'SYNV');
@@ -298,12 +308,16 @@ async function run(q) {
     assert.equal(await q.js(() => document.querySelector('main [data-page="vol"] .va-provenance strong')?.innerText), 'SYNV');
     await q.waitFor(() => {
       const graph = document.querySelector('main [data-page="vol"] [data-vol-3d]');
-      return typeof graph?._fullLayout?.scene?.yaxis?.title?.text === 'string'
-        && !!graph._fullLayout.scene.yaxis.title.text.trim();
-    }, 'Classic Plotly expiry axis title');
+      return typeof graph?._fullLayout?.scene?.yaxis?.title?.text === 'string';
+    }, 'Light Plotly scene with its expiry axis');
     const classicAxisTitle = await q.js(() => document.querySelector('main [data-page="vol"] [data-vol-3d]')
       ?._fullLayout?.scene?.yaxis?.title?.text || '');
-    assert.ok(classicAxisTitle.trim(), 'Classic must retain its native Plotly days-to-expiry axis title');
+    // Vol Deck v2 (10/10, Opus 5.5, riserva ALTA-3): lo switch Classica/Nuova non esiste piu' (02/10) e la pagina e'
+    // una sola in Chiaro e Scuro: il titolo nativo dell'asse dei giorni (che Plotly tagliava) e' vuoto in ENTRAMBI i temi
+    // e l'etichetta e' l'HTML [data-vol-axis-title="expiry"], una sola volta.
+    assert.equal(classicAxisTitle.trim(), '', 'Light leaves the clipped native Plotly y-title empty too');
+    assert.equal(await q.js(() => document.querySelectorAll('main [data-page="vol"] [data-vol-axis-title="expiry"]').length), 1,
+      'the days-to-expiry label is the HTML one, exactly once');
     await q.toggle('modern');
     const pageBefore = await q.pageState();
     assert.equal(await q.js(() => document.querySelector('main [data-page="vol"] button[data-vol-workspace="tools"]')?.getAttribute('aria-pressed')), 'true');
@@ -406,8 +420,8 @@ async function run(q) {
       await q.toggle('classic');
       const afterClassic = await waitForPlotState('surface and camera remain live in Classic',
         state => cameraPreserved(state.camera, afterNativeOrbit.camera), 12000);
-      assert.equal(String(afterClassic.sceneAxisTitles.y || '').trim(), classicAxisTitle.trim(),
-        'switching back to Classic must restore the original native Plotly expiry-axis title');
+      assert.equal(String(afterClassic.sceneAxisTitles.y || '').trim(), '',
+        'Light keeps the native Plotly expiry-axis title empty (HTML label instead)');
       await q.toggle('modern');
       const afterModern = await waitForPlotState('surface and camera remain live in Nuova',
         state => cameraPreserved(state.camera, afterNativeOrbit.camera) && !String(state.sceneAxisTitles.y || '').trim(), 12000);
@@ -420,7 +434,7 @@ async function run(q) {
     }
     await q.scrollTo(plotSelector);
     const volPlotSvgSelector = 'main [data-page="vol"] [data-vol-3d] svg';
-    const strikeProjectorSvgSelector = 'main [data-page="vol"] .vsxrail > .p3:first-child svg.vsxsvg';
+    const strikeProjectorSvgSelector = 'main [data-page="vol"] [data-vol-projector] svg.vsxsvg';
     const strikeLabels = await q.js(selector => {
       const svg = document.querySelector(selector);
       return [...(svg?.querySelectorAll('text') || [])].map(node => (node.textContent || '').trim().replace(/\s+/g, ' '))
@@ -491,48 +505,94 @@ async function run(q) {
     await q.capture('vol-populated-chain-details-modern', { scrollSelector: 'main [data-page="vol"] .vd-contract-inspector',
       verifyVolWorkbenchContrast: true, verifyVolChainContrast: true });
     await q.click(await markButton(q, { root: 'main [data-page="vol"] .vd-chain tbody tr:first-child .vd-leg-actions', pattern: 'buy' }));
+    // 10/10 (Opus 5.5, review M3): the laboratory is the option builder. It reads the full chain of the
+    // leg's expiry (limit=1000, side=all), the FRED rate, and calls the engine by itself after a 140 ms
+    // debounce: one POST per settled edit, every earlier request aborted and never shown.
+    const builder = 'main [data-page="vol"] [data-option-builder]';
+    const hero = () => document.querySelector('main [data-page="vol"] [data-option-builder] .ob-hero-v')?.textContent || '';
+    await q.fixture({ setRead: { [routeChain]: strikeAtHundred, '/options/strategy/rate': strategyRate },
+      setWrite: { '/options/strategy/simulate': { body: engineResult(520), delayMs: 1600 } } });
+    const beforeLab = await q.counts();
     await q.click('main [data-page="vol"] button[data-vol-workspace="laboratory"]');
-    await q.waitFor(() => document.querySelectorAll('main [data-page="vol"] .vd-lab .vd-leg').length === 1, 'observed contract leg remains available in laboratory');
-    await q.click('main [data-page="vol"] .vd-lab .vd-pair summary');
-    await q.click(await markButton(q, { root: 'main [data-page="vol"] .vd-lab .vd-pair', pattern: 'vertical' }));
-    await q.waitFor(() => document.querySelectorAll('main [data-page="vol"] .vd-lab .vd-leg').length === 2, 'vertical spread second leg');
-    const strike2 = await markInput(q, { root: 'main [data-page="vol"] .vd-lab .vd-leg:nth-of-type(2) .vd-leg-fields', selector: 'input', nth: 0 });
-    await q.typeText(strike2, '105');
-    const premium2 = await markInput(q, { root: 'main [data-page="vol"] .vd-lab .vd-leg:nth-of-type(2) .vd-leg-fields', selector: 'input', nth: 1 });
-    await q.typeText(premium2, '2.3');
-    const scenarioSpot = await markInput(q, { root: 'main [data-page="vol"] .vd-lab .vd-scenario-controls', selector: 'input', nth: 0 });
-    await q.typeText(scenarioSpot, '100');
-    assert.deepEqual(await q.js(() => [...document.querySelectorAll('main [data-page="vol"] .vd-lab .vd-leg:nth-of-type(2) .vd-leg-fields input')].slice(0, 2).map(el => el.value)),
-      ['105', '2.3'], 'manual second-leg strike and premium must reach the controlled React fields');
-    const beforeSim = await q.counts(); await q.click('main [data-page="vol"] .vd-simulate button');
-    await q.waitFor(() => document.querySelector('main [data-page="vol"] .vd-simulate button')?.disabled === true, 'fixture strategy request in-flight', 4000);
+    await q.waitFor(sel => document.querySelectorAll(sel + ' tr[data-leg]').length === 1, 'observed contract leg reaches the option builder', 8000, builder);
+    await waitForCount(q, 'POST /options/strategy/simulate', (beforeLab['POST /options/strategy/simulate'] || 0) + 1, { timeout: 9000 });
+    const firstSnapshot = await q.snapshot();
+    const builderChainReads = firstSnapshot.requests.filter(r => r.method === 'GET' && r.route === routeChain && r.query.limit === '1000');
+    assert.ok(builderChainReads.length >= 1, 'the builder reads the whole expiry chain in pages of 1000');
+    assert.deepEqual({ side: builderChainReads[0].query.side, expiry: builderChainReads[0].query.expiry, offset: builderChainReads[0].query.offset },
+      { side: 'all', expiry: optionExpiries[0], offset: '0' });
+    assert.ok(firstSnapshot.requests.some(r => r.method === 'GET' && r.route === '/options/strategy/rate'), 'the short rate comes from the backend route');
+    const firstPost = firstSnapshot.requests.filter(r => r.method === 'POST' && r.route === '/options/strategy/simulate').at(-1);
+    assert.equal(firstPost.input.spot, 100, 'spot of the chain page');
+    assert.equal(firstPost.input.rate, .04, 'FRED rate 4% sent as a decimal');
+    assert.equal(firstPost.input.vol_model, 'forward', 'forward vol is the declared default');
+    assert.deepEqual(firstPost.input.legs.map(l => [l.type, l.side, l.strike, l.iv, l.premium, l.multiplier, l.quantity]),
+      [['call', 'buy', 100, .25, 5, 100, 1]], 'the leg carries its own contract: mid, IV and multiplier from the chain');
+    assert.ok(firstPost.input.legs[0].days > 0 && !Number.isInteger(firstPost.input.legs[0].days), 'fractional days to the 16:00 ET close');
+    // While the first (slow) response is in flight: a burst of three edits 40 ms apart, inside the debounce.
+    await q.fixture({ setWrite: { '/options/strategy/simulate': { body: engineResult(777.77), delayMs: 120 } } });
+    const spotField = await markInput(q, { root: builder + ' .ob-inputs', selector: 'input', nth: 0 });
+    const beforeBurst = await q.counts();
+    await q.js(async sel => {
+      const el = document.querySelector(sel);
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      for (const text of ['1', '10', '101']) {
+        set.call(el, text); el.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise(resolve => setTimeout(resolve, 40));
+      }
+    }, spotField);
+    await waitForCount(q, 'POST /options/strategy/simulate', (beforeBurst['POST /options/strategy/simulate'] || 0) + 1, { timeout: 4000 });
+    await q.pause(500);
+    const burstPosts = delta(beforeBurst, await q.counts(), 'POST /options/strategy/simulate');
+    assert.equal(burstPosts, 1, 'three edits inside the debounce send exactly one POST');
+    const settledPost = (await q.snapshot()).requests.filter(r => r.method === 'POST' && r.route === '/options/strategy/simulate').at(-1);
+    assert.equal(settledPost.input.spot, 101, 'the POST carries the last edit only');
+    await q.waitFor(() => (document.querySelector('main [data-page="vol"] [data-option-builder] .ob-hero-v')?.textContent || '').includes('777.77'),
+      'the settled response is shown', 5000);
+    await q.pause(1800); // past the first response's delay: it was aborted and must not overwrite the page
+    const heroAfter = await q.js(hero);
+    assert.ok(heroAfter.includes('777.77') && !heroAfter.includes('520'), `an aborted earlier response must never be shown: ${heroAfter}`);
+    // A response without the fields the page reads is a declared engine error, not a crash on rows[0].
+    await q.fixture({ setWrite: { '/options/strategy/simulate': { body: { pnl: [] } } } });
+    await q.js(sel => { const el = document.querySelector(sel); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, '102');
+      el.dispatchEvent(new Event('input', { bubbles: true })); }, spotField);
+    await q.waitFor(sel => /engine/i.test(document.querySelector(sel + ' .ob-alert')?.textContent || '')
+      && /entry_cost/.test(document.querySelector(sel + ' .ob-alert')?.textContent || ''), 'malformed engine response declared with its field', 5000, builder);
+    assert.ok(await q.js(sel => !!document.querySelector(sel + ' .ob-legs') && !document.querySelector(sel + ' .ob-chart svg'), builder),
+      'the builder stays mounted and shows no chart for an unreadable response');
+    // Back to a complete response, then the busy state must survive a presentation-mode switch.
+    await q.fixture({ setWrite: { '/options/strategy/simulate': { body: engineResult(520), delayMs: 1600 } } });
+    await q.js(sel => { const el = document.querySelector(sel); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, '');
+      el.dispatchEvent(new Event('input', { bubbles: true })); }, spotField);
+    await q.waitFor(sel => !!document.querySelector(sel + ' .ob-chart-card .ob-spin'), 'engine request in flight', 4000, builder);
     const simBefore = await q.pageState(); await q.toggle('classic'); const simClassic = await q.pageState();
-    assert.equal(simClassic.id, simBefore.id, 'VolWorkbench/StrategyLab page remounted during strategy request');
-    assert.equal(await q.js(() => document.querySelector('main [data-page="vol"] .vd-simulate button')?.disabled), true,
-      'strategy loading state must stay visible during mode switch');
-    await q.waitFor(() => !!document.querySelector('main [data-page="vol"] .vd-result-strip'), 'synthetic payoff result', 9000);
+    assert.equal(simClassic.id, simBefore.id, 'VolWorkbench/OptionBuilder remounted during the engine request');
+    await q.waitFor(sel => !!document.querySelector(sel + ' .ob-chart svg path.ob-curve-expiry')
+      && (document.querySelector(sel + ' .ob-hero-v')?.textContent || '').includes('520'), 'synthetic payoff result', 9000, builder);
     await q.toggle('modern');
-    await q.scrollTo('main [data-page="vol"] .vd-result-strip');
-    await q.capture('vol-strategy-populated-payoff-modern', { scrollSelector: 'main [data-page="vol"] .vd-result-strip',
+    await q.scrollTo(builder + ' .ob-main');
+    await q.capture('vol-strategy-populated-payoff-modern', { scrollSelector: builder + ' .ob-main',
       verifyVolWorkbenchContrast: true });
     const after = await q.snapshot();
     const chainReads = after.requests.filter(r => r.method === 'GET' && r.route === routeChain);
     const surfaceReads = after.requests.filter(r => r.method === 'GET' && r.route === routeSurface);
     const strategyPosts = after.requests.filter(r => r.method === 'POST' && r.route === '/options/strategy/simulate');
     assert.ok(chainReads.length >= 2, 'explicit side filter must reload the fixture chain');
-    assert.equal(strategyPosts.length, 1, 'one simulated payoff action must send exactly one fixture request');
+    assert.equal(strategyPosts.length, 4, 'one POST per settled input: first view, burst, malformed, restored');
     assert.equal(surfaceReads.length, 1, 'mode changes must not refetch the downloaded surface');
     assert.equal((await q.pageState()).id, pageBefore.id, 'page controller identity should survive workspace and mode changes');
     assert.equal(cameraFailure, null, `native Plotly camera did not survive palette changes: ${JSON.stringify(cameraTrace)}`);
     return { assertionResults: { catalogAndAcquisitionUsedFixtures: true, populatedSurfaceAndCoverageRendered: true,
-      workspaceAndControllerStateRetained: true, chainSideFilterRequestUsesPutAndContractDetailsWork: true, observedAndVerticalLegsReachLaboratory: true,
-      strategyBusySurvivesModeSwitch: simClassic.id === simBefore.id, payoffAndGreeksRendered: true,
-      oneLocalStrategyFixturePost: strategyPosts.length === 1, modeSwitchDoesNotRefetchSurface: surfaceReads.length === 1,
+      workspaceAndControllerStateRetained: true, chainSideFilterRequestUsesPutAndContractDetailsWork: true, observedLegReachesOptionBuilder: true,
+      builderReadsFullChainAndRate: true, oneDebouncedPostPerBurst: burstPosts === 1, abortedResponseNeverShown: true,
+      malformedEngineResponseDeclared: true, strategyBusySurvivesModeSwitch: simClassic.id === simBefore.id, payoffAndGreeksRendered: true,
+      modeSwitchDoesNotRefetchSurface: surfaceReads.length === 1,
       livePlotlySurfaceMeshAndWebGLVerified: true, nativeCameraUpdatedAndPreserved: true,
       chainDetailsCaptured: true, strategyPayoffCaptured: true },
       nativePlotlyCamera: { status: 'verified from trusted drag events and the live Plotly GraphDiv/WebGL context', ...cameraTrace },
       requestCounts: { chain: chainReads.length, surface: surfaceReads.length, strategy: strategyPosts.length },
-      chainQueries: chainReads.map(r => r.query), selectedPutFilterQuery: putRequest.query, selectedStrikeQuery: strikeRequest.query, fixtureChainRows: putRows.length, strategyPayload: strategyPosts[0].input,
+      chainQueries: chainReads.map(r => r.query), selectedPutFilterQuery: putRequest.query, selectedStrikeQuery: strikeRequest.query, fixtureChainRows: putRows.length,
+      strategyPayloads: strategyPosts.map(r => r.input),
       fixture: 'synthetic filtered chain subsets only; no live provider, broker, backend, or LLM called',
       note: 'camera motion comes from trusted CDP pointer drag on the real Plotly WebGL canvas; no Plotly API camera injection' };
   });

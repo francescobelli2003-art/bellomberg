@@ -1,4 +1,5 @@
 """Native tool and cached HTTP adapter, synthetic Gamma payloads only."""
+import json
 from types import SimpleNamespace
 import pytest
 from test_macro_polymarket_resilience import poly
@@ -272,18 +273,29 @@ def test_zero_candidates_is_only_the_observed_search(poly, monkeypatch):
 
 
 @pytest.mark.parametrize('source', ['events', 'markets'])
-def test_local_translated_and_incomplete_candidates_survive_without_lexical_match(poly, monkeypatch, source):
+def test_local_translated_and_incomplete_candidates_keep_identity_not_prices_without_lexical_match(poly, monkeypatch, source):
     titles = [('translated', 'Eleicao no Pais Azul'), ('incomplete', 'Who will win?')]
     rows = ([event(slug=slug, title=title, markets=[]) for slug, title in titles]
             if source == 'events' else [market(slug=slug, question=title) for slug, title in titles])
     install(poly, monkeypatch, events=rows if source == 'events' else [],
             singles=rows if source == 'markets' else [], source=source)
     out = poly.tool_get_polymarket_events('Norland election')
-    assert {r['url'].rsplit('/', 1)[-1] for r in out['results']} == {slug for slug, _ in titles}
+    # R11 p.5 (Opus 5.5): without any lexical/server candidate they are not returned as
+    # results with prices, but they survive as declared identities (no blind rejection).
+    assert out['results'] == [] and out['search_outcome'] == 'NO_MARKET_FOUND_WITH_THESE_QUERIES'
+    withheld = out['coverage']['withheld_nonlexical_candidates']
+    assert {r['url'].rsplit('/', 1)[-1] for r in withheld} == {slug for slug, _ in titles}
+    assert {r['title'] for r in withheld} == {title for _, title in titles}
     assert out['coverage']['lexical_nonmatches'] == len(rows)
-    assert all(r['search_match']['relevance_status'] == 'UNVERIFIED' for r in out['results'])
-    assert all(r['search_match']['basis'] == 'local_no_lexical_match' for r in out['results'])
+    assert all(r['search_match']['relevance_status'] == 'UNVERIFIED' for r in withheld)
+    assert all(r['search_match']['basis'] == 'local_no_lexical_match' for r in withheld)
     assert out['relevant_count'] is None
+    # Declared limit (riserva 3): the identity survives, the prices do not; the tool says
+    # to retry in English and keeps each withheld candidate's activity state.
+    assert all(r['activity_status'] == 'active' for r in withheld)
+    assert '"prices"' not in json.dumps(out)
+    assert 'retry the call with English terms' in out['coverage']['withheld_reason']
+    assert 'termini inglesi' in out['hint']
 
 
 @pytest.mark.parametrize('source', ['events', 'markets'])
@@ -321,3 +333,147 @@ def test_nested_exclusion_sample_declares_omitted_identities(poly, monkeypatch):
     assert group['market_coverage']['excluded_inactive'] == 13
     assert len(group['excluded_markets']) == 10 and group['excluded_markets_omitted'] == 3
     assert all(r['id'] and r['slug'] and 'closed' in r['reasons'] for r in group['excluded_markets'])
+
+
+ABSENCE_WORDS = ('nessun rischio', 'no risk', 'non prezzato', 'not priced', 'no polymarket coverage',
+                 'market does not exist', 'mercato assente')
+
+
+@pytest.mark.parametrize('source', ['events', 'markets'])
+def test_unrelated_high_volume_candidates_never_fill_results(poly, monkeypatch, source):
+    # R11 p.5 (Opus 5.5): 15 synthetic high-volume unrelated rows, query with no lexical match.
+    if source == 'events':
+        rows = [event(slug=f'zz-sport-{i}', title=f'Zzcup final match {i}', volume24hr=10_000 - i,
+                      markets=[market(slug=f'zz-sport-m-{i}', question=f'Will Zzteam {i} win?')]) for i in range(15)]
+    else:
+        rows = [market(slug=f'zz-sport-{i}', question=f'Will Zzteam {i} win the Zzcup?', volume24hr=10_000 - i)
+                for i in range(15)]
+    install(poly, monkeypatch, events=rows if source == 'events' else [],
+            singles=rows if source == 'markets' else [], source=source)
+    out = poly.tool_get_polymarket_events('Norland election')
+    assert out['results'] == [] and out['count'] == 0
+    assert out['search_outcome'] == 'NO_MARKET_FOUND_WITH_THESE_QUERIES'
+    assert 'nessun mercato trovato con queste query' in out['hint'].lower()
+    assert 'NON concludere che il mercato non esiste' in out['hint']
+    assert out['coverage_verified'] is False and out['relevant_count'] is None
+    cov = out['coverage']
+    assert cov['local_nonlexical_candidates'] == 15 and cov['lexical_nonmatches'] == 15
+    assert len(cov['withheld_nonlexical_candidates']) == 10 and cov['withheld_nonlexical_omitted'] == 5
+    assert cov['eligible_candidates'] == 0 and cov['returned'] == 0
+    # Identities only: no probabilities of unrelated markets reach the desk.
+    assert all('prices' not in r and 'markets' not in r for r in cov['withheld_nonlexical_candidates'])
+    blob = json.dumps(out, ensure_ascii=False).lower()
+    assert '"prices"' not in blob
+    assert not [w for w in ABSENCE_WORDS if w in blob]
+
+
+def test_lexical_candidate_still_returned_with_uncertain_ones_labelled(poly, monkeypatch):
+    rows = [event(slug=f'zz-sport-{i}', title=f'Zzcup final match {i}', volume24hr=10_000 - i, markets=[])
+            for i in range(3)] + [event(slug='zz-match', title='Norland election', volume24hr=1, markets=[])]
+    install(poly, monkeypatch, events=rows, source='events')
+    out = poly.tool_get_polymarket_events('Norland election')
+    assert out['results'][0]['url'].endswith('/zz-match')
+    assert out['results'][0]['search_match']['basis'] == 'lexical_candidate'
+    assert all(r['search_match']['relevance_status'] == 'UNVERIFIED' for r in out['results'])
+    assert 'search_outcome' not in out and 'withheld_nonlexical_candidates' not in out['coverage']
+
+
+def test_withheld_candidates_with_provider_error_stay_unavailable_not_absent(poly, monkeypatch):
+    rows = [event(slug='zz-sport', title='Zzcup final', volume24hr=50, markets=[])]
+    def get(url, **kwargs):
+        endpoint = url.rsplit('/', 1)[-1]
+        if endpoint == 'events':
+            return SimpleNamespace(status_code=200, json=lambda: rows)
+        return SimpleNamespace(status_code=503, json=lambda: {})
+    monkeypatch.setattr(poly._req, 'get', get)
+    out = poly.tool_get_polymarket_events('Norland election')
+    assert out['results'] == [] and out['status'] == 'unavailable' and out.get('fetch_warnings')
+    assert out['coverage']['withheld_nonlexical_candidates'][0]['url'].endswith('/zz-sport')
+    assert 'search_outcome' not in out  # provider gap: n.d., never "nothing found"
+
+
+def sport_events(n):
+    return [event(slug=f'zz-sport-{i}', title=f'Zzcup final match {i}', volume24hr=10_000 - i,
+                  markets=[market(slug=f'zz-sport-m-{i}', question=f'Will Zzteam {i} win?')]) for i in range(n)]
+
+
+@pytest.mark.parametrize('brazil_volume', [50_000, 5])
+def test_translated_relevant_market_without_server_search_is_only_an_identity(poly, monkeypatch, brazil_volume):
+    # Accepted limit (riserva 3, Opus 5.5): "elezioni Brasile" vs "Brazil election" has no
+    # lexical match; without server search the relevant market keeps identity and activity
+    # (if within the 10 declared) but never prices, and the tool asks for an English retry.
+    rows = sport_events(15) + [event(slug='brazil-presidential-election', title='Brazil Presidential Election',
+                                     volume24hr=brazil_volume,
+                                     markets=[market(slug='lula-win', question='Will Lula win the 2026 Brazil election?')])]
+    install(poly, monkeypatch, events=rows, source='events')
+    out = poly.tool_get_polymarket_events('elezioni Brasile')
+    assert out['results'] == [] and out['search_outcome'] == 'NO_MARKET_FOUND_WITH_THESE_QUERIES'
+    cov = out['coverage']
+    slugs = [w['url'].rsplit('/', 1)[-1] for w in cov['withheld_nonlexical_candidates']]
+    assert ('brazil-presidential-election' in slugs) is (brazil_volume == 50_000)
+    assert cov['withheld_nonlexical_omitted'] == 6
+    assert 'termini inglesi' in out['hint'] and 'English terms' in cov['withheld_reason']
+
+
+def test_withheld_beyond_the_declared_sample_makes_the_response_partial(poly, monkeypatch):
+    # Riserva 2 (Opus 5.5): 16 nonlexical candidates, 10 declared, 6 unseen -> partial.
+    install(poly, monkeypatch, events=sport_events(16), source='events')
+    out = poly.tool_get_polymarket_events('Norland election')
+    cov = out['coverage']
+    assert cov['omitted_result_limit'] == 0 and cov['withheld_nonlexical_omitted'] == 6
+    assert out['observed_response_completeness'] == 'partial' and out['completeness'] == 'partial'
+
+
+def test_withheld_within_the_declared_sample_is_not_called_partial(poly, monkeypatch):
+    install(poly, monkeypatch, events=sport_events(10), source='events')
+    out = poly.tool_get_polymarket_events('Norland election')
+    assert out['coverage']['withheld_nonlexical_omitted'] == 0
+    assert out['observed_response_completeness'] == 'complete_observed' and out['completeness'] == 'unknown'
+
+
+@pytest.mark.parametrize('max_results', [1, 3, 25])
+def test_withheld_identity_sample_is_ten_whatever_the_result_cap(poly, monkeypatch, max_results):
+    # Mutation M6 (reviewer): the declared identities do not follow max_results.
+    install(poly, monkeypatch, events=sport_events(15), source='events')
+    cov = poly.tool_get_polymarket_events('Norland election', max_results=max_results)['coverage']
+    assert len(cov['withheld_nonlexical_candidates']) == 10 and cov['withheld_nonlexical_omitted'] == 5
+
+
+def test_withheld_identity_keeps_volume_and_activity(poly, monkeypatch):
+    # Mutation M5 (reviewer): volume_24h must stay in the withheld identity.
+    rows = [event(slug='zz-a', title='Zzcup', volume24hr=77, markets=[]),
+            event(slug='zz-b', title='Zzcup two', volume24hr=3, active=None, markets=[])]
+    install(poly, monkeypatch, events=rows, source='events')
+    withheld = poly.tool_get_polymarket_events('Norland election')['coverage']['withheld_nonlexical_candidates']
+    assert [(w['url'].rsplit('/', 1)[-1], w['volume_24h'], w['activity_status']) for w in withheld] == [
+        ('zz-a', 77, 'active'), ('zz-b', 3, 'unknown')]
+
+
+@pytest.mark.parametrize('source', ['events', 'public-search', 'markets'])
+def test_only_inactive_lexical_candidates_is_a_distinct_outcome(poly, monkeypatch, source):
+    # Riserva 4 (Opus 5.5): a closed "Norland election" beside 3 unrelated rows is not
+    # "nothing found": the query matched, but only inactive markets.
+    if source == 'markets':
+        rows = [market(slug=f'zz-sport-{i}', question=f'Will Zzteam {i} win?') for i in range(3)]
+        rows.append(market(slug='norland-election', question='Norland election winner?', closed=True))
+        install(poly, monkeypatch, singles=rows, source='markets')
+    else:
+        rows = [event(slug='norland-election', title='Norland election', closed=True, volume24hr=1,
+                      markets=[market(slug='nm')])]
+        if source == 'events':
+            rows = sport_events(3) + rows
+        install(poly, monkeypatch, events=rows, source=source)
+    out = poly.tool_get_polymarket_events('Norland election')
+    assert out['results'] == [] and out['search_outcome'] == 'ONLY_INACTIVE_CANDIDATES'
+    assert out['coverage']['excluded_inactive_search_candidates'] == 1
+    assert out['coverage']['excluded_candidates'][0]['slug'] == 'norland-election'
+    assert 'NON concludere' in out['hint'] and 'inattivi' in out['hint']
+
+
+def test_inactive_unrelated_rows_do_not_turn_nothing_found_into_only_inactive(poly, monkeypatch):
+    rows = sport_events(3) + [event(slug='zz-old', title='Zzcup old final', closed=True, markets=[])]
+    install(poly, monkeypatch, events=rows, source='events')
+    out = poly.tool_get_polymarket_events('Norland election')
+    assert out['search_outcome'] == 'NO_MARKET_FOUND_WITH_THESE_QUERIES'
+    assert out['coverage']['excluded_inactive'] == 1
+    assert 'excluded_inactive_search_candidates' not in out['coverage']

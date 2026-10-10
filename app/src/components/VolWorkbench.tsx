@@ -4,11 +4,13 @@ import { useLingua } from '@/i18n/provider';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import NewInterfaceBoundary from '@/components/NewInterfaceBoundary';
-import { ArrowDownLeft, ArrowUpRight, Check, ChevronDown, Layers3, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Layers3, Plus, RefreshCw } from 'lucide-react';
 import {
-  blankLeg, contractLeg, legSource, daysToExpiry, expiriesThrough, horizonDate, numberInput, numericText, serializeLegs, volNumber, volRequest, watchDownload,
-  type ChainPage, type Coverage, type DownloadStatus, type ExpiryCatalog, type LegDraft, type OptionContract, type StrategyResult,
+  daysToExpiry, expiriesThrough, horizonDate, volNumber, volRequest, watchDownload,
+  type ChainPage, type Coverage, type DownloadStatus, type ExpiryCatalog, type OptionContract,
 } from '@/lib/vol-deck';
+import OptionBuilder from '@/components/option-builder/OptionBuilder';
+import { optionLeg, type BuilderLeg } from '@/lib/option-builder';
 import './vol-workbench.css';
 import { localizePayload } from '@/lib/api-presentation';
 import type { VolWorkspace } from '@/lib/vol-atlas';
@@ -18,16 +20,6 @@ type Props = { ticker: string; mode: Mode; coverage?: Coverage; surfaceBusy: boo
   onSurface: (result: any, expiries: string[]) => void; onLaboratory: () => void; onAcquisition: () => void };
 
 function DeferredVolWorkbenchView({ render }: { render: () => ReactNode }) { return render(); }
-
-function Datum({ label, value, unit, tone }: { label: string; value: string; unit?: string; tone?: string }) {
-  return <div className={'vd-datum ' + (tone || '')}><span>{label}</span><strong>{value}</strong>{unit && <small>{unit}</small>}</div>;
-}
-
-function NumField({ label, ariaLabel, value, onChange, unit, min, max }: { label: string; ariaLabel?: string; value: string; onChange: (s: string) => void; unit?: string; min?: number; max?: number }) {
-  return <label className="vd-field"><span>{label}</span><div><input type="text" inputMode="decimal" value={value}
-    onChange={e => onChange(e.target.value)} aria-label={ariaLabel || label} autoComplete="off" spellCheck={false}
-    aria-description={min == null ? undefined : tr('voldeck.fmt_from_a_to_b__26', {a: min, b: max ?? tr('voldeck.ui_unlimited_106')})} />{unit && <i>{unit}</i>}</div></label>;
-}
 
 export default function VolWorkbench({ ticker, mode, coverage, surfaceBusy, onSurface, onLaboratory, onAcquisition }: Props) {
   const language = useLingua();
@@ -45,7 +37,11 @@ export default function VolWorkbench({ ticker, mode, coverage, surfaceBusy, onSu
   const [strikeSearch, setStrikeSearch] = useState('');
   const [selectedContract, setInspect] = useState<OptionContract | null>(null);
   const inspect = selectedContract && (chain?.chain.find(row => row.contract === selectedContract.contract && row.type === selectedContract.type && row.strike === selectedContract.strike) || selectedContract);
-  const [legs, setLegs] = useState<LegDraft[]>([]);
+  // 09/10 (Opus 5.5): legs are references into the chain (option builder), not frozen copies.
+  const [legs, setLegs] = useState<BuilderLeg[]>([]);
+  // mounted on first visit, then kept: tab switches do not lose chains, scenario or inputs
+  const [labSeen, setLabSeen] = useState(mode === 'laboratory');
+  useEffect(() => { if (mode === 'laboratory') setLabSeen(true); }, [mode]);
   const [rawDownload, setDownload] = useState<DownloadStatus | null>(null);
   const download = useMemo(() => localizePayload(rawDownload, language), [rawDownload, language]);
   const [downloadError, setDownloadError] = useState('');
@@ -129,7 +125,8 @@ export default function VolWorkbench({ ticker, mode, coverage, surfaceBusy, onSu
     } catch (e) { if (!controller.signal.aborted) setDownloadError(e instanceof Error ? e.message : String(e)); }
   }
 
-  async function startDownload(expiries?: string[]) {
+  // `surface=false`: the option builder asks for chains only; the page must not jump to the surface.
+  async function startDownload(expiries?: string[], surface = true) {
     downloadRequest.current?.abort(); surfaceRequest.current?.abort(); chainRequest.current?.abort();
     const controller = new AbortController(); downloadRequest.current = controller;
     setDownloadAction(true); setDownloadError(''); setChain(null); setChainBusy(false); setSliceBusy(false);
@@ -143,7 +140,7 @@ export default function VolWorkbench({ ticker, mode, coverage, surfaceBusy, onSu
       if (controller.signal.aborted) { await volRequest(`/options/download/${job.id}/pause`, {}); return; }
       setDownload(job); downloadRef.current = job;
       setDownloadAction(false);
-      await observeDownload(job, controller);
+      await observeDownload(job, controller, surface);
     } catch (e) { if (!controller.signal.aborted) setDownloadError(e instanceof Error ? e.message : String(e)); }
     finally { if (!controller.signal.aborted) setDownloadAction(false); }
   }
@@ -203,8 +200,32 @@ export default function VolWorkbench({ ticker, mode, coverage, surfaceBusy, onSu
   const toolsNotice = !!catalogError || !!downloadError || !!download?.error || (!!download && !download.download_complete) || downloadStale || (!!coverage && !coverage.complete);
 
   const addContract = (row: OptionContract, side: 'buy' | 'sell') => {
-    if (legs.length >= 12 || row.adjusted || !['call', 'put'].includes(row.type)) return;
-    setLegs(prev => [...prev, contractLeg(row, side)]);
+    if (legs.length >= 12 || row.adjusted || row.strike == null || !['call', 'put'].includes(row.type)) return;
+    setLegs(prev => [...prev, optionLeg(row.type, side, row.expiry, row.strike as number)]);
+  };
+
+  // Option builder: every contract of one downloaded expiry (pages of 1000, no new Polygon request).
+  const fetchFullChain = async (expiry: string, signal: AbortSignal): Promise<ChainPage> => {
+    const job = downloadRef.current;
+    if (!job) throw new Error(tr('voldeck.ui_response_has_no_contract_list_109'));
+    const rows: OptionContract[] = [];
+    for (let offset = 0; ;) {
+      const query = new URLSearchParams({ expiry, offset: String(offset), limit: '1000', side: 'all', strike: '' });
+      const page = await volRequest<ChainPage>(`/options/download/${job.id}/chain?${query}`, undefined, signal);
+      if (!Array.isArray(page.chain)) throw new Error(tr('voldeck.ui_response_has_no_contract_list_109'));
+      rows.push(...page.chain);
+      if (!page.has_more || page.next_offset == null || page.next_offset <= offset) return { ...page, chain: rows };
+      offset = page.next_offset;
+    }
+  };
+  // Option builder: download the requested expiries, keeping those already in a selective job.
+  const requestExpiries = (expiries: string[]) => {
+    const job = downloadRef.current;
+    const wanted = expiries.filter(Boolean);
+    if (!wanted.length) return;
+    if (job && wanted.every(e => job.expirations.includes(e)) && ['queued', 'running'].includes(job.state)) return;
+    const keep = job && job.scope === 'selected' ? job.expirations : [];
+    void startDownload([...new Set([...keep, ...wanted])].sort(), false);
   };
 
   return <NewInterfaceBoundary language={language}>
@@ -324,131 +345,9 @@ export default function VolWorkbench({ ticker, mode, coverage, surfaceBusy, onSu
         </>}
         {!chain && !chainBusy && <div className="vd-empty">{tr('voldeck.ui_choose_an_expiry_and_load_its_chain_missing_data_will__207')}</div>}
       </section>
-      <div hidden={mode !== 'laboratory'}><StrategyLab key={ticker} ticker={ticker} legs={legs} setLegs={setLegs} observedSpot={chain?.spot ?? null} /></div>
+      <div hidden={mode !== 'laboratory'}>{(labSeen || mode === 'laboratory') && <OptionBuilder key={ticker} ticker={ticker} download={download} catalog={catalog?.expirations || []}
+        downloadBusy={downloadBusy} fetchChain={fetchFullChain} requestExpiries={requestExpiries} legs={legs} setLegs={setLegs} />}</div>
     </div>
   </div>)} />
   </NewInterfaceBoundary>;
-}
-
-function StrategyLab({ ticker, legs, setLegs, observedSpot }: { ticker: string; legs: LegDraft[]; setLegs: (legs: LegDraft[] | ((p: LegDraft[]) => LegDraft[])) => void; observedSpot: number | null }) {
-  const [spot, setSpot] = useState(''); const [scenarioSpot, setScenarioSpot] = useState('');
-  const [rate, setRate] = useState('0'); const [dividend, setDividend] = useState('0');
-  const [elapsed, setElapsed] = useState('0'); const [shift, setShift] = useState('0');
-  const [commission, setCommission] = useState('0'); const [currency, setCurrency] = useState('USD');
-  const language = useLingua();
-  const [rawResult, setResult] = useState<StrategyResult | null>(null);
-  const result = useMemo(() => localizePayload(rawResult, language), [rawResult, language]); const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(''); const [calculatedKey, setCalculatedKey] = useState('');
-  const request = useRef<AbortController | null>(null);
-  useEffect(() => () => request.current?.abort(), []);
-  const configKey = JSON.stringify([legs, spot, scenarioSpot, rate, dividend, elapsed, shift, commission, currency]);
-  const stale = result != null && configKey !== calculatedKey;
-
-  function update(id: string, field: keyof LegDraft, value: string) {
-    setLegs(prev => prev.map(l => l.id === id ? { ...l, [field]: value, sourceKind: 'edited', source: tr('voldeck.ui_assumption_edited_in_the_laboratory_not_a_current_quot_208') } : l));
-  }
-  async function simulate() {
-    request.current?.abort(); const controller = new AbortController(); request.current = controller;
-    setError(''); setBusy(true);
-    try {
-      const body = { spot: numberInput(spot, tr('voldeck.ui_initial_spot_209')), scenario_spot: numberInput(scenarioSpot || spot, tr('voldeck.ui_scenario_price_210')),
-        rate: numberInput(rate, tr('voldeck.ui_rate_253')) / 100, dividend_yield: numberInput(dividend, tr('voldeck.ui_annual_dividend_yield_255')) / 100,
-        elapsed_days: numberInput(elapsed, tr('voldeck.ui_elapsed_days_211')), iv_shift: numberInput(shift, tr('voldeck.ui_iv_shock')) / 100,
-        commission: numberInput(commission, tr('voldeck.ui_cost_per_contract_212')), currency, legs: serializeLegs(legs) };
-      const out = await volRequest<StrategyResult>('/options/strategy/simulate', body, controller.signal);
-      if (!controller.signal.aborted) { setResult(out); setCalculatedKey(configKey); }
-    } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e)); }
-    finally { if (!controller.signal.aborted) setBusy(false); }
-  }
-  function pair(kind: 'vertical' | 'straddle' | 'calendar') {
-    if (!legs.length || legs.length >= 12) return;
-    const first = legs[0]; const second = { ...blankLeg(), ...first, id: blankLeg().id, sourceKind: 'derived' as const, source: tr('voldeck.ui_derived_leg_complete_the_new_fields_before_simulating_213') };
-    if (kind === 'vertical') { second.side = first.side === 'buy' ? 'sell' : 'buy'; second.strike = ''; second.premium = ''; }
-    if (kind === 'straddle') { second.type = first.type === 'call' ? 'put' : 'call'; second.premium = ''; }
-    if (kind === 'calendar') { second.side = first.side === 'buy' ? 'sell' : 'buy'; second.days = ''; second.premium = ''; second.expiry = undefined; }
-    setLegs(prev => [...prev, second]);
-  }
-
-  return <NewInterfaceBoundary language={language}>
-  <DeferredVolWorkbenchView render={() => (<section className="vd-lab" aria-labelledby="vd-lab-title">
-    <div className="vd-section-head"><div><h2 id="vd-lab-title">{tr('voldeck.ui_design_the_strategy_214')}</h2><p>{ticker || tr('voldeck.underlying')} {' '}{tr('voldeck.ui_local_theoretical_laboratory_no_orders_are_sent_215')}</p></div>
-      <span className="vd-model">{tr('voldeck.ui_black_scholes_merton_european_216')}</span></div>
-    <div className="vd-lab-grid">
-      <div className="vd-legs"><div className="vd-legs-heading"><h3>{tr('voldeck.ui_legs_217')}{' '}<span>{legs.length}/12</span></h3><button className="vd-secondary" disabled={legs.length >= 12} onClick={() => setLegs(prev => [...prev, blankLeg()])}><Plus size={14} />{tr('voldeck.ui_manual_218')}</button></div>
-        {!legs.length && <div className="vd-leg-empty"><Layers3 size={30} /><h4>{tr('voldeck.ui_start_with_a_contract_219')}</h4><p>{tr('voldeck.ui_use_buy_or_sell_in_the_chain_or_add_a_manual_leg_premi_220')}</p></div>}
-        {legs.map((leg, i) => <article className={'vd-leg ' + leg.side} key={leg.id}>
-          <div className="vd-leg-head"><span>{leg.side === 'buy' ? <ArrowUpRight size={18} /> : <ArrowDownLeft size={18} />}{tr('voldeck.ui_leg_221')}{' '}{i + 1}</span><button className="vd-icon-button" aria-label={tr('voldeck.fmt_remove_leg_a__12', {a: i + 1})} onClick={() => setLegs(prev => prev.filter(l => l.id !== leg.id))}><Trash2 size={14} /></button></div>
-          <div className="vd-leg-kind"><select aria-label={tr('voldeck.fmt_leg_a_direction_13', {a: i + 1})} value={leg.side} onChange={e => update(leg.id, 'side', e.target.value)}><option value="buy">{tr('voldeck.ui_buy_193')}</option><option value="sell">{tr('voldeck.ui_sell_194')}</option></select><select aria-label={tr('voldeck.fmt_leg_a_type_14', {a: i + 1})} value={leg.type} onChange={e => update(leg.id, 'type', e.target.value)}><option value="call">Call</option><option value="put">Put</option></select></div>
-          <div className="vd-leg-fields">{([['strike', 'Strike'], ['premium', tr('voldeck.ui_premium_unit_225')], ['quantity', tr('voldeck.ui_contracts_223')], ['multiplier', tr('voldeck.ui_multiplier_224')], ['days', tr('voldeck.ui_days_to_expiry_53')], ['iv', 'IV %']] as const).map(([key, label]) => <NumField key={key} label={label} ariaLabel={tr('voldeck.fmt__a_leg_b__15', {a: label, b: i + 1})} value={leg[key]} onChange={v => update(leg.id, key, v)} />)}</div>
-          <p className="vd-leg-source">{legSource(leg)}{leg.quote_timestamp && <><br />{tr('voldeck.ui_quote_226')}{' '}{new Date(leg.quote_timestamp).toLocaleString(localeDi(linguaCorrente()))}</>}</p>
-        </article>)}
-        {legs.length > 0 && legs.length < 12 && <details className="vd-pair"><summary>{tr('voldeck.ui_build_from_the_first_leg_227')}</summary><button onClick={() => pair('vertical')}>{tr('voldeck.ui_vertical_spread_228')}</button><button onClick={() => pair('straddle')}>Straddle</button><button onClick={() => pair('calendar')}>{tr('voldeck.ui_calendar_spread')}</button><p>{tr('voldeck.ui_complete_the_new_leg_s_strike_days_or_premium_no_quote_229')}</p></details>}
-      </div>
-      <div className="vd-payoff-area">
-        <div className="vd-scenario-controls"><NumField label={tr('voldeck.ui_initial_spot_209')} value={spot} onChange={setSpot} unit={currency} />
-          <NumField label={tr('voldeck.ui_scenario_price_210')} value={scenarioSpot} onChange={setScenarioSpot} unit={currency} />
-          <NumField label={tr('voldeck.ui_elapsed_time_230')} value={elapsed} onChange={setElapsed} unit={tr('voldeck.unit_days')} />
-          <NumField label={tr('voldeck.ui_iv_shock')} value={shift} onChange={setShift} unit={tr('voldeck.unit_points')} /></div>
-        <div className="vd-actions">{observedSpot != null && <button className="vd-secondary" onClick={() => { setSpot(numericText(observedSpot)); setScenarioSpot(numericText(observedSpot)); }}>{tr('voldeck.ui_use_chain_spot_231')}{' '}{volNumber(observedSpot)}</button>}
-          <small>{tr('voldeck.ui_blank_scenario_price_initial_spot_without_a_price_shoc_232')}</small></div>
-        {stale && <p className="vd-stale" role="status">{tr('voldeck.ui_assumptions_changed_the_chart_shows_the_last_simulatio_233')}</p>}
-        {error && <p className="vd-error" role="alert">{error}</p>}
-        {result ? <>
-          <div className="vd-payoff-title"><div><h3>{tr('voldeck.ui_the_shape_of_the_return_234')}</h3><p>{result.same_expiry ? tr('voldeck.fmt_payoff_at_a_days_and_intermediate_theoretical_va_16', {a: volNumber(result.expiry_days, 0)}) : tr('voldeck.ui_mixed_expiries_theoretical_scenario_up_to_the_first_ex_235')}</p></div><span>{result.currency}</span></div>
-          <PayoffChart result={result} />
-          <div className="vd-result-strip"><Datum label={result.entry_kind === 'debit' ? tr('voldeck.ui_initial_outlay_236') : tr('voldeck.ui_initial_credit_237')} value={volNumber(Math.abs(result.entry_cost))} unit={result.currency} />
-            <Datum label={tr('voldeck.ui_scenario_p_l')} value={volNumber(result.scenario.pnl)} unit={tr('voldeck.at_price', { currency: result.currency, price: volNumber(result.scenario.price) })} tone={result.scenario.pnl >= 0 ? 'positive' : 'negative'} />
-            <Datum label={tr('voldeck.ui_maximum_profit_at_expiry_238')} value={result.unlimited_profit ? tr('voldeck.ui_unlimited_106') : volNumber(result.max_profit)} unit={result.same_expiry ? result.currency : tr('voldeck.ui_not_defined_for_calendars_239')} />
-            <Datum label={tr('voldeck.ui_maximum_loss_at_expiry_240')} value={result.unlimited_loss ? tr('voldeck.ui_unlimited_106') : volNumber(result.max_loss)} unit={result.same_expiry ? result.currency : tr('voldeck.ui_not_defined_for_calendars_241')} /></div>
-          <div className="vd-breakeven">{tr('voldeck.ui_breakeven_at_expiry_242')}{' '}<strong>{result.same_expiry ? [...result.breakevens.map(v => volNumber(v)), ...(result.breakeven_intervals || []).map(v => tr('voldeck.fmt_from_a_to_b__26', { a: volNumber(v.from), b: v.to == null ? '∞' : volNumber(v.to) }))].join(' / ') || tr('voldeck.ui_no_zero_crossing_243') : tr('voldeck.ui_n_a_for_mixed_expiries_244')}</strong><span>{tr('voldeck.ui_initial_premiums_and_fees_included_245')}</span></div>
-          <div className="vd-greeks"><h4>{tr('voldeck.ui_scenario_greeks_246')}{' '}<small>{tr('voldeck.ui_aggregated_over_quantities_and_multipliers_247')}</small></h4>
-            <div>{(['delta', 'gamma', 'vega', 'theta', 'rho'] as const).map(key => <Datum key={key} label={key} value={volNumber(result.scenario[key], key === 'gamma' ? 4 : 2)} unit={result.greek_units[key]} />)}</div></div>
-          <ScenarioHeatmap result={result} />
-        </> : <div className="vd-payoff-empty"><svg viewBox="0 0 560 180" role="img" aria-label={tr('voldeck.ui_payoff_chart_area_complete_the_legs_to_calculate_248')}><path d="M20 145H540M90 25V162" stroke="#334766" fill="none" /><path d="M35 125H200L355 55H520" stroke="#e9ba64" strokeWidth="3" fill="none" strokeDasharray="6 6" /><text x="300" y="155" fill="#a9bad1" fontSize="12">{tr('voldeck.ui_illustrative_diagram_without_values_249')}</text></svg><h3>{tr('voldeck.ui_your_assumptions_shape_the_payoff_250')}</h3><p>{tr('voldeck.ui_complete_at_least_one_leg_and_the_spot_price_gold_will_251')}</p></div>}
-        <div className="vd-model-inputs"><h4>{tr('voldeck.ui_model_assumptions_252')}</h4><div><NumField label={tr('voldeck.ui_annual_rate_254')} value={rate} onChange={setRate} unit="%" /><NumField label={tr('voldeck.ui_annual_dividend_yield_255')} value={dividend} onChange={setDividend} unit="%" /><NumField label={tr('voldeck.ui_initial_cost_contract_256')} value={commission} onChange={setCommission} unit={currency} /><label className="vd-field"><span>{tr('voldeck.ui_common_currency_257')}</span><input value={currency} maxLength={3} onChange={e => setCurrency(e.target.value.toUpperCase())} aria-label={tr('voldeck.ui_simulation_currency_258')} /></label></div>
-          <p>{tr('voldeck.ui_initial_zero_rate_dividend_yield_and_costs_are_editabl_259')}</p></div>
-        <div className="vd-actions vd-simulate"><button className="vd-primary" disabled={!legs.length || busy} onClick={simulate}>{busy ? tr('voldeck.ui_calculating_260') : stale ? tr('voldeck.ui_recalculate_scenario_261') : tr('voldeck.ui_simulate_strategy_262')}</button><span>{tr('voldeck.ui_local_calculation_only_no_provider_or_ai_model_263')}</span></div>
-        <details className="vd-model-notes"><summary>{tr('voldeck.ui_method_and_limitations_264')}</summary><ul>{(result?.limits || [tr('voldeck.ui_european_model_does_not_value_american_early_exercise__265'), tr('voldeck.ui_act_365_calendar_days_intraday_expiry_time_is_not_mode_266'), tr('voldeck.ui_constant_iv_per_leg_with_a_parallel_shock_entry_premiu_267'), tr('voldeck.ui_mixed_expiries_scenarios_stop_at_the_first_expiry_no_i_268'), tr('voldeck.ui_initial_fees_included_slippage_exit_costs_financing_an_269')]).map(note => <li key={note}>{note}</li>)}</ul></details>
-      </div>
-    </div>
-  </section>)} />
-  </NewInterfaceBoundary>;
-}
-
-function PayoffChart({ result }: { result: StrategyResult }) {
-  const [hover, setHover] = useState<number | null>(null);
-  const rows = result.curve; const width = 860, height = 340, left = 66, right = 20, top = 22, bottom = 42;
-  const values = rows.flatMap(r => [r.today, r.scenario, ...(r.expiry == null ? [] : [r.expiry])]);
-  const minX = rows[0].price, maxX = rows[rows.length - 1].price;
-  const low = Math.min(0, ...values), high = Math.max(0, ...values), pad = Math.max((high - low) * .12, 1);
-  const minY = low - pad, maxY = high + pad;
-  const x = (s: number) => left + (s - minX) / (maxX - minX) * (width - left - right);
-  const y = (v: number) => top + (maxY - v) / (maxY - minY) * (height - top - bottom);
-  const path = (field: 'expiry' | 'today' | 'scenario') => rows.filter(r => r[field] != null).map((r, i) => `${i ? 'L' : 'M'}${x(r.price).toFixed(2)},${y(r[field]!).toFixed(2)}`).join(' ');
-  const hoverRow = hover == null ? null : rows[hover];
-  const hoverAt = (event: React.PointerEvent<SVGSVGElement>) => {
-    const box = event.currentTarget.getBoundingClientRect();
-    const target = minX + ((event.clientX - box.left) / box.width * width - left) / (width - left - right) * (maxX - minX);
-    setHover(rows.reduce((best, row, i) => Math.abs(row.price - target) < Math.abs(rows[best].price - target) ? i : best, 0));
-  };
-  return <div className="vd-chart"><svg viewBox={`0 0 ${width} ${height}`} role="img" tabIndex={0}
-    aria-label={tr('voldeck.ui_p_l_chart_gold_at_expiry_cyan_scenario_grey_today_use__270')}
-    onPointerMove={hoverAt} onPointerLeave={() => setHover(null)} onKeyDown={e => { if (['ArrowLeft', 'ArrowRight'].includes(e.key)) { e.preventDefault(); setHover(v => Math.max(0, Math.min(rows.length - 1, (v ?? Math.floor(rows.length / 2)) + (e.key === 'ArrowLeft' ? -1 : 1)))); } }}>
-    <defs><linearGradient id="vd-profit-wash" x1="0" y1="0" x2="0" y2="1"><stop stopColor="#2cb8a2" stopOpacity=".10" /><stop offset="1" stopColor="#2cb8a2" stopOpacity="0" /></linearGradient></defs>
-    <rect x={left} y={top} width={width-left-right} height={y(0)-top} fill="url(#vd-profit-wash)" />
-    {[0,1,2,3,4].map(i => { const val = minY + (maxY-minY)*i/4; return <g key={i}><line className="vd-grid-line" x1={left} x2={width-right} y1={y(val)} y2={y(val)} stroke="#26364f" strokeDasharray="2 5" /><text x={left-10} y={y(val)+4} textAnchor="end">{volNumber(val, 0)}</text></g>; })}
-    {[0,1,2,3,4,5,6].map(i => { const val = minX+(maxX-minX)*i/6; return <g key={i}><text x={x(val)} y={height-15} textAnchor="middle">{volNumber(val, 1)}</text></g>; })}
-    <line className="vd-zero-line" x1={left} x2={width-right} y1={y(0)} y2={y(0)} stroke="#7689a6" />
-    {result.breakevens.filter(v => v >= minX && v <= maxX).map(v => <g key={v}><line className="vd-breakeven-line" x1={x(v)} x2={x(v)} y1={top} y2={height-bottom} stroke="#9b804f" strokeDasharray="3 5" /><circle className="vd-breakeven-point" cx={x(v)} cy={y(0)} r="4" fill="#e9ba64" /></g>)}
-    <path className="vd-payoff-today" d={path('today')} stroke="#91a2ba" strokeWidth="1.6" strokeDasharray="5 5" fill="none" />
-    {result.same_expiry && <path className="vd-payoff-expiry" d={path('expiry')} stroke="#e9ba64" strokeWidth="3" fill="none" />}
-    <path className="vd-payoff-scenario" d={path('scenario')} stroke="#55d6ef" strokeWidth="2.5" fill="none" />
-    {hoverRow && <g><line className="vd-hover-line" x1={x(hoverRow.price)} x2={x(hoverRow.price)} y1={top} y2={height-bottom} stroke="#c6d3e7" strokeDasharray="2 3" /><circle className="vd-hover-point" cx={x(hoverRow.price)} cy={y(hoverRow.scenario)} r="5" fill="#55d6ef" stroke="#08101e" strokeWidth="2" /></g>}
-  </svg><div className="vd-chart-legend"><span className="expiry">{result.same_expiry ? tr('voldeck.ui_at_expiry_271') : tr('voldeck.ui_single_payoff_not_defined_272')}</span><span className="scenario">{tr('voldeck.ui_theoretical_scenario_273')}</span><span className="today">{tr('voldeck.ui_theoretical_value_today_274')}</span><span>{tr('voldeck.ui_underlying_price_275')}{result.currency})</span></div>
-  <div className="vd-chart-reading" aria-live="polite">{hoverRow ? <>{tr('voldeck.ui_price_276')}{' '}<b>{volNumber(hoverRow.price)}</b><span>{tr('voldeck.ui_scenario_p_l')}{' '}<b>{volNumber(hoverRow.scenario)}</b></span><span>{tr('voldeck.ui_p_l_at_expiry_277')}{' '}<b>{volNumber(hoverRow.expiry)}</b></span></> : tr('voldeck.ui_point_at_the_chart_or_use_arrow_keys_to_compare_result_278')}</div></div>;
-}
-
-function ScenarioHeatmap({ result }: { result: StrategyResult }) {
-  const max = Math.max(1, ...result.heatmap.flatMap(r => r.cells.map(c => Math.abs(c.pnl))));
-  return <div className="vd-heatmap"><h4>{tr('voldeck.ui_if_price_changes_as_time_passes_279')}</h4><p>{tr('voldeck.ui_theoretical_p_l_with_the_chosen_iv_shock_columns_price_280')}</p><div><table><thead><tr><th>{tr('voldeck.ui_days_281')}</th>{result.heatmap[0]?.cells.map(c => <th key={c.price}>{volNumber(c.price, 1)}</th>)}</tr></thead><tbody>{result.heatmap.map((row, i) => <tr key={i}><th>{volNumber(row.elapsed_days, 1)}</th>{row.cells.map(c => <td key={c.price} style={{ backgroundColor: c.pnl >= 0 ? `rgba(45,177,161,${.07 + Math.abs(c.pnl)/max*.35})` : `rgba(220,102,124,${.07 + Math.abs(c.pnl)/max*.35})` }} title={tr('voldeck.fmt_price_a_day_b_p_l_c_d__17', {a: volNumber(c.price), b: volNumber(row.elapsed_days, 1), c: volNumber(c.pnl), d: result.currency})}>{volNumber(c.pnl, 0)}</td>)}</tr>)}</tbody></table></div></div>;
 }

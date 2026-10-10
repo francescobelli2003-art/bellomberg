@@ -35,9 +35,46 @@ except Exception:
 TIINGO_KEY = os.environ.get("TIINGO_API_KEY", "")
 BASE = "https://api.tiingo.com"
 
+# ── SPENTA per decisione PM (10/10, Opus 5.5) ────────────────────────────────
+# Abbonamento News API NON rinnovato: ogni giro tornava HTTP 403 «You do not have
+# permission to access the News API» e il feed si dichiarava DEGRADATO per una fonte
+# che nessuno paga piu'. Con la fonte spenta: NESSUNA chiamata HTTP, `last_status()`
+# dice {"stato": "SPENTA", "motivo": ...} e news_aggregator la elenca in
+# `fonti_spente()` (non in `providers_blocked()`: spenta non e' guasta). La chiave nel
+# .env resta dov'e'. RIATTIVAZIONE = un interruttore: `TIINGO_NEWS_ENABLED=1` nel .env
+# (letto all'import, quindi al prossimo avvio del backend). Pattern: reddit_news.FONTE_SPENTA.
+# Il codice di rete resta, dormiente e coperto dai test (che accendono il flag).
+_INTERRUTTORE = os.environ.get("TIINGO_NEWS_ENABLED", "").strip()
+FONTE_SPENTA = _INTERRUTTORE != "1"
+if _INTERRUTTORE not in ("", "0", "1"):
+    # valore non valido: si resta SPENTI (il lato sicuro: nessuna spesa, nessun 403), ma si dice
+    try:
+        print("  [TIINGO] TIINGO_NEWS_ENABLED=%r non valido (attesi 0 o 1): fonte SPENTA"
+              % _INTERRUTTORE[:20], flush=True)
+    except (OSError, ValueError):
+        pass
+MOTIVO_SPENTA = ("abbonamento Tiingo News API non rinnovato (decisione PM 10/10); "
+                 "riattivazione: TIINGO_NEWS_ENABLED=1 nel .env")
+MOTIVO_SPENTA_EN = ("Tiingo News API subscription not renewed (PM decision 10/10); "
+                    "to re-enable: TIINGO_NEWS_ENABLED=1 in .env")
+if _INTERRUTTORE not in ("", "0", "1"):
+    # 10/10 v2 (riserva 5): il valore sbagliato si legge anche in fonti_spente()/rotte, non
+    # solo nella riga stampata all'import (che nel processo del backend nessuno guarda)
+    MOTIVO_SPENTA = ("valore non valido: %r in TIINGO_NEWS_ENABLED (attesi 0 o 1); %s"
+                     % (_INTERRUTTORE[:20], MOTIVO_SPENTA))
+    MOTIVO_SPENTA_EN = ("invalid value: %r in TIINGO_NEWS_ENABLED (expected 0 or 1); %s"
+                        % (_INTERRUTTORE[:20], MOTIVO_SPENTA_EN))
+
+
+def tiingo_spenta() -> bool:
+    """True se la fonte e' spenta per decisione (letto a ogni chiamata: i test lo cambiano)."""
+    return bool(FONTE_SPENTA)
+
 
 def tiingo_available() -> bool:
-    return bool(REQ_OK and TIINGO_KEY)
+    """«Ha senso interrogarla?»: False anche da SPENTA (come reddit_available). Chi deve
+    distinguere SPENTA da SENZA_CHIAVE chiede prima `tiingo_spenta()`."""
+    return bool(REQ_OK and TIINGO_KEY and not FONTE_SPENTA)
 
 
 # ── Tiingo DICHIARATO (04/10, B1 — Opus 5.5) ────────────────────────────────
@@ -115,7 +152,7 @@ def last_status() -> Optional[Dict[str, Any]]:
 
     None = mai interrogata (chi legge NON deve dichiarare la fonte muta).
     Forma: {"stato": "live"|"HTTP_<code>"|"ERRORE_<Tipo>"|"RISPOSTA_INATTESA"|
-    "SENZA_CHIAVE"|"VUOTO_SOSPETTO", "http": int|None, "path": "/tiingo/news", "quando": iso,
+    "SENZA_CHIAVE"|"VUOTO_SOSPETTO"|"SPENTA", "http": int|None, "path": "/tiingo/news", "quando": iso,
     "mono": float, "n_item": int}. Restituisce una COPIA.
     """
     with _STATO_LOCK:
@@ -154,7 +191,12 @@ def fetch_tiingo_news(tickers: Optional[List[str]] = None,
     DICHIARATO: riga `[TIINGO]` nel log, `last_status()` aggiornato a OGNI
     chiamata, e — se il chiamante passa `motivo` — il perche' in coda alla
     lista. Lista vuota + `motivo` vuoto = zero MISURATO (200 senza articoli).
+    SPENTA (10/10): nessuna rete, stato SPENTA dichiarato, motivo in coda.
     """
+    if FONTE_SPENTA:
+        _segna_stato("SPENTA")
+        _muto(motivo, f"SPENTA: {MOTIVO_SPENTA} — {PATH_NEWS} non interrogato")
+        return []
     if not REQ_OK:
         _segna_stato("ERRORE_ImportError")
         _muto(motivo, f"modulo requests non disponibile: {PATH_NEWS} non interrogato")
@@ -220,7 +262,9 @@ def fetch_tiingo_news(tickers: Optional[List[str]] = None,
 if __name__ == "__main__":
     # smoke test: python tiingo_news.py [TICKER ...]
     import sys
-    if not tiingo_available():
+    if tiingo_spenta():
+        print("Tiingo News SPENTA: " + MOTIVO_SPENTA)
+    elif not tiingo_available():
         print("TIINGO_API_KEY mancante in .env (o requests non installato)")
     else:
         # 04/09 (criterio (1)): i simboli di prova arrivano da riga di comando, non dal

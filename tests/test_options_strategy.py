@@ -65,13 +65,14 @@ def test_zero_cost_identical_opposite_legs_have_zero_curves():
     assert out["breakeven_intervals"] == [{"from": 0, "to": None}]
 
 
-def test_calendar_has_no_fictitious_final_payoff_and_rejects_horizon_beyond_first_expiry():
+def test_calendar_first_expiry_is_declared_model_value_and_rejects_horizon_beyond_first_expiry():
+    # 09/10 (Opus 5.5, audit M6): mixed expiries now carry the P/L at the FIRST expiry, valued with
+    # BSM on the live legs and labelled `model_first_expiry` (it is not a single exact payoff).
     data = payload()
     data["legs"][1]["days"] = 60
     out = simulate_strategy(data)
-    assert out["same_expiry"] is False
-    assert all(row["expiry"] is None for row in out["curve"])
-    assert out["max_profit"] is None and out["breakevens"] == []
+    assert out["same_expiry"] is False and out["expiry_basis"] == "model_first_expiry"
+    assert all(row["expiry"] is not None for row in out["curve"])
     data["elapsed_days"] = 31
     with pytest.raises(ValueError, match="prima scadenza"):
         simulate_strategy(data)

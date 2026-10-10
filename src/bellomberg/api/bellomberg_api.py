@@ -2307,12 +2307,26 @@ if FASTAPI_OK:
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='trade_idea_runs'"
             ).fetchone() is not None
         provenance = {}
+        # 09/10 (B2, Opus 5.5): schema Trade Idea parziale/incompatibile = provenienza
+        # Trade Idea n.d. DICHIARATA in 'trade_idea_storage' (stesso contratto delle
+        # rotte /trade-ideas), mai 500: le decisioni e le note R01 restano servite.
+        trade_idea_storage = None
         if has_trade_ideas:
-            from bellomberg.storage.trade_idea_store import TradeIdeaStore
-            idea_store = TradeIdeaStore(db.db_path)
-            for offset in range(0, len(rows), 1000):
-                provenance.update(idea_store.lookup_decisions(
-                    [row["id"] for row in rows[offset:offset + 1000]]))
+            from bellomberg.storage.trade_idea_store import TradeIdeaStore, StorageNotReady
+            try:
+                idea_store = TradeIdeaStore(db.db_path)
+                for offset in range(0, len(rows), 1000):
+                    provenance.update(idea_store.lookup_decisions(
+                        [row["id"] for row in rows[offset:offset + 1000]]))
+            except StorageNotReady as exc:
+                provenance, trade_idea_storage = {}, dict(exc.storage)
+            except Exception:
+                # guasto non classificato dalla diagnosi: dichiarato, mai il testo SQL
+                provenance = {}
+                trade_idea_storage = {
+                    "status": "lookup_failed", "error_code": "trade_idea_lookup_failed",
+                    "update_required": False, "action": "check_database_access",
+                    "documentation": "docs/TRADE_IDEA.md#aggiornamento-storage"}
         # 04/10 (W2, Opus 5.5): voci RESEARCH nate da un trigger watch Trade Idea
         # (origin 'trade_idea_trigger'), unite nella stessa chiave 'trade_idea'. Schema
         # watch assente o illeggibile = provenienza trigger n.d. DICHIARATA, mai 500.
@@ -2335,7 +2349,8 @@ if FASTAPI_OK:
             d["esecuzione"] = executions.get(d["id"])
             d["trade_idea"] = provenance.get(d["id"])
             d["manual_divergences"] = db.get_manual_trade_divergences(d["id"])
-        return {"decisions": rows, "watch_provenance_error": watch_error}
+        return {"decisions": rows, "watch_provenance_error": watch_error,
+                "trade_idea_storage": trade_idea_storage}
 
     @app.get("/decisions/{decision_id}/events")
     def decision_events(decision_id: int):
@@ -3032,39 +3047,12 @@ if FASTAPI_OK:
                 return r  # Coverage remains visible even when no slice could be loaded.
             if r.get("error"):
                 raise HTTPException(502, r["error"])
-            try:
-                from bellomberg.market_data.iv_history import get_iv_context
-                r["iv_history_context"] = get_iv_context(ticker)
-            except Exception as e:
-                r["iv_history_context"] = {"error": str(e)}
-            # GEX dealer per il pannello F12 (richiesta frontend 25/07 sera,
-            # ponte sanato in (44)): riuso PURO di compute_gex (#177), solo
-            # rinomina chiavi verso il contratto UI. Campo additivo, errore
-            # dichiarato: F12 non si rompe mai. NB: chain rifetchata da
-            # Polygon (fetch separato da vol_surface) — dichiarato in (44).
-            try:
-                from bellomberg.portfolio.positioning_tools import compute_gex
-                g = compute_gex(ticker)
-                if g.get("error"):
-                    r["gex"] = {"error": g["error"]}
-                else:
-                    r["gex"] = {
-                        "by_strike": [{"strike": row.get("strike"),
-                                       "gex_1pct_usd": row.get("net_gex_usd"),
-                                       "call_oi": row.get("call_oi"),
-                                       "put_oi": row.get("put_oi")}
-                                      for row in g.get("top_strikes", [])],
-                        "flip_strike": g.get("gamma_flip_strike"),
-                        "net_gex_1pct_usd": g.get("net_gex_usd_per_1pct"),
-                        "spot_est": g.get("spot_est"),
-                        "regime": g.get("regime"),
-                        "basis": ("SqueezeMetrics conv. (dealer long call / short put Γ) · "
-                                  f"{len(g.get('expiries_used', []))} expiry ≤45g · "
-                                  "12 strike top |GEX| · OI da snapshot delayed, "
-                                  "deep-OTM senza greeks esclusi"),
-                    }
-            except Exception as e:
-                r["gex"] = {"error": str(e)}
+            # IV rank + GEX dealer (F12): helper unico condiviso con
+            # /options/download/{id}/context (A4 audit Vol Deck, 09/10). NB: il GEX
+            # rifetcha le chain da Polygon (fetch separato, dichiarato in
+            # context_sources con l'ora del fetch).
+            from bellomberg.portfolio.vol_surface import context_panels
+            r.update(context_panels(ticker))
             return r
         except HTTPException:
             raise
@@ -3941,7 +3929,7 @@ if FASTAPI_OK:
     # Store live subprocess handles so we can cancel them (consigliere_multi runs)
     _CONSIGLIERE_PROCS: Dict[str, subprocess.Popen] = {}
     from bellomberg.api.trade_idea_routes import install_trade_idea_routes, active_paid_reason
-    from bellomberg.storage.trade_idea_store import TradeIdeaStore
+    from bellomberg.storage.trade_idea_store import TradeIdeaStore, StorageNotReady
     install_trade_idea_routes(app, require_session, db_path=valuation_db_path,
         weekly_active=lambda: bool(_CONSIGLIERE_PROCS or any(
             st.get("status") == "running" for st in run_state.runs.values())))
@@ -3969,10 +3957,22 @@ if FASTAPI_OK:
                 409,
                 _api_text(f'Una run consigliere e gia in corso (task_id={existing}). Fermala prima con POST /consigliere/cancel_all o il pulsante STOP.', f'A consigliere run is already in progress (task_id={existing}). Cancel it first via POST /consigliere/cancel_all or STOP button.')
             )
+        # 09/10 (B4, Opus 5.5): store Trade Idea non pronto = controllo «Trade Idea
+        # attiva» NON eseguito, DICHIARATO in risposta/stato/log; la weekly non si blocca.
+        trade_idea_check = {"status": "completed", "reason": None, "storage": None}
         try:
             trade_idea_store = TradeIdeaStore(valuation_db_path)
-        except (FileNotFoundError, RuntimeError):
+        except StorageNotReady as exc:
             trade_idea_store = None
+            trade_idea_check = {"status": "not_run", "reason": "trade_idea_storage_unavailable",
+                                "storage": dict(exc.storage)}
+        except (FileNotFoundError, RuntimeError) as exc:
+            trade_idea_store = None
+            trade_idea_check = {"status": "not_run",
+                                "reason": "trade_idea_store_error:" + type(exc).__name__,
+                                "storage": None}
+        # La guardia OS (run pagata da CLI, committee_paid_run.lock) si consulta SEMPRE,
+        # anche con store None: due run pagate insieme e' il rischio reale (R14b M2).
         paid_reason = active_paid_reason(trade_idea_store)
         if paid_reason:
             raise HTTPException(409, paid_reason)
@@ -3993,6 +3993,7 @@ if FASTAPI_OK:
         throttle(request)
         task_id = "run_" + datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + secrets.token_hex(4)
         run_state.start(task_id)
+        run_state.runs[task_id]["trade_idea_active_check"] = trade_idea_check
 
         def _bg_run():
             log_f = None
@@ -4015,6 +4016,18 @@ if FASTAPI_OK:
                                  errors="replace", buffering=1)
                     log_f.write("\n" + "=" * 70 + "\n[" + task_id + "] START "
                                 + datetime.now().isoformat(timespec="seconds") + "\n")
+                    # 10/10 (B4, Opus 5.5): run_state e' in memoria; l'esito del controllo va
+                    # anche nel log come UNA riga JSON compatta (sopravvive al riavvio), sempre,
+                    # e la riga leggibile distingue lock passeggero (db_busy) da migrazione.
+                    _ti_storage = trade_idea_check.get("storage") or {}
+                    if trade_idea_check["status"] != "completed":
+                        log_f.write("[" + task_id + "] TRADE IDEA ACTIVE CHECK NOT RUN: "
+                                    + str(trade_idea_check["reason"])
+                                    + " storage_status=" + str(_ti_storage.get("status"))
+                                    + " error_code=" + str(_ti_storage.get("error_code")) + "\n")
+                    log_f.write("[" + task_id + "] TRADE_IDEA_ACTIVE_CHECK "
+                                + json.dumps(trade_idea_check, sort_keys=True,
+                                             separators=(",", ":"), ensure_ascii=True) + "\n")
                 except Exception:
                     log_f = None  # senza log si prosegue comunque
                 # Popen (non-blocking) so we can kill it via /cancel
@@ -4078,6 +4091,7 @@ if FASTAPI_OK:
 
         background_tasks.add_task(_bg_run)
         return {"task_id": task_id, "status": "running",
+                "trade_idea_active_check": trade_idea_check,
                 "message": _api_text('Run consigliere avviata. Stato: /consigliere/status/', 'Consigliere run started. Check /consigliere/status/') + task_id}
 
     @app.post("/consigliere/cancel/{task_id}", dependencies=[Depends(require_session)])

@@ -848,7 +848,7 @@ async function renderer(config) {
         const volAxisTitle = options.verifyVolAxisTitle ? await js(() => {
           const graph = document.querySelector('main [data-page="vol"] [data-vol-3d]');
           const title = document.querySelector('main [data-page="vol"] [data-vol-axis-title="expiry"]');
-          const card = graph?.closest('.p3');
+          const card = graph?.closest('.bbn-card');
           const rect = element => {
             if (!element) return null;
             const box = element.getBoundingClientRect();

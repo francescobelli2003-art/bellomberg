@@ -542,6 +542,12 @@ def validate_memo(memo, usage):
             or usage.get("stop_reason") != "end_turn"):
         raise WeeklyRunBlocked("Capo non completo: " + str((usage or {}).get("error") or
                                                           (usage or {}).get("stop_reason") or "memo non valido"))
+    # Opus 5.5 (10/10): the paid memo survives a failed notes receipt only if it says so.
+    from bellomberg.agents.capo import RICEVUTA_NOTE_MANCANTE
+    if ((usage.get("research_notes_receipt") is not None or usage.get("research_notes_receipt_error"))
+            and (usage.get("research_notes_receipt") != "missing" or not usage.get("research_notes_receipt_error")
+                 or RICEVUTA_NOTE_MANCANTE not in memo)):
+        raise WeeklyRunBlocked("Capo: ricevuta note Ricerca mancante non dichiarata nel memo")
 
 
 def file_receipt(path, *, kind):

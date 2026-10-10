@@ -88,15 +88,24 @@ export function dataTrade(day: string, time: string, today: string): string | un
   return `${value.iso}T${time.trim().length === 5 ? time.trim() + ':00' : time.trim()}`;
 }
 
+/** Collegamento sospeso (10/10, Opus 5.5): GET /decisions dichiara `trade_idea_storage` (provenienza Trade
+ *  Idea NON letta) e la decisione non porta `trade_idea`. Quel null vuol dire «non letto», non «nessuna Trade
+ *  Idea»: la decisione potrebbe venire da una run non completata o non DCN, quindi non si collega finche' la
+ *  provenienza non si legge. Una `trade_idea` presente e' stata letta e si valuta come sempre. */
+export function collegamentoSospeso(d: Pick<Decision, 'trade_idea'>, tradeIdeaStorage: unknown): boolean {
+  return tradeIdeaStorage != null && !d.trade_idea;
+}
+
 export function decisioneCompatibile(d: Pick<Decision, 'ticker' | 'action' | 'status' | 'veto' | 'trade_idea'>
                                       & Partial<Pick<Decision, 'assessment_status'>>,
                                      ticker: string, action: string,
-                                     verifiedTickerAlias = false): boolean {
+                                     verifiedTickerAlias = false,
+                                     tradeIdeaStorage: unknown = null): boolean {
   const side = (s: string) => ['BUY', 'ADD'].includes(s) ? 'buy'
     : ['SELL', 'TRIM'].includes(s) ? 'sell' : null;
   const idea = d.trade_idea;
-  const usableIdea = !idea || (idea.technical_status === 'completed'
-    && idea.destination_kind === 'dcn' && idea.artifacts_ready === true);
+  const usableIdea = !collegamentoSospeso(d, tradeIdeaStorage) && (!idea || (idea.technical_status === 'completed'
+    && idea.destination_kind === 'dcn' && idea.artifacts_ready === true));
   return usableIdea
     && (d.ticker.toUpperCase() === ticker.toUpperCase() || verifiedTickerAlias)
     && !!side(action) && side(d.action) === side(action)
@@ -117,12 +126,15 @@ export function legameIniziale(decisionFromRoute: string | null): string {
 }
 
 export function legameTrade(selection: string, decisions: Decision[], ticker: string, action: string,
-                            verifiedTickerAlias = false) {
+                            verifiedTickerAlias = false, tradeIdeaStorage: unknown = null) {
   if (selection === 'none') return { senza_decisione: true };
   if (selection === 'unknown') return { senza_decisione: false };
   const id = Number(selection);
   const decision = Number.isSafeInteger(id) && id > 0 ? decisions.find(d => d.id === id) : undefined;
-  if (!decision || !decisioneCompatibile(decision, ticker, action, verifiedTickerAlias)) {
+  if (decision && collegamentoSospeso(decision, tradeIdeaStorage)) {
+    throw new FrontendTradeError(() => tr('trade.link_suspended_unreadable'));
+  }
+  if (!decision || !decisioneCompatibile(decision, ticker, action, verifiedTickerAlias, tradeIdeaStorage)) {
     throw new FrontendTradeError(() => tr('trade.decision_incompatible'));
   }
   return { senza_decisione: false, linked_decision_id: id };

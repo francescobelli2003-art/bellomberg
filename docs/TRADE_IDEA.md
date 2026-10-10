@@ -350,6 +350,11 @@ and a `storage` object containing `status`, `error_code`, `update_required`,
 | `db_missing` | false | `check_database_path` |
 | `schema_incompatible` | false | `inspect_schema` |
 | `db_unreadable` | false | `check_database_access` (permissions/integrity) |
+| `db_busy` | false | `retry` (another connection holds a lock; transient) |
+
+`db_busy` is chosen only from the SQLite error code (`SQLITE_BUSY`/`SQLITE_LOCKED`,
+extended codes included, exposed by Python 3.11+), never from the message text; without
+the code it remains `db_unreadable`. The diagnosis stays read-only.
 
 Preflight keeps its existing HTTP 200, `ok: false` and blocking `reasons`, and
 adds the same `storage` diagnosis when storage prevents admission. Its public
@@ -360,6 +365,33 @@ qualification verdict. A skipped check has no source-failure reasons; the real
 blocking reasons remain at preflight level. Genuine identity errors, returned
 source failures and executed research-mode mismatches still block admission.
 The execution marker is public metadata; accepted source fingerprints are unchanged.
+
+The same diagnosis reaches the remaining surfaces. `GET /trade-ideas/runs/{id}/workspace`
+refuses with the same 503 body (`detail`, `error_code`, `storage`). `GET /decisions` never
+fails because of Trade Idea storage: it adds `trade_idea_storage` (null when provenance
+was read or no Trade Idea table exists; otherwise the `storage` object, or
+`status: lookup_failed` / `error_code: trade_idea_lookup_failed` for an unclassified read
+failure); run provenance is then absent from every row's `trade_idea` (watch-trigger
+provenance, declared separately in `watch_provenance_error`, may still appear). Saved runs (`GET /runs`, `/runs/{id}`)
+expose `source_qualification.execution_status`: `completed` for runs accepted after the
+source counter-check was recorded, `unknown_legacy` for older runs that never stored it.
+The stored marker is the start preflight's measured `execution_status`; `POST /runs`
+refuses with 428 (`Controverifica delle fonti del preflight non eseguita
+(execution_status=...)`) unless the route's own counter-check returned and the measure is
+`completed`. Continuations copy the root's accepted request, so they inherit its marker:
+a continuation's `completed` refers to the counter-check executed when the root run was
+accepted (a continuation performs no new source counter-check), and a continuation of a
+legacy root is `unknown_legacy`.
+`POST /consigliere/run` adds `trade_idea_active_check` (`status` `completed` or `not_run`,
+`reason`, `storage`), also kept in `/consigliere/status/{task_id}` and in the run log; an
+unready store does not block the weekly run, it only declares the skipped check. The OS
+guard on a paid run started from the CLI (`committee_paid_run.lock`) is consulted even when
+the store is not ready. Because the task status lives in memory, the run log
+(`consigliere_run.log`) always records one compact JSON line
+`[<task_id>] TRADE_IDEA_ACTIVE_CHECK {...}` with the same object, which survives a backend
+restart; a skipped check also writes `TRADE IDEA ACTIVE CHECK NOT RUN: <reason>
+storage_status=<status> error_code=<code>`, so a transient lock (`db_busy`) is told apart
+from a missing migration.
 
 ## Installation and offline verification
 

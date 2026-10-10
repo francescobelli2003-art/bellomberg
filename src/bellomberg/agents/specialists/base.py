@@ -2271,15 +2271,30 @@ class Specialist:
             preamble += "\n\n" + valuation_results_block(self.blackboard.valuation_results)
         # SCORE DETERMINISTICO (#186): ancora numerica calcolata in codice, l'LLM narra.
         # Cache per-run nel blackboard: lo scorer (anche pesante, es. DCF) gira UNA volta.
-        if round_n in (0, 1):
+        # Opus 5.5 09/10: la valutazione del book nasce DOPO il Round 1
+        # (_ensure_portfolio_valuations): lo score fundamentals dei round 0/1 leggeva i file
+        # su disco (fino a 30 gg). In R2 lo si RICALCOLA sulle valutazioni della run e lo si
+        # rimette in cache, cosi' desk R2, Capo e PDF vedono lo stesso score aggiornato.
+        _rinfresca = (round_n == 2 and self.name == "fundamentals"
+                      and not is_research_mode(self.blackboard)
+                      and bool(getattr(self.blackboard, "valuation_results", None)))
+        if round_n in (0, 1) or _rinfresca:
             errori = self.blackboard.data.setdefault("_score_errors", {})
             cache = self.blackboard.data.setdefault("_score_cache", {})
             try:
-                if self.name in cache:
+                if self.name in cache and not _rinfresca:
                     sc = cache[self.name]
                 else:
+                    if _rinfresca:
+                        errori.pop(self.name, None)   # l'errore di R1 non descrive il ricalcolo
                     sc = self.compute_score()
                     cache[self.name] = sc
+                if _rinfresca:
+                    preamble += ("\n\n[SCORE AGGIORNATO] Ricalcolato in Round 2 sulle valutazioni "
+                                 "di QUESTA run: sostituisce lo score del Round 1."
+                                 + ("" if sc and sc.get("score") is not None
+                                    else " Esito: score n.d. (motivo nelle righe sotto)." if sc
+                                    else " Esito: score n.d. (nessun nome misurabile)."))
                 if sc:
                     from bellomberg.agents.specialist_scores import format_score_block
                     preamble = preamble + "\n\n" + format_score_block(sc)
@@ -2839,7 +2854,10 @@ class Specialist:
                     _rb = research_block(sector_bundles=None if _research else self._sector_bundles,
                                          decision_links=None if _research else self._research_decision_links,
                                          legacy=True)
-                if _rb:
+                if _rb and _frozen_notes is not None:
+                    # Byte-identical to the attested block (receipt sha/contains); no strip.
+                    _ctx = _rb + "\n\n" + _ctx
+                elif _rb:
                     _ctx = _rb.strip() + "\n\n" + _ctx
             except Exception as e:
                 causa = _dichiara_fallback("research_block[fundamentals]", e)
@@ -2995,6 +3013,9 @@ class Specialist:
         _inflight_tools = deepcopy((saved_checkpoint or {}).get("inflight_tools", {}))
         _response_recovery = (saved_checkpoint or {}).get("response_recovery")
         _recovery_call_offset = (saved_checkpoint or {}).get("response_recovery_call_offset", 0)
+        # 1 when the notes delivery check stops this iteration BEFORE dispatch: that
+        # iteration is counted by `iteration` but no paid request left (Opus 5.5, 10/10).
+        _notes_unpaid_call = 0
         progress_callback = getattr(self.blackboard, "model_authoring_progress", None)
         author_progress_version = ((saved_checkpoint or {}).get("author_progress_version")
             if saved_checkpoint is not None else 1 if self._is_trade_idea_model_author(round_n, task_context)
@@ -3112,6 +3133,14 @@ class Specialist:
                             from bellomberg.agents.model_authoring_context import project_model_authoring_messages
                             _, _kw["model_authoring_context_projection"] = project_model_authoring_messages(
                                 _checkpoint_json(messages))
+                        if self.name == 'fundamentals' and round_n in (1, 2) and _frozen_notes is not None:
+                            from bellomberg.core.current_facts import check_research_notes_delivery
+                            try:
+                                check_research_notes_delivery(self.blackboard, 'fundamentals:' + str(round_n),
+                                                              messages[0]['content'])  # before paying
+                            except BaseException:
+                                _notes_unpaid_call = 1
+                                raise
                         response = self._chiama_modello(
                             model=self._model_for_round(round_n),
                             max_tokens=max_tokens,
@@ -3218,7 +3247,7 @@ class Specialist:
                     self.blackboard.record_usage(
                         self.name, round_n, self._model_for_round(round_n), _usage,
                         duration_s=round(time.perf_counter() - _t0, 2),
-                        api_calls=iteration + _retry_529 + _retry_vuoto + _recovery_call_offset,
+                        api_calls=iteration + _retry_529 + _retry_vuoto + _recovery_call_offset - _notes_unpaid_call,
                         cache_ttl=CACHE_TTL if USE_PROMPT_CACHING else None,
                         status="api_error", retry_vuoto=_retry_vuoto, lavoro=self._lavoro_corrente())
                 except Exception as ue:

@@ -35,7 +35,11 @@ class _R:
 
 
 @pytest.fixture(autouse=True)
-def _stato_pulito():
+def _stato_pulito(monkeypatch):
+    # 10/10: Tiingo News e' SPENTA per decisione PM (abbonamento non rinnovato). Questi test
+    # provano il codice di rete DORMIENTE, quello che torna vivo con TIINGO_NEWS_ENABLED=1:
+    # lo si accende qui. La fonte spenta ha i suoi test in test_tiingo_spenta_gnews_top.py.
+    monkeypatch.setattr(tiingo_news, "FONTE_SPENTA", False)
     tiingo_news.reset_status()
     yield
     tiingo_news.reset_status()

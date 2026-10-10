@@ -132,23 +132,28 @@ def sig_vol_risk_premium(ticker: str, esiti=None) -> List[Dict[str, Any]]:
             return []
         _dico(_DetectorOutcome("queried"))
         out = []
-        ivrv = vs.get("iv_rv_spread_front")
+        ivrv = vs.get("iv_rv_spread_30d", vs.get("iv_rv_spread_front"))  # 09/10 (M8): IV 30g - RV 21 sedute; il vecchio nome e' alias dello stesso valore
         rvp = vs.get("rv_percentile_1y")
         em = vs.get("expected_move_pct")
         emd = vs.get("expected_move_days")
         if ivrv is not None:
             sp = ivrv * 100
+            # fix 09/10 (Opus 5.5, audit SCORE-VOL-QUANT §3.3): il PREZZO della volatilita' non
+            # ha una direzione sul titolo. Prima «care» = bearish e «a sconto» = caution: entrambe
+            # spingevano position_doctor verso TRIM/HEDGE, cioe' a COPRIRSI proprio quando il
+            # testo diceva di non comprare protezione. Ora neutral (fuori dal netto direzionale):
+            # la lettura resta, l'azione la decide l'analista sul payoff.
             if sp > 3:
                 out.append(_sig(ticker, "volatility", message("Premio volatilità", "Vol Risk Premium"), f"{sp:+.1f}pt",
-                    message("IV front > realized 30g", "front IV > 30d realized"), "bearish", min(100, 40 + sp * 4),
-                    message("Le opzioni di {ticker} sono CARE: IV {spread:.1f} punti sopra la realizzata. Contesto da vendita di premio coperta (covered call), non da acquisto di protezione.",
-                            "Options on {ticker} are EXPENSIVE: IV is {spread:.1f} points above realized volatility. Context for covered premium selling (covered call), not buying protection.", ticker=ticker, spread=sp),
+                    message("IV 30g > realizzata 21 sedute", "30d IV > 21-session realized"), "neutral", min(100, 40 + sp * 4),
+                    message("Le opzioni di {ticker} sono CARE: IV {spread:.1f} punti sopra la realizzata. Contesto da vendita di premio coperta (covered call), non da acquisto di protezione. Prezzo della volatilita', non una direzione sul titolo.",
+                            "Options on {ticker} are EXPENSIVE: IV is {spread:.1f} points above realized volatility. Context for covered premium selling (covered call), not buying protection. Price of volatility, not a direction on the stock.", ticker=ticker, spread=sp),
                     "vol_surface IV-RV"))
             elif sp < -3:
                 out.append(_sig(ticker, "volatility", message("Premio volatilità", "Vol Risk Premium"), f"{sp:+.1f}pt",
-                    message("IV front < realized 30g", "front IV < 30d realized"), "caution", min(100, 40 + abs(sp) * 4),
-                    message("Le opzioni di {ticker} sono A SCONTO: IV {spread:.1f} punti sotto la realizzata. L'hedge in put costa poco; vendere premio qui e' mal pagato.",
-                            "Options on {ticker} are DISCOUNTED: IV is {spread:.1f} points below realized volatility. Put hedges are inexpensive; premium selling is poorly rewarded here.", ticker=ticker, spread=abs(sp)),
+                    message("IV 30g < realizzata 21 sedute", "30d IV < 21-session realized"), "neutral", min(100, 40 + abs(sp) * 4),
+                    message("Le opzioni di {ticker} sono A SCONTO: IV {spread:.1f} punti sotto la realizzata. L'hedge in put costa poco; vendere premio qui e' mal pagato. Prezzo della volatilita', non una direzione sul titolo.",
+                            "Options on {ticker} are DISCOUNTED: IV is {spread:.1f} points below realized volatility. Put hedges are inexpensive; premium selling is poorly rewarded here. Price of volatility, not a direction on the stock.", ticker=ticker, spread=abs(sp)),
                     "vol_surface IV-RV"))
         if rvp is not None and (rvp >= 80 or rvp <= 20):
             d = "caution" if rvp >= 80 else "neutral"
@@ -190,6 +195,24 @@ def sig_dealer_gamma(ticker: str, esiti=None) -> List[Dict[str, Any]]:
         net = g.get("net_gex_usd_per_1pct")
         if flip is None or spot is None:
             return []
+        if g.get("spot_qualified") is not True:
+            # R02-b (09/10, Opus 5.5): lo "spot" di compute_gex e' uno strike
+            # (delta ~0,5 o mediano), non una quotazione: la posizione rispetto
+            # al flip non e' un fatto di mercato. Si dichiara, senza direzione
+            # ne' forza (fuori dal verdetto di position_doctor).
+            proxy = g.get("spot_source") or "proxy_unlabeled"
+            # review R02 (10/10, Opus 5.5): il rilevatore NON ha misurato nulla -> nella copertura
+            # dell'Edge Scan risulta MUTO col motivo (copertura DEGRADATA), mai «interrogato»/PIENA
+            _dico(_DetectorOutcome("muted", message("non valutato: spot non qualificato ({proxy})",
+                                                    "not evaluated: spot not qualified ({proxy})", proxy=proxy)))
+            return [_sig(ticker, "positioning", message("Gamma dealer (GEX)", "Dealer Gamma (GEX)"),
+                f"flip {flip}, spot proxy {spot} ({proxy})",
+                f"net GEX {net/1e9:+.2f}B$/1%" if net else "",
+                "neutral", 0,
+                message("{ticker}: spot non qualificato ({proxy}, strike e non quotazione): confronto col gamma flip ({flip}) non valutato.",
+                        "{ticker}: spot not qualified ({proxy}, a strike rather than a quote): comparison with the gamma flip ({flip}) not evaluated.",
+                        ticker=ticker, proxy=proxy, flip=flip),
+                "positioning_tools GEX")]
         below = spot < flip
         return [_sig(ticker, "positioning", message("Gamma dealer (GEX)", "Dealer Gamma (GEX)"),
             f"flip {flip}, spot {spot}",

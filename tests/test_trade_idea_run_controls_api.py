@@ -51,7 +51,9 @@ def admission(migrated, monkeypatch):
             "models": [{"role": role, "model": spec["model"], "reasoning_effort": role_effort(policy, role)}
                        for role, spec in accepted["models"].items()],
             "catalog_snapshot": deepcopy(accepted["catalog_snapshot"]),
-            "source_qualification": source_qualification_summary(selected),
+            # come il preflight vero: qualificatore tornato = execution_status 'completed'
+            # (10/10 R14b M5, Opus 5.5: POST /runs salva questa misura, non un letterale)
+            "source_qualification": source_qualification_summary(selected, execution_status="completed"),
             "_source_qualification": deepcopy(selected),
             "preparation": {"required": False, "paid": False, "status": "not_required"},
             "analysis_mode": _k.get("analysis_mode"),

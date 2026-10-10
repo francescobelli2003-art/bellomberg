@@ -61,6 +61,8 @@ function fixtureData() {
       action: i % 2 ? 'HOLD' : 'RESEARCH', ticker: `SYN${String(i + 1).padStart(2, '0')}`,
       eur_amount: 1000 + i, timing: 'synthetic fixture', confidence: 'MEDIUM', status: 'PENDING',
       pm_feedback: null, outcome_pct: null,
+      // R01: le RESEARCH dichiarano le note lette (lista vuota vera), altrimenti la UI mostra «note non disponibili»
+      ...(i % 2 ? {} : { notes: [], notes_status: 'available', notes_error: null }),
     })),
     risk: {
       timestamp: '2026-09-29T12:00:00Z', nav_eur: 146913.56,

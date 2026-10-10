@@ -19,6 +19,10 @@ _POS = {"positions": [{"ticker": "ZZTEST", "valore_mercato_eur": 600.0},
                       {"ticker": "QQSYN.MI", "valore_mercato_eur": 400.0}]}
 _OK = {"verdict": "RECONCILED", "beta_per_decisioni": True,
        "betas": {"portfolio_risk_spy": 1.18, "factor_model_mkt": 1.1}}
+# fix score 09/10 (Opus 5.5): la vol pesa contro il target del mandato (SINTETICO). Coda e
+# cluster non passati = n.d. «non calcolato da questo percorso», fuori dal massimo. Metriche
+# punteggiate qui: vol vs target, beta (se RECONCILED), primo nome singolo, HHI.
+_MAND = {"rischio": {"volatilita_target_pct": 20, "stress_gfc_pct": 25}}
 
 
 def _riga_beta(s):
@@ -29,10 +33,11 @@ def _riga_beta(s):
 
 def test_reconciled_la_beta_pesa():
     from bellomberg.agents.specialist_scores import quant_score
-    s = quant_score(_POS, {"portfolio": dict(_PORT)}, beta_reconcile=_OK)
+    s = quant_score(_POS, mandato=_MAND, risk_data={"portfolio": dict(_PORT)}, beta_reconcile=_OK)
     r = _riga_beta(s)
-    assert r[1] == "1.18" and r[2] == 2
-    assert s["max_score"] == 7 * 3 and s["excluded"] == {}
+    # fix score 09/10: punti CONTINUI, beta 1,18 fra le ancore 0,9 (1 punto) e 1,2 (2 punti)
+    assert r[1] == "1.18" and r[2] == pytest.approx(1.93)
+    assert s["max_score"] == 4 * 3 and s["excluded"] == {}
     assert s["metrics"]["beta_vs_spy"] == 1.18 and s["metrics"]["beta_guardrail"] == "RECONCILED"
 
 
@@ -47,32 +52,34 @@ def test_reconciled_la_beta_pesa():
 def test_fuori_da_reconciled_la_beta_non_pesa_e_si_dichiara(rb, verdetto, codice):
     from bellomberg.agents.specialist_scores import quant_score, format_score_block
     with language_context("it"):
-        s = quant_score(_POS, {"portfolio": dict(_PORT)}, beta_reconcile=rb)
+        s = quant_score(_POS, mandato=_MAND, risk_data={"portfolio": dict(_PORT)}, beta_reconcile=rb)
         blocco = format_score_block(s)
     r = _riga_beta(s)
     assert r[2] is None
     assert r[1] == "n.d.: beta esclusa: guardrail " + verdetto
     assert "1.18" not in r[1]
-    assert s["max_score"] == 6 * 3
+    assert s["max_score"] == 3 * 3
     assert list(s["excluded"].values()) == ["beta esclusa: guardrail " + verdetto]
-    assert s["unscored"] == []          # non e' un dato mancante: e' un'esclusione
+    # non e' un dato mancante: e' un'esclusione (replay e cluster qui non calcolati: n.d. a parte)
+    assert not [u for u in s["unscored"] if "Beta" in u]
     assert s["metrics"]["beta_vs_spy"] is None and s["metrics"]["beta_guardrail"] == codice
     # il blocco per lo specialista dice esclusione, non «dato mancante»
     riga = [x for x in blocco.splitlines() if x.startswith("  - Beta")]
     assert len(riga) == 1 and "esclusa dal punteggio" in riga[0] and "dato mancante" not in riga[0], blocco
     assert "1.18" not in blocco
-    assert "Massimo ricalcolato su 6 metriche: escluse dal punteggio per regola" in blocco, blocco
+    assert "Massimo ricalcolato su 3 metriche: escluse dal punteggio per regola" in blocco, blocco
 
 
 def test_esclusione_e_dato_mancante_insieme_contano_giusto():
-    # beta esclusa + Sharpe n.d.: 5 misurate, le due frasi dicono entrambe 5
+    # beta esclusa + vol n.d. (fix score 09/10: lo Sharpe e' informativo, non piu' punteggiato):
+    # misurate 2 (primo nome, HHI); n.d. vol + replay e cluster non calcolati; le frasi dicono 2
     from bellomberg.agents.specialist_scores import quant_score, format_score_block
     with language_context("it"):
-        s = quant_score(_POS, {"portfolio": {**_PORT, "sharpe": None}}, beta_reconcile={"verdict": "UNRELIABLE"})
+        s = quant_score(_POS, mandato=_MAND, risk_data={"portfolio": {**_PORT, "vol_annual_pct": None}}, beta_reconcile={"verdict": "UNRELIABLE"})
         blocco = format_score_block(s)
-    assert s["max_score"] == 5 * 3
-    assert "Massimo ricalcolato su 5 metriche misurate: escluse perché n.d." in blocco
-    assert "Massimo ricalcolato su 5 metriche: escluse dal punteggio per regola" in blocco
+    assert s["max_score"] == 2 * 3
+    assert "Massimo ricalcolato su 2 metriche misurate: escluse perché n.d." in blocco
+    assert "Massimo ricalcolato su 2 metriche: escluse dal punteggio per regola" in blocco
 
 
 def test_quant_score_non_calcola_mai_il_guardrail(monkeypatch):
@@ -81,13 +88,13 @@ def test_quant_score_non_calcola_mai_il_guardrail(monkeypatch):
     from bellomberg.portfolio import advanced_metrics as am
     monkeypatch.setattr(am, "reconcile_betas", lambda *a, **k: pytest.fail("guardrail calcolato dentro quant_score"))
     with language_context("it"):
-        s = quant_score(_POS, {"portfolio": dict(_PORT)})
+        s = quant_score(_POS, mandato=_MAND, risk_data={"portfolio": dict(_PORT)})
     assert _riga_beta(s)[1] == "n.d.: beta esclusa: guardrail non calcolato da questo percorso"
 
 
 def test_beta_non_misurata_resta_nd_col_suo_motivo():
     from bellomberg.agents.specialist_scores import quant_score
-    s = quant_score(_POS, {"portfolio": {**_PORT, "beta_vs_spy": None}, "beta_error": "SPY finto assente"},
+    s = quant_score(_POS, mandato=_MAND, risk_data={"portfolio": {**_PORT, "beta_vs_spy": None}, "beta_error": "SPY finto assente"},
                     beta_reconcile={"verdict": "UNRELIABLE"})
     r = _riga_beta(s)
     assert r[2] is None and "SPY finto assente" in r[1] and s["excluded"] == {}
@@ -97,7 +104,7 @@ def test_beta_non_misurata_resta_nd_col_suo_motivo():
 def test_in_inglese_la_dichiarazione_e_tradotta():
     from bellomberg.agents.specialist_scores import quant_score
     with language_context("en"):
-        s = quant_score(_POS, {"portfolio": dict(_PORT)}, beta_reconcile=None)
+        s = quant_score(_POS, mandato=_MAND, risk_data={"portfolio": dict(_PORT)}, beta_reconcile=None)
     assert _riga_beta(s)[1] == "n/a: beta excluded: guardrail not computed by this path"
 
 
@@ -113,6 +120,12 @@ def test_lo_specialista_quant_legge_il_guardrail_dalla_blackboard(monkeypatch, d
     from bellomberg.portfolio import portfolio_risk
     monkeypatch.setattr(agent_tools, "tool_get_portfolio_live", lambda: _POS)
     monkeypatch.setattr(portfolio_risk, "compute_portfolio_risk", lambda: {"portfolio": dict(_PORT)})
+    # fix score 09/10: lo specialista passa anche mandato, replay GFC e settori; qui sintetici
+    from bellomberg.core import mandato_pm
+    from bellomberg.portfolio import portfolio_montecarlo, portfolio_sectors
+    monkeypatch.setattr(mandato_pm, "carica", lambda: dict(_MAND))
+    monkeypatch.setattr(portfolio_montecarlo, "run_monte_carlo", lambda **_k: {"error": "replay finto assente"})
+    monkeypatch.setattr(portfolio_sectors, "compute_sector_exposure", lambda **_k: {"error": "settori finti assenti"})
     spec = object.__new__(QuantSpecialist)
     spec.blackboard = SimpleNamespace(data=dati)
     with language_context("it"):
@@ -138,6 +151,14 @@ def test_la_run_calcola_il_guardrail_una_volta_e_il_quant_lo_vede(run_offline, m
     monkeypatch.setattr(sys.modules["bellomberg.portfolio.portfolio_risk"], "compute_portfolio_risk",
                         lambda: {"portfolio": dict(_PORT)})
     monkeypatch.setattr(agent_tools, "tool_get_portfolio_live", lambda: _POS)
+    # fix score 09/10: lo specialista chiede anche replay GFC e settori: finti, zero rete (il mandato e' quello della fixture)
+    import importlib
+    monkeypatch.setattr(sys.modules.get("bellomberg.portfolio.portfolio_montecarlo")
+                        or importlib.import_module("bellomberg.portfolio.portfolio_montecarlo"),
+                        "run_monte_carlo", lambda **_k: {"error": "replay finto assente"}, raising=False)
+    monkeypatch.setattr(sys.modules.get("bellomberg.portfolio.portfolio_sectors")
+                        or importlib.import_module("bellomberg.portfolio.portfolio_sectors"),
+                        "compute_sector_exposure", lambda **_k: {"error": "settori finti assenti"}, raising=False)
     # la fixture sostituisce specialist_scores con un finto: il quant usa lo scorer VERO
     scorer_vero = _SCORER_VERO
     monkeypatch.setattr(sys.modules["bellomberg.agents.specialist_scores"], "quant_score",
@@ -229,21 +250,21 @@ def test_reconciled_senza_il_motore_del_rischio_la_beta_non_pesa(extra, perche):
     # C1: RECONCILED fra gli ALTRI due motori non certifica la beta di portfolio_risk
     from bellomberg.agents.specialist_scores import quant_score
     with language_context("it"):
-        s = quant_score(_POS, {"portfolio": {**_PORT, "beta_vs_spy": 1.6}}, beta_reconcile={**_RB_SENZA_RISCHIO, **extra})
+        s = quant_score(_POS, mandato=_MAND, risk_data={"portfolio": {**_PORT, "beta_vs_spy": 1.6}}, beta_reconcile={**_RB_SENZA_RISCHIO, **extra})
     r = _riga_beta(s)
     assert r[2] is None and "1.6" not in r[1]
     assert s["metrics"]["beta_guardrail"] == "RECONCILED_SENZA_FONTE_RISCHIO"
     assert r[1] == ("n.d.: beta esclusa: guardrail RECONCILED senza la fonte della beta di rischio "
                     "(portfolio_risk_spy " + perche + ")")
-    assert s["max_score"] == 6 * 3 and s["metrics"]["beta_vs_spy"] is None
+    assert s["max_score"] == 3 * 3 and s["metrics"]["beta_vs_spy"] is None
 
 
 def test_errore_e_non_calcolato_sono_frasi_diverse():
     # C2: «non calcolato da questo percorso» (nessun guasto) != «non disponibile (errore)»
     from bellomberg.agents.specialist_scores import quant_score
     with language_context("it"):
-        a = _riga_beta(quant_score(_POS, {"portfolio": dict(_PORT)}, beta_reconcile=None))[1]
-        b = _riga_beta(quant_score(_POS, {"portfolio": dict(_PORT)}, beta_reconcile={"error": "TimeoutError"}))[1]
+        a = _riga_beta(quant_score(_POS, mandato=_MAND, risk_data={"portfolio": dict(_PORT)}, beta_reconcile=None))[1]
+        b = _riga_beta(quant_score(_POS, mandato=_MAND, risk_data={"portfolio": dict(_PORT)}, beta_reconcile={"error": "TimeoutError"}))[1]
     assert a == "n.d.: beta esclusa: guardrail non calcolato da questo percorso"
     assert b == "n.d.: beta esclusa: guardrail non disponibile (TimeoutError)"
 
@@ -290,8 +311,8 @@ def test_capo_dichiara_guardrail_di_un_altro_giorno(run_offline, monkeypatch, qu
 def test_metrics_identici_in_ogni_lingua(rb):
     # metrics = codici stabili; il testo localizzato solo nelle righe/blocco
     from bellomberg.agents.specialist_scores import quant_score
-    it = quant_score(_POS, {"portfolio": dict(_PORT)}, beta_reconcile=rb, language="it")
-    en = quant_score(_POS, {"portfolio": dict(_PORT)}, beta_reconcile=rb, language="en")
+    it = quant_score(_POS, mandato=_MAND, risk_data={"portfolio": dict(_PORT)}, beta_reconcile=rb, language="it")
+    en = quant_score(_POS, mandato=_MAND, risk_data={"portfolio": dict(_PORT)}, beta_reconcile=rb, language="en")
     assert it["metrics"] == en["metrics"]
     assert it["metrics"]["beta_guardrail"] in ("RECONCILED", "UNRELIABLE", "NON_CALCOLATO", "NON_DISPONIBILE",
                                                "RECONCILED_SENZA_VIA_LIBERA", "RECONCILED_SENZA_FONTE_RISCHIO")

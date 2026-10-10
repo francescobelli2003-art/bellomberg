@@ -20,7 +20,10 @@ from bellomberg.core.language import scoped_language, text as _lt
 # brucia la fiducia del PM nel blocco)
 NAV_PCT_TOL_ABS = 0.5       # punti percentuali
 NAV_PCT_TOL_REL = 0.08      # 8% relativo sul valore dichiarato
-SCENARI_SUM_RANGE = (95.0, 105.0)
+# Somma scenari: stessa banda che il prompt del Capo impone (capo.py ~186,
+# "sommare ~100% (98-102)"; decisione PM 09/10, prima 95-105). Unica fonte
+# anche per lo scarto ammesso fra totale dichiarato e somma degli scenari.
+SCENARI_SUM_RANGE = (98.0, 102.0)
 CASH_TOL_REL = 0.05         # 5% sul cash del DB
 SRC_MIN_MISSING = 3         # sotto questa soglia il conteggio [src] non fa rumore
 
@@ -76,13 +79,57 @@ def _check_scenario_sum(memo):
     def normalized(value):
         return re.sub(r"[*_`]", "", value).strip().rstrip(":").strip().casefold()
 
+    total_qualifiers = {"scenari", "scenario", "scenarios", "probabilita", "probabilità",
+                        "probabilita'", "probability", "probabilities", "prob", "arrotondato",
+                        "arrotondata", "rounded", "complessivo", "complessiva", "overall", "ev",
+                        "ponderata", "ponderato", "weighted", "%", "delle", "degli", "dei", "di",
+                        "of", "the", "casi", "cases", "check", "=", "✓"}
+
+    def is_total_label(value):
+        # A total row is a total word ("Totale", "Total", "Tot.", "Somma") followed only
+        # by nothing or explicit qualifiers ("scenari", "probability", "arrotondato", "EV"...),
+        # also inside parentheses: "Total loss", "Somma zero (stallo)", "Total (wipeout)"
+        # are scenarios.
+        label = normalized(value)
+        found = re.match(r"(?:totale|totali|totals?|tot\.?|somma)(?=$|[\s:(.,%/'-])", label)
+        if found is None:
+            return False
+        rest = label[found.end():]
+        return all(word in total_qualifiers for word in re.split(r"[\s/:,.&+()-]+", rest) if word)
+
+    def is_probability_header(value):
+        # "prob" as a word start ("Probab.", "Probs", "Probabile"), never "Problema/Problem".
+        return re.search(r"(?<!\w)prob(?!lem)\w*", value) is not None
+
+    def looks_like_probabilities(rows, header):
+        # A weight-like header ("Peso", "Likelihood", "Odds"...), a probability/weight row
+        # label (transposed table) or an unsigned % column summing 50-150 that is not an
+        # upside, margin, return or target column.
+        weight = r"(?<!\w)(?:pes[oi]|pesatura|weights?|likelihood|odds|chances?)(?!\w)"
+        if any(re.search(weight, h) for h in header) or any(
+                re.search(weight + r"|(?<!\w)prob(?!lem)", normalized(row[0]))
+                for row in rows[2:] if row):
+            return True
+        for j, h in enumerate(header):
+            if j == 0 or re.search(r"upside|downside|margin|rendiment|return|target|prezz|price", h):
+                continue
+            column = [row[j] for row in rows[2:] if len(row) > j and not is_total_label(row[0])]
+            if any(re.search(r"[+\-−]\s*\d", c) for c in column):
+                continue
+            values = [_pct(m) for c in column
+                      for m in re.findall(r"(?<![\d.,])(\d+(?:[.,]\d+)?)\s*%", c)]
+            if len(values) >= 2 and 50 <= sum(values) <= 150:
+                return True
+        return False
+
     out = []
     sections = re.finditer(
-        r"^##[ \t]+[^\n]*(?:Tabella Scenari|Scenario Table)[^\n]*\n"
-        r"(.*?)(?=^#{1,2}[ \t]+|\Z)", memo, re.IGNORECASE | re.DOTALL | re.MULTILINE)
+        r"^(#{2,6})[ \t]+[^\n]*(?:Tabella Scenari|Scenario Table)[^\n]*\n"
+        r"(.*?)(?=^(?!\1#)#+[ \t]+|\Z)", memo, re.IGNORECASE | re.DOTALL | re.MULTILINE)
     for section in sections:
-        body = section.group(1)
+        body = section.group(2)
         previous_end = 0
+        tables = []
         for index, block in enumerate(re.finditer(
                 r"^[ \t]*\|[^\n]*(?:\n[ \t]*\|[^\n]*)*", body, re.MULTILINE), 1):
             context = body[previous_end:block.start()]
@@ -91,18 +138,39 @@ def _check_scenario_sum(memo):
             if len(rows) < 3 or not all(re.fullmatch(r":?-{3,}:?", c) for c in rows[1]):
                 continue
             header = [normalized(c) for c in rows[0]]
-            col = next((j for j, h in enumerate(header) if "prob" in h), None)
+            # "Probabilita'" beats a looser "Probabile esito"; a bare "%" is the last resort.
+            col = next((j for j, h in enumerate(header) if re.search(r"(?<!\w)probabilit", h)),
+                       next((j for j, h in enumerate(header) if is_probability_header(h)),
+                       next((j for j, h in enumerate(header)
+                             if re.fullmatch(r"(?:p\s*)?\(?%\)?|p", h)), None)))
+            tables.append((index, context, rows, header, col))
+        section_has_probabilities = any(t[4] is not None for t in tables)
+        for index, context, rows, header, col in tables:
+            prefix = _lt(f"**Tabella Scenari (tabella {index})**", f"**Scenario Table (table {index})**")
             if col is None:
+                # Trigger/catalyst/target/risk side tables sit next to the probability table
+                # (the Capo prompt caps tables at 5 columns): only a table that looks like
+                # the distribution itself, with no recognised one in the section, is declared.
+                if section_has_probabilities or not looks_like_probabilities(rows, header):
+                    continue
+                out.append(prefix + _lt(
+                    ": colonna probabilita' non riconosciuta nell'intestazione; somma non verificata.",
+                    ": probability column not recognised in the header; total not checked."))
                 continue
             label_col = next((j for j, h in enumerate(header)
                               if re.search(r"\b(?:scenario|scenari|case|caso)\b", h)), 0)
             data = rows[2:]
-            prefix = _lt(f"**Tabella Scenari (tabella {index})**", f"**Scenario Table (table {index})**")
+
+            def row_is_total(row):
+                # "| | Totale | 100%": empty label cell, total word in another label cell.
+                return is_total_label(row[label_col]) or (
+                    normalized(row[label_col]) == ""
+                    and any(is_total_label(row[j]) for j in range(min(col, len(row)))))
             denominator_cols = [j for j, h in enumerate(header)
                                 if re.search(r"denominat|condizion|condition|given", h) and j != col]
             different_bases = any(len({normalized(row[j]) for row in data
                                        if len(row) > max(j, label_col)
-                                       and normalized(row[label_col]) not in {"totale", "total"}}) > 1
+                                       and not row_is_total(row)}) > 1
                                   for j in denominator_cols)
             probability_text = header[col] + "\n" + "\n".join(
                 row[col] for row in data if len(row) > col)
@@ -124,18 +192,26 @@ def _check_scenario_sum(memo):
                 continue
             probs, declared = [], []
             missing = False
+            unreadable_total = None
             numeric_input = False
             for row in data:
                 if len(row) <= max(col, label_col):
                     missing = True
                     continue
-                is_total = normalized(row[label_col]) in {"totale", "total"}
+                is_total = row_is_total(row)
                 numeric_input = numeric_input or bool(re.search(r"\d|%", row[col]))
+                if is_total and normalized(row[col]) == "":
+                    # No probability declared on the total row (e.g. "Totale / EV | | +11%").
+                    continue
                 interval = re.search(r"\d(?:[.,]\d+)?\s*%?\s*[-–—]\s*\d", row[col])
                 negative = re.search(r"[-−]\s*\d+(?:[.,]\d+)?\s*%", row[col])
                 matches = re.findall(r"(?<![\d.,+\-–—])\+?(\d+(?:[.,]\d+)?)\s*%", row[col])
                 if interval or negative or len(matches) != 1:
-                    missing = True
+                    if is_total:
+                        # An unreadable total is ignored and declared; the scenario rows are still checked.
+                        unreadable_total = row[col].strip()
+                    else:
+                        missing = True
                     continue
                 probability = _pct(matches[0])
                 if not is_total and not (0 <= probability <= 100):
@@ -158,8 +234,14 @@ def _check_scenario_sum(memo):
                     f": probabilities total {tot:g}% "
                     f"({' + '.join(f'{p:g}' for p in probs)}) instead of ~100: "
                     "scenarios are not mutually exclusive, or are proxies (section 10 rules)"))
+            if unreadable_total is not None:
+                out.append(prefix + _lt(
+                    f": totale dichiarato non leggibile (\"{unreadable_total[:30]}\"): ignorato, "
+                    "controllate solo le righe scenario.",
+                    f": declared total is not readable (\"{unreadable_total[:30]}\"): ignored, "
+                    "only the scenario rows were checked."))
             for total in declared:
-                # The existing ~100 tolerance also bounds the arithmetic residual.
+                # The same ~100 band (SCENARI_SUM_RANGE) also bounds the arithmetic residual.
                 if not (SCENARI_SUM_RANGE[0] - 100 <= total - tot <= SCENARI_SUM_RANGE[1] - 100):
                     out.append(prefix + _lt(
                         f": totale dichiarato {total:g}% non coerente con la somma degli scenari {tot:g}%.",

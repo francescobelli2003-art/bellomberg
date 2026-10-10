@@ -125,28 +125,40 @@ def test_score_unavailable_date_visible_to_scoreboard(expiry,reason):
 @pytest.mark.parametrize('field',['nearest_expiry','expiry_used'])
 @pytest.mark.parametrize('days',[0,1,2])
 def test_score_today_and_future_unchanged(field,days):
+    # fix score 09/10 (Opus 5.5): P/C e ATM IV di UNA scadenza sono informativi (il regime si
+    # legge su struttura VIX e superficie a ~30g, qui non passate): niente punti, n.d. dichiarato;
+    # una scadenza a 0-1 giorni non porta nemmeno il valore informativo
     out=s.options_score('ZZTEST',options_data={field:str(date.today()+timedelta(days=days)),'atm_iv_call_pct':18,'atm_iv_put_pct':21,'put_call_oi_ratio':1})
-    assert out['score']==4 and out['max_score']==9
+    assert out['score'] is None and out['max_score'] is None and out['unavailable_reason']=='no_regime_metric'
+    pc=[r for r in out['info'] if 'una scadenza' in r[0]][0]
+    assert (pc[1].startswith('1.00') if days>=2 else pc[1].startswith('n.d.: scadenza a')), pc
 
 
 def test_yahoo_default_filters_expiries_and_empty_request(monkeypatch):
     from bellomberg.agents import agent_tools as a
     import pandas as pd
+    # fix 09/10 (Opus 5.5, audit SCORE-VOL-QUANT §1.1): il default di yfinance salta lo 0DTE e
+    # l'1DTE come Polygon (min_days=2). Prima questo test BLOCCAVA lo 0DTE come scelta: un P/C e
+    # un'ATM IV di una scadenza che muore oggi misurano la microstruttura di chiusura, non il regime.
     chosen=[]
-    today=str(date.today())
+    today=date.today()
     def chain(e):
         chosen.append(e)
         return SimpleNamespace(calls=pd.DataFrame(),puts=pd.DataFrame())
-    tk=SimpleNamespace(options=['garbage','2000-01-01','2099-01-16',today],option_chain=chain)
+    tk=SimpleNamespace(options=['garbage','2000-01-01','2099-01-16',str(today),str(today+timedelta(days=1)),
+                                str(today+timedelta(days=2))],option_chain=chain)
     monkeypatch.setattr(p,'polygon_available',lambda:False)
     monkeypatch.setattr(a,'_get_ibkr_options',lambda *args,**kw:None)
     monkeypatch.setattr(a,'YFINANCE_AVAILABLE',True)
     monkeypatch.setattr(a.yf,'Ticker',lambda t:tk)
     out=a._options_data_usa('ZZTEST',expiry='')
-    assert chosen==[today] and out['error']=='Chain vuota'
+    assert chosen==[str(today+timedelta(days=2))] and out['error']=='Chain vuota'
     chosen.clear()
     a._get_yfinance_oi_only('ZZTEST')
-    assert chosen==[today]
+    assert chosen==[str(today+timedelta(days=2))]
+    chosen.clear()
+    a._options_data_usa('ZZTEST',expiry=str(today))   # la data ESPLICITA non si sostituisce
+    assert chosen==[str(today)]
 
 
 def test_yahoo_explicit_absent_not_replaced(monkeypatch):
@@ -163,9 +175,10 @@ def test_unavailable_score_preamble_no_numeric_ratio_and_zero_preserved():
     unavailable=s.options_score('ZZTEST',options_data={'put_call_oi_ratio':1})
     block=s.format_score_block(unavailable)
     assert 'expiry_missing' in block and 'None/None' not in block
-    zero=s.options_score('ZZTEST',options_data={'nearest_expiry':str(date.today()),'put_call_oi_ratio':0})
-    assert zero['score']==0 and zero['max_score']==3
-    assert '0/3' in s.format_score_block(zero)
+    # fix score 09/10: lo zero vero del P/C resta (informativo, scadenza >= 2 giorni)
+    zero=s.options_score('ZZTEST',options_data={'nearest_expiry':str(date.today()+timedelta(days=3)),'put_call_oi_ratio':0})
+    assert zero['score'] is None and zero['metrics']['put_call_oi']==0
+    assert any(r[1].startswith('0.00') for r in zero['info'])
 
 
 def test_summary_partial_chain_exposes_coverage(http):
@@ -174,7 +187,12 @@ def test_summary_partial_chain_exposes_coverage(http):
     arm([(200,{'results':rows,'next_url':p.BASE+'/next'}),(429,{})])
     out=p.get_options_summary_polygon('ZZTEST','2099-01-16')
     assert len(calls)==2 and out['partial'] is True
-    assert out['coverage']['errors']==['HTTP 429'] and out['put_call_oi_ratio']==1
+    # fix 09/10 (Opus 5.5, audit SCORE-VOL-QUANT §1.1): prima questo test asseriva un P/C (=1)
+    # emesso da una chain interrotta da un HTTP 429, cioe' il fallback silenzioso. Righe
+    # mancanti = P/C e max pain n.d. DICHIARATI col motivo; i conteggi grezzi restano visibili.
+    assert out['coverage']['errors']==['HTTP 429'] and out['put_call_oi_ratio'] is None
+    assert 'HTTP 429' in out['put_call_oi_ratio_nd'] and out['max_pain_strike'] is None
+    assert out['total_call_oi']==10 and out['total_put_oi']==10
 
 
 def test_polygon_default_two_days_but_explicit_today_preserved(monkeypatch):
@@ -192,10 +210,12 @@ def test_ibkr_default_rejects_old_dates_at_native_boundary(monkeypatch):
     from test_core_audit_regressions import _ibkr
     import sys
     a,_,expiries=_ibkr(monkeypatch)
+    # fix 09/10: default IBKR >= 2 giorni (niente 0DTE), stessa regola di Polygon e yfinance
     today=date.today().strftime('%Y%m%d')
-    monkeypatch.setattr(sys.modules['ib_async'].IB,'reqSecDefOptParams',lambda *args:[SimpleNamespace(exchange='SMART',expirations={'invalid','20000101','20990116',today},strikes={100})])
+    in2=(date.today()+timedelta(days=2)).strftime('%Y%m%d')
+    monkeypatch.setattr(sys.modules['ib_async'].IB,'reqSecDefOptParams',lambda *args:[SimpleNamespace(exchange='SMART',expirations={'invalid','20000101','20990116',today,in2},strikes={100})])
     out=a._get_ibkr_options('ZZTEST')
-    assert expiries==[today,today] and out['nearest_expiry']==today
+    assert expiries==[in2,in2] and out['nearest_expiry']==in2
 
 
 def test_conflicting_expiry_is_unavailable():

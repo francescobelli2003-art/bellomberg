@@ -64,6 +64,8 @@ def test_mixed_expiry_first_settlement_matches_each_leg_theory():
     remaining = european_option(110, 100, 30, .2, 0, 0, "call")["price"]
     assert result["scenario"]["pnl"] == pytest.approx(-100 * 10 + 100 * remaining - 200)
     assert result["same_expiry"] is False
-    assert result["max_profit"] is None and result["max_loss"] is None
-    assert result["breakevens"] == []
-    assert all(point["expiry"] is None for point in result["curve"])
+    # 09/10 (Opus 5.5): the first-expiry row is the same theory, labelled as model, for every price.
+    assert result["expiry_basis"] == "model_first_expiry"
+    for point in result["curve"]:
+        alive = european_option(point["price"], 100, 30, .2, 0, 0, "call")["price"]
+        assert point["expiry"] == pytest.approx(-100 * max(point["price"] - 100, 0) + 100 * alive - 200)

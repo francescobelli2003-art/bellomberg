@@ -1867,11 +1867,16 @@ def _run_multi_agent(store, db, *, send_email=True):
             try:
                 from bellomberg.agents.agent_tools import tool_get_hyperliquid_intel
                 _hl = tool_get_hyperliquid_intel()
+                # fix 09/10 (Opus 5.5): la data e' l'istante di acquisizione dichiarato dal tool.
+                # Un funding fermo al tasso base 10,95% e' NORMALE (premio ~0), non una fonte
+                # ferma: la freschezza si misura dalla data, mai dall'identita' del valore.
+                _hl_oss = str(_hl.get("fetched_at_utc") or "")[:10] or None
                 for _row in (_hl.get("top_10_perps_by_oi") or []):
                     if _row.get("asset") in ("BTC", "ETH", "SOL", "HYPE") \
                             and _row.get("funding_annualized_pct") is not None:
                         _cur["hl_funding:" + _row["asset"]] = {
-                            "value": _row["funding_annualized_pct"], "obs_date": None}
+                            "value": _row["funding_annualized_pct"], "obs_date": _hl_oss,
+                            "observation_period": _hl_oss, "retrieved_at": _hl.get("fetched_at_utc")}
             except Exception as _he:
                 _log("  [!] freshness: hyperliquid non raggiungibile (" + str(_he)[:80] + ")")
             if _cur or _evidence_followup:

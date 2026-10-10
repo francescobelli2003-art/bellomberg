@@ -41,7 +41,8 @@ test('Trade Idea request errors (no JSON, incomplete research, missing artifact)
 
 test('Trade Idea page section marks follow the selected language', () => {
   const load = creaCaricatore({ stub: { '@/lib/api': apiFinta(),
-    '@/lib/tradeIdeas': { TradeIdeas: new Proxy({}, { get: () => () => new Promise(() => {}) }), TradeIdeaApiError: Error },
+    '@/lib/tradeIdeas': { TradeIdeas: new Proxy({}, { get: () => () => new Promise(() => {}) }), TradeIdeaApiError: Error,
+      readTradeIdeaStorage: () => null, storageOf: () => null },
     '@/lib/tradeIdeaResearch': { TradeIdeaResearch: {} } } });
   const language = load('i18n/lingua.ts'), Page = load('pages/TradeIdeaPage.tsx').default;
   const render = locale => { language.impostaLinguaCorrente(locale);

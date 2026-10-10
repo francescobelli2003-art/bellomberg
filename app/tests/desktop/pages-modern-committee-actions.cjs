@@ -191,7 +191,9 @@ const decision = (id, action, status, archived = false) => ({ id, memo_id: 813, 
   eur_amount: action === 'BUY' ? 1000 : null, timing: 'Synthetic schedule', confidence: 'HIGH', rationale: `Synthetic rationale for ${id}.`,
   status, pm_feedback: null, outcome_pct: null, outcome_eur: null, outcome_notes: null,
   assessment_status: action === 'BUY' ? 'OPERATIVE' : undefined, assessment_reason: action === 'BUY' ? 'Synthetic fixture assessed.' : undefined,
-  archived, archive_override: null, notes: [], veto: null, esecuzione: null });
+  archived, archive_override: null, notes: [], veto: null, esecuzione: null,
+  // R01: le RESEARCH dichiarano le note lette (lista vuota vera), altrimenti la UI mostra «note non disponibili»
+  ...(action === 'RESEARCH' ? { notes_status: 'available', notes_error: null } : {}) });
 
 async function run(q) {
   assert.equal(typeof q.capture, 'function', 'specialist states require visual evidence capture');

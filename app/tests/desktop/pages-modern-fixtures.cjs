@@ -102,7 +102,9 @@ const decisions = Array.from({ length: 8 }, (_, i) => ({ id: 700 + i, memo_id: 3
   timestamp: `2026-09-${String(29 - i).padStart(2, '0')}T10:00:00Z`, action: i % 2 ? 'HOLD' : 'RESEARCH',
   ticker: positions[i % positions.length].ticker, eur_amount: 1000 + i * 250, timing: 'synthetic fixture',
   confidence: i % 2 ? 'MEDIUM' : 'HIGH', status: i < 5 ? 'PENDING' : 'EXECUTED', pm_feedback: null,
-  outcome_pct: i - 2, rationale: `Synthetic rationale ${i + 1}`, archive_override: false }));
+  outcome_pct: i - 2, rationale: `Synthetic rationale ${i + 1}`, archive_override: false,
+  // R01: le RESEARCH dichiarano le note lette (lista vuota vera), altrimenti la UI mostra «note non disponibili»
+  ...(i % 2 ? {} : { notes: [], notes_status: 'available', notes_error: null }) }));
 const navHistory = { dates, nav_eur: dates.map((_, i) => 60000 + i * 100), cost_basis_eur: dates.map((_, i) => 58000 + i * 80),
   pnl_eur: dates.map((_, i) => 2000 + i * 20), cash_eur: 12345.67, nav_total_eur: dates.map((_, i) => 72000 + i * 110),
   first_trade_date: dates[0], tickers: positions.map(p => p.ticker), n_days: dates.length,

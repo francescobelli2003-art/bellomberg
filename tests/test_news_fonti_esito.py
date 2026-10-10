@@ -54,6 +54,10 @@ def _stato_pulito(tmp_path, monkeypatch):
     monkeypatch.setattr(na, "PERCORSO_TERMINI", str(EXAMPLES_DIR / "news_search_terms.example.json"))
     monkeypatch.setattr(tiingo_news, "tiingo_available", lambda: True)
     monkeypatch.setattr(tiingo_news, "TIINGO_KEY", "chiave-finta-tiingo")
+    # 10/10: Tiingo SPENTA per decisione PM; qui si prova il percorso DORMIENTE (riaccensione)
+    monkeypatch.setattr(tiingo_news, "FONTE_SPENTA", False)
+    # 10/10: top headlines GNews (passo 2.4 del giro) fuori da questi test: hanno i loro
+    monkeypatch.setattr(na, "_fetch_gnews_top", lambda *a, **k: [])
     # rete VIETATA: qualunque requests.get non stubbato dal test fallisce rumorosamente
     def _niente_rete(*a, **k):
         raise AssertionError("rete vera tentata nel test: %r" % (a[:1],))

@@ -36,7 +36,9 @@ def test_generated_scoreboard_languages_keep_scores_metrics_and_cache_unchanged(
     from bellomberg.agents import specialist_scores as scores
     risk = {'portfolio': {'vol_annual_pct':22.5, 'sharpe':.78, 'beta_vs_spy':1.18,
                           'var_95_1d_pct':-3.2, 'max_dd_1y_pct':-17.4}}
-    results = [scores.quant_score({}, copy.deepcopy(risk), language=lang) for lang in ('it','en')]
+    # fix score 09/10 (Opus 5.5): la vol si punteggia contro il target del mandato (SINTETICO)
+    mandato = {'rischio': {'volatilita_target_pct': 20, 'stress_gfc_pct': 25}}
+    results = [scores.quant_score({}, copy.deepcopy(risk), mandato=mandato, language=lang) for lang in ('it','en')]
     assert results[0]['metrics'] == results[1]['metrics']
     assert results[0]['score'] == results[1]['score'] and results[0]['max_score'] == results[1]['max_score']
     # A7 04/10: righe n.d. dichiarate (punti None) hanno il motivo nella lingua; stesse righe,

@@ -146,9 +146,18 @@ test('fixture reader rejects invalid refs, cycles, ambiguous markers, columns an
   }
 });
 const CHAIN = '/options/download/synthetic-1/chain';
+// 10/10 (Opus 5.5, review M3): the laboratory is the option builder. It reads the whole expiry chain
+// (limit=1000, side=all), the FRED rate route, and validates a COMPLETE engine response.
+const ENGINE_POINT = { price: 100, pnl: 0, delta: .5, gamma: .03, vega: 12, theta: -4, rho: 2 };
+const ENGINE_RESULT = { currency: 'USD', model: 'BSM', greek_units: {}, entry_cost: 520, net_premium: 520, fees: 0, entry_kind: 'debit',
+  same_expiry: true, expiry_days: 33, breakevens: [105.2], max_profit: null, max_loss: 520, unlimited_profit: true, unlimited_loss: false,
+  today: ENGINE_POINT, scenario: ENGINE_POINT, curve: [{ price: 90, expiry: -520, today: -300, scenario: -300 }, { price: 110, expiry: 480, today: 220, scenario: 220 }],
+  heatmap: [{ elapsed_days: 0, cells: [ENGINE_POINT] }], limits: [] };
+const LAB_CHAIN = 'GET ' + CHAIN + '?expiry=2026-10-16&limit=1000&offset=0&side=all&strike=';
 const inlineFixture = (scenes, extra = {}) => ({ id: 'documentation-demo', version: 1, shell: ['/health', '/preferences'], scenes,
-  responses: { '/health': { status: 'ok' }, 'GET /journal': { items: [] }, 'POST /options/strategy/simulate': { pnl: [] },
-    ['GET ' + CHAIN + '?expiry=2026-10-16&limit=250&offset=0']: { page: 1 }, ['GET ' + CHAIN]: { page: 'any' } }, ...extra });
+  responses: { '/health': { status: 'ok' }, 'GET /journal': { items: [] }, 'POST /options/strategy/simulate': ENGINE_RESULT,
+    'GET /options/strategy/rate': { value: .04, percent: 4, date: '2026-09-11', source: 'FRED DGS3MO', status: 'solid', error: null },
+    ['GET ' + CHAIN + '?expiry=2026-10-16&limit=250&offset=0']: { page: 1 }, [LAB_CHAIN]: { page: 1, has_more: false }, ['GET ' + CHAIN]: { page: 'any' } }, ...extra });
 const legacyScene = { id: 'journal', route: '/mandato', selector: '.journal-history li', required: ['/journal'], clicks: ['#tab-diario', '.journal-notes button'] };
 const DEMO_CLOCK = { now: '2026-09-13T08:11:40.000Z', timezone: 'Europe/Rome' };
 
@@ -172,10 +181,12 @@ test('fixed document Date preserves explicit constructors, Date calls, parse and
   const freshDocument = vm.createContext({});
   assert.ok(vm.runInContext('Date.now()', freshDocument) > before[0]);
 });
-const workingScene = { id: 'vol-deck-lab', route: '/vol', selector: '#vd-lab-title', required: ['POST /options/strategy/simulate', 'GET ' + CHAIN + '?expiry=2026-10-16&limit=250&offset=0'],
+const workingScene = { id: 'vol-deck-lab', route: '/vol', selector: '[data-option-builder] .ob-chart svg',
+  required: ['GET /options/strategy/rate', 'POST /options/strategy/simulate', 'GET ' + CHAIN + '?expiry=2026-10-16&limit=250&offset=0', LAB_CHAIN],
   steps: [{ click: '[data-vol-workspace="chain"]' }, { fill: { 'vd-ticker': 'DEMO' } }, { select: { 'vd-chain-expiry': '2026-10-16' } },
-    { wait: '.vd-chain tbody tr' }, { click: 'button[aria-label="Add call 100"]' }, { scroll: '#vd-lab-title' }],
-  viewport: { width: 1440, height: 900 }, note: 'Laboratory after one chain page: the scenario the strategy returns.' };
+    { wait: '.vd-chain tbody tr' }, { click: 'button[aria-label="Add call 100"]' }, { click: '[data-vol-workspace="laboratory"]' },
+    { wait: '[data-option-builder] .ob-chart svg' }, { scroll: '[data-option-builder] .ob-main' }],
+  viewport: { width: 1440, height: 900 }, note: 'Option builder after one chain leg: the engine computes the payoff by itself.' };
 
 test('fixture scenes open only navigation destinations and a request is answered only when declared', () => {
   const fixture = capture.loadFixture(root);
@@ -357,9 +368,9 @@ test('synthetic service: an undeclared POST stays 409, a declared POST returns i
   const base = 'http://127.0.0.1:' + server.address().port;
   try {
     const legs = { legs: [{ side: 'sell', strike: 110 }], iv_shift: 0.055 };
-    assert.deepEqual(await request(base, 'POST', '/options/strategy/simulate', { body: legs }), { status: 200, body: { pnl: [] }, allow: 'GET,OPTIONS' });
+    assert.deepEqual(await request(base, 'POST', '/options/strategy/simulate', { body: legs }), { status: 200, body: ENGINE_RESULT, allow: 'GET,OPTIONS' });
     // Nothing is stored: another body gets the same declared answer.
-    assert.deepEqual((await request(base, 'POST', '/options/strategy/simulate', { body: { legs: [] } })).body, { pnl: [] });
+    assert.deepEqual((await request(base, 'POST', '/options/strategy/simulate', { body: { legs: [] } })).body, ENGINE_RESULT);
     assert.equal((await request(base, 'POST', '/trade', { body: { ticker: 'DEMO.A', quantita: 2 } })).status, 409);
     assert.equal((await request(base, 'GET', '/options/strategy/simulate')).status, 409);
     assert.equal((await request(base, 'DELETE', '/journal')).status, 409);

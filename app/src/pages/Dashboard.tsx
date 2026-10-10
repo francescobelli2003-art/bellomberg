@@ -13,6 +13,7 @@ import { leggiQuota, motivoChiamata, leggiDetail } from '@/lib/quota';
 import { leggiCurva } from '@/lib/curva';
 import type { EsitoCurva } from '@/lib/curva';
 import { conservaDettaglioRun, dettaglioLeggibile, statusHttp } from '@/lib/mandato';
+import { controlloAttivaSaltato, testoControlloAttiva, type TradeIdeaActiveCheck } from '@/lib/tradeIdeaActiveCheck';
 import { computeDailyPnl, liveAsOf } from '@/lib/dailypl';
 import { portfolioValues } from '@/lib/portfolio-values';
 import { caricaLoghi } from '@/lib/loghi-remoti';
@@ -88,7 +89,7 @@ export default function Dashboard() {
   const [riskLoading, setRiskLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [runNotice, setRunNotice] = useState<{ kind: 'starting' } | { kind: 'active'; task: string } | { kind: 'error'; detail: string } | null>(null);
+  const [runNotice, setRunNotice] = useState<{ kind: 'starting' } | { kind: 'active'; task: string; check?: TradeIdeaActiveCheck | null } | { kind: 'error'; detail: string } | null>(null);
   const [askRun, setAskRun] = useState(false);  // la run costa: si conferma prima
   const [readFailures, setReadFailures] = useState<Record<string, ReadFailure | null>>({});
   const setReadFailure = (source: string, failure: ReadFailure | null) =>
@@ -195,7 +196,8 @@ export default function Dashboard() {
     setRunNotice({ kind: 'starting' });
     try {
       const r = await Bellomberg.runConsigliere();
-      setRunNotice({ kind: 'active', task: r.task_id });
+      // R14 seguito (B4): il controllo «Trade Idea attiva» saltato dal backend si dichiara accanto all'avvio
+      setRunNotice({ kind: 'active', task: r.task_id, check: controlloAttivaSaltato(r) });
     } catch (e: any) {
       const detail = dettaglioLeggibile(e);
       setRunNotice({ kind: 'error', detail });
@@ -305,6 +307,8 @@ export default function Dashboard() {
           {runNotice?.kind !== 'error' && <i className="bbn-run-pulse" aria-hidden="true" />}{runText}
           {runNotice?.kind === 'active' && <button type="button" className="bbn-link" onClick={() => navigate('/agents')}>{w.runFollow}</button>}
         </span>}
+        {runNotice?.kind === 'active' && runNotice.check && <span className="bbn-run is-error" role="alert" data-run-ti-check={runNotice.check.status}
+          title={testoControlloAttiva(tr, runNotice.check)}>{testoControlloAttiva(tr, runNotice.check)}</span>}
         <span className="bbn-grow" />
         <button type="button" className="bbn-btn" data-action="view-decisions" title={w.decisionsHint} onClick={() => navigate('/decisions')}>
           <ListChecks size={15} aria-hidden="true" />{w.decisions}

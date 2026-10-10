@@ -197,8 +197,10 @@ def test_score_rejects_unqualified_atm_even_if_numeric_fields_survive():
         'atm_issues': ['iv_timestamp_unattested'], 'atm_iv_call_pct': 60.,
         'atm_iv_put_pct': 70., 'put_call_oi_ratio': 1.})
     assert out['metrics']['atm_iv'] is None
-    assert out['max_score'] == 3
-    assert 'UNVERIFIED' in s.format_score_block(out)
+    # fix score 09/10 (Opus 5.5): ATM IV e P/C di una scadenza sono informativi, nessun punto;
+    # la non qualificazione resta DICHIARATA fra le righe informative
+    assert out['score'] is None and out['max_score'] is None
+    assert any(r[0].startswith('ATM IV') and 'UNVERIFIED' in r[1] for r in out['info'])
 
 
 def test_tool_preserves_missing_spot_and_declares_comparison_limit(monkeypatch):

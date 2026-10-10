@@ -173,6 +173,9 @@ def test_shared_result_reaches_score_and_only_latest_workbook_is_attached(tmp_pa
     first = generate(make_bundle(), tmp_path)
     second = generate(make_bundle(), tmp_path)
     monkeypatch.setattr(classificazione, 'carica_veicoli', lambda: {'origine':'synthetic','veicoli':{},'motivo':None})
+    # 09/10 (Opus 5.5): MOS sul prezzo corrente; qui l'oggetto e' il risultato condiviso
+    from test_score_fondamentali_news_correzione import prezzo_corrente_uguale_al_modello
+    prezzo_corrente_uguale_al_modello(monkeypatch)
     score = specialist_scores.fundamentals_score({'positions':[{'ticker':SYMBOL,'peso_pct':100}]}, valuations={SYMBOL:second})
     assert score is not None
     seen = []
@@ -195,6 +198,9 @@ def test_score_keeps_book_coverage_with_partial_research_and_never_revives_a_blo
     from bellomberg.agents import specialist_scores, agent_tools
     from bellomberg.agents.specialists.fundamentals import FundamentalsSpecialist
     good = generate(make_bundle(symbol), tmp_path)
+    # 09/10 (Opus 5.5): MOS sul prezzo corrente; qui l'oggetto e' la copertura del book
+    from test_score_fondamentali_news_correzione import prezzo_corrente_uguale_al_modello
+    prezzo_corrente_uguale_al_modello(monkeypatch)
     monkeypatch.setattr(specialist_scores, 'REPORT_DIR', tmp_path)
     monkeypatch.setattr(specialist_scores.cl, 'carica_veicoli', lambda: {'origine':'synthetic','veicoli':{},'motivo':None})
     monkeypatch.setattr(agent_tools, 'tool_get_portfolio_live', lambda: {'positions':[{'ticker':symbol,'peso_pct':100}]})
@@ -205,14 +211,17 @@ def test_score_keeps_book_coverage_with_partial_research_and_never_revives_a_blo
     assert any(good['valuation_date'] in str(line) for line in score['lines'])
     # A current explicit KO for the holding overrides its older valid file.
     specialist.blackboard.valuation_results[symbol] = {'ticker':symbol, 'error':'missing capital'}
-    assert specialist.compute_score() is None
+    # v2 10/10 (Opus 5.5): nessun nome misurabile = n.d. DICHIARATO col motivo, non None
+    ko = specialist.compute_score()
+    assert ko['score'] is None and ko['verdict'].startswith('n.d. - FV/prezzo non validi su 1/1')
     records, context = records_for()
     records = [row for row in records if row['driver'] != 'capital.subsidiaries.0.permitted_distribution']
     bad = generate(make_bundle(symbol, records=records, context=context), tmp_path)
     os.utime(good['path'].replace('.xlsx','.payload.json'), (1,1))
     os.utime(bad['path'].replace('.xlsx','.payload.json'), (2,2))
     specialist.blackboard.valuation_results = {'RESEARCH':{'ticker':'RESEARCH'}}
-    assert specialist.compute_score() is None  # latest disk KO cannot revive older valid generation
+    ko = specialist.compute_score()  # latest disk KO cannot revive older valid generation
+    assert ko['score'] is None and ko['metrics']['n_valued'] == 0
 
 
 @pytest.mark.parametrize('failure', ['parent_whitespace','group_is_sub','early_actual_source','historical_forecast','zero_bear','zero_bull'])

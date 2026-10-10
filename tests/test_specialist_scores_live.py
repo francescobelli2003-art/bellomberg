@@ -16,7 +16,9 @@ def _negozio(dat):
 
 def _ticker_valutato(score):
     assert score['metrics']['n_valued']==1
-    dettagli = [r[0].strip() for r in score["lines"] if r[0].strip() in {'ALFA','BETA'}]
+    # 09/10: la riga per nome e' "  TICKER (peso X%)"
+    dettagli = [str(r[0]).split()[0] for r in score["lines"]
+                if str(r[0]).split() and str(r[0]).split()[0] in {'ALFA','BETA'}]
     assert len(dettagli) == 1
     return dettagli[0]
 
@@ -25,6 +27,9 @@ def test_fundamentals_rilegge_dat_una_volta_e_vede_la_modifica(monkeypatch,tmp_p
     from datetime import date
     import test_sector_usability as fixtures
     monkeypatch.setattr(fixtures, "DAY", date.today().isoformat())
+    # 09/10 (Opus 5.5): MOS sul prezzo corrente; qui l'oggetto non e' la quotazione
+    from test_score_fondamentali_news_correzione import prezzo_corrente_uguale_al_modello
+    prezzo_corrente_uguale_al_modello(monkeypatch)
     stato = {"dat": {"ALFA"}}
     letture = []
 

@@ -58,6 +58,13 @@ Object.assign(NEUTRE_PER_CHIAVE, {
   'settingsPage.chipBackend': 'Backend',
   // Impostazioni (06/10): «1 file» e' uguale nelle due lingue; il piede compone solo segnaposti
   'settingsPage.filesN_one': '1 file', 'settingsPage.footTotals': '{files} · {mb} MB · {days}',
+  // Option builder (09/10, Opus 5.5): termini di mercato che i trader usano in inglese in entrambe le lingue
+  'optionbuilder.spot': 'Spot', 'optionbuilder.spotLabel': 'Spot {v}', 'optionbuilder.preset_straddle': 'Straddle',
+  'optionbuilder.preset_strangle': 'Strangle', 'optionbuilder.preset_iron_condor': 'Iron condor',
+  'optionbuilder.preset_iron_butterfly': 'Iron butterfly', 'optionbuilder.ptsValue': '{v} pt',
+  'optionbuilder.g_delta': 'Delta', 'optionbuilder.g_gamma': 'Gamma', 'optionbuilder.g_vega': 'Vega',
+  'optionbuilder.g_theta': 'Theta', 'optionbuilder.g_rho': 'Rho', 'optionbuilder.col_strike': 'Strike',
+  'optionbuilder.col_iv': 'IV %', 'optionbuilder.call': 'Call', 'optionbuilder.put': 'Put', 'optionbuilder.spreadPct': 'spread {v}%', 'optionbuilder.vol_forward': 'Forward vol',
   // Monte Carlo (05/10): sigle d'orizzonte identiche nelle due lingue
   'montecarlo.h21': '1M', 'montecarlo.h63': '3M', 'montecarlo.h126': '6M',
   'tradeidea.pdfSectionPage': 'p. {page}', 'tradeidea.pdfSection_business': 'Business', 'tradeidea.pdfSection_red_team': 'Red team',

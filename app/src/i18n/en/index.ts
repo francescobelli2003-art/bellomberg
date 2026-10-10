@@ -14,6 +14,7 @@ import { movements } from './movements.js';
 import { mandate } from './mandate.js';
 import { journal } from './journal.js';
 import { voldeck } from './voldeck.js';
+import { optionbuilder } from './optionbuilder.js';
 import { progress } from './progress.js';
 import { shell, nav, login } from './shell.js';
 import { trade } from './trade.js';
@@ -50,6 +51,7 @@ export const en = {
   mandate,
   journal,
   voldeck,
+  optionbuilder,
   progress,
   shell, nav, login,
   trade,

@@ -41,6 +41,8 @@ def _chiavi(monkeypatch, presenti: bool, tiingo: bool):
     for _p, attr, _var in CHIAVI:
         monkeypatch.setattr(na, attr, "chiave-di-prova" if presenti else "")
     monkeypatch.setattr(tiingo_news, "tiingo_available", lambda: tiingo)
+    # 10/10: Tiingo SPENTA per decisione PM; qui si prova la dichiarazione della fonte ACCESA
+    monkeypatch.setattr(tiingo_news, "FONTE_SPENTA", False)
 
 
 def _negozio(monkeypatch, tmp_path, stato: str):

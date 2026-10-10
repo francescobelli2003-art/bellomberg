@@ -40,6 +40,9 @@ def test_fundamentals_score_senza_negozio_non_esclude_nessuno_e_lo_dichiara(monk
     from datetime import date
     import test_sector_usability as fixtures
     monkeypatch.setattr(fixtures, "DAY", date.today().isoformat())
+    # 09/10 (Opus 5.5): MOS sul prezzo corrente; qui l'oggetto non e' la quotazione
+    from test_score_fondamentali_news_correzione import prezzo_corrente_uguale_al_modello
+    prezzo_corrente_uguale_al_modello(monkeypatch)
     monkeypatch.setattr(ss.cl, "carica_veicoli", lambda: {
         "veicoli": {}, "origine": "assente", "motivo": "file sintetico assente"})
     pdj = {"positions": [{"ticker": "ALFA", "peso_pct": 40}, {"ticker": "BETA.DE", "peso_pct": 30}]}
@@ -59,6 +62,9 @@ def test_fundamentals_score_col_negozio_esclude_la_dat_senza_note(monkeypatch,tm
     from datetime import date
     import test_sector_usability as fixtures
     monkeypatch.setattr(fixtures, "DAY", date.today().isoformat())
+    # 09/10 (Opus 5.5): MOS sul prezzo corrente; qui l'oggetto non e' la quotazione
+    from test_score_fondamentali_news_correzione import prezzo_corrente_uguale_al_modello
+    prezzo_corrente_uguale_al_modello(monkeypatch)
     monkeypatch.setattr(ss.cl, "carica_veicoli", lambda: {
         "veicoli": {"GAMMA": {"tipo": "dat", "classe_size": "veicolo"}},
         "origine": "sintetico.json", "motivo": None})

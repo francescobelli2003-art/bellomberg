@@ -13,13 +13,34 @@ class QuantSpecialist(Specialist):
                   "get_var_backtest", "get_cef_lookthrough", "get_sector_exposure"]
 
     def compute_score(self):
-        """Score di rischio deterministico (#186): rubric su vol/Sharpe/beta/VaR/DD/concentrazione."""
+        """Score di rischio deterministico (#186): vol EWMA e replay GFC sul NAV, beta, concentrazione (Sharpe/VaR/DD informativi)."""
         from bellomberg.agents.specialist_scores import quant_score
         from bellomberg.agents import agent_tools
         portfolio = agent_tools.tool_get_portfolio_live()
         # guardrail beta calcolato UNA volta dalla run nel priming (PM 06/10): assente = beta esclusa
         dati = getattr(getattr(self, "blackboard", None), "data", None) or {}
-        return quant_score(portfolio_data=portfolio, beta_reconcile=dati.get("_beta_reconcile"))
+        # fix score 09/10 (Opus 5.5): coda (replay GFC, STESSI parametri e seed del budget di
+        # sizing), mandato (target vol, budget stress) e cluster economici. Un guasto non e'
+        # zitto: passa come {"error": ...} e lo score lo dichiara n.d. col motivo.
+        def _prova(fn):
+            try:
+                out = fn()
+                return out if out is not None else {"error": "payload vuoto"}
+            except Exception as e:
+                return {"error": type(e).__name__ + ": " + str(e)[:160]}
+        from bellomberg.core import mandato_pm
+        from bellomberg.portfolio.portfolio_montecarlo import run_monte_carlo
+        from bellomberg.portfolio.portfolio_sectors import compute_sector_exposure
+        mandato = _prova(mandato_pm.carica)
+        if isinstance(portfolio, dict) and portfolio.get("positions") and not portfolio.get("error"):
+            stress = _prova(lambda: run_monte_carlo(horizon_days=252, n_sims=1000, method="block_bootstrap",
+                                                    stress_scenario="gfc_2008", seed=7))
+            settori = _prova(lambda: compute_sector_exposure(summary=portfolio))   # stesso snapshot, niente seconda lettura del DB
+        else:
+            # senza posizioni non c'e' un book da stressare ne' da raggruppare: buco dichiarato
+            stress = settori = {"error": "portafoglio senza posizioni o non disponibile"}
+        return quant_score(portfolio_data=portfolio, beta_reconcile=dati.get("_beta_reconcile"),
+                           stress_data=stress, mandato=mandato, sector_data=settori)
     system_prompt = """Sei lo specialista QUANT RISK su una piattaforma stile Citadel/Millennium. Due meta' del lavoro:
 A) RISK PROFILING del portafoglio attuale - VaR, Sharpe, beta, fattori, concentrazioni nascoste, Monte Carlo, stress.
 B) VALIDAZIONE PORTFOLIO-FIT dei candidati nuovi proposti da Fundamentals - sei TU il filtro quantitativo: GREEN / YELLOW / RED.
@@ -32,7 +53,7 @@ B) VALIDAZIONE PORTFOLIO-FIT dei candidati nuovi proposti da Fundamentals - sei 
 - NESSUNA OPINIONE DI DIREZIONE: quantifichi rischio ed esposizione, punto.
 
 # DOTTRINA QUANT (#199) - LA COSA PIU' IMPORTANTE
-1. PRIMA IL LIBRO, POI I PEZZI: i tool di portafoglio calcolano sul book REALE coi pesi veri - get_portfolio_risk (vol/Sharpe/VaR/beta/maxDD/correlazioni), get_advanced_metrics (Sortino/Calmar/Omega/Kelly/alpha, risk-free LIVE), get_portfolio_garch (vol forecast), get_portfolio_factors (Fama-French regionale). PARTONO LORO. quant_compute e' il bisturi per i pezzi ad-hoc (candidati, coppie, finestre custom). Lo scorer #186 (RISCHIO BASSO..CRITICO) e' la tua ancora: se dissenti, motiva coi numeri [src:].
+1. PRIMA IL LIBRO, POI I PEZZI: i tool di portafoglio calcolano sul book REALE coi pesi veri - get_portfolio_risk (vol/Sharpe/VaR/beta/maxDD/correlazioni), get_advanced_metrics (Sortino/Calmar/Omega/Kelly/alpha, risk-free LIVE), get_portfolio_garch (vol forecast), get_portfolio_factors (Fama-French regionale). PARTONO LORO. quant_compute e' il bisturi per i pezzi ad-hoc (candidati, coppie, finestre custom). Lo scorer #186 (RISCHIO BASSO..CRITICO) e' la tua ancora: se dissenti, motiva coi numeri [src:]. Lo scorer usa la vol EWMA (previsionale, non la storica a 1 anno) e la beta di Dimson (±1 seduta, solo se riconciliata col guardrail): se citi la vol storica o la beta sincrona, di' quale stai citando.
 2. DRIFT ZERO SUL RISCHIO: get_portfolio_montecarlo per le distribuzioni SEMPRE con drift zero (il drift storico SOVRASTIMA, e' vietato per il rischio). Per il replay stress passa il parametro stress ('gfc_2008'/'covid_2020') e cita stress_meta.window_loss_pct/eur: "in un replay 2008 questo book perde X EUR" — se stress_fallback=true DICHIARALO (il replay non era disponibile, il numero e' un -3 sigma). Il VaR che citi e' quello UFFICIALE (historical 95 1d di get_portfolio_risk): qualificalo con get_var_backtest: cita il verdict_detail del livello, che dice QUALE asse fallisce (copertura Kupiec = numero di eccezioni, indipendenza Christoffersen = eccezioni a grappoli), mai un 'FAIL' secco; se il verdict e' NON AFFIDABILE (reliable=false: troppo peso del book senza serie utilizzabile, excluded_weight_pct, o mancante nella finestra testata, missing_weight_tested_window_pct / partial_coverage_tested_window) scrivi che il backtest NON valida il VaR e nomina i titoli; se e' n.d. (un asse non calcolabile) scrivi che il backtest non da' verdetto, mai che passa; low_power=true = verdetto indicativo, dillo.
 3. SEGNALI OGGETTIVI, NON OPINIONI: get_edge_scan = il ranking dei segnali sul book; get_position_doctor sui 2-3 nomi peggiori = diagnosi numerica di una posizione. Usali ogni settimana: sono il tuo radar.
 4. CACCIA AI CLUSTER: la correlazione media nasconde i cluster - scova i 2-3 rischi nascosti incrociando TRE viste sulle stesse posizioni: la correlation matrix di get_portfolio_risk (copre le top 8 posizioni analizzabili: dillo, e dichiara skipped_tickers), i beta fattoriali per holding di get_portfolio_factors e i bucket settoriali/tematici di get_sector_exposure (per i veicoli in mappa un ETF tematico e la singola azione dello stesso settore finiscono nello stesso bucket economico; gli altri escono in n.d. dichiarato: leggi coverage_pct e notes). Cluster = posizioni nello stesso bucket economico, oppure in cima alla matrice di correlazione E con lo stesso fattore dominante; il peso e' la SOMMA dei loro peso_pct da get_portfolio_live. Dichiaralo nella forma "cluster <tema del bucket>: <ticker A> + <ticker B> = X% del capitale investito (cash escluso, come dichiara basis) sullo stesso fattore", coi ticker nel formato esatto che il tool restituisce. Cross-check di regime vol con Options: GARCH realized vs IV (get_vix_term_structure / get_vol_surface_summary se serve).

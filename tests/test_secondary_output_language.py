@@ -137,6 +137,9 @@ def test_gex_labels_and_spot_proxy_declared_without_changing_gamma_math(monkeypa
             {"gamma": .02, "oi": 100, "strike": 100, "type": "call", "delta": .5 if has_atm else .8},
             {"gamma": .01, "oi": 50, "strike": 100, "type": "put", "delta": -.5}]}
     monkeypatch.setattr(polygon_data, "get_options_chain", chain)
+    # integrazione 10/10: passo 3 di spot_alignment.resolve_spot (lastPrice) assente nel test
+    from bellomberg.market_data import spot_alignment as sa
+    monkeypatch.setattr(sa, "_last_price_from_yfinance", lambda t: None)
     with language_context("it"):
         italian = pt.compute_gex("SYNTH")
     with language_context("en"):
@@ -152,7 +155,13 @@ def test_gex_labels_and_spot_proxy_declared_without_changing_gamma_math(monkeypa
     assert "proxy" in english["spot_note"]
     assert english["spot_method"] == italian["spot_method"] == ("atm_call_strike" if has_atm else "median_strike")
     assert ("call strike" if has_atm else "median strike") in english["spot_note"]
-    for key in italian.keys() - {"note", "regime", "spot_note", "_timestamp"}:
+    # fix 09/10 (Opus 5.5): compute_gex dichiara anche metodo/regola/limiti dello zero-gamma
+    # in testo localizzato; i NUMERI e i codici restano identici in ogni lingua
+    testi = {"note", "regime", "spot_note", "_timestamp", "expiry_rule", "gamma_flip_method",
+             "gamma_flip_note", "multiplier_note", "spot_vs_flip", "partial_note",
+             "gamma_flip_choice", "spot_bar_note",   # fix v2 10/10: testi localizzati nuovi
+             "spot_alignment"}   # integrazione 10/10: regola/motivo di spot_alignment, localizzati
+    for key in italian.keys() - testi:
         assert english[key] == italian[key], key
 
 
@@ -283,7 +292,10 @@ def test_signal_cache_uses_same_detectors_and_scores_when_language_changes(monke
         assert english["n_signals_total"] == italian["n_signals_total"] == 6
         invariant = lambda payload: [(s["ticker"], s["category"], s["direction"], s["strength"], s["source"]) for s in payload["signals"]]
         assert invariant(english) == invariant(italian) == invariant(again)
-        assert sorted(s["strength"] for s in english["signals"]) == [30, 36, 70, 80, 80, 90]
+        # R02-b (09/10, Opus 5.5): lo stub GEX non etichetta lo spot come
+        # qualificato -> il gamma dichiara "confronto col flip non valutato"
+        # (forza 0) invece del "caution 70" su uno spot che e' uno strike.
+        assert sorted(s["strength"] for s in english["signals"]) == [0, 30, 36, 80, 80, 90]
         assert "EXPENSIVE" in next(s for s in english["signals"] if s["source"] == "vol_surface IV-RV")["reading"]
         assert "dear" not in str(english["signals"])
         assert se._SCAN_CACHE == cache

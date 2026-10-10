@@ -8,8 +8,8 @@ import { leggiNumero } from '@/lib/cassa';
 import { localeDi } from '@/i18n/lingua';
 import { useLingua, useT } from '@/i18n/provider';
 import {
-  TradeIdeas, tradeIdeaArtifactBlob, type TradeIdeaArtifact, type TradeIdeaDetail,
-  type TradeIdeaEmailStatus, type TradeIdeaPreflight, type TradeIdeaRun, type TradeIdeaDocumentSource,
+  TradeIdeas, tradeIdeaArtifactBlob, readTradeIdeaStorage, storageOf, type TradeIdeaArtifact, type TradeIdeaDetail,
+  type TradeIdeaEmailStatus, type TradeIdeaPreflight, type TradeIdeaRun, type TradeIdeaDocumentSource, type TradeIdeaStorage,
 } from '@/lib/tradeIdeas';
 import './trade-idea.css';
 import TradeIdeaDocumentSources from '@/components/TradeIdeaDocumentSources';
@@ -17,6 +17,7 @@ import TradeIdeaRecoveryPanel from '@/components/TradeIdeaRecoveryPanel';
 import TradeIdeaCostReconcile from '@/components/TradeIdeaCostReconcile';
 import TradeIdeaPdfSections from '@/components/TradeIdeaPdfSections';
 import TradeIdeaSourceReadiness, { researchOnly } from '@/components/TradeIdeaSourceReadiness';
+import TradeIdeaStorageNotice from '@/components/TradeIdeaStorageNotice';
 
 type RouteState = { viewDraft?: string; noteSaved?: boolean } | null;
 type Translation = ReturnType<typeof useT>;
@@ -64,6 +65,17 @@ function judgmentLabel(t: Translation, judgment?: string | null): string {
   }
 }
 
+/** R14 seguito (B6): controverifica fonti di una run SALVATA. `unknown_legacy` = run anteriore al marcatore:
+ *  dato storico non registrato, mai «completata» né «fallita». Valore assente = non dichiarato. */
+export function savedSourceCheckLabel(t: Translation, status?: string | null): string {
+  switch (status) {
+    case 'completed': return t('tradeidea.sourceCheckSavedCompleted');
+    case 'unknown_legacy': return t('tradeidea.sourceCheckSavedLegacy');
+    case null: case undefined: case '': return t('tradeidea.sourceCheckSavedUnknown');
+    default: return status;
+  }
+}
+
 function dateLabel(value: string | null | undefined, locale: string, missing: string): string {
   if (!value) return missing;
   const parsed = new Date(value);
@@ -95,10 +107,12 @@ function markdown(value: string) {
   return <div className="ti-markdown"><ReactMarkdown>{value}</ReactMarkdown></div>;
 }
 
-export function TradeIdeaRunDetail({ detail, now, onStop, stopping, stopError, onRetryEmail, retryingEmail, retryError, onReuse, onDownload, downloadError, downloading }: {
+export function TradeIdeaRunDetail({ detail, now, onStop, stopping, stopError, onRetryEmail, retryingEmail, retryError, onReuse, onDownload, downloadError, downloading, stopStorage = null, retryStorage = null }: {
   detail: TradeIdeaDetail; now: number; onStop: () => void; stopping: boolean; stopError: string | null;
   onRetryEmail: () => void; retryingEmail: boolean; retryError: string | null; onReuse: () => void;
   onDownload: (artifact: TradeIdeaArtifact) => void; downloadError: string | null; downloading: string | null;
+  /** R14: diagnosi del 503 storage di stop / nuovo invio email, mostrata col riquadro invece del detail grezzo */
+  stopStorage?: TradeIdeaStorage | null; retryStorage?: TradeIdeaStorage | null;
 }) {
   const t = useT(), language = useLingua(), locale = localeDi(language);
   const { run, progress, result } = detail;
@@ -117,13 +131,15 @@ export function TradeIdeaRunDetail({ detail, now, onStop, stopping, stopError, o
       <div><span>{t('tradeidea.started')}</span><strong>{dateLabel(run.started_at ?? run.created_at, locale, t('tradeidea.unknown'))}</strong></div>
       <div><span>{t('tradeidea.elapsed')}</span><strong>{duration(run.started_at, run.finished_at, now, t('tradeidea.unknown'))}</strong></div>
       <div><span>{t('tradeidea.phase')}</span><strong>{progress?.phase || run.phase || t('tradeidea.unknown')}</strong></div>
+      {run.source_qualification && <div data-ti-source-check={run.source_qualification.execution_status || 'undeclared'}><span>{t('tradeidea.sourceCheckSaved')}</span><strong>{savedSourceCheckLabel(t, run.source_qualification.execution_status)}</strong></div>}
     </div>
     {(run.error || run.reason) && <div className="ti-notice ti-error" role="alert">{run.error || run.reason}</div>}
     <div className="ti-detail-actions">
       {inProgress(status) && <button className="ti-button ti-danger" onClick={onStop} disabled={stopping}><Square size={12} />{stopping ? t('tradeidea.stopping') : t('tradeidea.stop')}</button>}
       <button className="ti-button ti-quiet" onClick={onReuse}><RotateCcw size={12} />{t('tradeidea.reuse')}</button>
     </div>
-    {stopError && <div className="ti-notice ti-error" role="alert">{t('tradeidea.stopError', { error: stopError })}</div>}
+    {stopError && (stopStorage ? <TradeIdeaStorageNotice storage={stopStorage} lead={t('tradeidea.stopError', { error: t('tradeidea.storageLead') })} />
+      : <div className="ti-notice ti-error" role="alert">{t('tradeidea.stopError', { error: stopError })}</div>)}
 
     <section className="ti-slab">
       <div className="ti-slab-head"><h3>{t('tradeidea.progress')}</h3><span>{dateLabel(progress?.updated_at ?? run.updated_at, locale, t('tradeidea.unknown'))}</span></div>
@@ -158,7 +174,8 @@ export function TradeIdeaRunDetail({ detail, now, onStop, stopping, stopError, o
 
     <div className="ti-delivery-grid">
       <section className="ti-slab"><div className="ti-slab-head"><h3>{t('tradeidea.artifacts')}</h3></div>{!detail.artifacts?.length ? <p className="ti-muted">{t('tradeidea.artifactsEmpty')}</p> : detail.artifacts.map(artifact => <div className="ti-artifact" key={artifact.id}>{artifact.kind === 'pdf' ? <FileText size={17} /> : <FileSpreadsheet size={17} />}<div><strong>{artifact.name}</strong><span>{artifact.kind.toUpperCase()} · {artifact.status === 'partial' ? t('tradeidea.partialArtifact') : artifact.status}</span>{artifact.reason && <small>{artifact.reason}</small>}{artifact.status !== 'ready' && artifact.status !== 'partial' && !artifact.reason && <small>{t('tradeidea.artifactMissingReason')}</small>}</div>{(artifact.status === 'ready' || (artifact.kind === 'pdf' && artifact.status === 'partial')) && <button className="ti-button ti-quiet" disabled={downloading === artifact.id} onClick={() => onDownload(artifact)}><Download size={12} />{t('tradeidea.download')}</button>}</div>)}{downloadError && <div className="ti-notice ti-error" role="alert">{t('tradeidea.downloadFailed', { error: downloadError })}</div>}<TradeIdeaPdfSections detail={detail} /></section>
-      <section className="ti-slab"><div className="ti-slab-head"><h3>{t('tradeidea.email')}</h3></div><p className={`ti-email ti-email-${email?.status || 'unknown'}`}>{emailLabel(t, email?.status)}</p>{(email?.error || email?.reason) && <p className="ti-muted">{email.error || email.reason}</p>}{email?.attempted_at && <p className="ti-muted">{dateLabel(email.attempted_at, locale, t('tradeidea.unknown'))}</p>}{(email?.status === 'failed' || email?.status === 'uncertain') && <button className="ti-button ti-primary" onClick={onRetryEmail} disabled={retryingEmail}>{retryingEmail ? t('tradeidea.retryingEmail') : t(email.status === 'uncertain' ? 'tradeidea.retryUncertain' : 'tradeidea.retryEmail')}</button>}{retryError && <div className="ti-notice ti-error" role="alert">{t('tradeidea.retryFailed', { error: retryError })}</div>}</section>
+      <section className="ti-slab"><div className="ti-slab-head"><h3>{t('tradeidea.email')}</h3></div><p className={`ti-email ti-email-${email?.status || 'unknown'}`}>{emailLabel(t, email?.status)}</p>{(email?.error || email?.reason) && <p className="ti-muted">{email.error || email.reason}</p>}{email?.attempted_at && <p className="ti-muted">{dateLabel(email.attempted_at, locale, t('tradeidea.unknown'))}</p>}{(email?.status === 'failed' || email?.status === 'uncertain') && <button className="ti-button ti-primary" onClick={onRetryEmail} disabled={retryingEmail}>{retryingEmail ? t('tradeidea.retryingEmail') : t(email.status === 'uncertain' ? 'tradeidea.retryUncertain' : 'tradeidea.retryEmail')}</button>}{retryError && (retryStorage ? <TradeIdeaStorageNotice storage={retryStorage} lead={t('tradeidea.retryFailed', { error: t('tradeidea.storageLead') })} />
+        : <div className="ti-notice ti-error" role="alert">{t('tradeidea.retryFailed', { error: retryError })}</div>)}</section>
     </div>
     {id && !inProgress(status) && !researchOnly(run) && <section className="ti-slab">
       <h3>{t('tradeidea.recoveryArchived')}</h3><p>{t('tradeidea.recoveryArchivedHint')}</p>
@@ -201,6 +218,15 @@ export default function TradeIdeaPage() {
   const [history, setHistory] = useState<TradeIdeaRun[]>([]);
   const [historyTotal, setHistoryTotal] = useState<number | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  // R14: diagnosi strutturata del 503 (storage non pronto) accanto al messaggio, per storico/dettaglio/preflight
+  const [historyStorage, setHistoryStorage] = useState<TradeIdeaStorage | null>(null);
+  const [detailStorage, setDetailStorage] = useState<TradeIdeaStorage | null>(null);
+  const [preflightStorage, setPreflightStorage] = useState<TradeIdeaStorage | null>(null);
+  // R14/U4: lo stato «run attiva» non letto si dichiara n.d., mai «nessuna run attiva»
+  const [activeError, setActiveError] = useState<{ text: string; storage: TradeIdeaStorage | null } | null>(null);
+  const [launchStorage, setLaunchStorage] = useState<TradeIdeaStorage | null>(null);
+  const [stopStorage, setStopStorage] = useState<TradeIdeaStorage | null>(null);
+  const [retryStorage, setRetryStorage] = useState<TradeIdeaStorage | null>(null);
   const [historyTicker, setHistoryTicker] = useState('');
   const [historyStatus, setHistoryStatus] = useState('');
   const [historyLimit, setHistoryLimit] = useState(20);
@@ -215,6 +241,8 @@ export default function TradeIdeaPage() {
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [askStop, setAskStop] = useState(false);
   const [askUncertainEmail, setAskUncertainEmail] = useState(false);
+  // R14 seguito: rilettura manuale di /active quando lo stato della run attiva non è verificabile (hook in coda)
+  const [recheckingActive, setRecheckingActive] = useState(false);
 
   const signature = JSON.stringify([ticker.trim(), view, viewSource, budgetValue, documentSources]);
   const documentsComplete = documentSources.every(source => /^https:\/\//i.test(source.url));
@@ -227,7 +255,8 @@ export default function TradeIdeaPage() {
   const historicalPreparation = preflight?.source_qualification?.status === 'preparation_required';
   const researchRequired = preflight?.source_qualification?.status === 'research_required';
   const researchMode = researchOnly(preflight) || researchOnly(preflight?.source_qualification);
-  const canLaunch = !!(preflightCurrent && preflight?.ok && (preflight.source_qualification?.status === 'qualified' || historicalPreparation || researchRequired) && preflight.source_qualification?.fingerprint && preflight.identity?.ticker && preflight.models?.length && budgetValue != null && (!changedIdentity || identityConfirmed) && !launching && !activeId);
+  const preflightReadyStorage = readTradeIdeaStorage(preflight?.storage);
+  const canLaunch = !!(preflightCurrent && preflight?.ok && (preflight.source_qualification?.status === 'qualified' || historicalPreparation || researchRequired) && preflight.source_qualification?.fingerprint && preflight.identity?.ticker && preflight.models?.length && budgetValue != null && (!changedIdentity || identityConfirmed) && !launching && !activeId && !activeError);
 
   useEffect(() => {
     if (entry !== 'favorites' || !initialTicker || routeState?.viewDraft !== undefined) return;
@@ -244,14 +273,19 @@ export default function TradeIdeaPage() {
     setLoadingHistory(true);
     try {
       const data = await TradeIdeas.list({ ticker: filterTicker.trim() || undefined, status: filterStatus || undefined, limit });
-      setHistory(data.runs); setHistoryTotal(data.total ?? null); setHistoryError(null);
-    } catch (error) { setHistoryError(errorText(error)); }
+      setHistory(data.runs); setHistoryTotal(data.total ?? null); setHistoryError(null); setHistoryStorage(null);
+    } catch (error) { setHistoryError(errorText(error)); setHistoryStorage(storageOf(error)); }
     finally { setLoadingHistory(false); }
   }, []);
 
   const loadDetail = useCallback(async (id: string) => {
-    try { const data = await TradeIdeas.detail(id); setDetail(data); setDetailError(null); }
-    catch (error) { setDetailError(errorText(error)); }
+    try { const data = await TradeIdeas.detail(id); setDetail(data); setDetailError(null); setDetailStorage(null); }
+    catch (error) { setDetailError(errorText(error)); setDetailStorage(storageOf(error)); }
+  }, []);
+
+  const loadActive = useCallback(async () => {
+    try { const active = await TradeIdeas.active(); setActiveId(active.run_id || null); setActiveError(null); }
+    catch (error) { setActiveError({ text: errorText(error), storage: storageOf(error) }); }
   }, []);
 
   useEffect(() => {
@@ -259,10 +293,11 @@ export default function TradeIdeaPage() {
     Promise.allSettled([TradeIdeas.active(), TradeIdeas.list({ limit: historyLimit })]).then(results => {
       if (!alive) return;
       const active = results[0].status === 'fulfilled' ? results[0].value.run_id : null;
-      if (results[0].status === 'fulfilled') setActiveId(active || null);
+      if (results[0].status === 'fulfilled') { setActiveId(active || null); setActiveError(null); }
+      else setActiveError({ text: errorText(results[0].reason), storage: storageOf(results[0].reason) });
       const listed = results[1].status === 'fulfilled' ? results[1].value : null;
       if (listed) { setHistory(listed.runs); setHistoryTotal(listed.total ?? null); }
-      else if (results[1].status === 'rejected') setHistoryError(errorText(results[1].reason));
+      else if (results[1].status === 'rejected') { setHistoryError(errorText(results[1].reason)); setHistoryStorage(storageOf(results[1].reason)); }
       if (!selectedId) setSelectedId(active || (listed?.runs[0] ? runId(listed.runs[0]) : null));
     });
     return () => { alive = false; };
@@ -276,10 +311,13 @@ export default function TradeIdeaPage() {
       if (busy) return;
       busy = true;
       try {
-        const [fresh, active] = await Promise.all([TradeIdeas.detail(selectedId), TradeIdeas.active()]);
-        setDetail(fresh); setDetailError(null); setActiveId(active.run_id || null);
-      } catch (error) { setDetailError(errorText(error)); }
-      finally { busy = false; }
+        // dettaglio e run attiva falliscono ciascuno per conto suo: l'errore dell'uno non si attribuisce all'altro
+        const [fresh, active] = await Promise.allSettled([TradeIdeas.detail(selectedId), TradeIdeas.active()]);
+        if (fresh.status === 'fulfilled') { setDetail(fresh.value); setDetailError(null); setDetailStorage(null); }
+        else { setDetailError(errorText(fresh.reason)); setDetailStorage(storageOf(fresh.reason)); }
+        if (active.status === 'fulfilled') { setActiveId(active.value.run_id || null); setActiveError(null); }
+        else setActiveError({ text: errorText(active.reason), storage: storageOf(active.reason) });
+      } finally { busy = false; }
     }, 5000);
     return () => clearInterval(timer);
   }, [selectedId]);
@@ -291,6 +329,11 @@ export default function TradeIdeaPage() {
     requestAnimationFrame(() => document.querySelector('.ti-history-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   };
 
+  const recheckActive = async () => {
+    setRecheckingActive(true);
+    try { await loadActive(); } finally { setRecheckingActive(false); }
+  };
+
   const invalidatePreflight = () => { setPreflight(null); setPreflightError(null); setIdentityConfirmed(false); idempotencyKey.current = null; };
   const verify = async () => {
     if (!ticker.trim() || budgetValue == null || !documentsComplete) return;
@@ -298,14 +341,14 @@ export default function TradeIdeaPage() {
     const checkedSignature = signature;
     try {
       const answer = await TradeIdeas.preflight(ticker.trim(), view, viewSource, budgetValue, undefined, documentSources);
-      setPreflight(answer); setPreflightSignature(checkedSignature);
-    } catch (error) { setPreflight(null); setPreflightError(errorText(error)); }
+      setPreflight(answer); setPreflightSignature(checkedSignature); setPreflightStorage(null);
+    } catch (error) { setPreflight(null); setPreflightError(errorText(error)); setPreflightStorage(storageOf(error)); }
     finally { setVerifying(false); }
   };
 
   const start = async () => {
     if (launchLock.current || !canLaunch || budgetValue == null) return;
-    launchLock.current = true; setAskLaunch(false); setLaunching(true); setLaunchError(null);
+    launchLock.current = true; setAskLaunch(false); setLaunching(true); setLaunchError(null); setLaunchStorage(null);
     const key = idempotencyKey.current || crypto.randomUUID();
     idempotencyKey.current = key;
     try {
@@ -313,31 +356,31 @@ export default function TradeIdeaPage() {
       setActiveId(accepted.run_id); openRun(accepted.run_id);
       await loadHistory('', '', historyLimit);
     } catch (error) {
-      setLaunchError(errorText(error));
+      setLaunchError(errorText(error)); setLaunchStorage(storageOf(error));
       try { const active = await TradeIdeas.active(); if (active.run_id) { setActiveId(active.run_id); openRun(active.run_id); } } catch { /* avvio ambiguo dichiarato sopra */ }
     } finally { launchLock.current = false; setLaunching(false); }
   };
 
   const refresh = async () => {
     setRefreshing(true);
-    try { await Promise.all([selectedId ? loadDetail(selectedId) : Promise.resolve(), loadHistory(historyTicker, historyStatus, historyLimit), TradeIdeas.active().then(active => setActiveId(active.run_id || null))]); }
+    try { await Promise.all([selectedId ? loadDetail(selectedId) : Promise.resolve(), loadHistory(historyTicker, historyStatus, historyLimit), loadActive()]); }
     finally { setRefreshing(false); }
   };
 
   const stop = async () => {
     if (!selectedId || stopping) return;
-    setAskStop(false); setStopping(true); setStopError(null);
-    try { await TradeIdeas.stop(selectedId); await Promise.all([loadDetail(selectedId), TradeIdeas.active().then(active => setActiveId(active.run_id || null))]); }
-    catch (error) { setStopError(errorText(error)); }
+    setAskStop(false); setStopping(true); setStopError(null); setStopStorage(null);
+    try { await TradeIdeas.stop(selectedId); await Promise.all([loadDetail(selectedId), loadActive()]); }
+    catch (error) { setStopError(errorText(error)); setStopStorage(storageOf(error)); }
     finally { setStopping(false); }
   };
 
   const retryEmail = async (acknowledgeUncertain = false) => {
     if (!selectedId || retryingEmail || !(detail?.email?.status === 'failed' || (detail?.email?.status === 'uncertain' && acknowledgeUncertain))) return;
     setAskUncertainEmail(false);
-    setRetryingEmail(true); setRetryError(null);
+    setRetryingEmail(true); setRetryError(null); setRetryStorage(null);
     try { await TradeIdeas.retryEmail(selectedId, acknowledgeUncertain); await loadDetail(selectedId); }
-    catch (error) { setRetryError(errorText(error)); }
+    catch (error) { setRetryError(errorText(error)); setRetryStorage(storageOf(error)); }
     finally { setRetryingEmail(false); }
   };
 
@@ -378,10 +421,11 @@ export default function TradeIdeaPage() {
         <TradeIdeaDocumentSources value={documentSources} disabled={launching} onChange={sources => {setDocumentSources(sources); invalidatePreflight();}} />
         {!documentsComplete && <p className="ti-field-note">{t('tradeidea.sourcesIncomplete')}</p>}
         <button className="ti-button ti-primary ti-verify" disabled={!ticker.trim() || budgetValue == null || !documentsComplete || verifying || launching} onClick={() => void verify()}><Search size={13} />{verifying ? t('tradeidea.verifying') : t('tradeidea.verify')}</button>
-        {preflightError && <div className="ti-notice ti-error" role="alert">{t('tradeidea.verifyFailed', { error: preflightError })}</div>}
+        {preflightError && (preflightStorage ? <TradeIdeaStorageNotice storage={preflightStorage} lead={t('tradeidea.verifyFailed', { error: t('tradeidea.storageLead') })} />
+          : <div className="ti-notice ti-error" role="alert">{t('tradeidea.verifyFailed', { error: preflightError })}</div>)}
       </section>
       <section className="ti-slab ti-readiness" aria-labelledby="ti-ready-title"><div className="ti-slab-head"><h2 id="ti-ready-title">{t('tradeidea.readiness')}</h2><span>{t('tradeidea.markPreflight')}</span></div>
-        {!preflightCurrent ? <p className="ti-muted">{preflight ? t('tradeidea.preflightStale') : t('tradeidea.identityUnknown')}</p> : <><div className={`ti-readiness-status ${preflight?.ok ? 'ok' : 'ko'}`}>{preflight?.ok ? t('tradeidea.preflightOk') : t('tradeidea.preflightBlocked')}</div>{preflight?.reasons?.length ? <ul className="ti-reasons">{preflight.reasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul> : !preflight?.ok && <p className="ti-muted">{t('tradeidea.preflightNoReason')}</p>}
+        {!preflightCurrent ? <p className="ti-muted">{preflight ? t('tradeidea.preflightStale') : t('tradeidea.identityUnknown')}</p> : <><div className={`ti-readiness-status ${preflight?.ok ? 'ok' : 'ko'}`}>{preflight?.ok ? t('tradeidea.preflightOk') : t('tradeidea.preflightBlocked')}</div>{preflightReadyStorage && <TradeIdeaStorageNotice storage={preflightReadyStorage} lead={t('tradeidea.storageLead')} />}{preflight?.reasons?.length ? <ul className="ti-reasons">{preflight.reasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul> : !preflight?.ok && <p className="ti-muted">{t('tradeidea.preflightNoReason')}</p>}
           <div className="ti-gates"><div><span>{t('tradeidea.authorization')}</span><strong>{preflight?.authorization?.status || t('tradeidea.gateUnknown')}</strong><small>{preflight?.authorization?.reason}</small></div><div><span>{t('tradeidea.budget')}</span><strong>{preflight?.budget?.status || t('tradeidea.gateUnknown')}</strong><small>{preflight?.budget?.reason}</small></div></div>
           <TradeIdeaSourceReadiness preflight={preflight}/>
           {preflight?.source_qualification?.coverage?.sources?.catalog_warnings?.map((warning, index) => <p className="ti-field-note" key={`catalog-warning-${index}`}>{warning.source === 'catalog' && warning.reason === 'document limit reached; coverage partial' ? t('tradeidea.historicalCatalogLimited') : warning.reason}</p>)}
@@ -403,20 +447,28 @@ export default function TradeIdeaPage() {
           {!researchMode && preflight?.valuation && <div className="ti-catalog"><h3>{t('tradeidea.valuationGate')}</h3><p>{preflight.valuation.candidate_status || preflight.valuation.status || t('tradeidea.unknown')}</p>{(preflight.valuation.candidate_reason || preflight.valuation.reason) && <small>{preflight.valuation.candidate_reason || preflight.valuation.reason}</small>}</div>}
         </>}
         <div className="ti-launch"><p>{t('tradeidea.launchNotice')}</p><button className="ti-button ti-primary" disabled={!canLaunch} onClick={() => setAskLaunch(true)}><Play size={13} />{launching ? t('tradeidea.launching') : t('tradeidea.launch')}</button></div>
-        {activeId && <div className="ti-notice"><p>{t('tradeidea.activeElsewhere')}</p><button className="ti-button ti-quiet" onClick={() => openRun(activeId)}>{t('tradeidea.openActive')} <ArrowRight size={12} /></button></div>}
-        {launchError && <div className="ti-notice ti-error" role="alert">{t('tradeidea.launchFailed', { error: launchError })}</div>}
+        {activeError && (activeError.storage ? <TradeIdeaStorageNotice storage={activeError.storage} lead={t('tradeidea.activeUnavailable')} />
+          : <div className="ti-notice ti-error" role="alert">{t('tradeidea.activeUnavailable')}: {activeError.text}</div>)}
+        {/* R14 seguito (sicurezza): /active illeggibile = avvio bloccato anche senza run nota, mai una seconda run a pagamento alla cieca */}
+        {activeError && <div className="ti-notice ti-error" data-ti-launch-blocked="active-unverified"><p>{t('tradeidea.launchBlockedActiveUnknown')}</p><button className="ti-button ti-quiet" disabled={recheckingActive} onClick={() => void recheckActive()}><RefreshCw size={12} className={recheckingActive ? 'animate-spin' : ''} />{recheckingActive ? t('tradeidea.retryingActiveCheck') : t('tradeidea.retryActiveCheck')}</button></div>}
+        {/* H4: con /active non leggibile la run attiva nota resta (canLaunch falso) ma non si afferma «in corso» al presente */}
+        {activeId && <div className="ti-notice"><p>{activeError ? t('tradeidea.activeLastKnown', { id: activeId }) : t('tradeidea.activeElsewhere')}</p><button className="ti-button ti-quiet" onClick={() => openRun(activeId)}>{activeError ? t('tradeidea.openLastKnown') : t('tradeidea.openActive')} <ArrowRight size={12} /></button></div>}
+        {launchError && (launchStorage ? <TradeIdeaStorageNotice storage={launchStorage} lead={t('tradeidea.launchFailed', { error: t('tradeidea.storageLead') })} />
+          : <div className="ti-notice ti-error" role="alert">{t('tradeidea.launchFailed', { error: launchError })}</div>)}
       </section>
     </div>
     <div className="ti-history-detail">
       <aside className="ti-slab ti-history"><div className="ti-slab-head"><div><h2>{t('tradeidea.history')}</h2><p>{t('tradeidea.historySubtitle')}</p></div><span>{t('tradeidea.markArchive')}</span></div><div className="ti-filters"><label>{t('tradeidea.historyTicker')}<input value={historyTicker} onChange={event => setHistoryTicker(event.target.value.toUpperCase())} maxLength={32} /></label><label>{t('tradeidea.historyStatus')}<select value={historyStatus} onChange={event => setHistoryStatus(event.target.value)}><option value="">{t('tradeidea.allStatuses')}</option>{['accepted', 'running', 'completed', 'incomplete', 'failed', 'cancelled', 'interrupted'].map(status => <option key={status} value={status}>{statusLabel(t, status)}</option>)}</select></label><button className="ti-button ti-quiet" onClick={() => { setHistoryLimit(20); void loadHistory(historyTicker, historyStatus, 20); }}>{t('tradeidea.applyFilters')}</button></div>
-        {historyError && <div className="ti-notice ti-error" role="alert">{t('tradeidea.historyError', { error: historyError })}</div>}
+        {historyError && (historyStorage ? <TradeIdeaStorageNotice storage={historyStorage} lead={t('tradeidea.historyError', { error: t('tradeidea.storageLead') })} />
+          : <div className="ti-notice ti-error" role="alert">{t('tradeidea.historyError', { error: historyError })}</div>)}
         {!historyError && !history.length && !loadingHistory && <p className="ti-muted">{t('tradeidea.historyEmpty')}</p>}
         <div className="ti-history-list">{history.map(run => { const id = runId(run), status = runStatus(run); return <button key={id || `${run.ticker}-${run.created_at}`} className={`ti-history-item ${selectedId === id ? 'selected' : ''}`} onClick={() => id && openRun(id)}><span><strong>{run.ticker}</strong><small>{statusLabel(t, status)}</small></span><span>{dateLabel(run.started_at ?? run.created_at, locale, t('tradeidea.unknown'))}</span>{run.destination?.kind && <em>{run.destination.kind === 'dcn' ? t('tradeidea.destinationDcn') : run.destination.kind === 'research' ? t('tradeidea.destinationResearch') : t('tradeidea.destinationNone')}</em>}</button>; })}</div>
         {historyTotal != null && history.length < historyTotal && <button className="ti-button ti-quiet ti-more" disabled={loadingHistory} onClick={() => { const next = historyLimit + 20; setHistoryLimit(next); void loadHistory(historyTicker, historyStatus, next); }}>{t('tradeidea.historyMore')}</button>}
       </aside>
       {detail && <TradeIdeaCostReconcile key={'costi-' + (detail.run.id || detail.run.run_id)} detail={detail} onChanged={id => { void loadDetail(id); void loadHistory(historyTicker, historyStatus, historyLimit); }} />}
       {detail && <TradeIdeaRecoveryPanel key={detail.run.id || detail.run.run_id} detail={detail} onChanged={id => { if (id === selectedId) void loadDetail(id); else openRun(id); void loadHistory(historyTicker, historyStatus, historyLimit); }} />}
-      <section className="ti-detail-wrap"><div className="ti-detail-toolbar"><span>{t('tradeidea.detail')}</span><button className="ti-button ti-quiet" disabled={refreshing} onClick={() => void refresh()}><RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />{refreshing ? t('tradeidea.refreshing') : t('tradeidea.refresh')}</button></div>{detailError && <div className="ti-notice ti-error" role="alert">{t('tradeidea.detailError', { error: detailError })}</div>}{detail ? <TradeIdeaRunDetail detail={detail} now={now} onStop={() => setAskStop(true)} stopping={stopping} stopError={stopError} onRetryEmail={() => detail.email?.status === 'uncertain' ? setAskUncertainEmail(true) : void retryEmail()} retryingEmail={retryingEmail} retryError={retryError} onReuse={reuse} onDownload={artifact => void download(artifact)} downloadError={downloadError} downloading={downloading} /> : !detailError && <div className="ti-empty">{selectedId ? t('ui.loading') : t('tradeidea.detailMissing')}</div>}</section>
+      <section className="ti-detail-wrap"><div className="ti-detail-toolbar"><span>{t('tradeidea.detail')}</span><button className="ti-button ti-quiet" disabled={refreshing} onClick={() => void refresh()}><RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />{refreshing ? t('tradeidea.refreshing') : t('tradeidea.refresh')}</button></div>{detailError && (detailStorage ? <TradeIdeaStorageNotice storage={detailStorage} lead={t('tradeidea.detailError', { error: t('tradeidea.storageLead') })} />
+          : <div className="ti-notice ti-error" role="alert">{t('tradeidea.detailError', { error: detailError })}</div>)}{detail ? <TradeIdeaRunDetail detail={detail} now={now} onStop={() => setAskStop(true)} stopping={stopping} stopError={stopError} onRetryEmail={() => detail.email?.status === 'uncertain' ? setAskUncertainEmail(true) : void retryEmail()} retryingEmail={retryingEmail} retryError={retryError} stopStorage={stopStorage} retryStorage={retryStorage} onReuse={reuse} onDownload={artifact => void download(artifact)} downloadError={downloadError} downloading={downloading} /> : !detailError && <div className="ti-empty">{selectedId ? t('ui.loading') : t('tradeidea.detailMissing')}</div>}</section>
     </div>
     <ConfirmDialog open={askLaunch} title={t('tradeidea.confirmTitle')} intro={t('tradeidea.confirmIntro')} rows={[{ k: t('tradeidea.ticker'), v: resolved || ticker }, { k: t('tradeidea.budgetLimit'), v: budgetValue == null ? t('tradeidea.unknown') : new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD' }).format(budgetValue) }, { k: t('tradeidea.models'), v: preflight?.models?.map(item => `${item.role}: ${item.model} (${item.reasoning_effort || t('tradeidea.unknown')})`).join(' / ') || t('tradeidea.modelsMissing') }]} confirmLabel={t('tradeidea.launch')} cancelLabel={t('tradeidea.confirmCancel')} onConfirm={() => void start()} onCancel={() => setAskLaunch(false)} />
     <ConfirmDialog open={askStop} tone="crimson" title={t('tradeidea.stop')} intro={t('tradeidea.stopConfirm')} confirmLabel={t('tradeidea.stop')} cancelLabel={t('tradeidea.confirmCancel')} onConfirm={() => void stop()} onCancel={() => setAskStop(false)} />

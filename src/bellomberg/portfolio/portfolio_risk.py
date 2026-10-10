@@ -40,6 +40,49 @@ CACHE_TTL_SEC = 300
 BETA_OBS_AFFIDABILE = 60
 _CACHE: Dict[str, Any] = {"ts": 0, "data": None}
 
+# Vol PREVISIONALE del book (fix score 09/10, Opus 5.5): EWMA RiskMetrics, lambda 0,94
+# (J.P. Morgan/Reuters 1996, dati giornalieri: emivita ~11 sedute). La vol storica a 1 anno
+# pesa uguale un giorno di 11 mesi fa e uno di ieri: per un punteggio di RISCHIO serve la
+# stima della prossima seduta. Media zero (convenzione RiskMetrics), seme = varianza delle
+# prime EWMA_SEED_OBS osservazioni; sotto EWMA_MIN_OBS la stima non si emette (None).
+EWMA_LAMBDA = 0.94
+EWMA_SEED_OBS = 20
+EWMA_MIN_OBS = 60
+
+
+def ewma_vol_annual_pct(returns, lam: float = EWMA_LAMBDA) -> Optional[float]:
+    """Vol EWMA della PROSSIMA seduta, annualizzata x sqrt(252), in percento. None se la
+    serie e' troppo corta o non finita (il chiamante dichiara il buco)."""
+    r = [float(x) for x in returns if x is not None and np.isfinite(x)]
+    if len(r) < EWMA_MIN_OBS:
+        return None
+    var = float(np.mean(np.square(r[:EWMA_SEED_OBS])))
+    for x in r[EWMA_SEED_OBS:]:
+        var = lam * var + (1.0 - lam) * x * x
+    return float(np.sqrt(var * 252.0) * 100.0) if var > 0 else None
+
+
+def beta_dimson(port_r, spy_r) -> Optional[float]:
+    """Beta di Dimson (1979) con un ritardo e un anticipo: somma delle pendenze della
+    regressione r_book(t) su r_SPY(t-1), r_SPY(t), r_SPY(t+1). Serve a un book EUROPEO
+    contro SPY: la borsa europea chiude alle 17:30 CET, SPY alle 22:00, e la parte della
+    seduta USA dopo la chiusura europea entra nel rendimento europeo del giorno DOPO; il
+    beta giornaliero sincrono la perde e risulta distorto verso il basso (Scholes-Williams
+    1977). Le serie sono pandas allineate per data; None se < 30 osservazioni utili."""
+    df = pd.concat({"p": port_r, "s": spy_r}, axis=1).dropna()
+    if len(df) < 32:
+        return None
+    df = df.assign(s_lag=df["s"].shift(1), s_lead=df["s"].shift(-1)).dropna()
+    if len(df) < 30:
+        return None
+    X = np.column_stack([np.ones(len(df)), df["s_lag"].values, df["s"].values, df["s_lead"].values])
+    try:
+        coef, *_ = np.linalg.lstsq(X, df["p"].values, rcond=None)
+    except Exception:
+        return None
+    b = float(coef[1] + coef[2] + coef[3])
+    return b if np.isfinite(b) else None
+
 # I ticker che yfinance non gestisce (crypto custom, etc.) stanno nel NEGOZIO PRIVATO dei
 # prezzi speciali (negozi_privati.carica_prezzi_speciali: data/prezzi_speciali.json, forma in
 # prezzi_speciali.example.json), riletto A OGNI CHIAMATA. Qui il negozio assente NON e' neutro:
@@ -559,6 +602,12 @@ def compute_portfolio_risk(force: bool = False, *, strict_eur: bool = False) -> 
             else:
                 beta_error = _message("SPY con varianza nulla o non finita su {n} giorni: beta del book non calcolabile",
                                       "SPY with zero or non-finite variance over {n} days: book beta cannot be computed", n=beta_obs)
+    # fix score 09/10 (Opus 5.5): beta di Dimson (+-1 seduta) accanto a quello sincrono, che
+    # resta il numero riconciliato dal guardrail; vol EWMA 0,94 = vol PREVISIONALE del book.
+    beta_spy_dimson: Optional[float] = None
+    if beta_spy is not None:
+        beta_spy_dimson = beta_dimson(port_r.loc[common_idx], spy_r.loc[common_idx])
+    port_vol_ewma = ewma_vol_annual_pct(port_r.values)
     # La base dichiarata deve dire il vero: se l'FX EUR/USD non e' stato applicato a SPY
     # (conversione fallita, serie in valuta locale) il beta e' contro SPY in USD.
     beta_basis = _beta_basis(fx_meta)   # stessa regola della valuta del blocco SPY (G4, R-6)
@@ -646,7 +695,12 @@ def compute_portfolio_risk(force: bool = False, *, strict_eur: bool = False) -> 
             "var_99_1d_eur": round(port_var99_eur, 0),
             "beta_vs_spy": round(beta_spy, 2) if beta_spy is not None else None,
             "max_dd_1y_pct": round(max_dd_port, 2),
+            # fix score 09/10: None = non stimabile (serie corta), il consumatore lo dichiara
+            "vol_ewma_annual_pct": round(port_vol_ewma, 2) if port_vol_ewma is not None else None,
+            "beta_vs_spy_dimson": round(beta_spy_dimson, 2) if beta_spy_dimson is not None else None,
         },
+        "vol_ewma_method": "EWMA RiskMetrics lambda=%.2f, media zero, prossima seduta x sqrt(252)" % EWMA_LAMBDA,
+        "beta_dimson_method": "Dimson 1979: somma pendenze r_book(t) su r_SPY(t-1), r_SPY(t), r_SPY(t+1), stessi giorni del beta sincrono",
         # stesse metriche su SPY (EUR), stessi giorni; None = SPY n.d. (dichiarato)
         "benchmark": benchmark,
         "benchmark_motivo": benchmark_motivo,

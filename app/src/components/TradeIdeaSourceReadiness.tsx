@@ -7,9 +7,14 @@ export const researchOnly = (value?: {analysis_mode?: string} | null) => value?.
 export default function TradeIdeaSourceReadiness({preflight}: {preflight: TradeIdeaPreflight | null}) {
   const t = useT(), qualification = preflight?.source_qualification;
   const research = researchOnly(preflight) || researchOnly(qualification);
+  // R14: not_run = verifica mai eseguita (un controllo precedente ha bloccato), failed = eseguita e non riuscita.
+  // Nessuna delle due si presenta come descrizione delle fonti o come «fonti non qualificate».
+  const execution = qualification?.execution_status;
   return <div className="ti-catalog">
     <h3>{t('tradeidea.sourceQualification')}</h3>
-    <p>{research ? t('tradeidea.companyResearchSources')
+    <p>{execution === 'not_run' ? t('tradeidea.sourceCheckNotRun')
+      : execution === 'failed' ? t('tradeidea.sourceCheckFailed')
+      : research ? t('tradeidea.companyResearchSources')
       : qualification?.status === 'research_required' ? t('tradeidea.sourceResearchRequired')
       : qualification?.status === 'preparation_required' ? t('tradeidea.historyPreparationRequired')
       : qualification?.status === 'qualified' ? t('tradeidea.sourcesQualified') : t('tradeidea.sourcesBlocked')}</p>

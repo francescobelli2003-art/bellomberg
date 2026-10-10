@@ -233,6 +233,15 @@ NEWS_PROVIDER_LIMITS = {
 # 87% del rumore, resta a max_per_source). Cap del piano: 25.
 GNEWS_MAX_ART = 25
 
+# 10/10 (Opus 5.5): il registro dei cooldown per-query teneva solo le 60 query piu' recenti.
+# Misura del 10/10 (data/news_rate_state.json): gnews aveva ESATTAMENTE 60 voci, cioe' il
+# giro (posizioni + preferiti + .MI in italiano + 8 temi) gia' toccava il tetto. Ogni query
+# oltre la 60-esima spingeva fuori la piu' vecchia, che al giro dopo (15 min) non risultava
+# piu' in cooldown e si ripagava: il cooldown di 2h diventava 15 min per le query sfrattate.
+# Con le query GNews nuove di questa correzione (.DE in tedesco, top-headlines) si sarebbe
+# sfondato: tetto a 200 (il file resta di pochi KB).
+MAX_QUERY_COOLDOWN = 200
+
 
 def _news_rate_state() -> Dict[str, Any]:
     try:
@@ -414,9 +423,13 @@ def providers_blocked() -> Dict[str, str]:
     # chiamata (tiingo_news.last_status): un 401 di abbonamento scaduto era invisibile
     # (la parola «tiingo» compariva 0 volte nel news_feed.log). «Mai interrogata» = nessuna voce.
     tiingo_ultimo = None
+    tiingo_spenta = False
     try:
-        from bellomberg.market_data.tiingo_news import tiingo_available, last_status
-        if not tiingo_available():
+        from bellomberg.market_data.tiingo_news import tiingo_available, last_status, tiingo_spenta as _spenta
+        tiingo_spenta = _spenta()
+        if tiingo_spenta:
+            pass  # 10/10: SPENTA per decisione PM -> fonti_spente(), non una fonte muta/guasta
+        elif not tiingo_available():
             fuori["tiingo"] = message("SENZA_CHIAVE: TIINGO_API_KEY assente nel .env (o requests non importabile)",
                                       "SENZA_CHIAVE: TIINGO_API_KEY missing from .env (or requests cannot be imported)")
         else:
@@ -424,7 +437,7 @@ def providers_blocked() -> Dict[str, str]:
     except Exception as e:
         fuori["tiingo"] = message("MODULO_ASSENTE: tiingo_news non importabile ({kind})",
                                   "MODULO_ASSENTE: tiingo_news cannot be imported ({kind})", kind=type(e).__name__)
-    if "tiingo" not in fuori:
+    if "tiingo" not in fuori and not tiingo_spenta:
         muta = _esito_muto_recente("tiingo", "Tiingo", tiingo_ultimo)
         if muta:
             fuori["tiingo"] = muta
@@ -521,9 +534,20 @@ def reset_esiti_fonti() -> None:
 def fonti_spente() -> Dict[str, str]:
     """Fonti tolte PER DECISIONE (non guaste): {fonte: motivo}, codice SPENTA in testa.
     Il codice non le interroga piu' in nessun punto; si dichiarano perche' chi legge il
-    giro o le rotte non scambi la loro assenza per «zero notizie»."""
-    return {"reddit": message("SPENTA: Reddit tolto dalle fonti (decisione PM 04/10)",
-                              "SPENTA: Reddit removed from sources (PM decision 04/10)")}
+    giro o le rotte non scambi la loro assenza per «zero notizie».
+    10/10 (Opus 5.5): Tiingo News spenta per decisione PM (abbonamento non rinnovato) finche'
+    `tiingo_news.FONTE_SPENTA` e' vero; riaccesa (TIINGO_NEWS_ENABLED=1) esce da qui e torna
+    misurata come le altre. Modulo non importabile: lo dichiara providers_blocked()."""
+    out = {"reddit": message("SPENTA: Reddit tolto dalle fonti (decisione PM 04/10)",
+                             "SPENTA: Reddit removed from sources (PM decision 04/10)")}
+    try:
+        from bellomberg.market_data import tiingo_news
+        if tiingo_news.tiingo_spenta():
+            out["tiingo"] = message("SPENTA: Tiingo News — {motivo}", "SPENTA: Tiingo News — {motivo_en}",
+                                    motivo=tiingo_news.MOTIVO_SPENTA, motivo_en=tiingo_news.MOTIVO_SPENTA_EN)
+    except Exception:
+        pass  # MODULO_ASSENTE: dichiarato da providers_blocked(), non qui
+    return out
 
 
 def _esito_piu_recente(provider: str, esterno: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
@@ -609,8 +633,8 @@ def _provider_record(provider: str, query: str, got_429: bool = False) -> None:
     st["count"] = int(st.get("count", 0)) + 1
     pq = st.get("per_query", {})
     pq[query.lower().strip()[:80]] = now
-    if len(pq) > 60:
-        pq = dict(sorted(pq.items(), key=lambda kv: kv[1], reverse=True)[:60])
+    if len(pq) > MAX_QUERY_COOLDOWN:
+        pq = dict(sorted(pq.items(), key=lambda kv: kv[1], reverse=True)[:MAX_QUERY_COOLDOWN])
     st["per_query"] = pq
     if got_429:
         st["disabled_until"] = now + lim["disable"]
@@ -852,6 +876,14 @@ def _fetch_gnews(query: str, days: int = 3, max_results: int = 10, lang: str = "
             "q": gnews_safe_query(query),
             "from": (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "lang": lang,
+            # 10/10 (probe live, docs.gnews.io/openapi.yaml): campi e ordine ESPLICITI. Sono i
+            # default dell'API oggi, ma il ranking a valle presume «i piu' recenti nei campi
+            # che il lettore vede»: un cambio di default non deve cambiarci il feed in silenzio.
+            # publishedAt e non relevance: con cooldown 2h e ~3 articoli/h sul nome piu' coperto
+            # (il nome piu' coperto del book: 204 in 3 giorni) i 25 piu' recenti coprono TUTTA
+            # la finestra; relevance (stesso insieme, +4 punti di qualita') ne salterebbe di freschi.
+            "in": "title,description",
+            "sortby": "publishedAt",
             "max": max_results,
             "apikey": GNEWS_KEY,
         }
@@ -871,6 +903,58 @@ def _fetch_gnews(query: str, days: int = 3, max_results: int = 10, lang: str = "
         return _mappa_gnews(articoli[:max_results])
     except Exception as e:
         _log(f"gnews failed: {_eccezione_sicura(e)}")
+        return []
+
+
+# 10/10 (Opus 5.5, ordine PM «notizie importanti per tutto»): il feed generale di mercato
+# era Tiingo (spento). Al suo posto le TOP HEADLINES business di GNews: la classifica di
+# Google News delle notizie del momento (probe live 10/10: 25 articoli, CNBC/Yahoo/CBS/NBC/
+# TechCrunch...). country=us e lang=en sono i parametri MISURATI nella probe. Stesso limiter
+# (cooldown 2h -> 12 chiamate/giorno al massimo) e stessa cache condivisa delle ricerche.
+GNEWS_TOP_CATEGORIA = "business"
+GNEWS_TOP_PAESE = "us"
+GNEWS_TOP_LINGUA = "en"
+
+
+def _chiave_gnews_top(categoria: str = GNEWS_TOP_CATEGORIA, paese: str = GNEWS_TOP_PAESE) -> str:
+    """Chiave di limiter/cache: tra parentesi quadre, non collide con nessuna query di ricerca."""
+    return f"[top-headlines category={categoria} country={paese}]"
+
+
+def _fetch_gnews_top(max_results: int = 10, days: int = 1) -> List[Dict[str, Any]]:
+    """Top headlines business GNews. Stessa disciplina di _fetch_gnews: chiave assente o
+    budget/disable -> [] dichiarati da providers_blocked(); cooldown -> cache dichiarata."""
+    if not (REQ_OK and GNEWS_KEY):
+        return []
+    q_lim = _chiave_gnews_top()
+    blocco = provider_status("gnews", q_lim)
+    if blocco == "SKIP_COOLDOWN":
+        return _gnews_da_cache(q_lim, days, max_results, GNEWS_TOP_LINGUA)
+    if blocco is not None:
+        return []  # SKIP_BUDGET/SKIP_DISABLED/SKIP_PACING: globali, dichiarati da providers_blocked()
+    try:
+        params = {
+            "category": GNEWS_TOP_CATEGORIA,
+            "lang": GNEWS_TOP_LINGUA,
+            "country": GNEWS_TOP_PAESE,
+            "max": max_results,
+            "apikey": GNEWS_KEY,
+        }
+        r = requests.get("https://gnews.io/api/v4/top-headlines", params=params, timeout=10)
+        _provider_record("gnews", q_lim, got_429=r.status_code in (403, 429))
+        if r.status_code != 200:
+            _log(f"gnews top-headlines HTTP {r.status_code}: {_maschera_chiavi(r.text[:200])}")
+            return []
+        articoli = (r.json() or {}).get("articles", []) or []
+        try:
+            from bellomberg.market_data import gnews_cache
+            gnews_cache.scrivi(q_lim, GNEWS_TOP_LINGUA, articoli)
+        except Exception as e:
+            _log(f"gnews cache NON scritta (MODULO_ASSENTE o guasto: {type(e).__name__}): "
+                 f"il prossimo cooldown delle top-headlines restera' senza articoli")
+        return _mappa_gnews(articoli[:max_results])
+    except Exception as e:
+        _log(f"gnews top-headlines failed: {_eccezione_sicura(e)}")
         return []
 
 
@@ -894,6 +978,9 @@ def _fetch_tiingo(tickers: Optional[List[str]], days: int, limit: int) -> List[D
         _registra_esito("tiingo", "MODULO_ASSENTE", type(e).__name__)
         return []
     try:
+        from bellomberg.market_data.tiingo_news import tiingo_spenta
+        if tiingo_spenta():
+            return []  # 10/10: SPENTA per decisione PM, nessuna rete; dichiarata da fonti_spente()
         if not tiingo_available():
             return []  # chiave assente: dichiarata da providers_blocked() (SENZA_CHIAVE)
         out = list(fetch_tiingo_news(tickers, days=days, limit=limit) or [])
@@ -1253,18 +1340,39 @@ def giro_news(positions: List[Dict[str, Any]]):
     return tickers, ctx
 
 
+def _pat_come_scritto(t: str):
+    """Confronto che RISPETTA le maiuscole: come scritto o tutto maiuscolo, a parola intera."""
+    return re.compile(r"\b(?:" + re.escape(t) + "|" + re.escape(t.upper()) + r")\b")
+
+
 def _filter_items_by_terms(items: List[Dict[str, Any]],
-                            terms: List[str]) -> List[Dict[str, Any]]:
+                            terms: List[str],
+                            contesto: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     """Post-filter word-boundary (#160): tiene solo gli item che menzionano
-    davvero uno dei terms in titolo o snippet. yfinance e' symbol-based: fidato."""
-    pats = [re.compile(r"\b" + re.escape(t) + r"\b", re.IGNORECASE) for t in terms]
+    davvero uno dei terms in titolo o snippet. yfinance e' symbol-based: fidato.
+    `contesto` (10/10 v2, nome Yahoo di una parola sola): l'item deve avere il nome (come
+    scritto o MAIUSCOLO) E almeno un termine di contesto (il simbolo, maiuscolo; le parole di
+    borsa, senza distinzione di maiuscole) nella stessa riga titolo + descrizione."""
+    # 10/10: i termini corti si confrontano RISPETTANDO le maiuscole (come scritto o tutto
+    # maiuscolo): la sigla di una banca scritta 'Abc'/'ABC' non e' la parola inglese 'ABc'.
+    if contesto:
+        pats = [_pat_come_scritto(t) for t in terms]
+        nomi = {t.lower() for t in terms}
+        pats_ctx = [_pat_come_scritto(c) if c.isupper()
+                    else (_SHARES_BORSA if c.lower() == "shares"
+                          else re.compile(r"\b" + re.escape(c) + r"\b", re.IGNORECASE))
+                    for c in contesto if c.lower() not in nomi]
+    else:
+        pats = [_pat_come_scritto(t) if _termine_corto(t)
+                else re.compile(r"\b" + re.escape(t) + r"\b", re.IGNORECASE) for t in terms]
+        pats_ctx = []
     out = []
     for it in items:
         if (it.get("provider") or "").lower() in ("yfinance", "tiingo", "finnhub"):
             out.append(it)  # fonti symbol-based/taggate: fidate
             continue
         text = (it.get("title", "") or "") + " " + (it.get("snippet", "") or "")
-        if any(p.search(text) for p in pats):
+        if any(p.search(text) for p in pats) and (not contesto or any(p.search(text) for p in pats_ctx)):
             out.append(it)
     return out
 
@@ -1387,6 +1495,344 @@ def _drop_junk(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
+# ── Qualita' della testata (10/10, Opus 5.5 — ordine PM «GNews al top») ──────────────────
+# Prima l'ordine nel feed era SOLO per data: a parita' di giorno, un quotidiano generalista
+# e un'agenzia finanziaria valevano uguale. Ora l'ordine e' (fascia di freschezza, peso
+# testata, data): dentro la stessa fascia vincono le testate importanti. Nessuna testata si
+# SCARTA qui: le basse finiscono in coda e, se il tetto le taglia, auto_pull_feed lo DICHIARA
+# (`ranking_testate` nel giro + log).
+# Liste motivate da due misure del 10/10 (news_feed, 30 giorni, sola lettura): rilevanza
+# media data dal classificatore per testata, e la probe live GNews (C:/dev/_news/probe.json).
+#   3 primaria    — agenzie e quotidiani finanziari di riferimento (Reuters, Bloomberg, FT, WSJ,
+#                   CNBC rel 5,5, Barron's 6,0, IBD 6,3, MarketWatch, Nikkei, Handelsblatt, Sole 24 Ore,
+#                   e per la stampa locale del book MF/Milano Finanza, Boersen-Zeitung, FAZ, ANSA,
+#                   Radiocor, AP)
+#   2 finanziaria — stampa finanziaria/settoriale specializzata (Yahoo Finance 6,2 / «Yahoo» di
+#                   Finnhub 6,1, Seeking Alpha 7,2, MarketScreener 5,8 — ripubblica agenzie —,
+#                   Markets/Business Insider, Investing.com, Morningstar, Teleborsa, Der Aktionaer,
+#                   finanzen.net, testate di settore)
+#   1 standard    — tutto il resto (default: una testata ignota NON e' bassa)
+#   0 bassa       — generalisti misurati a rilevanza bassa sul book: quotidiani nazionali
+#                   indiani (Times of India 2,7, The Tribune 2,4, New Indian Express 2,9,
+#                   Hindustan Times 3,0, India Today 3,3, ThePrint), aggregatori SEO (EUROPE SAYS,
+#                   Devdiscourse), tabloid (NY Post 1,6, Express 1,5). Depriorizzati, MAI scartati.
+# v2 (riserva 4 del revisore): niente piu' SOTTOSTRINGHE su «nome + url». Due confronti sole:
+#   - nome della testata ESATTO (minuscolo, spazi compattati): «CNBC TV18», «Bloomberg Quint»,
+#     «Fortune India», «Forbes India» non sono CNBC/Bloomberg/Fortune/Forbes;
+#   - DOMINIO (netloc dell'url, o il nome se e' esso stesso un dominio): uguale o sottodominio.
+#     Il PATH dell'url non conta (misura del revisore: un «/reuters/» nel path promuoveva).
+# Piu' corrispondenze (es. Yahoo che ripubblica un'agenzia col nome dell'agenzia): vale la piu' alta.
+_TESTATE_PESO = {
+    3: {"nomi": {
+            "reuters", "bloomberg", "bloomberg.com", "financial times", "ft", "the wall street journal",
+            "wall street journal", "wsj", "cnbc", "barron's", "barrons", "marketwatch", "nikkei",
+            "nikkei asia", "the economist", "economist", "associated press", "the associated press",
+            "ap", "ap news", "investor's business daily", "investors business daily", "handelsblatt",
+            "il sole 24 ore", "il sole 24ore", "sole 24 ore", "radiocor", "il sole 24 ore radiocor",
+            "les echos", "frankfurter allgemeine zeitung", "frankfurter allgemeine", "faz", "f.a.z.",
+            "dow jones", "dow jones newswires", "mt newswires", "mf", "milano finanza",
+            "mf milano finanza", "mf-dow jones", "börsen-zeitung", "boersen-zeitung", "ansa"},
+        "domini": {
+            "reuters.com", "bloomberg.com", "ft.com", "wsj.com", "cnbc.com", "barrons.com",
+            "marketwatch.com", "nikkei.com", "economist.com", "apnews.com", "investors.com",
+            "handelsblatt.com", "ilsole24ore.com", "lesechos.fr", "faz.net", "dowjones.com",
+            "mtnewswires.com", "milanofinanza.it", "boersen-zeitung.de", "ansa.it"}},
+    2: {"nomi": {
+            "yahoo", "yahoo finance", "yahoo finance video", "seeking alpha", "seekingalpha",
+            "sa market currents", "marketscreener", "markets insider", "business insider",
+            "investing.com", "morningstar", "fortune", "forbes", "axios", "the information",
+            "borsa italiana", "money.it", "finanzen.net", "stat", "stat news", "fierce pharma",
+            "fiercepharma", "endpoints news", "defense news", "breaking defense", "coindesk",
+            "the block", "electrek", "techcrunch", "teleborsa", "der aktionär", "der aktionaer"},
+        "domini": {
+            "finance.yahoo.com", "seekingalpha.com", "marketscreener.com", "businessinsider.com",
+            "investing.com", "morningstar.com", "fortune.com", "forbes.com", "axios.com",
+            "theinformation.com", "borsaitaliana.it", "money.it", "finanzen.net", "statnews.com",
+            "fiercepharma.com", "endpts.com", "defensenews.com", "breakingdefense.com",
+            "coindesk.com", "theblock.co", "electrek.co", "techcrunch.com", "teleborsa.it",
+            "deraktionaer.de"}},
+    0: {"nomi": {
+            "times of india", "the times of india", "the tribune", "the new indian express",
+            "new indian express", "hindustan times", "india today", "theprint", "news18",
+            "deccan chronicle", "times now", "europe says", "devdiscourse", "new york post",
+            "ny post", "daily express", "express"},
+        "domini": {
+            "timesofindia.indiatimes.com", "tribuneindia.com", "newindianexpress.com",
+            "hindustantimes.com", "indiatoday.in", "theprint.in", "news18.com",
+            "deccanchronicle.com", "timesnownews.com", "europesays.com", "devdiscourse.com",
+            "nypost.com", "express.co.uk"}},
+}
+QUALITA_ETICHETTE = {3: "primaria", 2: "finanziaria", 1: "standard", 0: "bassa"}
+
+
+def _dominio(s: str) -> str:
+    """netloc minuscolo senza «www.» e porta; '' se `s` non e' un url/dominio."""
+    s = (s or "").strip().lower()
+    if not s:
+        return ""
+    if "://" not in s:
+        if " " in s or "." not in s:
+            return ""
+        s = "//" + s
+    from urllib.parse import urlparse
+    try:
+        host = urlparse(s).hostname or ""
+    except ValueError:
+        return ""
+    return host[4:] if host.startswith("www.") else host
+
+
+def _nel_dominio(host: str, domini) -> bool:
+    return bool(host) and any(host == d or host.endswith("." + d) for d in domini)
+
+
+def peso_testata(it: Dict[str, Any]) -> int:
+    """Peso della testata di un item (3 primaria .. 0 bassa; 1 se ignota): nome ESATTO o
+    DOMINIO (v. _TESTATE_PESO); fra piu' corrispondenze vale la piu' alta."""
+    nome = " ".join((it.get("source") or "").lower().split())
+    host_url = _dominio(it.get("url") or "")
+    host_nome = _dominio(nome)
+    trovati = [peso for peso, liste in _TESTATE_PESO.items()
+               if nome in liste["nomi"] or _nel_dominio(host_url, liste["domini"])
+               or _nel_dominio(host_nome, liste["domini"])]
+    return max(trovati) if trovati else 1
+
+
+# Fasce di freschezza (riserva 1 del revisore): la qualita' della testata ordina DENTRO una
+# fascia, mai fra fasce. Prima (peso, data) faceva vincere un articolo Reuters di 20 ore fa su
+# una notizia standard di 10 minuti fa per tutto il giorno. Fasce: <6h, <24h, oltre. Un
+# articolo SENZA data sta in fondo all'ultima fascia: mai in testa, mai «fresco» per difetto.
+FASCE_FRESCHEZZA_S = (6 * 3600, 24 * 3600)
+FASCE_ETICHETTE = ("<6h", "<24h", "oltre")
+
+
+def _adesso_ts() -> float:
+    return time.time()
+
+
+def fascia_freschezza(it: Dict[str, Any], ora: Optional[float] = None) -> int:
+    """0 = <6h, 1 = <24h, 2 = oltre o senza data."""
+    ts = _parse_date_ts(it.get("published_at", ""))
+    if not ts:
+        return len(FASCE_FRESCHEZZA_S)
+    eta = (_adesso_ts() if ora is None else ora) - ts
+    for i, limite in enumerate(FASCE_FRESCHEZZA_S):
+        if eta < limite:
+            return i
+    return len(FASCE_FRESCHEZZA_S)
+
+
+def ordina_per_qualita(items: List[Dict[str, Any]], ora: Optional[float] = None) -> List[Dict[str, Any]]:
+    """(fascia di freschezza, con data prima di senza data, peso testata desc, data desc),
+    stabile. Ogni item porta `qualita_testata` (etichetta leggibile): la depriorizzazione e'
+    visibile su ogni riga, non dedotta dall'ordine."""
+    ora = _adesso_ts() if ora is None else ora
+    for it in items:
+        it["qualita_testata"] = QUALITA_ETICHETTE[peso_testata(it)]
+
+    def chiave(x):
+        ts = _parse_date_ts(x.get("published_at", ""))
+        return (fascia_freschezza(x, ora), 0 if ts else 1, -peso_testata(x), -ts)
+    return sorted(items, key=chiave)
+
+
+def conta_tagli_qualita(items: List[Dict[str, Any]], tetto: int) -> Dict[str, int]:
+    """Cosa taglia il tetto per ticker/tema su una lista GIA' ordinata e GIA' ripulita da cio'
+    che il feed ha (candidati_nuovi): `oltre_tetto` conta solo notizie NUOVE perse."""
+    fuori = items[tetto:]
+    return {"oltre_tetto": len(fuori),
+            "bassa_oltre_tetto": sum(1 for it in fuori if peso_testata(it) == 0),
+            "bassa_tenute": sum(1 for it in items[:tetto] if peso_testata(it) == 0)}
+
+
+def _chiave_url(it: Dict[str, Any]) -> str:
+    """La chiave con cui la riga entra (e si cerca) in news_feed.url: l'url, o per gli item
+    senza url «nourl:» + md5 del titolo (stessa formula del salvataggio)."""
+    url = (it.get("url") or "").strip()
+    return url or "nourl:" + hashlib.md5((it.get("title", "") or "").encode()).hexdigest()
+
+
+def _gia_nel_feed(cur, it: Dict[str, Any], titoli_feed) -> Optional[str]:
+    """'url' se la chiave url e' gia' in news_feed, 'titolo' se il titolo normalizzato e' fra
+    quelli del feed recente (48h), None se e' una notizia nuova. Stessa query del salvataggio."""
+    cur.execute("SELECT 1 FROM news_feed WHERE url = ?", (_chiave_url(it),))
+    if cur.fetchone():
+        return "url"
+    t = _titolo_norm(it.get("title", ""))
+    if t and t in titoli_feed:
+        return "titolo"
+    return None
+
+
+def candidati_nuovi(items: List[Dict[str, Any]], cur, titoli_feed, presi, days: int,
+                    conta: Dict[str, int], ora: Optional[float] = None) -> List[Dict[str, Any]]:
+    """Riserva 1 del revisore (10/10 v2): cio' che concorre al tetto per ticker/tema sono le
+    sole notizie NUOVE e nella finestra. Prima il tetto si applicava a tutto e i doppioni si
+    toglievano DOPO: un articolo di qualita' gia' salvato occupava il posto a ogni giro (24h)
+    e le notizie nuove non entravano (simulazione del revisore sul feed vero: 1053 -> 577 sul
+    titolo piu' coperto). Fuori, CONTATI in `conta`:
+      - oltre_eta: pubblicati prima di `days` giorni fa (le fonti senza filtro data: RSS, yfinance);
+      - gia_nel_feed: url (o titolo normalizzato, 48h) gia' in news_feed;
+      - gia_nel_giro: gia' preso da un ticker/tema precedente di questo giro (`presi`).
+    Senza data: restano (l'eta' non si misura) e si contano in senza_data; l'ordine li mette
+    in fondo all'ultima fascia. Ritorna la lista riordinata con lo stesso `ora`."""
+    ora = _adesso_ts() if ora is None else ora
+    limite = ora - days * 86400
+    out = []
+    for it in items:
+        ts = _parse_date_ts(it.get("published_at", ""))
+        if ts and ts < limite:
+            conta["oltre_eta"] = conta.get("oltre_eta", 0) + 1
+            continue
+        if _chiave_url(it) in presi:
+            conta["gia_nel_giro"] = conta.get("gia_nel_giro", 0) + 1
+            continue
+        try:
+            motivo = _gia_nel_feed(cur, it, titoli_feed)
+        except Exception:
+            # lettura del feed fallita: la notizia concorre (il salvataggio la ricontrolla), ma
+            # il buco si CONTA e il giro lo scrive nel log (mai un «nuovo» presunto in silenzio)
+            conta["feed_non_controllato"] = conta.get("feed_non_controllato", 0) + 1
+            motivo = None
+        if motivo:
+            conta["gia_nel_feed"] = conta.get("gia_nel_feed", 0) + 1
+            if motivo == "titolo":
+                with _ESITI_LOCK:
+                    _DOPPIONI_GIRO["titolo_db"] += 1
+            continue
+        if not ts:
+            conta["senza_data"] = conta.get("senza_data", 0) + 1
+        out.append(it)
+    return ordina_per_qualita(out, ora)
+
+
+# ── Termini -> query (10/10, Opus 5.5) ─────────────────────────────────────────────────
+# Misure del 10/10 (probe GNews 3 giorni + news_feed in sola lettura; dettaglio nel rapporto,
+# non qui: i nomi del book non stanno nel codice pubblico). (a) Il nome Yahoo entrava INTERO e
+# tra virgolette ('"Zeta Micro Devices, Inc."'): la frase col suffisso legale non compare quasi
+# mai nei titoli. Sui 4 nomi del book provati: 0-1 articoli col nome intero, 11-25 (su un totale
+# fino a 204) col nome pulito; nel DB, 3 giorni di GNews per ticker US: 0-3 righe. Il filtro a
+# valle usava lo stesso termine, quindi cadevano anche gli articoli giusti delle altre fonti
+# testuali. (b) Un termine corto del negozio (sigla di 3 lettere di un titolo italiano) entrava
+# nella query INGLESE: GNews non distingue maiuscole e la sigla e' anche una parola della
+# politica indiana -> 174 righe in 3 giorni a rilevanza media 2,2, da ThePrint, The Tribune,
+# Times of India... E' da li' che veniva la «stampa indiana» del feed.
+_SUFFISSI_LEGALI_QUERY = {
+    "ag", "as", "asa", "ab", "aktiengesellschaft", "corp", "corporation", "inc", "incorporated",
+    "kgaa", "limited", "llc", "ltd", "nv", "oyj", "plc", "sa", "sab", "se", "spa",
+}
+# v2 (riserva 3 del revisore): parole GENERICHE della ragione sociale che nei titoli non si
+# scrivono («Zeta Technology» -> «Zeta»). Si tolgono solo in CODA, come i suffissi legali.
+_PAROLE_GENERICHE_QUERY = {
+    "co", "company", "group", "holding", "holdings", "technology", "technologies", "systems",
+}
+TERMINE_CORTO_MAX = 3
+# Lingua della stampa locale per suffisso di borsa: .MI c'era (199e); .DE misurato il 10/10
+# (un titolo .DE del book: 3 articoli in inglese, 25 su 45 in tedesco — finanzen.net, FAZ,
+# Boerse Express).
+LINGUE_LOCALI = {".MI": "it", ".DE": "de"}
+
+
+def nome_per_ricerca(nome: str) -> str:
+    """Nome Yahoo come lo scrivono i titoli. Regole, in quest'ordine:
+      1. «(The)» ovunque e «The» iniziale via;
+      2. la classe azionaria ovunque via («Class A», «Class B», «Cl A»);
+      3. dalla CODA, finche' resta piu' di una parola: suffissi legali (Inc, Corp, AG, S.p.A.,
+         A/S...), parole generiche (Holdings, Group, Technology, Systems, Company, Co) e token
+         senza lettere ne' cifre («&», «-»).
+    Maiuscole conservate; almeno una parola resta sempre.
+    'Zeta Micro Devices, Inc.' -> 'Zeta Micro Devices'; 'Zeta Inc. Class A' -> 'Zeta';
+    'Zeta-Cola Company (The)' -> 'Zeta-Cola'."""
+    parole = (nome or "").replace(",", " ").split()
+    parole = [p for p in parole if p.lower() != "(the)"]
+    if len(parole) > 1 and parole[0].lower() == "the":
+        parole = parole[1:]
+    pulite: List[str] = []
+    i = 0
+    while i < len(parole):
+        if (parole[i].lower().rstrip(".") in ("class", "cl") and i + 1 < len(parole)
+                and re.fullmatch(r"[A-Za-z]\.?", parole[i + 1])):
+            i += 2
+            continue
+        pulite.append(parole[i])
+        i += 1
+    parole = pulite or parole
+
+    def _via(p: str) -> bool:
+        nudo = re.sub(r"[^a-z0-9]", "", p.lower())
+        return not nudo or nudo in _SUFFISSI_LEGALI_QUERY or nudo in _PAROLE_GENERICHE_QUERY
+    while len(parole) > 1 and _via(parole[-1]):
+        parole.pop()
+    return " ".join(parole).strip()
+
+
+# Riserva 3: i fondi non si cercano per nome (il nome del fondo non fa notizia: «Zeta MSCI
+# World UCITS ETF» porta solo pagine di prodotto). Senza voce nel negozio -> nessuna query per
+# nome, dichiarato: restano le fonti a simbolo (yfinance). La voce col sottostante/tema si
+# scrive nel negozio dei termini (il codice non la deduce).
+_RE_NOME_FONDO = re.compile(r"\b(?:UCITS|ETF|ETC|ETN|iShares|Xtrackers)\b", re.IGNORECASE)
+
+
+def nome_e_un_fondo(nome: str) -> bool:
+    return bool(_RE_NOME_FONDO.search(nome or ""))
+
+
+def _termine_corto(t: str) -> bool:
+    return " " not in t.strip() and len(t.strip()) <= TERMINE_CORTO_MAX
+
+
+def query_da_termini(terms: List[str], lingua: str = "en") -> str:
+    """Query OR dei termini (frasi tra virgolette). In INGLESE i termini corti (<=3 caratteri,
+    una parola: le sigle) escono se resta almeno un termine lungo: l'API non distingue le
+    maiuscole e in inglese sono parole comuni. Nella lingua locale restano (la stampa italiana
+    scrive la sigla)."""
+    usati = list(terms)
+    if lingua == "en" and any(not _termine_corto(t) for t in terms):
+        usati = [t for t in terms if not _termine_corto(t)]
+    return " OR ".join(f'"{t}"' if " " in t else t for t in usati)
+
+
+# Riserva 2 del revisore: un nome Yahoo che, pulito, e' UNA parola sola e' spesso una parola
+# comune o un nome proprio («Target», «Visa», «Shell»): da solo porta l'attore, la squadra,
+# «l'obiettivo d'inflazione». Allora la query chiede anche il CONTESTO finanziario (il simbolo
+# o una parola di borsa nella lingua della ricerca) e il filtro a valle vuole il nome E il
+# contesto nella stessa riga titolo + descrizione. Le voci del negozio NON passano di qui:
+# sono scelte a mano.
+# 10/10 (Opus 5.5, probe live GNews): «shares» da solo e' anche il verbo «condivide»
+# («Leonardo DiCaprio Shares Political Message»): in inglese il contesto e' una locuzione di borsa.
+PAROLE_CONTESTO = {"en": ("stock", "shares", "share price"), "it": ("azioni", "titolo"), "de": ("Aktie", "Aktien")}
+# Nel FILTRO «shares» vale solo in senso di borsa: seguito da un verbo/termine di mercato o
+# preceduto da un possessivo («the group's shares»), mai come verbo «condivide».
+_SHARES_BORSA = re.compile(
+    r"(?:\b\w+'s\s+shares\b|\bshares\s+(?:of|in|rose|rise|rises|rising|fell|fall|falls|falling|"
+    r"slid|slide|slides|sliding|jump|jumped|jumps|drop|dropped|drops|gain|gained|gains|surge|surged|"
+    r"surges|plunge|plunged|plunges|tumble|tumbled|tumbles|climb|climbed|climbs|sink|sank|sinks|soar|"
+    r"soared|soars|edge|edged|edges|rally|rallied|rallies|slump|slumped|slumps|trade|traded|trading|"
+    r"hit|hits|are|were|have|has|closed|close|ended|end|outperform|underperform|extend|extended)\b)",
+    re.IGNORECASE)
+
+
+def _simbolo_base(ticker: str) -> str:
+    return (ticker or "").upper().strip().split(".")[0]
+
+
+def contesto_nome_singolo(ticker: str) -> List[str]:
+    """Simbolo base + parole di borsa di TUTTE le lingue (per il filtro: un articolo inglese
+    su un titolo italiano scrive «shares»)."""
+    parole = [_simbolo_base(ticker)]
+    for lista in PAROLE_CONTESTO.values():
+        parole.extend(p for p in lista if p not in parole)
+    return [p for p in parole if p]
+
+
+def query_nome_con_contesto(nome: str, ticker: str, lingua: str = "en") -> str:
+    """'"Nome" AND ( SIMBOLO OR stock OR shares )' nella lingua della ricerca (GNews: OR
+    precede AND, parentesi ammesse — docs.gnews.io/openapi.yaml)."""
+    alternative = [_simbolo_base(ticker)] + list(PAROLE_CONTESTO.get(lingua, PAROLE_CONTESTO["en"]))
+    alternative = [f'"{a}"' if " " in a else a for a in alternative if a]
+    return f'"{nome}" AND ( ' + " OR ".join(alternative) + " )"
+
+
 def _all_rss_cached(max_per_feed: int = 10) -> List[Dict[str, Any]]:
     """199e: tutti i feed RSS in un colpo, cache 10 min (search_news_for_ticker gira
     per ~19 ticker a refresh: senza cache sarebbero ~300 fetch RSS)."""
@@ -1414,6 +1860,8 @@ def search_news_for_ticker(ticker: str, days: int = 3, max_per_source: int = 5) 
             return entry["data"]
 
     voce, stato, caricato = _voce_termini(ticker)
+    contesto: List[str] = []   # 10/10 v2: nome Yahoo di una parola -> query e filtro col contesto
+    fondo = False              # 10/10 v2: nome Yahoo di un fondo -> niente ricerca per nome
     if stato == "escluso":
         _log(f"{ticker}: voce null nel negozio ({caricato['origine']}): fuori dal giro "
              f"automatico, ma la ricerca diretta procede col ticker nudo")
@@ -1422,9 +1870,20 @@ def search_news_for_ticker(ticker: str, days: int = 3, max_per_source: int = 5) 
         motivo = f"; motivo: {caricato['motivo']}" if caricato["motivo"] else ""
         nome = _nome_emittente_yahoo(ticker)
         if nome:
+            pulito = nome_per_ricerca(nome)
             _log(f"{ticker}: voce assente nel negozio dei termini (origine: "
-                 f"{caricato['origine']}{motivo}): cerco il nome emittente Yahoo {nome!r}")
-            terms = [nome]
+                 f"{caricato['origine']}{motivo}): cerco il nome emittente Yahoo {nome!r}"
+                 + (f" senza suffisso legale: {pulito!r}" if pulito != nome else ""))
+            terms = [pulito]
+            if nome_e_un_fondo(nome):
+                fondo = True
+                _log(f"{ticker}: {nome!r} e' un fondo: nessuna ricerca testuale per nome (il nome "
+                     f"del fondo non fa notizia), restano le fonti a simbolo; le notizie del "
+                     f"sottostante/tema vogliono una voce nel negozio dei termini")
+            elif " " not in pulito:
+                contesto = contesto_nome_singolo(ticker)
+                _log(f"{ticker}: nome di una parola sola ({pulito!r}): query e filtro chiedono "
+                     f"anche il contesto di borsa ({', '.join(contesto)})")
         else:
             _log(f"{ticker}: voce assente nel negozio dei termini (origine: "
                  f"{caricato['origine']}{motivo}): identita' Yahoo non disponibile, cerco "
@@ -1432,7 +1891,13 @@ def search_news_for_ticker(ticker: str, days: int = 3, max_per_source: int = 5) 
             terms = [ticker]  # ultimo fallback, dichiarato sopra
     else:
         terms = voce
-    query = " OR ".join(f'"{t}"' if " " in t else t for t in terms)
+    lingua_locale = next((lg for suff, lg in LINGUE_LOCALI.items() if ticker.upper().endswith(suff)), None)
+    if contesto:
+        query = query_nome_con_contesto(terms[0], ticker, "en")
+        query_locale = query_nome_con_contesto(terms[0], ticker, lingua_locale) if lingua_locale else ""
+    else:
+        query = query_da_termini(terms, "en")
+        query_locale = query_da_termini(terms, lingua_locale) if lingua_locale else ""
     nome_identita = terms[0] if terms and terms[0] != ticker else ""
     simbolo_news, origine_simbolo = _simbolo_news(ticker, nome_identita)
     if simbolo_news != ticker:
@@ -1440,12 +1905,13 @@ def search_news_for_ticker(ticker: str, days: int = 3, max_per_source: int = 5) 
              f"({origine_simbolo}); gli item restano attribuiti a {ticker}")
 
     items: List[Dict[str, Any]] = []
-    items.extend(_fetch_newsapi(query, days, max_per_source))
-    # items.extend(_fetch_marketaux(terms[0], days, max_per_source))  # 199d: Marketaux sganciato (402/ridondante con Tiingo); riattivabile decommentando
-    items.extend(_fetch_thenewsapi(query, days, max_per_source))
-    items.extend(_fetch_gnews(query, days, GNEWS_MAX_ART))  # Essential: bacino ampio, i freschi vincono il sort :599
-    if ticker.upper().endswith(".MI"):  # 199e: stampa italiana per i nomi italiani
-        items.extend(_fetch_gnews(query, days, GNEWS_MAX_ART, lang="it"))
+    if not fondo:  # 10/10 v2: un fondo senza voce non si cerca per nome (dichiarato sopra)
+        items.extend(_fetch_newsapi(query, days, max_per_source))
+        # items.extend(_fetch_marketaux(terms[0], days, max_per_source))  # 199d: Marketaux sganciato (402/ridondante con Tiingo); riattivabile decommentando
+        items.extend(_fetch_thenewsapi(query, days, max_per_source))
+        items.extend(_fetch_gnews(query, days, GNEWS_MAX_ART))  # Essential: bacino ampio, i freschi vincono il sort :599
+        if lingua_locale:  # 199e .MI -> it; 10/10 .DE -> de (LINGUE_LOCALI, misurato)
+            items.extend(_fetch_gnews(query_locale, days, GNEWS_MAX_ART, lang=lingua_locale))
     items.extend(_fetch_yfinance_news(simbolo_news, max_per_source))
     # Tiingo (#173) e Finnhub (04/10): tagging affidabile per simboli US. Integrazione: sul
     # simbolo RISOLTO da G3 (ADR/ricerca Yahoo), coi wrapper stubbabili dell'altra sessione.
@@ -1467,11 +1933,12 @@ def search_news_for_ticker(ticker: str, days: int = 3, max_per_source: int = 5) 
 
     items.extend(_all_rss_cached())  # 199e: copertura EU - gli RSS vengono filtrati dai terms qui sotto
     items = _drop_junk(items)
-    items = _filter_items_by_terms(items, terms)
+    items = _filter_items_by_terms(items, terms, contesto)
     for it in items:
         it["ticker_mentioned"] = ticker
     items = _dedupe_titoli(_dedupe(items))  # P2-2: anche i redirect Finnhub
-    items.sort(key=lambda x: x.get("published_at", ""), reverse=True)
+    # 10/10: (fascia di freschezza, peso testata, data) invece della sola data (v2: le fasce)
+    items = ordina_per_qualita(items)
 
     _CACHE[cache_key] = {"ts": time.time(), "data": items}
     return items
@@ -1500,8 +1967,7 @@ def search_news_global(query: str, days: int = 3, max_per_source: int = 5) -> Li
                     if q_lower in (it.get("title", "") + " " + it.get("snippet", "")).lower()]
     items.extend(rss_filtered)
 
-    items = _dedupe(items)
-    items.sort(key=lambda x: x.get("published_at", ""), reverse=True)
+    items = ordina_per_qualita(_dedupe(items))  # 10/10: (fascia, peso testata, data)
 
     _CACHE[cache_key] = {"ts": time.time(), "data": items}
     return items
@@ -1637,11 +2103,9 @@ def fetch_macro_news(categories: Optional[List[str]] = None,
         _log("reddit " + str(fonti_spente()["reddit"]) + ": nessuna chiamata")
 
     items = _dedupe(items)
-    # Sort: importance desc, then recency desc
-    items.sort(key=lambda x: (
-        -(x.get("topic_importance", 3)),
-        -(_parse_date_ts(x.get("published_at", ""))),
-    ))
+    # Sort: importance desc, poi (10/10) fascia di freschezza, peso della testata, recency
+    items = ordina_per_qualita(items)
+    items.sort(key=lambda x: -(x.get("topic_importance", 3)))
 
     _CACHE[cache_key] = {"ts": time.time(), "data": items}
     return render_payload(items)
@@ -2187,6 +2651,7 @@ def _scrivi_stato_giro(out: Dict[str, Any], path: Optional[str] = None) -> None:
         "fonti_esito": out.get("fonti_esito", "n.d."),
         "finnhub_tagli": out.get("finnhub_tagli", "n.d."),
         "doppioni_titolo": out.get("doppioni_titolo", "n.d."),
+        "ranking_testate": out.get("ranking_testate", "n.d."),
     }
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -2232,9 +2697,15 @@ def stato_ultimo_giro(path: Optional[str] = None,
                 "provenienza": raw.get("provenienza", "n.d."),
                 "fonti_esito": raw.get("fonti_esito", "n.d."),
                 "finnhub_tagli": raw.get("finnhub_tagli", "n.d."),
-                "doppioni_titolo": raw.get("doppioni_titolo", "n.d.")}
+                "doppioni_titolo": raw.get("doppioni_titolo", "n.d."),
+                "ranking_testate": raw.get("ranking_testate", "n.d.")}
     except Exception as e:
         return {"stato": "illeggibile", "motivo": f"{type(e).__name__}: {e}"}
+
+
+def _somma_tagli(tot: Dict[str, int], parz: Dict[str, int]) -> None:
+    for k, v in parz.items():
+        tot[k] = tot.get(k, 0) + int(v)
 
 
 @scoped_language
@@ -2270,6 +2741,12 @@ def auto_pull_feed(days: int = 1, classify: bool = True,
         _log(f"auto_pull_feed: +{len(fav_extra)} favorites nel giro news: {fav_extra}")
 
     all_items: List[Dict[str, Any]] = []
+    # 10/10: cosa taglia il tetto per ticker/tema dopo l'ordine per qualita' (dichiarato nel giro).
+    # v2: il tetto si applica alle sole notizie NUOVE (candidati_nuovi); oltre_tetto conta solo
+    # quelle; gia_nel_feed / gia_nel_giro / oltre_eta / senza_data dicono cosa e' uscito prima.
+    tagli_qualita = {"oltre_tetto": 0, "bassa_oltre_tetto": 0, "bassa_tenute": 0,
+                     "gia_nel_feed": 0, "gia_nel_giro": 0, "oltre_eta": 0, "senza_data": 0,
+                     "feed_non_controllato": 0}
     # G3 (04/10): arresto del backend -> il giro si ferma al prossimo passo e lo dichiara
     interrotto: List[bool] = []
 
@@ -2279,15 +2756,38 @@ def auto_pull_feed(days: int = 1, classify: bool = True,
             return True
         return False
 
+    # 10/10 v2 (riserva 1 del revisore): il feed si legge PRIMA del tetto, con la stessa
+    # connessione e la stessa query del controllo doppioni del salvataggio. Titoli delle 48h
+    # letti UNA volta per giro (P2-2).
+    conn = connect_sqlite(db.db_path)  # hardening #32: WAL + busy_timeout
+    cur = conn.cursor()
+    titoli_feed = set()
+    try:
+        cur.execute("SELECT title FROM news_feed WHERE pulled_at >= datetime('now', '-2 days')")
+        titoli_feed = {_titolo_norm(r[0]) for r in cur.fetchall() if r[0]}
+    except Exception as e:
+        _log(f"doppioni per titolo contro il feed NON controllati ({type(e).__name__}): "
+             f"possibili doppioni e doppie notifiche in questo giro")
+    presi: set = set()
+    ora_giro = _adesso_ts()
+
+    def _nuovi(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return candidati_nuovi(items, cur, titoli_feed, presi, days, tagli_qualita, ora_giro)
+
+    def _prendi(it: Dict[str, Any]) -> None:
+        presi.add(_chiave_url(it))
+        all_items.append(it)
+
     # 1) Per ogni ticker portfolio
     for tk in tickers:
         if fermato():
             break
-        items = search_news_for_ticker(tk, days=days, max_per_source=max_per_ticker)
+        items = _nuovi(search_news_for_ticker(tk, days=days, max_per_source=max_per_ticker))
+        _somma_tagli(tagli_qualita, conta_tagli_qualita(items, max_per_ticker * 2))
         for it in items[:max_per_ticker * 2]:
             it["ticker_mentioned"] = tk
             it["theme"] = ""
-            all_items.append(it)
+            _prendi(it)
 
     # 2) Per ogni tema macro chiave
     macro_themes = [
@@ -2303,41 +2803,43 @@ def auto_pull_feed(days: int = 1, classify: bool = True,
     for theme_id, q in macro_themes:
         if fermato():
             break
-        items = search_news_global(q, days=days, max_per_source=max_per_theme)
+        items = _nuovi(search_news_global(q, days=days, max_per_source=max_per_theme))
+        _somma_tagli(tagli_qualita, conta_tagli_qualita(items, max_per_theme))
         for it in items[:max_per_theme]:
             it["ticker_mentioned"] = ""
             it["theme"] = theme_id
-            all_items.append(it)
+            _prendi(it)
 
-    # 2.5) Feed generale Tiingo (#173) — fonte premium, top news mercato.
+    # 2.4) Top headlines business GNews (10/10): il feed generale di mercato, al posto di
+    # Tiingo spento. Un fermo del backend lo salta come gli altri passi.
+    if not fermato():
+        for it in _nuovi(_fetch_gnews_top(10, days)):
+            it.setdefault("ticker_mentioned", "")
+            it.setdefault("theme", "")
+            _prendi(it)
+
+    # 2.5) Feed generale Tiingo (#173). 10/10: SPENTA per decisione PM -> _fetch_tiingo non fa
+    # rete e torna []; resta qui per la riattivazione a interruttore (TIINGO_NEWS_ENABLED=1).
     # 04/10 (B2): era `except Exception: pass`; ora il guasto e' dichiarato (_fetch_tiingo)
-    for it in _fetch_tiingo(None, days, 10):
+    for it in _nuovi(_fetch_tiingo(None, days, 10)):
         it.setdefault("ticker_mentioned", "")
         it.setdefault("theme", "")
-        all_items.append(it)
+        _prendi(it)
 
     # 3) Deduplica + filtro qualita' (199e)
     all_items = _drop_junk(_dedupe_titoli(_dedupe(all_items)))
 
-    # 4) Classifica + salva
-    conn = connect_sqlite(db.db_path)  # hardening #32: WAL + busy_timeout
-    cur = conn.cursor()
+    # 4) Classifica + salva (connessione e titoli del feed aperti/letti prima del tetto)
     # P2-2: un item con URL-redirect (Finnhub) il cui titolo e' gia' nel feed delle ultime 48h
     # e' lo stesso articolo arrivato in un giro precedente da un'altra fonte: il controllo per
-    # url non lo vede. Titoli letti UNA volta per giro.
-    titoli_recenti = set()
-    if any(_url_redirect(it.get("url", "")) for it in all_items):
-        try:
-            cur.execute("SELECT title FROM news_feed WHERE pulled_at >= datetime('now', '-2 days')")
-            titoli_recenti = {_titolo_norm(r[0]) for r in cur.fetchall() if r[0]}
-        except Exception as e:
-            _log(f"doppioni per titolo contro il feed NON controllati ({type(e).__name__}): "
-                 f"possibili doppie notifiche Finnhub in questo giro")
+    # url non lo vede. v2: lo toglie gia' candidati_nuovi; qui resta la cintura.
+    titoli_recenti = titoli_feed
     saved = 0
     classified = 0
     classification_attempted = 0
     classification_failed = 0
-    skipped = 0
+    # v2: i doppioni tolti prima del tetto (url/titolo gia' nel feed) sono doppioni saltati
+    skipped = tagli_qualita["gia_nel_feed"]
     not_classified = 0
     summary_errors = []
     for it in all_items:
@@ -2450,9 +2952,21 @@ def auto_pull_feed(days: int = 1, classify: bool = True,
         "finnhub_tagli": _tagli_finnhub(),
         # P2-2: doppioni tolti per titolo nel giro (fra fonti) e contro il feed delle 48h
         "doppioni_titolo": _doppioni_giro(),
+        # 10/10: ordine per qualita' della testata prima del tetto per ticker/tema. Le testate
+        # «bassa» non si scartano: se il tetto le taglia, qui si contano (e nel log).
+        "ranking_testate": tagli_qualita,
         "degraded": bool(fuori or summary_errors or interrotto or esiti_muti) or classification_failed > 0
                     or not_classified > 0,
     }
+    if tagli_qualita["oltre_tetto"]:
+        _log("ranking testate: %d notizie NUOVE oltre il tetto per ticker/tema (di cui %d da testate "
+             "a bassa qualita', depriorizzate e non scartate a monte); testate basse tenute: %d"
+             % (tagli_qualita["oltre_tetto"], tagli_qualita["bassa_oltre_tetto"], tagli_qualita["bassa_tenute"]))
+    if tagli_qualita["oltre_eta"] or tagli_qualita["feed_non_controllato"]:
+        _log("candidati del giro: %d articoli piu' vecchi di %d giorni fuori dal ranking; %d senza "
+             "data (in coda); %d non controllati contro il feed (errore di lettura)"
+             % (tagli_qualita["oltre_eta"], days, tagli_qualita["senza_data"],
+                tagli_qualita["feed_non_controllato"]))
     if out["finnhub_tagli"]["scartati"] or out["finnhub_tagli"]["troncati_dal_fornitore"]:
         _log("finnhub nel giro: scartati %d articoli (tetto %d per ticker); troncati dal fornitore: %s"
              % (out["finnhub_tagli"]["scartati"], FINNHUB_MAX_PER_TICKER,

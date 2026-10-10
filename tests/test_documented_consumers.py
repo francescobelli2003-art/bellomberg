@@ -70,6 +70,9 @@ def test_documented_value_survives_later_read_in_committee_database_f17_and_scor
     assert model['fair_value'] == fair_value and model['valuation_usability']['usable']
     monkeypatch.setattr(specialist_scores.cl, 'carica_veicoli',
                         lambda: {'origine': 'synthetic', 'veicoli': {}, 'motivo': None})
+    # 09/10 (Opus 5.5): MOS sul prezzo corrente; qui l'oggetto e' la lettura tardiva del valore
+    from test_score_fondamentali_news_correzione import prezzo_corrente_uguale_al_modello
+    prezzo_corrente_uguale_al_modello(monkeypatch)
     score = specialist_scores.fundamentals_score(
         {'positions': [{'ticker': symbol, 'peso_pct': 100}]}, valuations={symbol: good})
     assert score is not None and score['metrics']['n_valued'] == 1
@@ -101,6 +104,9 @@ def test_documented_research_persistence_score_f17_and_render(tmp_path,monkeypat
     assert db.get_valuation_snapshot(good['snapshot_id'],generation_id=good['generation_id'])['fair_value_base']==good['fair_value_base']
     monkeypatch.setattr(specialist_scores,'REPORT_DIR',tmp_path)
     monkeypatch.setattr(specialist_scores.cl,'carica_veicoli',lambda: {'origine':'synthetic','veicoli':{},'motivo':None})
+    # 09/10 (Opus 5.5): MOS sul prezzo corrente; qui l'oggetto e' la persistenza documentata
+    from test_score_fondamentali_news_correzione import prezzo_corrente_uguale_al_modello
+    prezzo_corrente_uguale_al_modello(monkeypatch)
     score=specialist_scores.fundamentals_score({'positions':[{'ticker':symbol,'peso_pct':100}]})
     assert score is not None and score['metrics']['n_valued']==1
     good_ui=endpoint(tmp_path,db.get_latest_valuation_snapshots())['models'][0]

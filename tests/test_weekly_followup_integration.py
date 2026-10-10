@@ -302,9 +302,13 @@ def test_native_followup_profiles_options_partial_sources_and_frozen_replay(
     prediction = next(r for r in sealed['tool_receipts'] if r['tool'] == 'get_polymarket_events')
     prediction_output = json.loads(prediction['output'])
     prediction_data = prediction_output.get('data', prediction_output)
-    assert prediction_data['count'] == 1 and prediction_data['relevant_count'] is None
-    assert prediction_data['results'][0]['search_match']['relevance_status'] == 'UNVERIFIED'
-    assert prediction_data['results'][0]['historical_change']['delta_7d'] is None
+    # R11 p.5 (Opus 5.5): the only candidate has no lexical/server match, so it is declared
+    # (identity, UNVERIFIED, no prices) and the outcome is "nothing found with these queries".
+    assert prediction_data['count'] == 0 and prediction_data['relevant_count'] is None
+    assert prediction_data['search_outcome'] == 'NO_MARKET_FOUND_WITH_THESE_QUERIES'
+    withheld = prediction_data['coverage']['withheld_nonlexical_candidates']
+    assert [w['url'].rsplit('/', 1)[-1] for w in withheld] == ['synthetic-untranslated']
+    assert withheld[0]['search_match']['relevance_status'] == 'UNVERIFIED' and 'prices' not in withheld[0]
     frozen_notes = store.get('research_notes_context_v1')
     assert {n['note_id'] for n in frozen_notes['notes']} == (set(range(801, 862)) if populated else set())
     included = {n['note_id'] for n in frozen_notes['notes'] if n['status'] == 'included'}

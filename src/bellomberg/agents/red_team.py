@@ -35,6 +35,13 @@ from copy import deepcopy
 
 from bellomberg.core.trade_idea_policy import role_thinking
 from bellomberg.market_data.freschezza_trimestrale import as_of_freschezza as _as_of_freschezza  # cutoff della run (R-CASCATA 07/10)
+from bellomberg.market_data.trade_idea_market_pack import _MINOR_UNITS
+
+# Minor units (pence/cents, x100 scale) that must never fold into the major ISO code.
+# Mixed-case ones (GBp, GBx, ZAc, ILs, USd) are already excluded by the all-upper/all-lower
+# rule in canonical(); the all-upper ones are blocked here (R12 p.7 riserva 1, Opus 5.5).
+_MINOR_UNIT_CODES = frozenset(code for code in set(_MINOR_UNITS) | {"GBx", "ZAC", "ILs", "USd"}
+                              if code.isupper())
 
 TRADE_IDEA_RED_MAX_TOKENS = 128000
 WEEKLY_RED_MAX_TOKENS = 128000
@@ -98,6 +105,32 @@ def _review_evidence_claims(critique, evidence):
     required = {"source_receipt", "metric", "value", "ticker", "issuer_name", "period_start",
                 "period_end", "duration", "fiscal_year_label", "unit", "currency", "definition", "observed_at"}
     allowed = required | {"method", "perimeter"}
+
+    def canonical(field, value):
+        # R12 p.7 (Opus 5.5): representation only, declared in `normalized_fields`.
+        # Currency differs only by case, and only between ASCII 3-letter codes written all
+        # upper or all lower that are not a minor unit (GBp/GBP, USd/USD, ZAc/ZAC are x100;
+        # 'ß'.upper() == 'SS'); unit only by case AND only for the explicit scale
+        # words below (never symbols: m/M, mEUR/MEUR are different units); a valid day at
+        # exactly T00:00:00 without offset equals that day. Anything else (spaces,
+        # synonyms, Z, seconds) is compared raw.
+        if not isinstance(value, str):
+            return value
+        if field == 'currency':
+            if re.fullmatch(r'[A-Z]{3}|[a-z]{3}', value) and value.upper() not in _MINOR_UNIT_CODES:
+                return value.upper()
+            return value
+        if field == 'unit':
+            return value.lower() if value.lower() in ('thousand', 'million', 'billion', 'trillion') else value
+        day = re.fullmatch(r'(\d{4}-\d{2}-\d{2})T00:00:00', value)
+        if field in ('period_start', 'period_end', 'observed_at') and day:
+            try:
+                datetime.strptime(day.group(1), '%Y-%m-%d')
+            except ValueError:
+                return value
+            return day.group(1)
+        return value
+
     for index, claim in enumerate(parsed["claims"]):
         finding = {"index": index, "status": "UNVERIFIED", "reasons": []}
         report["claims"].append(finding)
@@ -127,7 +160,7 @@ def _review_evidence_claims(critique, evidence):
             finding["reasons"].append("SOURCE_RECEIPT_UNVERIFIED")
             continue
         fact = matches[0]
-        contradicted, missing = [], []
+        contradicted, missing, normalized = [], [], []
         for field in sorted((required | (set(claim) & allowed)) - {"source_receipt"}):
             actual, stated = fact.get(field), claim.get(field)
             if (actual is None or actual == '' or stated is None or stated == ''
@@ -138,10 +171,15 @@ def _review_evidence_claims(critique, evidence):
             elif field == 'value' and (type(stated) not in (int, float) or fact.get('value_status') != 'AVAILABLE'):
                 missing.append(field)
             elif actual != stated:
-                contradicted.append(field)
+                if canonical(field, actual) != canonical(field, stated):
+                    contradicted.append(field)
+                else:
+                    normalized.append(field)
         if fact.get('identity_basis') in (None, 'UNVERIFIED'):
             missing.append('identity_basis')
         finding['reasons'] = ['MISSING_OR_UNSUPPORTED:' + field for field in missing]
+        if normalized:
+            finding['normalized_fields'] = normalized
         if contradicted:
             finding.update(status='CONTRADICTION_EXPLICIT', contradicted_fields=contradicted)
         elif not missing:
@@ -650,7 +688,8 @@ def _run_red_team_loop(blackboard, trade_idea, MODEL_SYNTHESIZER, user_msg,
         if evidence_followup:
             user_msg += followup_block(blackboard)
             evidence_snapshot = project_receipts(getattr(blackboard, 'tool_receipts', None),
-                                                 run_id=blackboard.weekly_store.run_id)
+                                                 run_id=blackboard.weekly_store.run_id,
+                                                 round_number=getattr(blackboard, 'current_round', None))
     elif evidence_followup:
         # The accepted request owns its evidence. Never project refreshed live receipts on replay.
         from bellomberg.storage.weekly_run_store import WeeklyRunBlocked

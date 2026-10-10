@@ -29,11 +29,27 @@ export const isArchived = (d: Decision) => {
   return g != null && g > 7;
 };
 
+/** R01: stato di lettura delle note. 'n/a' per le operative (il contratto vale solo sulle RESEARCH).
+ *  Su una RESEARCH lo zero è vero solo se la lettura è dichiarata riuscita: 'unavailable' dichiarato,
+ *  un errore, un payload incoerente (niente array) o una lista vuota SENZA marcatore (backend precedente,
+ *  che inghiottiva l'errore) non certificano «nessuna nota». Note effettivamente consegnate provano la lettura. */
+export type StatoNote = 'available' | 'unavailable' | 'n/a';
+export const statoNote = (d: Decision): StatoNote => {
+  if (!isResearch(d)) return 'n/a';
+  if (d.notes_status === 'unavailable' || d.notes_error || !Array.isArray(d.notes)) return 'unavailable';
+  if (d.notes_status === 'available') return 'available';
+  return d.notes_status === undefined && d.notes.length > 0 ? 'available' : 'unavailable';
+};
+/** Ricerca aperta la cui ultima attività non si può conoscere (note illeggibili): né «ferma» né «attiva». */
+export const attivitaIgnota = (d: Decision) =>
+  isResearch(d) && d.status === 'PENDING' && statoNote(d) === 'unavailable';
+
 /** Ultima attività di una ricerca: la proposta o l'ultima nota del filo. */
 export const ultimaAttivita = (d: Decision) =>
   [d.timestamp, ...(d.notes || []).map(n => n.timestamp)].filter(Boolean).sort().at(-1) ?? null;
 export const ricercaFerma = (d: Decision, ora = Date.now()) => {
   if (!isResearch(d) || d.status !== 'PENDING') return false;
+  if (statoNote(d) === 'unavailable') return false;   // R01: cronologia ignota, non inattività
   const g = giorniDa(ultimaAttivita(d), ora);
   return g != null && g > GIORNI_FERMA;
 };

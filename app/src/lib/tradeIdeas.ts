@@ -44,8 +44,12 @@ export interface TradeIdeaPreflight {
   analysis_mode?: string;
   document_sources?: TradeIdeaDocumentReceipt;
   ok: boolean;
+  /** R14: presente quando lo storage Trade Idea non è pronto (preflight 200 con ok:false). */
+  storage?: TradeIdeaStorage | null;
   source_qualification?: {
     status: string; reasons: string[]; method_id?: string; fingerprint?: string; analysis_mode?: string;
+    /** R14: not_run = verifica mai eseguita (un controllo precedente ha bloccato), distinta da failed. */
+    execution_status?: 'not_run' | 'completed' | 'failed';
     checklist?: Array<{label?: string; status?: string; reason?: string}>;
     coverage?: {sources?: {catalog_warnings?: Array<{source?: string; reason?: string}>; current_quotation?: {
       status: string; price?: number | null; currency?: string | null;
@@ -104,6 +108,9 @@ export interface TradeIdeaRun {
   models?: TradeIdeaModel[];
   usage?: TradeIdeaUsage | null;
   destination?: TradeIdeaDestination | null;
+  /** R14 seguito (B6): sulle run SALVATE la controverifica fonti è `completed` (registrata all'accettazione)
+   *  o `unknown_legacy` (run anteriori al marcatore: dato storico non registrato, né eseguita né fallita). */
+  source_qualification?: { status?: string; execution_status?: 'completed' | 'unknown_legacy' | string | null } | null;
 }
 
 export interface TradeIdeaProgressEntry {
@@ -259,9 +266,43 @@ export interface TradeIdeaList {
   total?: number;
 }
 
-export class TradeIdeaApiError extends Error {
-  constructor(message: string, public readonly status: number) { super(message); this.name = 'TradeIdeaApiError'; }
+/** R14: diagnosi dello storage Trade Idea non pronto (503 delle rotte, `storage` del preflight,
+ *  `trade_idea_storage` di GET /decisions). Solo `update_required` (schema_absent/schema_partial) giustifica
+ *  la migrazione esplicita; `status: lookup_failed` (lettura non classificata) è un guasto d'accesso, mai migrazione. */
+export interface TradeIdeaStorage {
+  status: string;
+  error_code: string;
+  update_required: boolean;
+  action: string;
+  documentation?: string | null;
 }
+
+/** Accetta la diagnosi solo se ha la forma del contratto: un oggetto storto non si mostra come diagnosi. */
+export function readTradeIdeaStorage(value: unknown): TradeIdeaStorage | null {
+  if (!value || typeof value !== 'object') return null;
+  const s = value as Record<string, unknown>;
+  if (typeof s.status !== 'string' || typeof s.action !== 'string' || typeof s.update_required !== 'boolean'
+      || typeof s.error_code !== 'string') return null;
+  return { status: s.status, error_code: s.error_code, update_required: s.update_required, action: s.action,
+    documentation: typeof s.documentation === 'string' ? s.documentation : null };
+}
+
+export class TradeIdeaApiError extends Error {
+  constructor(message: string, public readonly status: number,
+    public readonly errorCode?: string, public readonly storage: TradeIdeaStorage | null = null) {
+    super(message); this.name = 'TradeIdeaApiError';
+  }
+}
+
+/** Errore HTTP dal corpo JSON: conserva detail, error_code e storage (R14), non il solo messaggio. */
+export function tradeIdeaApiError(value: unknown, status: number): TradeIdeaApiError {
+  const body = value && typeof value === 'object' ? value as Record<string, unknown> : null;
+  return new TradeIdeaApiError(errorMessage(value, status), status,
+    typeof body?.error_code === 'string' ? body.error_code : undefined, readTradeIdeaStorage(body?.storage));
+}
+
+export const storageOf = (error: unknown): TradeIdeaStorage | null =>
+  error instanceof TradeIdeaApiError ? error.storage : null;
 
 function errorMessage(value: unknown, status: number): string {
   const detail = value && typeof value === 'object' && 'detail' in value ? (value as { detail: unknown }).detail : value;
@@ -280,7 +321,7 @@ export async function tradeIdeaRequest<T>(path: string, body?: object, signal?: 
   });
   if (response.status === 401 || response.status === 403) clearSessionAndReload();
   const value = await response.json().catch(() => null);
-  if (!response.ok) throw new TradeIdeaApiError(errorMessage(value, response.status), response.status);
+  if (!response.ok) throw tradeIdeaApiError(value, response.status);
   if (value === null) throw new TradeIdeaApiError(`HTTP ${response.status}: ${t('tradeidea.apiNoJson')}`, response.status);
   return value as T;
 }
@@ -322,6 +363,6 @@ export async function tradeIdeaArtifactBlob(runId: string, artifactId: string): 
     headers: requestHeaders(), cache: 'no-store',
   });
   if (response.status === 401 || response.status === 403) clearSessionAndReload();
-  if (!response.ok) throw new TradeIdeaApiError(errorMessage(await response.json().catch(() => null), response.status), response.status);
+  if (!response.ok) throw tradeIdeaApiError(await response.json().catch(() => null), response.status);
   return response.blob();
 }

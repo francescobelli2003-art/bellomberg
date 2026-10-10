@@ -16,7 +16,7 @@ from test_sotp_documented import sotp_bundle, sotp_records
 
 
 @pytest.mark.parametrize("delivery", ["provided", "sidecar"])
-def test_scorer_keeps_model_score_when_observed_quote_ages_or_is_absent(tmp_path, monkeypatch, delivery):
+def test_scorer_measures_current_price_and_declares_stale_or_absent_quote_nd(tmp_path, monkeypatch, delivery):
     payload = calculated_payload(tmp_path)
     assert payload["valuation_usability"]["usable"]
     before = deepcopy(payload)
@@ -58,19 +58,25 @@ def test_scorer_keeps_model_score_when_observed_quote_ages_or_is_absent(tmp_path
         sidecar.write_text(json.dumps(legacy_sidecar, allow_nan=False), encoding="utf-8")
     missing = score(legacy)
 
-    for result in (fresh, stale, missing):
-        assert result is not None
-        assert result["score"] == 0 and result["max_score"] == 6
-        assert result["metrics"] == {"avg_mos_pct": 41.3, "n_valued": 1, "n_cheap": 1, "n_rich": 0}
-    assert fresh["verdict"] == stale["verdict"] == missing["verdict"]
-    comparisons = [next(row for row in result["lines"] if row[0] == "  Observed price comparison SYNTH")
-                   for result in (fresh, stale, missing)]
-    assert all(row[2] == 0 for row in comparisons)
-    assert "observed price 17.8% (ok)" in comparisons[0][1]
-    assert "observed price n/a (stale)" in comparisons[1][1]
-    assert "observed price n/a (data_missing)" in comparisons[2][1]
-    assert "2026-09-10T15:30:00" in comparisons[1][1]
-    assert all("model upside 41.3%" in row[1] for row in comparisons)
+    # Contratto cambiato per ordine PM 09/10 (Opus 5.5): il margine di sicurezza si misura
+    # sul prezzo CORRENTE osservato. Il fair value resta quello del modello (nessuna
+    # rivalutazione); una quotazione vecchia o assente rende il nome n.d., mai il prezzo
+    # del modello in silenzio. Qui l'unico nome: score n.d. DICHIARATO (v2 10/10: dict col
+    # motivo, non None; il portafoglio non porta un prezzo del book, quindi niente seconda fonte).
+    for nd in (stale, missing):
+        assert nd["score"] is None and nd["max_score"] is None
+        assert nd["verdict"].startswith("n/a - current price n/a on 1/1 names"), nd["verdict"]
+    assert fresh is not None and fresh["max_score"] == 3
+    canonical = next(payload[k] for k in ("fair_value", "fair_value_final", "fair_value_weighted",
+                                          "fair_value_blend", "fair_value_base") if payload.get(k) is not None)
+    observed = payload["market_quote"]["upside_base_pct"]
+    expected = round((canonical / payload["fair_value_base"] * (1 + observed / 100) - 1) * 100, 1)
+    assert fresh["metrics"]["mos_book_pct"] == expected
+    assert fresh["metrics"]["mos_book_pct"] != 41.3, "non il margine al prezzo del modello"
+    comparison = next(row for row in fresh["lines"] if row[0] == "  Observed price comparison SYNTH")
+    assert comparison[2] is None
+    assert "observed price 17.8% (ok)" in comparison[1]
+    assert "model upside 41.3%" in comparison[1]
     assert payload == before and workbook.read_bytes() == workbook_bytes
     if delivery == "provided":
         assert sidecar.read_bytes() == saved

@@ -39,6 +39,7 @@ def attach(board, db, marker=followup.POLICY):
             'issuer_identity': {'status': 'PRIMARY_SOURCE_VERIFIED', 'ticker': 'SYNTH', 'name': 'Synthetic Issuer',
                                 'basis': 'synthetic filing'}})}]
     board.write('fundamentals', 1, 'SYNTH: ricavi da verificare per periodo, identita e valuta.')
+    board.current_round = 1  # production: the Red Team runs after run_round(bb, 1), before R2
     return store
 
 
@@ -213,6 +214,18 @@ def test_invalid_metadata_paths_are_not_attested_even_if_snapshot_matches(bb, db
     assert finding['reasons'] == ['SOURCE_RECEIPT_UNVERIFIED']
 
 
+def test_receipt_from_a_later_round_cannot_attest_the_red_team_review(bb, db, monkeypatch):
+    """D3: between R1 and R2 a receipt stamped round 2 is incoherent, not evidence."""
+    attach(bb, db)
+    row = claim(bb)
+    bb.tool_receipts[0]['round'] = 2
+    client(monkeypatch, response([row]))
+    red_team.run_red_team(bb)
+    checkpoint = bb.specialist_checkpoints['red_team:R1']
+    assert checkpoint['evidence_review']['claims'][0]['reasons'] == ['SOURCE_RECEIPT_UNVERIFIED']
+    assert {'code': 'RECEIPT_ROUND_INCOHERENT', 'receipt_index': 0} in checkpoint['evidence_followup_snapshot']['issues']
+
+
 def test_unattested_identity_does_not_become_verified_by_metadata_paths(bb, db, monkeypatch):
     attach(bb, db)
     payload = json.loads(bb.tool_receipts[0]['output'])
@@ -256,3 +269,119 @@ def test_paid_reply_after_crash_uses_exact_body_receipts_and_cost(bb, db, monkey
     assert after_checkpoint['user_msg'] == frozen['user_msg']
     with journal()._db() as conn: after = [dict(row) for row in conn.execute('SELECT * FROM requests')]
     assert after == before
+
+
+@pytest.mark.parametrize('field,value', [('currency', 'eur'),
+                                       ('period_end', '2031-12-31T00:00:00'),
+                                       ('period_start', '2031-01-01T00:00:00'),
+                                       ('unit', 'Million'), ('unit', 'MILLION')])
+def test_representation_only_differences_are_declared_not_contradictions(bb, db, field, value):
+    # R12 p.7 (Opus 5.5): case of currency/unit and midnight ISO time without offset.
+    attach(bb, db)
+    evidence = followup.project_receipts(bb.tool_receipts, run_id=bb.weekly_store.run_id)
+    finding = red_team._review_evidence_claims(response([claim(bb, **{field: value})]), evidence)['claims'][0]
+    assert finding['status'] == 'CONSISTENT_EXPLICIT'
+    assert finding['normalized_fields'] == [field]
+    assert 'contradicted_fields' not in finding
+
+
+@pytest.mark.parametrize('field,value', [
+    ('currency', 'USD'), ('currency', 'usd'), ('currency', 'EUR '), ('currency', 'EURO'),
+    ('currency', 'Eur'), ('currency', 'eUR'), ('unit', 'millions'), ('unit', 'Millions'),
+    ('unit', 'billion'), ('unit', 'Billion'), ('unit', 'mn'), ('unit', 'million '),
+    ('period_end', '2031-12-30'), ('period_end', '2031-12-30T00:00:00'),
+    ('period_end', '2031-12-31T00:00:01'), ('period_end', '2031-12-31T00:00:00+02:00'),
+    ('period_end', '2031-12-31T00:00:00Z'), ('period_end', '2031-12-31 00:00:00'),
+    ('period_end', '2031-12-31T00:00:00.000'), ('period_end', '2031-02-30T00:00:00'),
+    ('definition', 'REPORTED_REVENUE'), ('ticker', 'synth'), ('duration', 'Annual'),
+])
+def test_real_or_unnormalizable_differences_stay_contradictions(bb, db, field, value):
+    attach(bb, db)
+    evidence = followup.project_receipts(bb.tool_receipts, run_id=bb.weekly_store.run_id)
+    finding = red_team._review_evidence_claims(response([claim(bb, **{field: value})]), evidence)['claims'][0]
+    assert finding['status'] == 'CONTRADICTION_EXPLICIT'
+    assert finding['contradicted_fields'] == [field]
+
+
+def test_native_red_review_accepts_case_and_midnight_representation(bb, db, monkeypatch):
+    attach(bb, db)
+    row = claim(bb, currency='eur', unit='Million', period_end='2031-12-31T00:00:00')
+    client(monkeypatch, response([row])); red_team.run_red_team(bb)
+    review = bb.specialist_checkpoints['red_team:R1']['evidence_review']
+    assert review['status'] == 'ASSESSED_EXPLICIT'
+    assert review['claims'][0]['normalized_fields'] == ['currency', 'period_end', 'unit']
+
+
+@pytest.mark.parametrize('actual,stated', [('mEUR', 'MEUR'), ('m', 'M'), ('Units', 'units')])
+def test_unit_symbols_keep_case_outside_declared_scale_words(bb, db, actual, stated):
+    attach(bb, db)
+    evidence = followup.project_receipts(bb.tool_receipts, run_id=bb.weekly_store.run_id)
+    evidence['facts'][0]['unit'] = actual
+    finding = red_team._review_evidence_claims(response([claim(bb, unit=stated)]), evidence)['claims'][0]
+    assert finding['status'] == 'CONTRADICTION_EXPLICIT' and finding['contradicted_fields'] == ['unit']
+
+
+def test_invalid_calendar_day_is_not_normalized_into_consistency(bb, db):
+    # Mutation M8 (Opus 5.5): an impossible day must not be made equal by stripping the time.
+    attach(bb, db)
+    evidence = followup.project_receipts(bb.tool_receipts, run_id=bb.weekly_store.run_id)
+    evidence['facts'][0]['period_end'] = '2031-02-30'
+    finding = red_team._review_evidence_claims(
+        response([claim(bb, period_end='2031-02-30T00:00:00')]), evidence)['claims'][0]
+    assert finding['status'] == 'CONTRADICTION_EXPLICIT' and finding['contradicted_fields'] == ['period_end']
+
+
+@pytest.mark.parametrize('actual,stated', [
+    ('GBP', 'GBp'), ('GBp', 'GBP'), ('GBp', 'gbp'), ('gbp', 'GBp'), ('USD', 'USd'), ('USd', 'USD'),
+    ('ZAR', 'ZAc'), ('ZAc', 'ZAC'), ('ZAC', 'ZAc'), ('ZAC', 'zac'), ('GBX', 'gbx'), ('gbx', 'GBX'),
+    ('ILA', 'ila'), ('GBX', 'GBP'), ('SS', '\u00df'), ('\u00df', 'SS'), ('EUR', '\u0435ur'),
+])
+def test_minor_units_and_non_ascii_currency_never_fold_by_case(bb, db, actual, stated):
+    # R12 p.7 riserva 1 (Opus 5.5): GBp/GBP, USd/USD, ZAc/ZAC differ by x100; 'ß'.upper() == 'SS'.
+    attach(bb, db)
+    evidence = followup.project_receipts(bb.tool_receipts, run_id=bb.weekly_store.run_id)
+    evidence['facts'][0]['currency'] = actual
+    finding = red_team._review_evidence_claims(response([claim(bb, currency=stated)]), evidence)['claims'][0]
+    assert finding['status'] == 'CONTRADICTION_EXPLICIT' and finding['contradicted_fields'] == ['currency']
+    assert 'normalized_fields' not in finding
+
+
+@pytest.mark.parametrize('actual,stated', [('GBP', 'gbp'), ('usd', 'USD'), ('ZAR', 'zar'), ('ILS', 'ils')])
+def test_major_iso_codes_fold_only_between_all_upper_and_all_lower(bb, db, actual, stated):
+    attach(bb, db)
+    evidence = followup.project_receipts(bb.tool_receipts, run_id=bb.weekly_store.run_id)
+    evidence['facts'][0]['currency'] = actual
+    finding = red_team._review_evidence_claims(response([claim(bb, currency=stated)]), evidence)['claims'][0]
+    assert finding['status'] == 'CONSISTENT_EXPLICIT' and finding['normalized_fields'] == ['currency']
+
+
+@pytest.mark.parametrize('actual,stated', [('thousand', 'Thousand'), ('trillion', 'TRILLION'),
+                                           ('billion', 'Billion')])
+def test_every_declared_scale_word_folds_by_case(bb, db, actual, stated):
+    # Mutation M1 (reviewer): dropping thousand/trillion from the scale words must turn red.
+    attach(bb, db)
+    evidence = followup.project_receipts(bb.tool_receipts, run_id=bb.weekly_store.run_id)
+    evidence['facts'][0]['unit'] = actual
+    finding = red_team._review_evidence_claims(response([claim(bb, unit=stated)]), evidence)['claims'][0]
+    assert finding['status'] == 'CONSISTENT_EXPLICIT' and finding['normalized_fields'] == ['unit']
+
+
+def test_observed_at_midnight_is_the_same_day(bb, db):
+    # Mutation M2 (reviewer): observed_at is one of the three date fields.
+    attach(bb, db)
+    evidence = followup.project_receipts(bb.tool_receipts, run_id=bb.weekly_store.run_id)
+    evidence['facts'][0]['observed_at'] = '2032-01-01'
+    finding = red_team._review_evidence_claims(
+        response([claim(bb, observed_at='2032-01-01T00:00:00')]), evidence)['claims'][0]
+    assert finding['status'] == 'CONSISTENT_EXPLICIT' and finding['normalized_fields'] == ['observed_at']
+
+
+@pytest.mark.parametrize('field', ['fiscal_year_label', 'definition', 'metric', 'duration'])
+def test_midnight_folding_never_applies_outside_date_fields(bb, db, field):
+    # Mutation M3 (reviewer): a day-shaped string in a non-date field is compared raw.
+    attach(bb, db)
+    evidence = followup.project_receipts(bb.tool_receipts, run_id=bb.weekly_store.run_id)
+    evidence['facts'][0][field] = '2031-12-31'
+    finding = red_team._review_evidence_claims(
+        response([claim(bb, **{field: '2031-12-31T00:00:00'})]), evidence)['claims'][0]
+    assert finding['status'] == 'CONTRADICTION_EXPLICIT' and field in finding['contradicted_fields']

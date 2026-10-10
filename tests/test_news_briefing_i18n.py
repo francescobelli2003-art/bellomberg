@@ -122,6 +122,7 @@ def test_news_pull_persists_english_only_in_generated_cache(news_db, monkeypatch
     monkeypatch.setattr(news, '_termini_del_giro', lambda context: {})
     monkeypatch.setattr(news, 'providers_blocked', lambda: {})
     monkeypatch.setattr(tiingo_news, 'tiingo_available', lambda: False)
+    monkeypatch.setattr(news, '_fetch_gnews_top', lambda *a, **k: [])   # 10/10 passo 2.4: rete
     monkeypatch.setattr(news, '_scrivi_stato_giro', lambda result: None)
     item = {'title':'New original quote', 'snippet':'Original source prose', 'source':'fake',
             'url':'https://example.invalid/new-story', 'provider':'fake'}

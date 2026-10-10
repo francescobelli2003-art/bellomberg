@@ -679,7 +679,7 @@ def _get_ibkr_options(ticker, port=7496, expiry=None):
         expirations = sorted(chain.expirations)
         from bellomberg.core.options_expiry import select_expiry
         try:
-            nearest = select_expiry(expirations, expiry, compact=True)
+            nearest = select_expiry(expirations, expiry, compact=True, min_days=2)  # fix 09/10: niente 0DTE di default, come Polygon
         except ValueError as exc:
             return {"data_source": "IBKR_TWS_error", "error_ibkr": str(exc),
                     "available_expiries": expirations}
@@ -814,7 +814,7 @@ def _get_yfinance_oi_only(ticker, expiry=None):
         expirations = tk.options
         from bellomberg.core.options_expiry import select_expiry
         try:
-            nearest = select_expiry(expirations, expiry)
+            nearest = select_expiry(expirations, expiry, min_days=2)  # fix 09/10: niente 0DTE di default
         except ValueError as exc:
             return {"error": str(exc), "available_expiries": list(expirations or [])}
         chain = tk.option_chain(nearest)
@@ -1066,7 +1066,19 @@ def _options_data_usa(ticker, expiry=None, note_polygon=None):
                     ibkr_result["note"] = "OI non integrato: yfinance non disponibile per la stessa scadenza."
             except Exception:
                 pass
-        return ibkr_result
+        # R02-a (09/10, Opus 5.5): stesso contratto ATM del ramo Polygon.
+        # IBKR: contratto Stock in USD, ma dati richiesti delayed-frozen e
+        # nessun orario di quotazione/IV registrato -> ATM non qualificato.
+        _issues = ["spot_timestamp_unattested", "iv_timestamp_unattested",
+                   "market_data_delayed_or_frozen_requested"]
+        _src = str(ibkr_result.get("spot_source") or "")
+        if _src.startswith("yfinance"):
+            _issues += ["spot_from_yfinance_daily_close", "currency_unattested"]
+        elif _src == "IBKR close":
+            _issues.append("spot_is_close_not_live")
+        elif not _src:
+            _issues.append("spot_source_missing")
+        return _atm_fallback_non_qualificato(ibkr_result, _issues)
     # 2. Fallback yfinance
     if not YFINANCE_AVAILABLE:
         return {"error": "yfinance non disponibile e IBKR TWS non raggiungibile"}
@@ -1074,7 +1086,7 @@ def _options_data_usa(ticker, expiry=None, note_polygon=None):
         tk = yf.Ticker(ticker)
         expirations = tk.options
         try:
-            nearest = select_expiry(expirations, expiry)
+            nearest = select_expiry(expirations, expiry, min_days=2)  # fix 09/10: niente 0DTE di default
         except ValueError as exc:
             if str(exc) == "expiry_no_valid_available":
                 return {"error": "Nessuna opzione disponibile: nessuna scadenza valida per la richiesta",
@@ -1119,22 +1131,58 @@ def _options_data_usa(ticker, expiry=None, note_polygon=None):
                 max_pain_loss = total_pain
                 max_pain_strike = float(s)
 
-        return {
+        # R02-a: spot = Close giornaliero yfinance (valuta e orario non
+        # attestati), IV calcolata da Yahoo senza orario -> ATM non qualificato.
+        return _atm_fallback_non_qualificato({
             "data_source": "yfinance options",
             "ticker": ticker,
             "spot": round(spot, 2) if spot else None,
+            "spot_source": "yfinance daily Close (not an intraday quote)" if spot else None,
             "nearest_expiry": nearest,
-            "atm_iv_call_pct": round(atm_iv_call * 100, 1) if atm_iv_call else None,
-            "atm_iv_put_pct": round(atm_iv_put * 100, 1) if atm_iv_put else None,
+            "atm_iv_call_pct": round(atm_iv_call * 100, 1) if atm_iv_call is not None else None,
+            "atm_iv_put_pct": round(atm_iv_put * 100, 1) if atm_iv_put is not None else None,
             "put_call_oi_ratio": pc_ratio,
             "interpretation_pc": "bearish if >1.0, bullish if <0.7" if pc_ratio else None,
             "max_pain_strike": max_pain_strike,
             "max_pain_vs_spot_pct": round((max_pain_strike - spot) / spot * 100, 2) if max_pain_strike and spot else None,
             "total_call_oi": total_call_oi,
             "total_put_oi": total_put_oi,
-        }
+        }, ([("spot_from_yfinance_daily_close" if spot else "spot_missing"),   # review R02: mai entrambe
+             "currency_unattested", "spot_timestamp_unattested", "iv_timestamp_unattested"]))
     except Exception as e:
         return {"error": "Errore options " + ticker + ": " + str(e)}
+
+
+def _atm_fallback_non_qualificato(result, issues):
+    """R02-a (09/10, Opus 5.5): i fallback IBKR/yfinance emettono lo stesso
+    contratto del ramo Polygon (T2, 3f9f5c5). Nessuno dei due attesta insieme
+    valuta e orario di spot e IV, quindi `atm_status` e' UNVERIFIED: l'ATM IV
+    pubblica (`atm_iv_*_pct`) diventa n.d. e il numero osservato resta a parte,
+    dichiarato, in `atm_iv_unqualified_observation`. IV <= 0 o non finita =
+    dato invalido (None + `atm_iv_invalid`). Nessun ramo QUALIFIED qui."""
+    import math as _m
+    out = dict(result)
+    issues = list(issues)
+    raw = {}
+    for side in ("call", "put"):
+        value = out.get("atm_iv_" + side + "_pct")
+        valid = (isinstance(value, (int, float)) and not isinstance(value, bool)
+                 and _m.isfinite(value) and value > 0)
+        if value is not None and not valid and "atm_iv_invalid" not in issues:
+            issues.append("atm_iv_invalid")
+        raw[side + "_pct"] = float(value) if valid else None
+        out["atm_iv_" + side + "_pct"] = None
+    out["atm_status"] = "UNVERIFIED"
+    out["atm_issues"] = issues
+    out["atm_iv_unqualified_observation"] = {
+        "status": "UNVERIFIED",
+        "method": "nearest_numeric_strike_to_spot; not qualified ATM",
+        "spot_source": out.get("spot_source"), **raw}
+    out["iv_hv_comparison_status"] = "UNVERIFIED"
+    out["iv_hv_comparison_note"] = (
+        "Confronto IV/HV non verificato: servono ATM qualificato e "
+        "finestre temporali compatibili; nessuna equivalenza implicita.")
+    return out
 
 
 # I CIK dei gestori 13F vivono nel negozio privato delle istituzioni
@@ -1352,8 +1400,12 @@ def tool_get_polymarket_events(query, max_results=10):
                     "activity_reasons": negative + uncertain,
                     "provider_state": {key: row.get(key) for key in ("active", "closed", "archived")}}
 
+        inactive_search_candidates = []  # lexical/server candidates excluded as inactive (R11 p.5 riserva 4)
+
         def exclude(quality, row, source):
             coverage["excluded_inactive"] += 1
+            if search_match(row, source)["basis"] != "local_no_lexical_match":
+                inactive_search_candidates.append(row.get("slug"))
             for reason in quality["activity_reasons"]:
                 coverage["exclusion_reasons"][reason] = coverage["exclusion_reasons"].get(reason, 0) + 1
             if len(coverage["excluded_candidates"]) < 10:
@@ -1655,15 +1707,33 @@ def tool_get_polymarket_events(query, max_results=10):
         all_results.sort(key=lambda x: (0 if x.get("match") == "server_search" else
                                         2 if x["search_match"]["basis"] == "local_no_lexical_match" else 1,
                                         -(x.get("volume_24h", 0) or 0)))
+        coverage["local_nonlexical_candidates"] = sum(r["search_match"]["basis"] == "local_no_lexical_match" for r in all_results)
+        # R11 p.5 (Opus 5.5): with no server/lexical candidate the local scan would only
+        # fill the result cap with unrelated high-volume markets. Their prices are not
+        # returned; their identities stay declared (UNVERIFIED), never silently dropped.
+        withheld = all_results if all_results and coverage["local_nonlexical_candidates"] == len(all_results) else []
+        if withheld:
+            coverage["withheld_nonlexical_candidates"] = [
+                {"type": r.get("type"), "title": r.get("title") or r.get("question"), "url": r.get("url"),
+                 "volume_24h": r.get("volume_24h"), "activity_status": r.get("activity_status"),
+                 "search_match": r["search_match"]} for r in withheld[:10]]
+            coverage["withheld_nonlexical_omitted"] = len(withheld) - min(10, len(withheld))
+            coverage["withheld_reason"] = ("no server-search or lexical candidate for these queries: local "
+                                           "high-volume nonmatches withheld without prices; UNVERIFIED, not irrelevant. "
+                                           "A relevant market titled in another language (e.g. English title for an "
+                                           "Italian query) keeps only its identity here, never its prices: retry the "
+                                           "call with English terms to obtain them")
+            all_results = []
         coverage["eligible_candidates"] = len(all_results)
         coverage["unknown_activity_candidates"] = sum(r.get("activity_status") == "unknown" for r in all_results)
-        coverage["candidate_count_basis"] = "technical candidates evaluated for activity, not verified relevance; lexical nonmatches retained as uncertain within result cap"
-        coverage["local_nonlexical_candidates"] = sum(r["search_match"]["basis"] == "local_no_lexical_match" for r in all_results)
+        coverage["candidate_count_basis"] = "technical candidates evaluated for activity, not verified relevance; lexical nonmatches retained as uncertain within result cap only beside a lexical or server-search candidate"
         nested_partial = any(r.get("market_coverage", {}).get("completeness") == "partial" for r in all_results)
         all_results = all_results[:max_results]
         coverage["returned"] = len(all_results)
         coverage["omitted_result_limit"] = coverage["eligible_candidates"] - len(all_results)
-        local_partial = bool(coverage["omitted_result_limit"] or nested_partial or fetch_warnings)
+        # Withheld identities beyond the declared sample are unseen: the response is partial.
+        local_partial = bool(coverage["omitted_result_limit"] or nested_partial or fetch_warnings
+                             or coverage.get("withheld_nonlexical_omitted"))
 
         result = {
             "query": query,
@@ -1701,8 +1771,22 @@ def tool_get_polymarket_events(query, max_results=10):
                               "Prosegui la chat dichiarando il limite. La rete sara' ricontrollata "
                               "nelle richieste successive alla scadenza della cache.")
             return result
-        if not all_results and not fetch_warnings:
-            result["hint"] = ("Nessun match. Se fetch_warnings e' presente, gamma-api era "
+        if not all_results and not fetch_warnings and inactive_search_candidates:
+            # R11 p.5 riserva 4 (Opus 5.5): lexical/server candidates existed but were all
+            # inactive (closed/expired/archived): not the same outcome as "nothing found".
+            result["search_outcome"] = "ONLY_INACTIVE_CANDIDATES"
+            coverage["excluded_inactive_search_candidates"] = len(inactive_search_candidates)
+            result["hint"] = ("Solo candidati inattivi: le query hanno trovato mercati con riscontro "
+                              "lessicale o della ricerca server, ma tutti chiusi/scaduti/archiviati "
+                              "(coverage.excluded_candidates, exclusion_reasons): nessuna probabilita' "
+                              "corrente. NON concludere che il tema non sia mai stato prezzato ne' che "
+                              "non esista un mercato attivo con altri termini (riprova in inglese).")
+        elif not all_results and not fetch_warnings:
+            result["search_outcome"] = "NO_MARKET_FOUND_WITH_THESE_QUERIES"
+            result["hint"] = ("Nessun match: nessun mercato trovato con queste query (copertura "
+                              "dichiarata delle sole ricerche eseguite; eventuali candidati senza "
+                              "riscontro lessicale sono in coverage.withheld_nonlexical_candidates, "
+                              "senza prezzi). Se fetch_warnings e' presente, gamma-api era "
                               "irraggiungibile: riprova la stessa call. Altrimenti riprova "
                               "con termini inglesi piu' generici o sinonimi diversi — "
                               "NON concludere che il mercato non esiste.")
@@ -1930,6 +2014,10 @@ def tool_get_hyperliquid_intel(focus_asset=None, builder_dexs=True):
             risultati["focus_note"] = ("asset %s non quotato sul dex principale: "
                                        "focus_asset_detail n.d." % focus_asset)
         risultati["top_10_perps_by_oi"] = [x for x in intel_per_asset if x["oi_usd_m"] is not None][:10]
+        # fix 09/10 (Opus 5.5): istante di osservazione DICHIARATO. crypto_score ne verifica l'eta'
+        # e il controllo di freschezza lo usa come data (prima: «data osservazione assente»).
+        from datetime import datetime as _dt_oss, timezone as _tz_oss
+        risultati["fetched_at_utc"] = _dt_oss.now(_tz_oss.utc).isoformat(timespec="seconds")
 
         funding_sorted = [x for x in intel_per_asset if x.get("funding_hourly_pct") is not None]
         funding_sorted.sort(key=lambda x: x["funding_hourly_pct"], reverse=True)
@@ -2052,6 +2140,10 @@ def execute_tool(name, arguments):
 # === FRED MACRO TOOLS ===
 # Federal Reserve Economic Data, St. Louis Fed
 # https://fred.stlouisfed.org/docs/api/api_key.html (gratis, illimitato)
+
+# Chiave dell'indicatore curva 10Y-2Y: costante, cosi' il confronto `key == ...` sotto non ha la
+# forma `key == "<stringa>"` che gitleaks (generic-api-key) scambia per un segreto.
+YC_10Y_2Y = "yield_curve_10y_2y"
 
 _FRED_INDICATORS = {
     "us_cpi_yoy": ("CPIAUCSL", "US CPI all items (YoY computed)", "yoy"),
@@ -2314,10 +2406,12 @@ _FRED_YOY_PERIODS = {
 }
 
 
-def tool_get_macro_indicator(indicator, last_n=12):
+def tool_get_macro_indicator(indicator, last_n=12, *, _con_osservazioni=False):
     """Singolo indicatore macro da FRED o da fonte nativa (P1 14/07).
     'indicator' puo essere una chiave pre-mappata (es. 'us_cpi_yoy', 'vix_close',
-    'uk_cpi_yoy') OPPURE un series_id FRED diretto (es. 'CPIAUCSL', 'DGS10')."""
+    'uk_cpi_yoy') OPPURE un series_id FRED diretto (es. 'CPIAUCSL', 'DGS10').
+    `_con_osservazioni` (interno, v2 10/10 Opus 5.5): solo per tool_get_macro_dashboard,
+    aggiunge `_observations` (serie pulita completa) senza una seconda chiamata FRED."""
     # Fonti native (ONS/Eurostat/IMF/BCB): serie morte su FRED, riempite 14/07
     if indicator in _NATIVE_INDICATORS:
         fn, desc, src = _NATIVE_INDICATORS[indicator]
@@ -2381,6 +2475,8 @@ def tool_get_macro_indicator(indicator, last_n=12):
 
     # Storia ridotta per il LLM (ultimi 12)
     result["history_last_12"] = obs[-12:]
+    if _con_osservazioni:
+        result["_observations"] = list(obs)
     return result
 
 
@@ -2389,9 +2485,52 @@ def tool_get_macro_dashboard():
     Usa questo INVECE di chiamare get_macro_indicator 10 volte separatamente."""
     dashboard = {"source": "FRED St. Louis Fed + fonti native (ONS, Eurostat, IMF, BCB)",
                  "indicators": {}}
+    # v2 10/10 (Opus 5.5, score macro): storia che serve a macro_score, in forma COMPATTA
+    # (la dashboard entra nel contesto degli agenti). Osservazioni da chiedere a FRED per
+    # chiave: UNRATE 24 mesi -> `history` (regola di Sahm, >=15 mesi; prima arrivavano 12 e
+    # la regola era codice morto); T10Y2Y ~19 mesi di giornaliere -> `min_18m` (dis-inversione);
+    # DGS10 ~2 mesi -> `ref_1m` (variazione a 1 mese). Le altre chiavi restano a 24.
+    # 10/10 (Opus 5.5, bear steepening): anche DGS2 porta `ref_1m`, per dire se la curva si
+    # irripidisce perche' sale il decennale o perche' scende il 2 anni.
+    _STORIA_SCORE = {"us_unemployment": 24, "yield_curve_10y_2y": 410, "10y_treasury": 45,
+                     "2y_treasury": 45}
+
+    def _storia_score(key, entry, obs):
+        from datetime import date as _d, timedelta as _td
+        try:
+            righe = sorted((_d.fromisoformat(str(o["date"])[:10]), float(o["value"])) for o in obs)
+        except (KeyError, TypeError, ValueError) as exc:
+            entry["history_error"] = "storia FRED illeggibile: %s" % type(exc).__name__
+            return
+        if not righe:
+            entry["history_error"] = "storia FRED vuota"
+            return
+        fine = righe[-1][0]
+        if key == "us_unemployment":
+            entry["history"] = [{"date": d.isoformat(), "value": v} for d, v in righe[-24:]]
+        elif key == YC_10Y_2Y:
+            inizio = fine - _td(days=548)
+            fin = [(d, v) for d, v in righe if d >= inizio]
+            d_min, v_min = min(fin, key=lambda x: (x[1], x[0]))
+            negativi = [d for d, v in fin if v < 0]
+            entry["min_18m"] = {"value": v_min, "date": d_min.isoformat(),
+                                "last_negative_date": negativi[-1].isoformat() if negativi else None,
+                                "window_from": inizio.isoformat(), "window_to": fine.isoformat(),
+                                "n_obs": len(fin), "copertura_completa": righe[0][0] <= inizio}
+        elif key in ("10y_treasury", "2y_treasury"):
+            prima = [(d, v) for d, v in righe if d <= fine - _td(days=30)]
+            if prima:
+                entry["ref_1m"] = {"date": prima[-1][0].isoformat(), "value": prima[-1][1]}
+            else:
+                entry["ref_1m_error"] = "storia %s piu' corta di 30 giorni" % (
+                    "DGS10" if key == "10y_treasury" else "DGS2")
+
     for key, (series_id, desc, mode) in _FRED_INDICATORS.items():
         try:
-            result = tool_get_macro_indicator(key, last_n=24)
+            if key in _STORIA_SCORE:
+                result = tool_get_macro_indicator(key, last_n=_STORIA_SCORE[key], _con_osservazioni=True)
+            else:
+                result = tool_get_macro_indicator(key, last_n=24)
             if "error" not in result:
                 # Versione compatta per dashboard
                 dashboard["indicators"][key] = {
@@ -2401,6 +2540,8 @@ def tool_get_macro_dashboard():
                     "yoy_pct": result.get("yoy_pct"),
                     "change_vs_prev": result.get("change_vs_prev"),
                 }
+                if key in _STORIA_SCORE:
+                    _storia_score(key, dashboard["indicators"][key], result.get("_observations") or [])
             else:
                 # P1 14/07 (no-fallback): l'errore si DICHIARA, non si salta in
                 # silenzio (uk_cpi con ID inesistente e' sparito per mesi cosi')
@@ -2433,7 +2574,9 @@ def tool_get_macro_dashboard():
     ind = dashboard["indicators"]
     y10 = ind.get("10y_treasury", {}).get("value")
     y2 = ind.get("2y_treasury", {}).get("value")
-    if y10 and y2:
+    # v2 10/10: `is not None`, non la verita' del valore: un 2 anni a 0,0 (ZIRP) faceva
+    # sparire la curva in silenzio.
+    if y10 is not None and y2 is not None:
         dashboard["yield_curve_10y_2y_bps"] = round((y10 - y2) * 100, 0)
         dashboard["yield_curve_status"] = "INVERTED (recession signal)" if y10 < y2 else "POSITIVE (normal)"
 

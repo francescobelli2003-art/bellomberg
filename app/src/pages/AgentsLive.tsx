@@ -32,6 +32,7 @@ import { useInterfaceTheme } from '@/components/InterfaceThemeProvider';
 import { useBox } from '@/lib/useBox';
 import { derivePlancia, engineShort, fmtDurShort, tickerDiInput, type Desk } from '@/lib/plancia-data';
 import { conservaDettaglioRun, dettaglioLeggibile, statusHttp } from '@/lib/mandato';
+import { controlloAttivaSaltato, testoControlloAttiva, type TradeIdeaActiveCheck } from '@/lib/tradeIdeaActiveCheck';
 import { frase } from '@/lib/frase';
 import { Segmenti } from '@/components/nuova/Card';
 import { ArrowUpRight, Check, CircleAlert, FileText, Lightbulb, PanelRight, Play, Square, TriangleAlert, WifiOff } from 'lucide-react';
@@ -276,7 +277,7 @@ export default function AgentsLive() {
     try { return localStorage.getItem(ACTIVE_RUN_KEY); } catch { return null; }
   });
   const [stopping, setStopping] = useState(false);
-  const [triggerMsg, setTriggerMsg] = useState<{ kind: 'starting' | 'active'; id?: string | null } | null>(null);
+  const [triggerMsg, setTriggerMsg] = useState<{ kind: 'starting' | 'active'; id?: string | null; check?: TradeIdeaActiveCheck | null } | null>(null);
   const [askRun, setAskRun] = useState(false);   // Lotto D: la run costa, si conferma prima
   const [stopNotice, setStopNotice] = useState<StopNotice | null>(null);
 
@@ -288,7 +289,8 @@ export default function AgentsLive() {
       const r = await Bellomberg.runConsigliere();
       const tid = r?.task_id || null;
       if (tid) { try { localStorage.setItem(ACTIVE_RUN_KEY, tid); } catch {} setActiveTaskId(tid); }
-      setTriggerMsg({ kind: 'active', id: tid });
+      // R14 seguito (B4): controllo «Trade Idea attiva» non eseguito dal backend = dichiarato, la run parte comunque
+      setTriggerMsg({ kind: 'active', id: tid, check: controlloAttivaSaltato(r) });
     } catch (e: any) {
       const detail = dettaglioLeggibile(e);
       setState(prev => prev ? { ...prev, running: false } : prev);
@@ -752,6 +754,8 @@ export default function AgentsLive() {
         testo: <>{ritentati.map((x, i) => <span key={i} className="ag-ban-line">{w.retriedBeforeSuccess(nomeDi({ id: x.agent, name: x.agent }), x.tentativi_falliti, x.round)}</span>)}</> });
       if (triggerMsg) avvisi.push({ k: 'avvio', tono: 'info', icona: <Play size={18} />,
         testo: frase(triggerMsg.kind === 'starting' ? tr('activity.starting') : tr('activity.runActiveEstimate', { a: triggerMsg.id ?? tr('activity.unavailable') })) });
+      if (triggerMsg?.check) avvisi.push({ k: 'ti-check', tono: 'warn', icona: <TriangleAlert size={18} />,
+        testo: <b data-ag-ti-check={triggerMsg.check.status}>{testoControlloAttiva(tr, triggerMsg.check)}</b> });
       if (stopNotice) avvisi.push({ k: 'stop', tono: stopNotice.running === false && !stopNotice.issues.length ? 'good' : 'bad', icona: <Square size={18} />,
         testo: <><b>{tr(stopNotice.running === false ? 'activity.stopObservedIdle' : 'activity.stopUnconfirmed')}</b>
           {stopNotice.issues.map((issue, i) => <span key={i} className="ag-ban-line">{issue.source} — {issue.detail || tr('activity.errorNotDescribed')}</span>)}</> });

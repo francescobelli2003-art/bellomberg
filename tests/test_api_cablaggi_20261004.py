@@ -366,6 +366,22 @@ def test_providers_dichiara_fonti_spente(client, news):
     assert "fonti_mute" in out   # le spente non sono un guasto: chiave separata
 
 
+def test_providers_tiingo_spenta_non_e_fonte_muta(client, news, monkeypatch):
+    """10/10 (Opus 5.5): Tiingo News spenta per decisione PM. La UI legge `fonti_mute`
+    (= providers_blocked) e `ultimo_giro.stato`: Tiingo sta in `fonti_spente`, anche se
+    l'ultimo esito registrato in questo processo era un 403."""
+    from bellomberg.market_data import tiingo_news
+    monkeypatch.setattr(tiingo_news, "FONTE_SPENTA", True)
+    monkeypatch.setattr(tiingo_news, "TIINGO_KEY", "chiave-finta-tiingo")
+    tiingo_news._segna_stato("HTTP_403", http=403)
+    try:
+        out = client.get("/news/providers").json()
+    finally:
+        tiingo_news.reset_status()
+    assert "tiingo" not in (out["fonti_mute"] or {}), out["fonti_mute"]
+    assert out["fonti_spente"]["tiingo"].startswith("SPENTA: Tiingo News")
+
+
 def test_macro_reddit_mai_chiesto_e_spenta_dichiarata(client, news):
     out = client.get("/news/macro?include_reddit=true").json()
     assert out["count"] == 1

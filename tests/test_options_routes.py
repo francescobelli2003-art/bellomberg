@@ -24,6 +24,7 @@ HEADERS = {'Authorization': 'Bearer synthetic'}
     ('GET', '/options/expiry_catalog/DEMO.X', None),
     ('GET', '/options/chain_detail/DEMO.X?expiry=2027-01-15', None),
     ('POST', '/options/strategy/simulate', {}),
+    ('GET', '/options/strategy/rate', None),
     ('POST', '/options/download/DEMO.X', {}),
     ('GET', '/options/download/job/status', None),
     ('POST', '/options/download/job/pause', None),
@@ -195,3 +196,18 @@ def test_surface_interpretation_retains_nested_variants_without_recalculation(sl
         assert 'at 60 days' in english
     assert str(result) == original
     assert render_payload(result, language='it') == original
+
+
+def test_strategy_rate_declares_source_date_and_failure(client, monkeypatch):
+    # 09/10 (Opus 5.5, audit M4): the short rate travels with its source and date; a failure is
+    # declared with value None, never a default.
+    from bellomberg.market_data import macro_rates
+    monkeypatch.setattr(macro_rates, '_fred_curve', lambda tenors, last_n: (
+        [{'tenor': '3M', 'value': 4.12, 'date': '2035-01-09', 'src': 'FRED:DGS3MO'}], [], '2035-01-09'))
+    monkeypatch.setattr(macro_rates, '_is_stale', lambda date, days: False)
+    body = client.get('/options/strategy/rate', headers=HEADERS).json()
+    assert body['value'] == pytest.approx(.0412) and body['percent'] == 4.12
+    assert body['date'] == '2035-01-09' and body['status'] == 'solid' and 'DGS3MO' in body['source']
+    monkeypatch.setattr(macro_rates, '_fred_curve', lambda tenors, last_n: ([], [{'tenor': '3M', 'reason': 'synthetic outage'}], None))
+    body = client.get('/options/strategy/rate', headers=HEADERS).json()
+    assert body['value'] is None and body['status'] == 'error' and body['error'] == 'synthetic outage'

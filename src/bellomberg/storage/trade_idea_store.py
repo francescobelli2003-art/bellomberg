@@ -191,6 +191,7 @@ class StorageNotReady(RuntimeError):
             "update_required": status in ("schema_absent", "schema_partial"),
             "action": ("run_explicit_migration" if status in ("schema_absent", "schema_partial")
                        else "check_database_path" if status == "db_missing"
+                       else "retry" if status == "db_busy"
                        else "inspect_schema" if status == "schema_incompatible" else "check_database_access"),
             "documentation": "docs/TRADE_IDEA.md#aggiornamento-storage",
         }
@@ -198,6 +199,15 @@ class StorageNotReady(RuntimeError):
 
 class StorageDBMissing(StorageNotReady, FileNotFoundError):
     pass
+
+
+def _db_occupato(exc):
+    """10/10 (B4, Opus 5.5): lock passeggero (SQLITE_BUSY/SQLITE_LOCKED, anche estesi) distinto
+    da DB illeggibile, dal CODICE d'errore SQLite (Python >= 3.11), mai dal testo: senza codice
+    (Python 3.10) resta db_unreadable dichiarato. Diagnosi solo in lettura, nessuna scrittura."""
+    code = getattr(exc, "sqlite_errorcode", None)
+    return (isinstance(exc, sqlite3.OperationalError) and isinstance(code, int)
+            and (code & 0xFF) in (5, 6))  # SQLITE_BUSY=5, SQLITE_LOCKED=6
 
 
 def _check_storage_schema(conn):
@@ -585,6 +595,8 @@ class TradeIdeaStore:
             with self._connect(read_only=True) as conn:
                 _check_storage_schema(conn)
         except (sqlite3.DatabaseError, OSError) as exc:
+            if _db_occupato(exc):
+                raise StorageNotReady("db_busy", "Trade Idea DB busy: another connection holds a lock, retry") from exc
             raise StorageNotReady("db_unreadable", "Trade Idea DB unreadable: verify access and integrity") from exc
 
     @staticmethod
@@ -800,6 +812,10 @@ class TradeIdeaStore:
             raise ValueError('Unsupported analysis mode')
         if is_research_mode(request) != is_research_mode(request.get('source_qualification')):
             raise ValueError('Analysis mode differs from the accepted source contract')
+        # 09/10 (B6, Opus 5.5): marcatore d'esecuzione della controverifica fonti; una run
+        # si accetta solo dopo una qualifica COMPLETATA, ogni altro valore e' un rifiuto.
+        if request.get("source_qualification_execution", "completed") != "completed":
+            raise ValueError("source qualification must be completed before acceptance")
         budget = _decimal(request.get("budget_limit_usd"), "budget_limit_usd", positive=True)
         canonical_request = {**request, "ticker": ticker, "budget_limit_usd": budget,
                              "authorization": authorization}
@@ -2921,6 +2937,7 @@ class TradeIdeaStore:
                 "execution_policy": json.loads(row['request_json']).get('execution_policy'),
                 "continuation": json.loads(row["request_json"]).get("continuation"),
                 "source_qualification": json.loads(row["request_json"]).get("source_qualification"),
+                "source_qualification_execution": json.loads(row["request_json"]).get("source_qualification_execution"),
                 "peers": json.loads(row["request_json"]).get("peers"),
                 "technical_status": row["technical_status"], "phase": row["phase"],
                 "reason": row["reason"], "stop_requested": bool(row["stop_requested"]),

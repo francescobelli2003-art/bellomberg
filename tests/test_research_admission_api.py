@@ -82,6 +82,13 @@ def test_normal_http_admission_start_retry_is_research_only(migrated, tmp_path, 
             'specialist': 'medium', 'red_team': 'medium', 'capo': 'medium', 'aux': 'medium'}
         assert detail['run']['authorization'] == start['authorization']
         assert detail['cost']['requests'] == 0
+        # B6 (09/10, Opus 5.5): la run salvata espone la controverifica fonti eseguita
+        public_run = client.get('/trade-ideas/runs/' + rid)
+        assert public_run.status_code == 200, public_run.text
+        assert public_run.json()['run']['source_qualification']['execution_status'] == 'completed'
+        assert 'source_qualification_execution' not in public_run.json()['run']
+        assert [row['source_qualification']['execution_status']
+                for row in client.get('/trade-ideas/runs').json()['runs']] == ['completed']
         assert len([row for row in source_calls if row[0] == 'request']) == int(partial)
         changed = deepcopy(start)
         changed['authorization']['activities'].append('model_preparation')

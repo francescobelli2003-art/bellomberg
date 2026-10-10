@@ -177,6 +177,9 @@ export const decisiondesk = {
   "unavailableTitle": "Risk check not verifiable:",
   "blockedWhy": "It cannot be marked as executed; you can close it or record a related manual trade.",
   "ideaBlocked": "The linked Trade Idea research is not complete:",
+  "ideaProvenanceUnreadable": "Trade Idea provenance unreadable:",
+  "ideaProvenanceUnreadableWhy": "links to Trade Idea runs could not be read: a row without a link does not mean «no Trade Idea».",
+  "linkTradeSuspended": "Trade Idea provenance unreadable: linking suspended until it can be read.",
   "vetoBanner": "Veto active since {date}:",
   "vetoBannerWhy": "The run must cite veto no. {id} and state new facts to propose it again.",
   "revoke": "Revoke the veto…",
@@ -253,5 +256,10 @@ export const decisiondesk = {
   "aSELL": "Sell",
   "aADD": "Add",
   "aTRIM": "Trim",
-  "aHOLD": "Hold"
+  "aHOLD": "Hold",
+  "notesUnavailable": "notes unavailable",
+  "notesUnavailableTitle": "Notes unavailable:",
+  "notesUnavailableWhy": "reading the notes log failed. The thread is not necessarily empty; try again later.",
+  "activityUnknownTitle": "Recent activity unavailable.",
+  "activityUnknownWhy": "The notes cannot be read, so it is unknown whether this research is idle."
 };

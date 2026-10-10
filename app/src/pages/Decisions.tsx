@@ -10,7 +10,7 @@ import { t as ora } from '@/i18n/t';
 import { linguaCorrente, type Lingua } from '@/i18n/lingua';
 import { leggiDetail } from '@/lib/quota';
 import ModernPage from '@/components/ModernPage';
-import { Bellomberg, type Decision } from '@/lib/api';
+import { Bellomberg, type Decision, type DecisionsResponse } from '@/lib/api';
 import { leggiNumeroConSegno } from '@/lib/cassa';
 import { caricaLoghi } from '@/lib/loghi-remoti';
 import { assessmentAllowsExecution } from '@/lib/trade-entry';
@@ -65,6 +65,8 @@ export default function Decisions() {
       .then(r => {
         if (!Array.isArray(r?.decisions)) { setLoadErr(''); return; }
         setLoadErr(null); setDecisions(r.decisions);
+        // R14 seguito (B2): un oggetto qualsiasi = provenienza Trade Idea NON letta (il null delle righe non è «nessuna»)
+        setTiStorage(r.trade_idea_storage ?? null);
       })
       .catch((e: any) => setLoadErr(detail(e)))
       .finally(() => setLoading(false));
@@ -118,6 +120,8 @@ export default function Decisions() {
   // e' stata scritta. Se il dettaglio passa da solo a un'altra voce (filtro, veto, archivia) la bozza non si
   // mostra, si azzera e un Conferma che arrivasse lo stesso viene rifiutato. Hook in coda (test SSR per posizione).
   const [bozzaDi, setBozzaDi] = useState<number | null>(null);
+  // R14 seguito (B2, Opus 5.5): diagnosi `trade_idea_storage` di GET /decisions. Hook in coda (test SSR per posizione).
+  const [tiStorage, setTiStorage] = useState<DecisionsResponse['trade_idea_storage']>(null);
   const bozzaAltrui = bozzaDi != null && bozzaDi !== (selMostrata?.id ?? null);
   useEffect(() => { if (bozzaAltrui) { azzeraBozza(); } }, [bozzaAltrui]);
   const eseguibile = !!selMostrata && assessmentAllowsExecution(selMostrata);
@@ -256,6 +260,7 @@ export default function Decisions() {
     letturaPct: bozzaAltrui ? null : letturaPct, letturaEur: bozzaAltrui ? null : letturaEur,
     suggerimentoFormato: tr(inputLanguage === 'it' ? 'decisiondesk.inputIt' : 'decisiondesk.inputEn'),
     vetoReason: bozzaAltrui ? '' : vetoReason, nota: selMostrata ? noteDraft[selMostrata.id] || '' : '', holdAperte, dialogo, holdEsclusi, eventi,
+    tradeIdeaStorage: loadErr === null ? tiStorage ?? null : null,
   };
   return <ModernPage page="decisions" render={() => <VistaDecisioni d={dati} a={azioni} />} />;
 }

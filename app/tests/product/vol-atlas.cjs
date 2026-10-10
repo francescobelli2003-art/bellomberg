@@ -69,99 +69,62 @@ test('empty actual page renders four workspaces in IT and EN without starting re
     for (const mode of ['acquisition', 'tools', 'chain', 'laboratory']) assert.ok(html.includes('data-vol-workspace="' + mode + '"'));
     assert.ok(html.includes(language === 'it' ? 'Atlante della volatilità' : 'Volatility atlas'));
     assert.ok(html.includes(language === 'it' ? 'Scadenza chain' : 'Chain expiry'));
-    assert.ok(html.includes(language === 'it' ? 'Disegna la strategia' : 'Design the strategy'));
+    // 09/10 (Opus 5.5): the option builder mounts on the first visit to Laboratory (it asks for the FRED rate)
+    assert.ok(!html.includes('data-option-builder'), 'builder not mounted before the Laboratory is opened');
     assert.ok(!html.includes('⟦'), 'no missing translation marker');
     assert.equal(numbers.numericText(12.5), language === 'it' ? '12,5' : '12.5');
   } } finally { global.fetch = previousFetch; }
   assert.equal(requests, 0);
 });
 
-test('actual 3D callback preserves geometry, holes, ATM ridge and camera across languages and themes', async () => {
-  const filename = path.resolve(__dirname, '../../src/pages/VolSurfacePage.tsx');
-  const code = fs.readFileSync(filename, 'utf8');
-  const source = ts.createSourceFile(filename, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  let callback, percentile;
-  function visit(node) {
-    if (ts.isFunctionDeclaration(node) && node.name?.text === 'pctile') percentile = node.getText(source);
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
-      && node.expression.name.text === 'then' && node.expression.expression.getText(source) === 'loadPlotly()') callback = node.arguments[0].getText(source);
-    ts.forEachChild(node, visit);
-  }
-  visit(source); assert.ok(callback && percentile);
-  const surface = fixture(); surface.slices[0].iv_grid = [.2, null, 2.5];
-  const ref = {}, calls = [];
-  const sandbox = { exports: {}, active: true, themeDark: false, plotRef: { current: ref },
-    plotUpdate: { current: Promise.resolve() }, data: surface,
-    tr: translate.t, Math, Number, isFinite };
-  vm.runInNewContext(ts.transpileModule(percentile + '\nexports.run = ' + callback, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, sandbox);
-  const fakePlotly = {
-    newPlot: (...args) => {
-      calls.push({ method: 'newPlot', args });
-      const [, , layout] = args;
-      ref._fullLayout = { scene: { uirevision: layout.scene.uirevision, camera: layout.scene.camera } };
-      return Promise.resolve();
-    },
-    react: (...args) => {
-      calls.push({ method: 'react', args });
-      const [node, , layout] = args;
-      const priorScene = node._fullLayout?.scene;
-      if (priorScene && priorScene.uirevision === layout.scene.uirevision) layout.scene.camera = priorScene.camera;
-      node._fullLayout = { scene: { uirevision: layout.scene.uirevision, camera: layout.scene.camera } };
-      return Promise.resolve();
-    },
-  };
-  const initialCamera = { eye: { x: -1.75, y: -1.45, z: .55 } };
-  const userCamera = { eye: { x: -0.72, y: -1.9, z: 1.12 } };
-  let expectedCamera = initialCamera;
-  for (const language of ['it', 'en']) {
+test('3D surface figure keeps holes, unclipped geometry, measured points apart and the camera across languages and themes', () => {
+  // 09/10 (Opus 5.5): la superficie e' ora una funzione pura (surfaceFigure) provata qui sul file vero.
+  const { surfaceFigure, SCALE_LIGHT, SCALE_DARK, SCENE_REVISION, DEFAULT_CAMERA } = load('pages/voldeck/Surface3D.tsx');
+  const surface = fixture(); surface.slices[0].iv_grid = [.2, null, 2.5]; surface.slices[1].atm_iv = null;
+  const model = numbers.surfaceModel(surface, ['2035-02-10']);
+  const quote = (type, strike, iv, oi) => ({ type, strike, iv, oi, volume: oi ? 3 : 0, bid: 1, ask: 1.2, mid: 1.1, contract: null, expiry: '2035-01-10', quality: [] });
+  const observed = { '2035-01-10': numbers.observedQuotes([quote('put', 90, .3, 10), quote('call', 110, .28, 0), quote('call', 95, .9, 10)], 100).quotes };
+  const palette = (dark) => ({ text: '#000', muted: '#555', line: '#ddd', accent: '#00f', violet: '#70f', warn: '#850', card: '#fff', scale: dark ? SCALE_DARK : SCALE_LIGHT });
+  const figures = [];
+  for (const language of ['it', 'en']) for (const dark of [false, true]) {
     languages.impostaLinguaCorrente(language);
-    await sandbox.exports.run(fakePlotly);
-    const { method, args } = calls.at(-1), [node, traces, layout, config] = args;
-    assert.equal(node, ref); assert.equal(traces[0].type, 'surface');
-    assert.equal(traces[0].connectgaps, false); assert.equal(traces[0].z[0][1], null);
-    assert.equal(traces[0].z[0][2], 250, 'outlier geometry never clipped to the colour cap');
-    assert.equal(traces[1].type, 'scatter3d'); assert.equal(traces[1].z[0], 22, 'existing ATM fallback retained');
-    assert.deepEqual(JSON.parse(JSON.stringify(traces[0].y)), [10, 40, 70]);
-    assert.deepEqual(JSON.parse(JSON.stringify(layout.scene.camera)), JSON.parse(JSON.stringify(expectedCamera)),
-      'uirevision should retain the live user camera instead of resetting on a palette update');
-    assert.equal(layout.scene.uirevision, 'bellomberg-vol-surface-camera');
-    assert.equal(method, calls.length === 1 ? 'newPlot' : 'react', 'the live Plotly node is updated in place');
-    if (language === 'it') {
-      ref._fullLayout.scene.camera = userCamera;
-      expectedCamera = userCamera;
-      const beforeRedraw = calls.length;
-      await sandbox.exports.run(fakePlotly);
-      const redrawn = calls.at(-1);
-      assert.equal(calls.length, beforeRedraw + 1);
-      assert.equal(redrawn.method, 'react');
-      assert.deepEqual(JSON.parse(JSON.stringify(redrawn.args[2].scene.camera)), JSON.parse(JSON.stringify(userCamera)),
-        'stable scene uirevision must keep the user-adjusted Plotly camera through a redraw');
-    }
-    assert.equal(layout.height, 480); assert.equal(config.responsive, true); assert.equal(config.displayModeBar, false);
-    assert.ok(traces[0].hovertemplate.includes(language === 'it' ? 'giorni' : 'days'));
-    assert.ok(traces[0].hovertemplate.includes('%{y}'));
-    assert.equal(traces[0].colorbar.tickfont.size, 12, '3D ticks meet the readable type floor');
-    assert.equal(traces[0].colorbar.title.font.size, 13);
+    const labels = { na: translate.t('voldeck.ui_n_a_15'), d: translate.t('voldeck.short_days'), surface: 's', strikeEq: 'k', ivGrid: translate.t('voldeck.n_iv_grid'),
+      hole: translate.t('voldeck.n_hole_word'), observed: 'o', illiquid: 'i', selExpiry: 'e', selCol: 'c', days: translate.t('voldeck.ui_days_to_expiry_53'), partial: 'p' };
+    figures.push({ language, dark, fig: surfaceFigure(model, { axis: 'moneyness', expiry: '2035-01-10', column: 1, observed, palette: palette(dark), labels }) });
   }
-  // Light -> Dark: same node via Plotly.react, camera kept, geometry unchanged, palette changed.
-  const lightModern = calls.at(-1);
-  sandbox.themeDark = true;
-  await sandbox.exports.run(fakePlotly);
-  const darkCall = calls.at(-1);
-  assert.equal(darkCall.method, 'react', 'Dark is applied in place');
-  assert.equal(darkCall.args[0], ref);
-  assert.equal(darkCall.args[2].scene.uirevision, 'bellomberg-vol-surface-camera');
-  assert.deepEqual(JSON.parse(JSON.stringify(darkCall.args[2].scene.camera)), JSON.parse(JSON.stringify(expectedCamera)),
-    'the user camera survives the Light/Dark switch');
-  assert.deepEqual(JSON.parse(JSON.stringify(darkCall.args[1][0].z)), JSON.parse(JSON.stringify(lightModern.args[1][0].z)));
-  assert.notDeepEqual(JSON.parse(JSON.stringify(darkCall.args[1][0].colorscale)), JSON.parse(JSON.stringify(lightModern.args[1][0].colorscale)));
-  sandbox.themeDark = false;
-  const raw = JSON.parse(JSON.stringify(calls[0].args[1]));
-  const en = JSON.parse(JSON.stringify(calls[2].args[1]));
-  raw.forEach(trace => delete trace.hovertemplate); en.forEach(trace => delete trace.hovertemplate);
-  assert.deepEqual(raw, en, 'language cannot alter any trace numeric value or interaction setting');
+  for (const { language, dark, fig } of figures) {
+    const [mesh, ...rest] = fig.traces;
+    assert.equal(mesh.type, 'surface'); assert.equal(mesh.connectgaps, false);
+    assert.equal(mesh.z[0][1], null, 'a hole stays null: never 0, never filled');
+    assert.equal(mesh.z[0][2], 250, 'outlier geometry is never clipped to the colour cap');
+    assert.deepEqual(JSON.parse(JSON.stringify(mesh.y)), [10, 40, 70]);
+    assert.equal(mesh.text[0][1], '', 'no hover text is written for a hole');
+    assert.ok(mesh.text[0][0].includes(language === 'it' ? 'IV griglia' : 'IV grid'), mesh.text[0][0]);
+    const holes = rest.find(t => t.marker?.symbol === 'x');
+    assert.equal(holes.x.length, 3, 'every null cell (one per slice) is marked on the floor');
+    // v2 10/10 (Opus 5.5): una traccia per tipo, riconosciuta dal suo meta e non dall'ordine
+    const measured = rest.filter(t => ['observed', 'illiquid', 'flagged'].includes(t.meta));
+    assert.deepEqual(measured.map(t => [t.meta, t.x.length]), [['observed', 1], ['illiquid', 1]], 'OTM liquid and illiquid quotes are separate traces; the ITM call is not drawn');
+    // ALTA-2: ogni cella VALIDA ha il suo marcatore, anche dove la mesh non chiude il quadrilatero accanto a un buco
+    const cells = rest.find(t => t.meta === 'cells');
+    assert.equal(cells.x.length, model.filledCells, 'one marker per valid grid cell');
+    assert.deepEqual(JSON.parse(JSON.stringify(cells.customdata[0])), ['2035-01-10', 0], 'customdata = [expiry, column index]');
+    // ALTA-3: titolo nativo dell'asse y vuoto (l'etichetta e' l'HTML sotto il grafico, una volta sola)
+    assert.equal(fig.layout.scene.yaxis.title.text, '');
+    assert.equal(fig.layout.separators, language === 'it' ? ',.' : '.,', 'Plotly numbers use the language separators');
+    assert.ok(mesh.text[0][0].includes(language === 'it' ? '20,00%' : '20.00%'), mesh.text[0][0]);
+    const column = rest.find(t => t.line?.color === '#70f');
+    assert.deepEqual(JSON.parse(JSON.stringify(column.z)), [null, null, null], 'the K/S line never falls back to atm_iv when the grid cell is missing');
+    assert.equal(fig.layout.scene.uirevision, SCENE_REVISION); assert.deepEqual(fig.layout.scene.camera, DEFAULT_CAMERA);
+    assert.equal(fig.config.responsive, true); assert.equal(fig.config.displayModeBar, false);
+    assert.deepEqual(mesh.colorscale, dark ? SCALE_DARK : SCALE_LIGHT);
+    assert.ok(mesh.colorbar.tickfont.size >= 11);
+  }
+  const numeric = f => JSON.stringify(f.traces.map(t => [t.x, t.y, t.z]));
+  assert.ok(figures.every(f => numeric(f.fig) === numeric(figures[0].fig)), 'language and theme cannot alter any numeric value');
+  // asse strike: x = K/S × spot, stesse z
+  const strike = surfaceFigure(model, { axis: 'strike', expiry: null, column: null, observed: {}, palette: palette(false), labels: { na: 'n/a' } });
+  assert.deepEqual(JSON.parse(JSON.stringify(strike.traces[0].x)), [90, 100, 110]);
 });
 
 
@@ -272,7 +235,8 @@ const conePanel = () => {
     ts.forEachChild(node, visit);
   };
   visit(source); assert.ok(cone && panel, 'VolCone and its panel come from the real page');
-  const scope = { exports: {}, React, useState: React.useState, useRef: React.useRef, tr: translate.t, t: translate.t };
+  const scope = { exports: {}, React, useState: React.useState, useRef: React.useRef, tr: translate.t, t: translate.t,
+    finite: numbers.finite, numText: numbers.numText, nyTime: numbers.nyTime };
   vm.runInNewContext(ts.transpileModule(cone + '\nexports.panel = (contextState, cone) => (' + panel + ');', {
     fileName: 'vol-cone-panel.tsx',
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
@@ -429,8 +393,8 @@ const quietLayoutEffect = render => {
   try { return render(); } finally { console.error = previous; }
 };
 
-test('day units on the smile, heat map, forward ladder and cone follow the language', () => {
-  const { SmileXray, HeatTopDown, FwdVolLadder } = withInternals('pages/VolSurfacePage.tsx', ['SmileXray', 'HeatTopDown', 'FwdVolLadder']);
+test('day units on the heat map, forward ladder and cone follow the language', () => {
+  const { HeatTopDown, FwdVolLadder } = withInternals('pages/VolSurfacePage.tsx', ['HeatTopDown', 'FwdVolLadder']);
   const grid = [.9, 1, 1.1];
   const slices = [{ expiry: '2035-02-10', days: 34, iv_grid: [.25, .22, .24] }, { expiry: '2035-03-10', days: 62, iv_grid: [.26, .23, .25] }];
   const term = slices.map(s => ({ expiry: s.expiry, days: s.days, atm_iv: s.iv_grid[1] }));
@@ -439,110 +403,83 @@ test('day units on the smile, heat map, forward ladder and cone follow the langu
   const cone = { realized: { windows: [band(5, .3), band(21, .28), band(63, .25, true)] }, implied: {},
     confronto: [{ expiry: '2035-02-10', days: 34, window: 21, atm_iv: .251, pct_realized_leq_iv: 62 }] };
   const words = {
-    it: { smile: 'FRONT 2035-02-10 · 34g', heat: '10/02 · 34g', ladder: '34g→62g', tick: '>21g</text>', young: '>63g*</text>',
+    it: { heat: '10/02 · 34g', ladder: '34g→62g', tick: '>21g</text>', young: '>63g*</text>',
       reading: 'pct realized 21g' },
-    en: { smile: 'FRONT 2035-02-10 · 34d', heat: '10/02 · 34d', ladder: '34d→62d', tick: '>21d</text>', young: '>63d*</text>',
+    en: { heat: '10/02 · 34d', ladder: '34d→62d', tick: '>21d</text>', young: '>63d*</text>',
       reading: 'realised percentile 21d' },
   };
   const render = conePanel();
   for (const language of ['it', 'en']) {
     languages.impostaLinguaCorrente(language);
     const w = words[language];
-    const smile = quietLayoutEffect(() => renderToStaticMarkup(React.createElement(SmileXray, { grid, slices, spot: 100 })));
-    assert.ok(smile.includes(w.smile), `${language}: front label ${w.smile}: ${smile}`);
     const heat = renderToStaticMarkup(React.createElement(HeatTopDown, { grid, slices }));
     assert.ok(heat.includes(w.heat), `${language}: heat row ${w.heat}: ${heat}`);
     const ladder = renderToStaticMarkup(React.createElement(FwdVolLadder, { term }));
     assert.ok(ladder.includes(w.ladder), `${language}: forward ladder ${w.ladder}: ${ladder}`);
     const drawn = render('loaded', cone);
     for (const key of ['tick', 'young', 'reading']) assert.ok(drawn.includes(w[key]), `${language}: cone ${key} ${w[key]}`);
-    for (const html of [smile, heat, ladder, drawn]) assert.ok(!html.includes('⟦'), 'no missing translation marker');
+    for (const html of [heat, ladder, drawn]) assert.ok(!html.includes('⟦'), 'no missing translation marker');
   }
 });
 
-test('earnings, expiry header and E legends of the tools view are written in the chosen language', () => {
-  const { VStat } = withInternals('pages/VolSurfacePage.tsx', ['VStat']);
+test('earnings, expiry header and E legend of the tools view are written in the chosen language', () => {
+  const { Tile } = withInternals('pages/VolSurfacePage.tsx', ['Tile']);
   const page = 'pages/VolSurfacePage.tsx';
-  const earnings = fragment(page, 'VStat', '<VStat', 'rawData.next_earnings ||');
-  const projector = fragment(page, 'div', 'className="vsxleg"', 'ui_band_spot_atm_iv_t_solid_1_dashed_2_horizontal_axis_in_76');
-  const termLegend = fragment(page, 'div', 'className="vsxleg"', 'ui_horizontal_axis_in_t_hover_nodes_for_expiry_and_exact__87');
+  const earnings = fragment(page, 'Tile', '<Tile', 'rawData.next_earnings ||');
+  const projector = fragment(page, 'p', 'className="vdn-legend"', 'ui_band_spot_atm_iv_t_solid_1_dashed_2_horizontal_axis_in_76');
   const header = fragment(page, 'thead', '<thead', 'ui_days_97');
   const words = {
-    it: { label: '>Risultati</div>', legend: 'E = risultati</span>', expiry: '>Scadenza</th>', foreign: ['Earnings', 'earnings', 'Expiry'] },
-    en: { label: '>Earnings</div>', legend: 'E = earnings</span>', expiry: '>Expiry</th>', foreign: ['Risultati', 'risultati', 'Scadenza'] },
+    it: { label: '<span>Risultati</span>', legend: 'E = risultati</span>', expiry: '>Scadenza</th>', foreign: ['Earnings', 'earnings', 'Expiry'] },
+    en: { label: '<span>Earnings</span>', legend: 'E = earnings</span>', expiry: '>Expiry</th>', foreign: ['Risultati', 'risultati', 'Scadenza'] },
   };
   for (const language of ['it', 'en']) {
     languages.impostaLinguaCorrente(language);
     const w = words[language];
-    const stat = earnings({ VStat, t: translate.t, rawData: { next_earnings: '2035-02-20' }, contextState: 'loaded' });
+    const stat = earnings({ Tile, t: translate.t, na: 'n/a', rawData: { next_earnings: '2035-02-20' }, contextState: 'loaded' });
     assert.ok(stat.includes(w.label) && stat.includes('2035-02-20'), `${language}: earnings label: ${stat}`);
-    const legends = [projector({ tr: translate.t }), termLegend({ tr: translate.t })];
-    // the projector legend keeps its leading space inside the span, the term legend has it outside
-    assert.ok(legends[0].includes('#B97A00"> ' + w.legend), `${language}: projector E legend: ${legends[0]}`);
-    assert.ok(legends[1].includes('#B97A00">' + w.legend), `${language}: term E legend: ${legends[1]}`);
+    const legend = projector({ tr: translate.t });
+    assert.ok(legend.includes('vdn-warn-text"> ' + w.legend), `${language}: projector E legend: ${legend}`);
     const head = header({ tr: translate.t });
     assert.ok(head.includes(w.expiry), `${language}: expiry header: ${head}`);
-    for (const html of [stat, ...legends, head]) {
+    for (const html of [stat, legend, head]) {
       for (const word of w.foreign) assert.ok(!html.includes(word), `${language}: ${word} leaked into ${html}`);
       assert.ok(!html.includes('⟦'), 'no missing translation marker');
     }
   }
 });
 
-test('laboratory labels and numeric error labels say the same field in both languages', async () => {
-  const { StrategyLab, Datum } = withInternals('components/VolWorkbench.tsx', ['StrategyLab', 'Datum']);
-  const workbench = 'components/VolWorkbench.tsx';
-  const strip = fragment(workbench, 'div', 'className="vd-result-strip"', 'ui_maximum_profit_at_expiry_238');
-  const reading = fragment(workbench, 'div', 'className="vd-chart-reading"', 'ui_price_276');
-  const filename = path.join(SRC, workbench);
-  const source = ts.createSourceFile(filename, fs.readFileSync(filename, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  const simulations = [];
-  const visit = node => {
-    if (ts.isFunctionDeclaration(node) && node.name?.text === 'simulate') simulations.push(node.getText(source));
-    ts.forEachChild(node, visit);
-  };
-  visit(source); assert.equal(simulations.length, 1);
-  const simulate = async fields => {
-    const errors = [], requests = [];
-    const scope = { exports: {}, AbortController, Error, String, request: { current: null }, setBusy: () => {},
-      setError: value => errors.push(value), setResult: () => {}, setCalculatedKey: () => {}, configKey: 'synthetic',
-      numberInput: numbers.numberInput, serializeLegs: numbers.serializeLegs, tr: translate.t, legs: [], currency: 'USD',
-      volRequest: async (...args) => { requests.push(args); return {}; },
-      spot: '100', scenarioSpot: '', rate: '0', dividend: '0', elapsed: '0', shift: '0', commission: '0', ...fields };
-    vm.runInNewContext(ts.transpileModule(simulations[0] + '\nexports.run = simulate;', {
-      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-    }).outputText, scope);
-    await scope.exports.run();
-    assert.equal(requests.length, 0, 'an unreadable field never reaches the simulator');
-    return errors.at(-1);
-  };
-  const result = { entry_kind: 'debit', entry_cost: -1.5, currency: 'USD', scenario: { pnl: 2, price: 108.5 },
-    unlimited_profit: false, max_profit: 5, unlimited_loss: false, max_loss: -1.5, same_expiry: true };
+test('option builder renders in both languages, declares an n/a leg and starts no request during render', () => {
+  // 09/10 (Opus 5.5): StrategyLab replaced by components/option-builder (figures from the backend engine).
+  const Workbench = load('components/VolWorkbench.tsx').default;
+  const OptionBuilder = load('components/option-builder/OptionBuilder.tsx').default;
+  const ob = load('lib/option-builder.ts');
+  const previousFetch = global.fetch; let requests = 0;
+  global.fetch = () => { requests++; throw new Error('SSR must not request data'); };
   const words = {
-    it: { calendar: '>Spread calendario</button>', shock: '<span>Shock IV</span>', strip: '<span>P&amp;L scenario</span>',
-      reading: '<span>P&amp;L scenario <b>', dividend: 'Dividend yield annuo: scrivi un numero', shift: 'Shock IV: scrivi un numero',
-      foreign: ['Calendar spread', 'IV shock', 'Scenario P&amp;L'] },
-    en: { calendar: '>Calendar spread</button>', shock: '<span>IV shock</span>', strip: '<span>Scenario P&amp;L</span>',
-      reading: '<span>Scenario P&amp;L <b>', dividend: 'Annual dividend yield: enter a number', shift: 'IV shock: enter a number',
-      foreign: ['Spread calendario', 'Shock IV', 'P&amp;L scenario'] },
+    it: { title: 'Costruttore di opzioni', preset: 'Iron condor', calendar: 'Spread calendario', legs: 'Gambe', nd: 'contratto assente dalla catena caricata',
+      foreign: ['Option builder', 'Calendar spread', 'contract not in the loaded chain', 'Design the strategy'] },
+    en: { title: 'Option builder', preset: 'Iron condor', calendar: 'Calendar spread', legs: 'Legs', nd: 'contract not in the loaded chain',
+      foreign: ['Costruttore di opzioni', 'Spread calendario', 'contratto assente', 'Disegna la strategia'] },
   };
-  for (const language of ['it', 'en']) {
+  try { for (const language of ['it', 'en']) {
     languages.impostaLinguaCorrente(language);
     const w = words[language];
-    const lab = renderToStaticMarkup(React.createElement(StrategyLab, { ticker: '', legs: [numbers.blankLeg()], setLegs() {}, observedSpot: null }));
-    assert.ok(lab.includes(w.calendar), `${language}: calendar template: ${lab}`);
-    assert.ok(lab.includes(w.shock), `${language}: IV shock field`);
-    const outcome = strip({ Datum, tr: translate.t, volNumber: numbers.volNumber, result });
-    assert.ok(outcome.includes(w.strip), `${language}: result strip: ${outcome}`);
-    const pointer = reading({ tr: translate.t, volNumber: numbers.volNumber, hoverRow: { price: 108.5, scenario: 2, expiry: 3 } });
-    assert.ok(pointer.includes(w.reading), `${language}: pointer reading: ${pointer}`);
-    for (const html of [lab, outcome, pointer]) {
-      for (const word of w.foreign) assert.ok(!html.includes(word), `${language}: ${word} leaked`);
-      assert.ok(!html.includes('⟦'), 'no missing translation marker');
+    const lab = renderToStaticMarkup(React.createElement(Workbench, { ticker: 'SYNTH', mode: 'laboratory', surfaceBusy: false,
+      onSurface() {}, onLaboratory() {}, onAcquisition() {} }));
+    assert.ok(lab.includes('data-option-builder') && lab.includes(w.title), `${language}: builder mounted in Laboratory`);
+    assert.ok(lab.includes(w.preset) && lab.includes(w.calendar), `${language}: strategy library`);
+    const legs = [ob.optionLeg('call', 'buy', '2035-01-19', 100)];
+    const html = renderToStaticMarkup(React.createElement(OptionBuilder, { ticker: 'SYNTH', download: null, catalog: ['2035-01-19'], downloadBusy: false,
+      fetchChain: async () => { throw new Error('no fetch in render'); }, requestExpiries() {}, legs, setLegs() {} }));
+    assert.ok(html.includes(w.legs) && html.includes(w.nd), `${language}: the leg without a chain is declared n/a: ${html.slice(0, 200)}`);
+    assert.ok(!/<td[^>]*>0,00<\/td>/.test(html), 'an n/a leg never shows a zero price');
+    for (const page of [lab, html]) {
+      for (const word of w.foreign) assert.ok(!page.includes(word), `${language}: ${word} leaked`);
+      assert.ok(!page.includes('⟦'), 'no missing translation marker');
     }
-    assert.equal(await simulate({ dividend: '' }), w.dividend);
-    assert.equal(await simulate({ shift: '' }), w.shift);
-  }
+    assert.ok(!html.includes('type="number"'), 'numeric fields are text + inputMode decimal (comma-safe)');
+  } } finally { global.fetch = previousFetch; }
+  assert.equal(requests, 0);
 });
 
 // tools/qa is not part of the public tree (release allowlist): there the QA check is skipped and

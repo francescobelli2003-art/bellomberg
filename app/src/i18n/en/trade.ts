@@ -377,6 +377,7 @@ export const trade = {
   "trade_date_future": "The trade date cannot be in the future.",
   "trade_time_format": "Enter trade time as HH:MM or HH:MM:SS.",
   "decision_incompatible": "Decision unavailable or incompatible with the trade ticker, side or status.",
+  "link_suspended_unreadable": "Trade Idea provenance unreadable: linking suspended until it can be read.",
   "preview_inconsistent": "Incomplete or inconsistent preview: refresh and try again before recording.",
   "manual_divergence_label": "Link a manual trade to a non-operative proposal",
   "manual_divergence_not_execution": "this is not execution of the proposal",

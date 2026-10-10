@@ -12,9 +12,13 @@ CHAPTER = ROOT / 'docs/guide/pages/09-vol-deck.md'
 
 def _tabs():
     page = (ROOT / 'app/src/pages/VolSurfacePage.tsx').read_text(encoding='utf-8')
-    block = re.search(r"\(\[([^\]]+)\] as const\)\.map\(mode =>", page)
+    # Inline form `([...] as const).map(mode =>` or named form
+    # `const xs = [...] as const;` + `xs.map(mode =>` (Vol Deck v2, 10/10 Opus 5.5).
+    block = (re.search(r"\(\[([^\]]+)\] as const\)\.map\(mode =>", page)
+             or next((m for m in re.finditer(r"const (\w+) = \[([^\]]+)\] as const;", page)
+                      if re.search(rf"\b{m.group(1)}\.map\(mode =>", page)), None))
     assert block, 'tab list not found in VolSurfacePage.tsx'
-    ids = re.findall(r"'([a-z]+)'", block.group(1))
+    ids = re.findall(r"'([a-z]+)'", block.group(block.lastindex))
     labels = {}
     for lang in ('en', 'it'):
         catalogue = (ROOT / f'app/src/i18n/{lang}/voldeck.ts').read_text(encoding='utf-8')

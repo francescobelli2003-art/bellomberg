@@ -377,6 +377,7 @@ export const trade = {
   "trade_date_future": "La data del trade non può essere futura.",
   "trade_time_format": "L’ora del trade va scritta HH:MM oppure HH:MM:SS.",
   "decision_incompatible": "Decisione non disponibile o incompatibile con ticker, verso o stato del trade.",
+  "link_suspended_unreadable": "Provenienza Trade Idea non leggibile: collegamento sospeso finché non si legge.",
   "preview_inconsistent": "Anteprima incompleta o incoerente: aggiorna e riprova prima di registrare.",
   "manual_divergence_label": "Correla un trade manuale a una proposta non operativa",
   "manual_divergence_not_execution": "non è un’esecuzione della proposta",

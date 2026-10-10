@@ -6,13 +6,13 @@ const { creaCaricatore, ambienteBrowser } = require('./_carica.cjs');
 ambienteBrowser();
 globalThis.window = { addEventListener() {}, removeEventListener() {} };
 Object.assign(document, { addEventListener() {}, removeEventListener() {} });
-function retained(mode = 'trade', portfolio = { positions: [], cash: 10000 }) {
+function retained(mode = 'trade', portfolio = { positions: [], cash: 10000 }, decisionsReply = { decisions: [] }, query = '') {
   let si = 0, mi = 0, ei = 0, ri = 0;
   const states = [], memos = [], effects = [], deps = [], refs = [], nodes = [], calls = [];
   const remember = (fn, d) => { const at = mi++, before = memos[at]; if (!before || !d || d.some((v, i) => !Object.is(v, before.d[i]))) memos[at] = { d, value: fn() }; return memos[at].value; };
   const jsx = name => (type, props, ...args) => { nodes.push({ type, props }); return JSX[name](type, props, ...args); };
   const api = { portfolio: async () => portfolio, trades: async () => ({ trades: [] }),
-    fx: async () => ({ rates: { EUR: 1 } }), cashMovements: async () => ({ movements: [] }), decisions: async () => ({ decisions: [] }),
+    fx: async () => ({ rates: { EUR: 1 } }), cashMovements: async () => ({ movements: [] }), decisions: async () => JSON.parse(JSON.stringify(decisionsReply)),
     openingPositions: async () => ({ openings: [] }),
     previewTrade: async body => { calls.push(['trade', body]); throw new Error('Synthetic preview captured'); },
     logCashMovement: async body => { calls.push(['cash', body]); throw new Error('Synthetic cash captured; no write'); },
@@ -23,7 +23,7 @@ function retained(mode = 'trade', portfolio = { positions: [], cash: 10000 }) {
     useState(initial) { const at = si++; if (!(at in states)) states[at] = typeof initial === 'function' ? initial() : initial; return [states[at], v => { states[at] = typeof v === 'function' ? v(states[at]) : v; }]; },
     useEffect(fn, d) { const at = ei++, before = deps[at]; if (!before || !d || d.some((v, i) => !Object.is(v, before[i]))) effects.push(fn); deps[at] = d; },
   }, 'react/jsx-runtime': { ...JSX, jsx: jsx('jsx'), jsxs: jsx('jsxs') }, '@/lib/api': { Bellomberg: api },
-  'react-router-dom': { useSearchParams: () => [new URLSearchParams(mode === 'opening' ? 'mode=opening' : '')] } } });
+  'react-router-dom': { useSearchParams: () => [new URLSearchParams(mode === 'opening' ? 'mode=opening' : query)] } } });
   const language = load('i18n/lingua.ts'), Page = load('pages/TradeEntryPage.tsx').default;
   const render = lang => { si = mi = ei = ri = 0; effects.length = nodes.length = 0; language.impostaLinguaCorrente(lang); return renderToStaticMarkup(React.createElement(Page)); };
   const settle = async () => { for (const fn of effects.splice(0)) fn(); await new Promise(resolve => setImmediate(resolve)); };
@@ -78,4 +78,36 @@ test('unverified cash is explained in the rendered form without claiming the num
   assert.doesNotMatch(en, /Cash is absent from the response|is absent from the response|Covered.*40/);
   assert.match(ui.render('it'), /Cassa non disponibile/);
   assert.match(ui.render('it'), /SYNTHETIC_CASH_SOURCE_UNAVAILABLE/);
+});
+
+// 10/10 (Opus 5.5): GET /decisions dichiara la provenienza Trade Idea NON letta (trade_idea_storage):
+// una decisione senza `trade_idea` non e' collegabile, il menu non la offre e il motivo e' scritto.
+const SOSPESA = { id: 123, ticker: 'SYNTH.X', action: 'BUY', status: 'PENDING', veto: false, trade_idea: null,
+  timestamp: '2026-10-01T10:00:00', memo_id: 1 };
+const ILLEGGIBILE = { status: 'lookup_failed', error_code: 'trade_idea_lookup_failed', update_required: false,
+  action: 'check_database_access', documentation: null };
+const MOTIVO = { it: 'Provenienza Trade Idea non leggibile: collegamento sospeso finché non si legge.',
+  en: 'Trade Idea provenance unreadable: linking suspended until it can be read.' };
+
+test('unreadable Trade Idea provenance suspends the decision link in Trade Entry, with the reason (IT/EN)', async () => {
+  for (const lang of ['it', 'en']) {
+    const ui = retained('trade', undefined, { decisions: [SOSPESA], trade_idea_storage: ILLEGGIBILE });
+    await ui.ready(lang); const out = ui.type('f7-tk', 'SYNTH.X', lang);
+    assert.ok(out.includes(MOTIVO[lang]), lang + ': the reason is declared');
+    assert.match(out, /data-te-collega-sospeso/);
+    assert.ok(!ui.nodes.some(n => n.type === 'option' && n.props.value === '123'), lang + ': not offered in the menu');
+    // letta (storage null): la stessa decisione torna collegabile, nessun motivo
+    const ok = retained('trade', undefined, { decisions: [SOSPESA], trade_idea_storage: null });
+    await ok.ready(lang); const outOk = ok.type('f7-tk', 'SYNTH.X', lang);
+    assert.ok(ok.nodes.some(n => n.type === 'option' && n.props.value === '123'), lang + ': readable provenance links');
+    assert.ok(!outOk.includes(MOTIVO[lang]));
+  }
+});
+
+test('a decision chosen from the route is not sent as a link while the provenance is unreadable', async () => {
+  const ui = retained('trade', undefined, { decisions: [SOSPESA], trade_idea_storage: ILLEGGIBILE }, 'decision=123');
+  await ui.ready('it'); ui.type('f7-tk', 'SYNTH.X', 'it'); ui.type('f7-qt', '2', 'it'); ui.type('f7-pz', '30', 'it');
+  await ui.submit(0);
+  assert.equal(ui.calls.filter(c => c[0] === 'trade').length, 0, 'no preview request with a suspended link');
+  assert.ok(ui.render('it').includes(MOTIVO.it));
 });

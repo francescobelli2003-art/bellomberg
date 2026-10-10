@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from bellomberg.core.paths import MODELS_DIR, REPORT_DIR
 from bellomberg.storage.memory_db import SQLITE_PATH
-from bellomberg.storage.trade_idea_store import TradeIdeaStore
+from bellomberg.storage.trade_idea_store import TradeIdeaStore, StorageNotReady
 from bellomberg.valuation.trade_idea_workspace import ResearchWorkspace
 
 
@@ -44,6 +44,10 @@ def _public_event(event):
 
 
 def install_trade_idea_workspace_routes(app, require_session, *, db_path=SQLITE_PATH, workspace=None):
+    # 09/10 (B1, Opus 5.5): storage non pronto = stesso contratto delle altre rotte
+    # Trade Idea (503 + error_code + storage), non un 503 generico senza diagnosi.
+    from bellomberg.api.trade_idea_routes import StorageUnavailable, _storage_unavailable_response
+    app.add_exception_handler(StorageUnavailable, _storage_unavailable_response)
     router = APIRouter(prefix="/trade-ideas/runs/{run_id}/workspace",dependencies=[Depends(require_session)])
 
     def service():
@@ -51,6 +55,8 @@ def install_trade_idea_workspace_routes(app, require_session, *, db_path=SQLITE_
         try:
             return ResearchWorkspace(TradeIdeaStore(db_path),artifact_root=Path(REPORT_DIR)/"trade-idea-workspace",
                                      model_roots=[MODELS_DIR,REPORT_DIR])
+        except StorageNotReady as exc:
+            raise StorageUnavailable(exc) from exc
         except (FileNotFoundError,RuntimeError) as exc:
             raise HTTPException(503,"Research archive unavailable: "+str(exc)) from exc
 
