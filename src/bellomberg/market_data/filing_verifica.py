@@ -511,11 +511,17 @@ def _verifica_documento(path, *, url, profilo, catalogo=None):
 # profilo e' fallita su tipo o periodo; identita', lingua e perimetro restano quelli del profilo.
 _DATA_STD = r"(?P<fine>[A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+[A-Za-z]+\s+\d{4})"
 TIPO_6K_STANDARD = r"(?:months?|quarter|half[-\s]year|half|periods?)\s+ended|half[-\s]year"
+# R-FONTI 10/10 (Opus 5.5): «three-month period ended», «three-months period ended», «three month period
+# ended», «quarter ended» (prova reale: 6-K Q1 2026 di un emittente del book). Trattini tipografici ammessi (U+2010-U+2013) e
+# nessuna cifra/parola attaccata davanti: «13-month» o «twenty-three months» non sono un trimestre.
+_TRATTINO_STD = "\\s\\-‐‑‒–"
 PERIODO_6K_STANDARD = {
-    "trimestrale": (r"(?:(?:first|second|third|fourth|1st|2nd|3rd|4th)\s+)?(?P<mesi>three|3|quarter)"
-                    r"(?:(?:\s+and\s+(?:six|nine))?[\s-]+months?(?:\s+periods?)?)?\s+ended(?:\s+on)?\s+" + _DATA_STD),
-    "semestrale": (r"(?:first\s+)?(?P<mesi>six|6|half)(?:[\s-]+(?:months?|year)(?:\s+periods?)?)?\s+ended(?:\s+on)?\s+"
-                   + _DATA_STD)}
+    "trimestrale": (rf"(?<![\w{_TRATTINO_STD[2:]}])(?:(?:first|second|third|fourth|1st|2nd|3rd|4th)\s+)?"
+                    r"(?P<mesi>three|3|quarter)"
+                    rf"(?:(?:\s+and\s+(?:six|nine))?[{_TRATTINO_STD}]+months?(?:\s+periods?)?)?\s+ended(?:\s+on)?\s+"
+                    + _DATA_STD),
+    "semestrale": (rf"(?<![\w{_TRATTINO_STD[2:]}])(?:first\s+)?(?P<mesi>six|6|half)"
+                   rf"(?:[{_TRATTINO_STD}]+(?:months?|year)(?:\s+periods?)?)?\s+ended(?:\s+on)?\s+" + _DATA_STD)}
 REGOLA_6K_STANDARD = "standard_6k_fpi (regola del codice, non del profilo)"
 _DATE_VISTE = re.compile(r"(?:ended(?:\s+on)?|as\s+of)\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+[A-Za-z]+\s+\d{4})", re.I)
 _REGISTRANTE_COPERTINA = re.compile(r"([^\n]{2,160})\n[\s\xa0]*\(Exact name of registrant", re.I)
@@ -537,7 +543,10 @@ def _corpo_6k(testo):
 
 
 _PERIODO_FRASE = re.compile(r"\b(?:quarter|months?|half[-\s]?year|six[-\s]month|period|semester)s?\s+ended\b", re.I)
-_ABBREVIAZIONI = {"ltd", "inc", "corp", "co", "no", "s.a", "n.v", "plc", "mr", "ms", "dr", "st", "s.p.a", "a.g", "n.a"}
+_ABBREVIAZIONI = {"ltd", "inc", "corp", "co", "no", "s.a", "n.v", "plc", "mr", "ms", "dr", "st", "s.p.a", "a.g", "n.a",
+                  # v2 (prova reale: comunicato 6-K di un emittente del book, «reported U.S. GAAP financial results for
+                  # the second quarter ended ...» spezzato dopo «U.S.» e «GAAP» preso per un'altra entita')
+                  "u.s", "u.k", "u.s.a", "e.g", "i.e", "vs", "approx"}
 _DATELINE = re.compile(r"^\s*[A-ZÀ-Þ][A-ZÀ-Þa-zà-ÿ .,'’-]{0,60}?,?\s+(?:[A-Z][a-z]+\.?\s+\d{1,2},?\s+\d{4}"
                        r"|\d{1,2}\s+[A-Z][a-z]+\s+\d{4})\s*(?:\([^)]{0,40}\)\s*)?[-–—/]+\s*")
 
@@ -594,7 +603,16 @@ _PAROLE_COMUNI_6K = frozenset((
     "january february march april may june july august september october november december "
     # impianto 6K 07/10: pronomi, nomi generici del registrante, parole dei titoli dei prospetti
     "we it company group groups bank management board directors shareholders stockholders operations profit loss "
-    "losses cash flows flow changes equity comprehensive position notes selected unaudited summary").split())
+    "losses cash flows flow changes equity comprehensive position notes selected unaudited summary "
+    # v2: principi contabili e etichette d'allegato (prova reale: «Enclosure: <Registrante>'s Second Quarter ...»,
+    # «non-U.S. GAAP»), mai nomi di un'altra entita'
+    "gaap ifrs non u s enclosure enclosures exhibit exhibits attachment attachments annex "
+    # v2: parole funzionali che aprono una frase («There were no material changes in the first six months ...»,
+    # prova reale sullo stesso 6-K): lista CHIUSA di determinanti, pronomi e avverbi, mai ragioni sociali
+    "there this that these those such each all any some other others both either neither no not one following "
+    "based according due given including excluding while when where if although since because however further "
+    "furthermore moreover accordingly therefore thus then also overall below above see refer please note "
+    "certain several many most more less").split())
 # Il registrante senza nome: «we», «the Company», «the Group»; i possessivi aprono un sintagma da leggere
 _PRONOME_6K = re.compile(r"(?:we|it|management|(?:the\s+)?(?:company|group|bank)(?!['’]))\b|(?P<poss>our|its|"
                          r"(?:the\s+)?(?:company|group|bank)['’]s?)(?=\s)", re.I)
@@ -612,6 +630,12 @@ _FINE_SINTAGMA_6K = frozenset((
 _PASSIVO_6K = re.compile(r"\b(?:released|reported|announced|published|issued|presented|disclosed|furnished)\s+"
                          r"(?:today\s+)?by\s+(?:the\s+)?", re.I)
 _MAIUSCOLA_6K = r"[A-ZÀ-Þ][\w&'’.-]*"
+
+
+# v2: etichetta dell'allegato in testa alla frase («Enclosure:», «Exhibit 99.1 -», «Attachment:»): non e' il
+# soggetto della frase
+_ETICHETTA_ALLEGATO_6K = re.compile(r"^(?:enclosures?|exhibits?(?:\s+no\.?)?(?:\s+\d+(?:\.\d+)*)?|attachments?"
+                                    r"|annex(?:es)?)\s*[:\-–—]\s*", re.I)
 
 
 def _comune_6k(parola):
@@ -688,6 +712,7 @@ def _altro_soggetto(frase, alias):
     from bellomberg.market_data.filing_attivazione import regex_alias
     rxs = [rx for rx in (regex_alias(a["nome"]) for a in alias) if rx]
     testo = re.sub(r"^[\s\"“‘'(]*(?:the\s+)?", "", frase, flags=re.I)
+    testo = re.sub(_ETICHETTA_ALLEGATO_6K, "", testo, count=1)  # «Enclosure: ...», «Exhibit 99.1 - ...»
     testo = re.sub(r"^[\s\"“‘'(]*(?:the\s+)?", "", _APERTURA_6K.sub("", testo, count=1), flags=re.I)
     altro = None
     fine = _alias_in_testa(testo, rxs)
@@ -711,29 +736,225 @@ def _altro_soggetto(frase, alias):
         return altro
     passivo = _PASSIVO_6K.search(frase)
     if passivo and not _PRONOME_6K.match(frase[passivo.end():]):
-        return _nome_proprio(frase[passivo.end():], rxs)
+        nome = _nome_proprio(frase[passivo.end():], rxs)
+        if nome:
+            return nome
+    return _soggetto_subordinato(frase, rxs)
+
+
+# R-FONTI 10/10 v3 (Opus 5.5, riserve ALTO R2 e MEDIO R5 della revisione v2): con l'emittente soggetto della
+# frase, i risultati possono essere di un'ALTRA entita' in una subordinata («Zztest Holdings announces that
+# Zzbank S.A. released ... results for the three months ended ...») o in una relazione nominata («..., its
+# partner, ...», «... ended June 30, 2025 of its payments partner Zzpartner S.A.»). Precisione prima del
+# richiamo: basta la subordinata con un'altra entita' e un verbo di pubblicazione, oppure una parola di
+# relazione insieme a un nome proprio che non e' l'emittente; il falso rifiuto e' dichiarato col nome.
+_RELAZIONE_6K = re.compile(
+    r"\b(?:partners?|subsidiary|affiliates?|affiliated|joint[\s-]+ventures?|investees?"
+    r"|parent(?:\s+(?:company|entity))?\s+of|carve[\s-]?outs?|on\s+behalf\s+of"
+    r"|whose\s+(?:[\w-]+\s+){0,4}?(?:statements?|results|accounts)\s+(?:are|is|were)\s+(?:presented|included|attached))\b",
+    re.I)
+_VERBO_RISULTATI_6K = re.compile(r"\b(?:released?|releases|reported|reports?|announced|announces?|published"
+                                 r"|publish(?:es)?|presented|presents?|issued|issues?|posted|posts?|delivered"
+                                 r"|delivers?|recorded|records?|filed|files?)\b", re.I)
+
+
+def _spazi_alias(testo, rxs):
+    """Intervalli di ``testo`` occupati da un alias dell'emittente (con la forma giuridica che lo segue)."""
+    out = []
+    for rx in rxs:
+        for m in re.finditer(rx, testo, re.I):
+            out.append((m.start(), m.end() + _FORME_DOPO_6K.match(testo, m.end()).end() - m.end()))
+    return out
+
+
+def _soggetto_subordinato(frase, rxs):
+    """Altra entita' a cui la frase attribuisce i risultati fuori dal soggetto principale; None altrimenti."""
+    for m in re.finditer(r"\bthat\s+(?:the\s+)?", frase, re.I):
+        resto = frase[m.end():]
+        pronome = _PRONOME_6K.match(resto)
+        if pronome:
+            nome = _nome_nel_sintagma(resto[pronome.end():], rxs) if pronome.group("poss") else None
+        else:
+            nome = _nome_proprio(resto, rxs)
+        if nome and _VERBO_RISULTATI_6K.search(resto[:240]) and not _persona_che_dichiara(frase, nome):
+            return nome
+    relazione = _RELAZIONE_6K.search(frase)
+    if relazione:
+        alias = _spazi_alias(frase, rxs)
+        for w in re.finditer(r"(?<![\w&'’.-])[A-ZÀ-Þ]", frase):
+            if any(a <= w.start() < b for a, b in alias):
+                continue
+            nome = _nome_proprio(frase[w.start():], rxs)
+            if nome and not _persona_che_dichiara(frase, nome):
+                return f"{nome}, relazione «{' '.join(relazione[0].split())}»"
     return None
 
 
-def _identita_nel_corpo(path, profilo, registrante=None):
-    """None se nel CORPO del 6-K l'emittente e' il soggetto (stessa regola delle relazioni dal sito:
-    nessuna altra entita' con forma giuridica prima del nome), altrimenti il motivo."""
-    from bellomberg.market_data.filing_attivazione import _soggetto_in_copertina
+# R-FONTI 10/10 v2 (Opus 5.5, riserva ALTO-1 del revisore): il 6-K legittimo che si apre con l'indice e la
+# relazione del revisore (prova reale: 6-K Q1 2026 di un emittente del book, nome dell'emittente nel corpo solo
+# dopo ~25.000 battute) non ha l'alias nella testa del corpo. Si riconosce dai SEGNALI STRUTTURALI del prospetto,
+# cercati nel corpo INTERO e ancorati a inizio riga (cosi' «partner of X», «subsidiary of X», «X's partner» non
+# valgono: l'alias deve stare da solo sulla riga, seguito al piu' dalla forma giuridica).
+# v3 (Opus 5.5, riserve ALTO R3/R9 e MEDIO R4/R10 della revisione v2): PRECISIONE prima del richiamo.
+#   T = riga «<alias> <forma>» + a capo + titolo del prospetto («Unaudited Interim Condensed Consolidated
+#       Financial Statements») + frase del periodo, con il BLOCCO di intestazione sopra la riga (fino a 5 righe,
+#       chiuso dal numero di pagina o da una riga di testo) e la riga del titolo/periodo senza altri nomi ne'
+#       relazioni («Zztest Pagamentos S.A.» / «A subsidiary of» / «Zztest Holdings Ltd.»: prospetto della
+#       controllata, non dell'emittente);
+#   N = nota «1. OPERATIONS» la cui «Company» e' l'emittente e la cui PRIMA FRASE non lo mette in relazione
+#       con un'altra entita' («is the parent of ..., whose statements are presented herein»: no).
+# Riconosciuto solo con T E N. Il documento primario del deposito non promuove piu' un segnale solo (v2: «T o N
+# + primario» verificava il prospetto di una controllata intestato con l'emittente come controllante).
+# Prospetti o nota 1 di un'ALTRA entita' (anche senza forma giuridica: riga di soli nomi propri sopra il titolo)
+# = documento di altra entita': non verificato, dichiarato, anche quando la testa del corpo nomina l'emittente.
+_FORME_RIGA_6K = (r"(?:[ \t\xa0,]*(?:ltd|limited|inc|incorporated|corp|corporation|plc|s\.?[ \t]?a|n\.?[ \t]?v|ag|se"
+                  r"|s\.?[ \t]?p\.?[ \t]?a|llc|co|ltda|gmbh|b\.?[ \t]?v)\b\.?)*")
+_TITOLO_PROSPETTO_6K = (r"(?:unaudited\s+)?(?:interim\s+)?(?:condensed\s+)?(?:consolidated\s+)?"
+                        r"financial\s+statements")
+_PERIODO_PROSPETTO_6K = r"(?:for|as\s+(?:of|at)(?:\s+and\s+for)?)\s+the\s+[^\n]{0,60}?\bended\b"
+_NOTA_OPERAZIONI_6K = (r"(?:^|\n)[ \t\xa0]*1\s*[.)\-–]?[ \t\xa0]*(?:operations|general\s+information"
+                       r"|corporate\s+information|reporting\s+entity|the\s+company)\b[^\n]{0,40}\n\s*")
+_SOCIETA_NOTA_6K = re.compile(r"([^(]{2,120}?)\s*\(\s*[\"“”'‘’]?(?:the\s+)?(?:company|group|parent)\b", re.I)
+# parole ammesse nel blocco di intestazione oltre all'emittente (titoli, indice, pagine): mai nomi di entita'
+_PAROLE_INTESTAZIONE_6K = frozenset("contents page pages index table tables notes note to".split())
+_CONNETTIVI_NOME_6K = frozenset("of de di do da del della dos das the and & y e et und von van".split())
+_RIGA_TESTO_6K = 100  # oltre: riga di testo, non di intestazione
+
+
+def _riga_dell_emittente(riga, rxs):
+    return any(re.fullmatch(rf"(?:{rx}){_FORME_RIGA_6K}", riga, re.I) for rx in rxs)
+
+
+def _blocco_intestazione(corpo, inizio, righe=5):
+    """Righe di intestazione SOPRA la posizione ``inizio`` (dalla piu' vicina), al massimo ``righe``: il blocco
+    si chiude a una riga con cifre (numero di pagina, riga di tabella, data), a una riga di testo lunga o a una
+    riga chiusa da punteggiatura di frase che non sia una forma giuridica («Ltd.» resta nel blocco)."""
+    from bellomberg.market_data.filing_attivazione import _FORME_ENTITA
+    out = []
+    for r in reversed(corpo[max(0, inizio - 1500):inizio].split("\n")):
+        r = " ".join(r.split())
+        if not r:
+            continue
+        if len(out) >= righe or not re.search(r"[^\W\d_]", r) or re.search(r"\d", r) or len(r) > _RIGA_TESTO_6K:
+            break
+        if re.search(r"[.:;!?]$", r) and not re.search(rf"(?<![\w]){_FORME_ENTITA}$", r):
+            break
+        out.append(r)
+    return out
+
+
+def _riga_estranea(riga, rxs):
+    """True se la riga del blocco di intestazione non e' dell'emittente ne' fatta di sole parole da documento:
+    un'altra ragione sociale, un nome proprio o una relazione («A subsidiary of», «Zztest Pagamentos S.A.»)."""
+    from bellomberg.market_data.filing_attivazione import _PAROLE_DOCUMENTO
+    if _RELAZIONE_6K.search(riga):
+        return True
+    if _riga_dell_emittente(riga, rxs):
+        return False
+    parole = re.findall(r"[^\W\d_]+", riga)
+    return not all(p.lower() in _PAROLE_COMUNI_6K or p.lower() in _PAROLE_DOCUMENTO
+                   or p.lower() in _PAROLE_INTESTAZIONE_6K for p in parole)
+
+
+def _riga_di_nome(riga, rxs):
+    """True se la riga sopra un titolo di prospetto e' la ragione sociale di un'altra entita': forma giuridica
+    in fondo, relazione, oppure soli nomi propri (parole maiuscole e connettivi) non tutti parole comuni."""
+    from bellomberg.market_data.filing_attivazione import _FORME_ENTITA
+    if _riga_dell_emittente(riga, rxs) or len(riga) > 80:
+        return False
+    if re.search(rf"(?<![\w]){_FORME_ENTITA}$", riga) or _RELAZIONE_6K.search(riga):
+        return True
+    parole = riga.replace(",", " ").split()
+    return (all(p[:1].isupper() or not p[:1].isalpha() or p.lower() in _CONNETTIVI_NOME_6K for p in parole)
+            and not all(_comune_6k(p) or p.lower() in _CONNETTIVI_NOME_6K for p in parole if p[:1].isalpha()))
+
+
+def _segnali_prospetto(corpo, rxs):
+    """{"T": bool, "N": bool, "altre": [motivi]}: segnali strutturali del prospetto nel corpo INTERO; «altre»
+    elenca prospetti e note intestati a un'altra entita' (o all'emittente in relazione con un'altra)."""
+    from bellomberg.market_data.filing_attivazione import _FORME_ENTITA
+    out = {"T": False, "N": False, "altre": []}
+
+    def altra(motivo):
+        if motivo[:120] not in out["altre"]:
+            out["altre"].append(motivo[:120])
+    for m in re.finditer(rf"(?:^|\n)[ \t\xa0]*([^\n]{{2,120}}?)[ \t\xa0]*\n\s*({_TITOLO_PROSPETTO_6K}\s*"
+                         rf"{_PERIODO_PROSPETTO_6K}[^\n]*)", corpo, re.I):
+        riga, titolo = " ".join(m[1].split()), " ".join(m[2].split())
+        if _riga_dell_emittente(riga, rxs):
+            estranee = [r for r in _blocco_intestazione(corpo, m.start(1)) if _riga_estranea(r, rxs)]
+            relazione = _RELAZIONE_6K.search(titolo)
+            if estranee:
+                altra(f"prospetto intestato a «{' / '.join(reversed(estranee))} / {riga}»")
+            elif relazione:
+                altra(f"prospetto con relazione «{' '.join(relazione[0].split())}»: «{titolo}»")
+            else:
+                out["T"] = True
+        elif _riga_di_nome(riga, rxs):
+            altra(f"prospetto intestato a «{riga}»")
+    for m in re.finditer(_NOTA_OPERAZIONI_6K, corpo, re.I):
+        resto = corpo[m.end():m.end() + 1500]
+        societa = _SOCIETA_NOTA_6K.match(resto)
+        if not societa:
+            continue
+        nome = " ".join(societa[1].split())
+        frase = " ".join(resto[:_fine_frase(resto)].split())
+        if not _riga_dell_emittente(nome, rxs):
+            if re.search(rf"(?<![\w]){_FORME_ENTITA}$", nome) or _riga_di_nome(nome, rxs):
+                altra(f"nota «1. Operations» di «{nome}»")
+        elif relazione := _RELAZIONE_6K.search(frase):
+            altra(f"nota «1. Operations» con l'emittente in relazione («{' '.join(relazione[0].split())}»)")
+        else:
+            out["N"] = True
+    return out
+
+
+def identita_6k(path, *, url=None, profilo, catalogo=None, registrante=None):
+    """(motivo, prova). motivo None se nel CORPO del 6-K l'emittente e' provato (soggetto nella testa del corpo,
+    o segnali strutturali del prospetto T e N), nessun prospetto o nota 1 e' di un'altra entita' e nessuna frase
+    sul periodo nella testa ha un altro soggetto. ``url`` e ``catalogo`` restano per compatibilita' (v3: il
+    documento primario del deposito non e' piu' una prova d'identita')."""
+    from bellomberg.market_data.filing_attivazione import _soggetto_in_copertina, regex_alias
     try:
         testo = estrai_testo(str(path), contenuto=Path(path).read_bytes()).get("testo", "")
     except OSError as exc:
-        return f"corpo del 6-K non leggibile ({type(exc).__name__})"
+        return f"corpo del 6-K non leggibile ({type(exc).__name__})", None
     alias = [{"nome": n, "fonte": "profilo"} for n in (profilo.get("nome"), registrante) if n]
     if registrante:  # identita' dal CIK: vale anche il marchio (prima parola del registrante, 4+ lettere)
         marchio = re.sub(r"[^\w]", "", str(registrante).split()[0]) if str(registrante).split() else ""
         if len(marchio) >= 4:
             alias.append({"nome": marchio, "fonte": "marchio del registrante"})
     if not alias:
-        return "corpo del 6-K: nome dell'emittente non noto"
+        # profilo senza nome (scritto a mano): il nome e' il testo che la regola «emittente» del profilo riconosce
+        # nel documento (eseguita nel processo separato del regex_sandbox, come in verifica_documento)
+        regola = (profilo.get("verifica") or {}).get("emittente")
+        try:
+            m = regex_sandbox.cerca(testo, regola) if isinstance(regola, str) and regola.strip() else None
+        except ValueError:
+            m = None
+        if m and m[0].strip():
+            alias.append({"nome": " ".join(m[0].split()), "fonte": "regola emittente del profilo"})
+    if not alias:
+        return "corpo del 6-K: nome dell'emittente non noto", None
     corpo = _corpo_6k(testo)
+    segnali = _segnali_prospetto(corpo, [rx for rx in (regex_alias(a["nome"]) for a in alias) if rx])
+    if segnali["altre"]:
+        return ("identita' nel corpo del 6-K non provata: prospetti o nota «1. Operations» di un'altra entita' ("
+                + "; ".join(segnali["altre"][:2]) + "): documento di altra entita'"), None
     perche = _soggetto_in_copertina(corpo, alias)
+    prova = "emittente soggetto nella testa del corpo del 6-K"
+    if perche and perche.startswith("soggetto non provato in copertina: nessun alias"):
+        nomi = [n for n, s in (("titolo del prospetto intestato all'emittente", segnali["T"]),
+                               ("nota «1. Operations» dell'emittente", segnali["N"])) if s]
+        if segnali["T"] and segnali["N"]:
+            perche = None
+            prova = "segnali strutturali del prospetto: " + " e ".join(nomi)
+        else:
+            perche += ("; segnali strutturali del prospetto: " + (" e ".join(nomi) or "nessuno")
+                       + " (servono il titolo del prospetto intestato all'emittente E la sua nota «1. Operations»;"
+                       " il documento primario del deposito non basta)")
     if perche:
-        return f"identita' nel corpo del 6-K non provata: {perche}"
+        return f"identita' nel corpo del 6-K non provata: {perche}", None
     # revisione R-SITI2 D8: l'emittente deve essere il SOGGETTO della frase sul periodo, non solo citato
     # («Zzpartner, the payments partner of Zztest Holdings, today released … quarter ended …»: no)
     # impianto 6K 07/10: OGNI frase sul periodo nella testa del corpo; regola prudente, basta UNA frase con
@@ -741,8 +962,13 @@ def _identita_nel_corpo(path, profilo, registrante=None):
     altro = next((a for a in (_altro_soggetto(f, alias) for f in _frasi_del_periodo(corpo)) if a), None)
     if altro:
         return ("identita' nel corpo del 6-K non provata: la frase del periodo ha un altro soggetto "
-                f"(«{' '.join(str(altro).split())[:60]}»)")
-    return None
+                f"(«{' '.join(str(altro).split())[:80]}»)"), None
+    return None, prova
+
+
+def _identita_nel_corpo(path, profilo, registrante=None, *, url=None, catalogo=None):
+    """None se nel CORPO del 6-K l'emittente e' provato (vedi ``identita_6k``), altrimenti il motivo."""
+    return identita_6k(path, url=url, profilo=profilo, catalogo=catalogo, registrante=registrante)[0]
 
 
 def _cik_del_percorso(url):
@@ -789,9 +1015,11 @@ def verifica_6k_standard(path, *, url, profilo, catalogo=None):
             ("periodo" in m or "durata" in m) and "futuro" not in m for m in esito.get("motivi", [])):
         # R-FASE M1: la regola standard e' piu' larga su tipo e periodo, quindi l'identita' va provata nel
         # CORPO (fuori dalla copertina del registrante), non dove il nome sta comunque
-        corpo = _identita_nel_corpo(path, profilo, registrante if identita else None)
+        corpo, prova_corpo = identita_6k(path, url=url, profilo=profilo, catalogo=catalogo,
+                                         registrante=registrante if identita else None)
         if corpo:
             return {"stato": "non_verificato", "motivi": list(esito.get("motivi", [])) + [corpo]}
+        identita = "; ".join(x for x in (identita, prova_corpo) if x)
     if esito.get("stato") == "ok":
         return {**esito, "regola_verifica": REGOLA_6K_STANDARD,
                 **({"identita_verifica": identita} if identita else {})}

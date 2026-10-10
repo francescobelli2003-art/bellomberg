@@ -439,6 +439,12 @@ def _riga_numeri(numeri):
     testa = text("numeri vs trimestre precedente: ", "figures vs previous quarter: ") \
         if numeri.get("confronto") == "trimestre_precedente" else text("numeri ", "figures ")
     # Revisione 04/10 (R7): voci non confrontabili (valute diverse, periodo mancante) dichiarate.
+    # R-FONTI v2 (riserva MEDIO-2): comparativi rideterminati dal deposito piu' recente, dichiarati nella riga
+    rideterminati = [r for r in numeri.get("rideterminazioni") or [] if isinstance(r, dict) and r.get("voce")]
+    if rideterminati:
+        coda += text(" · rideterminati nel deposito piu' recente (vale il deposito, companyfacts diverso): ",
+                     " · restated in the latest filing (filing value used, companyfacts differs): ") + _una(
+            ", ".join(str(r["voce"]).replace("_", " ")[:40] for r in rideterminati))  # al piu' le 6 VOCI
     scarti = [s for s in numeri.get("scarti") or [] if isinstance(s, dict)]
     if scarti:
         elenco = _una(", ".join(f"{str(s.get('voce')).replace('_', ' ')} ({s.get('motivo')})" for s in scarti))

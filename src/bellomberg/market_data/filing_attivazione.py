@@ -378,7 +378,10 @@ _PAROLE_DOCUMENTO = frozenset((
     "halbjahresfinanzbericht geschaftsbericht informe anual financiero cuentas american depositary shares "
     "of the on to for and de di del della dei degli delle des du der die das und et la le les il al ai agli alle "
     "azionisti shareholders stockholders members soci actionnaires aktionare accionistas sur su in en im zum zur "
-    "a an by per pour fur").split())
+    "a an by per pour fur "
+    # v2 (prova reale: relazione del revisore «To the Shareholders and Board of Directors of <Registrante> Ltd.»
+    # nel 6-K dell'emittente, presa per un'altra entita'): destinatari della relazione, non ragioni sociali
+    "board directors supervisory consiglio amministrazione").split())
 def _prefisso_da_documento(n, x):
     """L'entita' normalizzata `n` finisce con l'alias `x` e prima ha solo parole da documento."""
     if not x:

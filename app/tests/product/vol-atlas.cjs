@@ -94,37 +94,203 @@ test('3D surface figure keeps holes, unclipped geometry, measured points apart a
   }
   for (const { language, dark, fig } of figures) {
     const [mesh, ...rest] = fig.traces;
-    assert.equal(mesh.type, 'surface'); assert.equal(mesh.connectgaps, false);
-    assert.equal(mesh.z[0][1], null, 'a hole stays null: never 0, never filled');
-    assert.equal(mesh.z[0][2], 250, 'outlier geometry is never clipped to the colour cap');
-    assert.deepEqual(JSON.parse(JSON.stringify(mesh.y)), [10, 40, 70]);
-    assert.equal(mesh.text[0][1], '', 'no hover text is written for a hole');
-    assert.ok(mesh.text[0][0].includes(language === 'it' ? 'IV griglia' : 'IV grid'), mesh.text[0][0]);
-    const holes = rest.find(t => t.marker?.symbol === 'x');
-    assert.equal(holes.x.length, 3, 'every null cell (one per slice) is marked on the floor');
-    // v2 10/10 (Opus 5.5): una traccia per tipo, riconosciuta dal suo meta e non dall'ordine
-    const measured = rest.filter(t => ['observed', 'illiquid', 'flagged'].includes(t.meta));
-    assert.deepEqual(measured.map(t => [t.meta, t.x.length]), [['observed', 1], ['illiquid', 1]], 'OTM liquid and illiquid quotes are separate traces; the ITM call is not drawn');
-    // ALTA-2: ogni cella VALIDA ha il suo marcatore, anche dove la mesh non chiude il quadrilatero accanto a un buco
-    const cells = rest.find(t => t.meta === 'cells');
-    assert.equal(cells.x.length, model.filledCells, 'one marker per valid grid cell');
-    assert.deepEqual(JSON.parse(JSON.stringify(cells.customdata[0])), ['2035-01-10', 0], 'customdata = [expiry, column index]');
+    // v3 10/10 (Opus 5.5): mesh3d fatto dei soli vertici con un valore; un buco non ha vertice (mai 0, mai riempito)
+    assert.equal(mesh.type, 'mesh3d'); assert.equal(mesh.meta, 'surface');
+    assert.equal(mesh.z.length, model.filledCells, 'one vertex per valid cell, none for a hole');
+    assert.ok(!mesh.z.includes(0) && !mesh.z.includes(null), 'a hole is never a 0 or null vertex');
+    assert.ok(!mesh.customdata.some(cd => cd[1] === 1), 'the null column has no vertex at all');
+    assert.ok(mesh.z.includes(250), 'outlier geometry is never clipped to the colour cap');
+    assert.deepEqual(JSON.parse(JSON.stringify([...new Set(mesh.y)])), [10, 40, 70].map(Math.sqrt), 'expiry axis in sqrt(t)');
+    assert.equal(mesh.i.length, 0, 'no quad has its 4 corners here (column 1 is a hole everywhere): no face is drawn across it');
+    assert.ok(mesh.text[0].includes(language === 'it' ? 'IV griglia' : 'IV grid'), mesh.text[0]);
+    const holes = rest.find(t => t.meta === 'holes');
+    assert.equal(holes.marker.symbol, 'x'); assert.equal(holes.x.length, 3, 'every null cell (one per slice) is marked on the floor');
+    // le quote misurate vivono sullo smile: sopra la superficie non si disegna nessun marcatore di quota o di cella
+    assert.deepEqual(rest.filter(t => ['observed', 'illiquid', 'flagged', 'cells'].includes(t.meta)), [], 'no quote/cell markers in 3D');
+    assert.ok(rest.some(t => t.meta === 'wire' && t.connectgaps === false), 'thin wireframe broken at every hole');
+    assert.deepEqual(JSON.parse(JSON.stringify(mesh.customdata[0])), ['2035-01-10', 0], 'customdata = [expiry, column index]');
     // ALTA-3: titolo nativo dell'asse y vuoto (l'etichetta e' l'HTML sotto il grafico, una volta sola)
     assert.equal(fig.layout.scene.yaxis.title.text, '');
+    assert.deepEqual(fig.layout.scene.yaxis.ticktext, language === 'it' ? ['10g', '40g', '70g'] : ['10d', '40d', '70d'], 'day labels on the sqrt(t) axis');
     assert.equal(fig.layout.separators, language === 'it' ? ',.' : '.,', 'Plotly numbers use the language separators');
-    assert.ok(mesh.text[0][0].includes(language === 'it' ? '20,00%' : '20.00%'), mesh.text[0][0]);
-    const column = rest.find(t => t.line?.color === '#70f');
+    assert.ok(mesh.text[0].includes(language === 'it' ? '20,00%' : '20.00%'), mesh.text[0]);
+    const column = rest.find(t => t.meta === 'sel-col');
     assert.deepEqual(JSON.parse(JSON.stringify(column.z)), [null, null, null], 'the K/S line never falls back to atm_iv when the grid cell is missing');
+    assert.deepEqual(rest.find(t => t.meta === 'sel-point').x, [], 'no selected-point marker on a hole');
     assert.equal(fig.layout.scene.uirevision, SCENE_REVISION); assert.deepEqual(fig.layout.scene.camera, DEFAULT_CAMERA);
+    assert.equal(fig.layout.scene.dragmode, 'turntable', 'turntable: the vertical axis never flips');
+    assert.equal(fig.config.scrollZoom, false, 'the wheel scrolls the page, never zooms the plot');
     assert.equal(fig.config.responsive, true); assert.equal(fig.config.displayModeBar, false);
     assert.deepEqual(mesh.colorscale, dark ? SCALE_DARK : SCALE_LIGHT);
+    assert.equal(mesh.showscale, true); assert.equal(mesh.colorbar.ticksuffix, '%');
     assert.ok(mesh.colorbar.tickfont.size >= 11);
   }
-  const numeric = f => JSON.stringify(f.traces.map(t => [t.x, t.y, t.z]));
+  const numeric = f => JSON.stringify(f.traces.map(t => [t.x, t.y, t.z, t.i, t.j, t.k]));
   assert.ok(figures.every(f => numeric(f.fig) === numeric(figures[0].fig)), 'language and theme cannot alter any numeric value');
   // asse strike: x = K/S × spot, stesse z
   const strike = surfaceFigure(model, { axis: 'strike', expiry: null, column: null, observed: {}, palette: palette(false), labels: { na: 'n/a' } });
-  assert.deepEqual(JSON.parse(JSON.stringify(strike.traces[0].x)), [90, 100, 110]);
+  assert.deepEqual(JSON.parse(JSON.stringify([...new Set(strike.traces[0].x)])), [90, 110]);
+});
+
+test('v3 colour scale: dark blue for low IV, red for high IV, continuous, the same in both themes, readable ink on every stop', () => {
+  const { SCALE_VOL, SCALE_LIGHT, SCALE_DARK, scaleColor, inkOn } = load('pages/voldeck/Surface3D.tsx');
+  assert.equal(SCALE_LIGHT, SCALE_VOL); assert.equal(SCALE_DARK, SCALE_VOL);
+  assert.deepEqual(SCALE_VOL.map(s => s[0]), [...SCALE_VOL.map(s => s[0])].sort((a, b) => a - b), 'stops in order');
+  assert.equal(SCALE_VOL[0][0], 0); assert.equal(SCALE_VOL[SCALE_VOL.length - 1][0], 1);
+  const [r0, g0, b0] = scaleColor(0), [r1, g1, b1] = scaleColor(1);
+  assert.ok(b0 > 90 && b0 > r0 * 3 && b0 > g0 * 2, 'low end is dark blue: ' + [r0, g0, b0]);
+  assert.ok(r1 > 200 && g1 < 80 && b1 < 80, 'high end is red: ' + [r1, g1, b1]);
+  const mid = scaleColor(0.5); assert.ok(mid[1] > mid[0] && mid[1] > mid[2], 'the middle is green: ' + mid);
+  // ogni tacca della scala porta un testo con contrasto WCAG >= 4,5
+  const lum = c => { const l = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * l(c[0]) + 0.7152 * l(c[1]) + 0.0722 * l(c[2]); };
+  for (let t = 0; t <= 1.0001; t += 0.05) {
+    const bg = scaleColor(t), ink = inkOn(bg), Lb = lum(bg), Li = ink === '#ffffff' ? 1 : lum([10, 10, 11]);
+    const ratio = (Math.max(Lb, Li) + 0.05) / (Math.min(Lb, Li) + 0.05);
+    assert.ok(ratio >= 4.5, `t=${t.toFixed(2)} ${bg} ${ink} contrast ${ratio.toFixed(2)}`);
+  }
+});
+
+test('v3 Laboratory keeps every status warning visible (stale download, catalogue, gaps): only the neutral surface-coverage summary is left out', () => {
+  const { CoverageNoticeLines } = load('components/VolWorkbench.tsx');
+  languages.impostaLinguaCorrente('it');
+  const download = { download_complete: true, state: 'complete', completed_expiries: 7, expirations: Array(7).fill('2035-01-10'), cache_ttl_seconds: 900, error: null };
+  const coverage = { loaded: ['a'], requested: ['a', 'b'], excluded: [], errors: [], complete: false,
+    rows: [{ expiry: '2035-01-10', status: 'loaded' }, { expiry: '2035-02-10', status: 'partial', reason: 'chain troncata' }] };
+  const props = { catalogError: 'catalogo non raggiungibile', download, downloadStale: true, downloadLabel: 'Download completo', downloadError: '', coverage };
+  const lab = renderToStaticMarkup(React.createElement(CoverageNoticeLines, { ...props, mode: 'laboratory' }));
+  assert.ok(lab.includes('data-vol-download-warning') && lab.includes('15'), 'stale download declared in Laboratory: ' + lab);
+  assert.ok(lab.includes('catalogo non raggiungibile'), 'catalogue error declared in Laboratory');
+  assert.ok(lab.includes('2035-02-10') && lab.includes('chain troncata'), 'coverage gap declared in Laboratory');
+  assert.ok(!lab.includes('data-vol-coverage-summary'), 'only the neutral surface summary is omitted in Laboratory');
+  const tools = renderToStaticMarkup(React.createElement(CoverageNoticeLines, { ...props, mode: 'tools' }));
+  assert.ok(tools.includes('data-vol-coverage-summary') && tools.includes('data-vol-download-warning'));
+  // e nessun foglio di stile della pagina nasconde l'avviso o i suoi avvisi ambra
+  for (const css of ['pages/voldeck-nuova.css', 'pages/vol-atlas.css', 'components/vol-workbench.css']) {
+    const text = fs.readFileSync(path.join(SRC, css), 'utf8');
+    const rules = text.replace(/\/\*[\s\S]*?\*\//g, '').split('}');
+    for (const rule of rules) {
+      const [sel, body = ''] = rule.split('{');
+      if (/data-vol-coverage-notice|vd-amber|data-vol-download-warning/.test(sel || '')) {
+        assert.ok(!/display\s*:\s*none|visibility\s*:\s*hidden/.test(body), `${css}: «${sel.trim()}» hides a status warning`);
+      }
+    }
+  }
+});
+
+test('v3 the surface source line is always shown and never empty: declared source, or «not declared»', () => {
+  const { SurfaceSourceLine } = withInternals('pages/VolSurfacePage.tsx', ['SurfaceSourceLine']);
+  for (const language of ['it', 'en']) {
+    languages.impostaLinguaCorrente(language);
+    const given = renderToStaticMarkup(React.createElement(SurfaceSourceLine, { data: { _source: 'fixture sintetica' } }));
+    assert.ok(given.includes('[src: fixture sintetica]') && given.includes(language === 'it' ? 'interpolata fra strike osservati' : 'interpolated between observed strikes'), given);
+    const missing = renderToStaticMarkup(React.createElement(SurfaceSourceLine, { data: {} }));
+    assert.ok(missing.includes(language === 'it' ? 'fonte non dichiarata' : 'source not declared'), missing);
+    assert.ok(/data-vol-surface-src="?"?[^>]*>[^<]{20,}</.test(missing), 'the line is never empty');
+  }
+});
+
+test('v2 every cell with a value is readable and clickable in 3D: face vertex or marker (one expiry, hole column, widening wings)', () => {
+  const { surfaceFigure, SCALE_VOL } = load('pages/voldeck/Surface3D.tsx');
+  const pal = { text: '#000', muted: '#555', line: '#ddd', accent: '#00f', violet: '#70f', warn: '#850', card: '#fff', scale: SCALE_VOL };
+  const cases = {
+    'one expiry': { spot_est: 100, moneyness_grid: [.9, 1, 1.1], slices: [{ expiry: '2035-02-10', days: 40, iv_grid: [.25, .22, .24] }] },
+    'hole column': { spot_est: 100, moneyness_grid: [.9, 1, 1.1], slices: ['2035-01-10', '2035-02-10', '2035-03-10'].map((e, i) => ({ expiry: e, days: 10 + 30 * i, iv_grid: [.2, null, .3] })) },
+    'widening wings': { spot_est: 100, moneyness_grid: [.8, .9, 1, 1.1, 1.2], slices: [
+      { expiry: '2035-01-10', days: 10, iv_grid: [null, .22, .2, .21, null] }, { expiry: '2035-02-10', days: 40, iv_grid: [.26, .23, .21, .22, .25] }] },
+  };
+  const expectMarkers = { 'one expiry': 3, 'hole column': 6, 'widening wings': 2 };
+  for (const [name, raw] of Object.entries(cases)) {
+    const m = numbers.surfaceModel(raw);
+    const f = surfaceFigure(m, { axis: 'moneyness', expiry: null, column: null, palette: pal, labels: { na: 'n/a' } });
+    const mesh = f.traces[0], inFace = new Set([...mesh.i, ...mesh.j, ...mesh.k]);
+    const marker = f.traces.find(t => t.meta === 'orphans');
+    const marked = new Set((marker?.customdata || []).map(c => c.join('|')));
+    const readable = mesh.customdata.filter((cd, n) => inFace.has(n) || marked.has(cd.join('|')));
+    assert.equal(readable.length, m.filledCells, `${name}: ${readable.length}/${m.filledCells} cells readable`);
+    assert.equal(marked.size, expectMarkers[name], `${name}: markers on the cells that are not a face corner`);
+    assert.equal(marker.hoverinfo, 'text'); assert.equal(marker.text.length, marked.size, 'every marker has its hover text');
+  }
+});
+
+test('v2 colour extremes: mesh and markers use colorRange (p1/p99), not the data max; selection traces live on the sqrt(t) axis', () => {
+  const { surfaceFigure, SCALE_VOL, colorRange } = load('pages/voldeck/Surface3D.tsx');
+  const pal = { text: '#000', muted: '#555', line: '#ddd', accent: '#00f', violet: '#70f', warn: '#850', card: '#fff', scale: SCALE_VOL };
+  // 10 celle: p99 = penultimo valore, diverso dal massimo (outlier 0,9)
+  const m = numbers.surfaceModel({ spot_est: 100, moneyness_grid: [.9, .95, 1, 1.05, 1.1], slices: [
+    { expiry: '2035-01-10', days: 10, iv_grid: [.3, .27, .25, .26, .9] }, { expiry: '2035-02-10', days: 40, iv_grid: [null, .26, .24, .25, .28] },
+    { expiry: '2035-03-10', days: 90, iv_grid: [.29, .26, null, .25, .27] }] });
+  const cr = colorRange(m);
+  assert.ok(cr.cmax < 90 && cr.cmax > 25, 'p99 differs from the max here: ' + cr.cmax);
+  const f = surfaceFigure(m, { axis: 'moneyness', expiry: '2035-02-10', column: 3, palette: pal, labels: { na: 'n/a' } });
+  const mesh = f.traces[0];
+  assert.equal(mesh.cmin, cr.cmin); assert.equal(mesh.cmax, cr.cmax);
+  const marker = f.traces.find(t => t.meta === 'orphans');
+  assert.ok(marker, 'cells that are not face corners get markers here');
+  assert.equal(marker.marker.cmin, cr.cmin); assert.equal(marker.marker.cmax, cr.cmax);
+  const se = f.traces.find(t => t.meta === 'sel-expiry'), sc = f.traces.find(t => t.meta === 'sel-col'), sp = f.traces.find(t => t.meta === 'sel-point');
+  assert.ok(se.y.every(y => Math.abs(y - Math.sqrt(40)) < 1e-12), 'selected expiry line at sqrt(40)');
+  assert.deepEqual(JSON.parse(JSON.stringify(sc.y)), [10, 40, 90].map(Math.sqrt), 'selected K/S line on sqrt(days)');
+  assert.deepEqual(JSON.parse(JSON.stringify(sp.y)), [Math.sqrt(40)]);
+  assert.deepEqual(JSON.parse(JSON.stringify([...new Set(mesh.y)])), [10, 40, 90].map(Math.sqrt));
+});
+
+test('v2 wireframe never jumps a hole: every drawn segment joins two adjacent grid cells', () => {
+  const { surfaceFigure, SCALE_VOL } = load('pages/voldeck/Surface3D.tsx');
+  const pal = { text: '#000', muted: '#555', line: '#ddd', accent: '#00f', violet: '#70f', warn: '#850', card: '#fff', scale: SCALE_VOL };
+  const grid = [.9, .95, 1, 1.05, 1.1], days = [10, 40, 90];
+  const m = numbers.surfaceModel({ spot_est: 100, moneyness_grid: grid, slices: [
+    { expiry: '2035-01-10', days: 10, iv_grid: [.3, null, .25, .26, .28] }, { expiry: '2035-02-10', days: 40, iv_grid: [.29, .26, .24, null, .27] },
+    { expiry: '2035-03-10', days: 90, iv_grid: [null, .26, .23, .25, .27] }] });
+  const f = surfaceFigure(m, { axis: 'moneyness', expiry: null, column: null, palette: pal, labels: { na: 'n/a' } });
+  const w = f.traces.find(t => t.meta === 'wire');
+  const cellOf = (x, y) => [days.findIndex(d => Math.abs(Math.sqrt(d) - y) < 1e-9), grid.findIndex(g => Math.abs(g - x) < 1e-9)];
+  let segs = 0;
+  for (let n = 1; n < w.x.length; n++) {
+    if (w.x[n] == null || w.x[n - 1] == null) continue;
+    const [j0, i0] = cellOf(w.x[n - 1], w.y[n - 1]), [j1, i1] = cellOf(w.x[n], w.y[n]);
+    assert.ok(j0 >= 0 && i0 >= 0 && j1 >= 0 && i1 >= 0, 'wire points are grid cells');
+    assert.equal(Math.abs(j0 - j1) + Math.abs(i0 - i1), 1, `segment ${j0},${i0} -> ${j1},${i1} joins adjacent cells only`);
+    assert.ok(m.rows[j0].iv[i0] != null && m.rows[j1].iv[i1] != null, 'both ends have a value');
+    segs++;
+  }
+  // righe: 2 + 2 + 3 tratti; colonne: 1 + 1 + 2 + 0 + 2 tratti
+  assert.equal(segs, 13, 'every adjacent pair with values is joined, nothing more');
+});
+
+test('v3 holes are never filled: faces only on quads with 4 measured corners, isolated cells still drawn', () => {
+  const { surfaceFigure, SCALE_VOL } = load('pages/voldeck/Surface3D.tsx');
+  const pal = { text: '#000', muted: '#555', line: '#ddd', accent: '#00f', violet: '#70f', warn: '#850', card: '#fff', scale: SCALE_VOL };
+  const model = numbers.surfaceModel({ spot_est: 100, moneyness_grid: [.9, .95, 1, 1.05],
+    slices: [{ expiry: '2035-01-10', days: 10, iv_grid: [null, .21, .2, .22] }, { expiry: '2035-02-10', days: 40, iv_grid: [.24, .22, .21, .23] },
+      { expiry: '2035-03-10', days: 70, iv_grid: [.25, .23, .22, .24] }] });
+  const fig = surfaceFigure(model, { axis: 'moneyness', expiry: null, column: null, palette: pal, labels: { na: 'n/a' } });
+  const mesh = fig.traces[0];
+  assert.equal(mesh.i.length, 10, '6 quads, the one touching the hole is dropped: 5 quads = 10 triangles');
+  const corner = mesh.customdata.map(cd => cd.join('|'));
+  for (let f = 0; f < mesh.i.length; f++) for (const v of [mesh.i[f], mesh.j[f], mesh.k[f]]) {
+    assert.ok(Number.isInteger(v) && v >= 0 && v < mesh.z.length, 'every face points at a measured vertex');
+    assert.notEqual(corner[v], '2035-01-10|0');
+  }
+  assert.ok(!fig.traces.some(t => t.meta === 'orphans'), 'no marker when every valid cell is a face corner');
+  // il buco in OGNUNO dei 4 angoli di un solo quadrilatero: nessuna faccia (mai un triangolo coi 3 vertici rimasti)
+  for (const [j, i] of [[0, 0], [0, 1], [1, 0], [1, 1]]) {
+    const g = [[.2, .21], [.22, .23]]; g[j][i] = null;
+    const one = numbers.surfaceModel({ spot_est: 100, moneyness_grid: [.95, 1.05],
+      slices: [{ expiry: '2035-01-10', days: 10, iv_grid: g[0] }, { expiry: '2035-02-10', days: 40, iv_grid: g[1] }] });
+    const f1 = surfaceFigure(one, { axis: 'moneyness', expiry: null, column: null, palette: pal, labels: { na: 'n/a' } });
+    assert.equal(f1.traces[0].i.length, 0, `hole at corner ${j},${i}: no face`);
+    assert.equal(f1.traces[0].z.length, 3);
+  }
+  // v2: ogni cella con un valore che non e' vertice di una faccia ha il marcatore (anche se il wireframe la tocca)
+  const lonely = numbers.surfaceModel({ spot_est: 100, moneyness_grid: [.9, 1, 1.1],
+    slices: [{ expiry: '2035-01-10', days: 10, iv_grid: [.3, null, .25] }, { expiry: '2035-02-10', days: 40, iv_grid: [null, null, .26] }] });
+  const f2 = surfaceFigure(lonely, { axis: 'moneyness', expiry: '2035-01-10', column: 0, palette: pal, labels: { na: 'n/a' } });
+  const orph = f2.traces.find(t => t.meta === 'orphans');
+  assert.deepEqual(JSON.parse(JSON.stringify(orph.customdata)), [['2035-01-10', 0], ['2035-01-10', 2], ['2035-02-10', 2]]);
+  assert.equal(f2.traces[0].i.length, 0);
+  assert.deepEqual(f2.traces.find(t => t.meta === 'sel-point').z, [30], 'the selected valid cell is marked');
+  assert.deepEqual(f2.traces.slice(-3).map(t => t.meta), ['sel-expiry', 'sel-col', 'sel-point'], 'selection traces last (restyle indices)');
+  assert.deepEqual(f2.selIndex, [f2.traces.length - 3, f2.traces.length - 2, f2.traces.length - 1]);
 });
 
 
@@ -393,8 +559,10 @@ const quietLayoutEffect = render => {
   try { return render(); } finally { console.error = previous; }
 };
 
-test('day units on the heat map, forward ladder and cone follow the language', () => {
-  const { HeatTopDown, FwdVolLadder } = withInternals('pages/VolSurfacePage.tsx', ['HeatTopDown', 'FwdVolLadder']);
+test('day units on the numeric grid, forward ladder and cone follow the language', () => {
+  // v3 10/10 (Opus 5.5): la vista dall'alto e' diventata la griglia numerica IvGrid
+  const { FwdVolLadder } = withInternals('pages/VolSurfacePage.tsx', ['FwdVolLadder']);
+  const IvGrid = load('pages/voldeck/IvGrid.tsx').default;
   const grid = [.9, 1, 1.1];
   const slices = [{ expiry: '2035-02-10', days: 34, iv_grid: [.25, .22, .24] }, { expiry: '2035-03-10', days: 62, iv_grid: [.26, .23, .25] }];
   const term = slices.map(s => ({ expiry: s.expiry, days: s.days, atm_iv: s.iv_grid[1] }));
@@ -403,16 +571,17 @@ test('day units on the heat map, forward ladder and cone follow the language', (
   const cone = { realized: { windows: [band(5, .3), band(21, .28), band(63, .25, true)] }, implied: {},
     confronto: [{ expiry: '2035-02-10', days: 34, window: 21, atm_iv: .251, pct_realized_leq_iv: 62 }] };
   const words = {
-    it: { heat: '10/02 · 34g', ladder: '34g→62g', tick: '>21g</text>', young: '>63g*</text>',
+    it: { heat: '<b>10/02/35</b><span>34g</span>', ladder: '34g→62g', tick: '>21g</text>', young: '>63g*</text>',
       reading: 'pct realized 21g' },
-    en: { heat: '10/02 · 34d', ladder: '34d→62d', tick: '>21d</text>', young: '>63d*</text>',
+    en: { heat: '<b>10/02/35</b><span>34d</span>', ladder: '34d→62d', tick: '>21d</text>', young: '>63d*</text>',
       reading: 'realised percentile 21d' },
   };
   const render = conePanel();
   for (const language of ['it', 'en']) {
     languages.impostaLinguaCorrente(language);
     const w = words[language];
-    const heat = renderToStaticMarkup(React.createElement(HeatTopDown, { grid, slices }));
+    const heatModel = numbers.surfaceModel({ spot_est: 100, moneyness_grid: grid, slices });
+    const heat = renderToStaticMarkup(React.createElement(IvGrid, { model: heatModel, axis: 'moneyness', expiry: null, column: null, onPick() {}, onExpiry() {}, onColumn() {} }));
     assert.ok(heat.includes(w.heat), `${language}: heat row ${w.heat}: ${heat}`);
     const ladder = renderToStaticMarkup(React.createElement(FwdVolLadder, { term }));
     assert.ok(ladder.includes(w.ladder), `${language}: forward ladder ${w.ladder}: ${ladder}`);
@@ -456,9 +625,9 @@ test('option builder renders in both languages, declares an n/a leg and starts n
   const previousFetch = global.fetch; let requests = 0;
   global.fetch = () => { requests++; throw new Error('SSR must not request data'); };
   const words = {
-    it: { title: 'Costruttore di opzioni', preset: 'Iron condor', calendar: 'Spread calendario', legs: 'Gambe', nd: 'contratto assente dalla catena caricata',
+    it: { title: 'Costruttore di opzioni', preset: 'Iron condor', calendar: 'Spread calendario', legs: 'Ticket', /* 10/10 impianto Ticket (Opus 5.5) */ nd: 'contratto assente dalla catena caricata',
       foreign: ['Option builder', 'Calendar spread', 'contract not in the loaded chain', 'Design the strategy'] },
-    en: { title: 'Option builder', preset: 'Iron condor', calendar: 'Calendar spread', legs: 'Legs', nd: 'contract not in the loaded chain',
+    en: { title: 'Option builder', preset: 'Iron condor', calendar: 'Calendar spread', legs: 'Order ticket', nd: 'contract not in the loaded chain',
       foreign: ['Costruttore di opzioni', 'Spread calendario', 'contratto assente', 'Disegna la strategia'] },
   };
   try { for (const language of ['it', 'en']) {

@@ -532,11 +532,21 @@ def _extract_filing_facts(json_url: str) -> Tuple[Dict[str, List[List[Any]]], Op
         return {}, str(e)
     except Exception as e:
         return {}, f"download/parse fallito ({type(e).__name__})"
+    return _fatti_da_raw(raw)[0], None
+
+
+def _fatti_da_raw(raw: Dict[str, Any], lei: Optional[str] = None) -> Tuple[Dict[str, List[List[Any]]], int]:
+    """({concept: [[fy, valore, unita'], ...]}, fatti di altre entita') da un xBRL-JSON gia' in memoria.
+    Solo fatti ifrs-full numerici senza assi extra; con `lei`, solo quelli dell'entita' <schema>:<lei>."""
     out: Dict[str, List[List[Any]]] = {}
+    altre = 0
     for fact in (raw.get("facts") or {}).values():
         dims = fact.get("dimensions") or {}
         if set(dims.keys()) - _DIM_KEYS_BASE:
             continue  # breakdown dimensionale, non il totale
+        if lei and str(dims.get("entity") or "").rpartition(":")[2].upper() != lei.upper():
+            altre += 1
+            continue
         concept = str(dims.get("concept") or "")
         if not concept.startswith("ifrs-full:"):
             continue
@@ -549,7 +559,142 @@ def _extract_filing_facts(json_url: str) -> Tuple[Dict[str, List[List[Any]]], Op
             continue
         unit = str(dims.get("unit") or "").replace("iso4217:", "").replace("xbrli:", "")
         out.setdefault(concept.split(":", 1)[1], []).append([fy, val, unit])
-    return out, None
+    return out, altre
+
+
+# STORICO DAL SITO (R-FONTI 10/10, Opus 5.5): con il repository filings.xbrl.org fermo (prova reale su un
+# emittente italiano del book: fermo al FY2024 il 10/10/2026 mentre il pacchetto ESEF FY2025 e' sul sito
+# dell'emittente), lo storico prende
+# gli esercizi mancanti dal pacchetto ufficiale trovato sul sito: STESSO percorso della pipeline filing
+# (esef_sito.righe_da_cache = cache dell'ultima esplorazione, nessuna esplorazione qui; scarica_pacchetto_json
+# = download con tetto, solo l'host del pacchetto, conversione ixbrl_oim in locale). Fatti solo dell'entita'
+# con quel LEI. Origine dichiarata per esercizio; nessun pacchetto in cache = buco dichiarato.
+ORIGINE_SITO = "pacchetto ESEF ufficiale dal sito dell'emittente, convertito in locale"
+
+
+def _depositi_dal_sito(lei: str, filings: Dict[str, Any], cache: Dict[str, Any], *, oggi=None,
+                       righe_fn=None, scarica_fn=None) -> Dict[str, Any]:
+    """{"stato": non_necessario | nessun_pacchetto | ok | parziale | errore, "motivo", "filings": {id: voce}}.
+
+    Riserva MEDIO-4 v2: solo pacchetti dell'ESERCIZIO ANNUALE. La chiusura nel nome deve cadere a 12, 24 o 36
+    mesi dall'ultimo esercizio del repository (+/- GIORNI_TOLLERANZA_CHIUSURA: un 30/06 dopo un 31/12 e' una
+    semestrale, esclusa e dichiarata) e il pacchetto deve contenere almeno un fatto di DURATA annuale
+    dell'entita' che finisce a quella chiusura (nome 2025 ma fatti 2024: rifiutato e dichiarato)."""
+    from datetime import date
+    from urllib.parse import urlsplit
+    from bellomberg.market_data import esef_sito
+    oggi = oggi or date.today()
+    con_fatti = [str(f.get("period_end"))[:10] for f in filings.values() if f.get("facts")]
+    ultimo = max(con_fatti, default=None)
+    try:
+        righe = (righe_fn or esef_sito.righe_da_cache)(lei)
+    except Exception as e:
+        righe, errore_righe = [], f"cache dei pacchetti del sito illeggibile ({type(e).__name__})"
+    else:
+        errore_righe = None
+    candidate = [r for r in righe or [] if r.get("period_end") and r.get("json_url")
+                 and (not ultimo or str(r["period_end"])[:10] > ultimo)]
+    nuove, esclusi = [], []
+    for r in candidate:
+        perche = _chiusura_non_annuale(ultimo, str(r["period_end"])[:10])
+        if perche:
+            esclusi.append(f"pacchetto con chiusura {str(r['period_end'])[:10]} escluso ({perche})")
+        else:
+            nuove.append(r)
+    atteso = esef_sito.atteso_piu_recente(ultimo, oggi)
+    if not nuove:
+        if not atteso and not esclusi:
+            return {"stato": "non_necessario", "motivo": None, "filings": {}}
+        if not atteso:
+            return {"stato": "non_necessario", "motivo": "; ".join(esclusi), "filings": {}}
+        return {"stato": "nessun_pacchetto", "filings": {},
+                "motivo": (f"repository fermo all'esercizio FY{str(ultimo)[:4]}" if ultimo else "repository senza esercizi")
+                          + " e nessun pacchetto ESEF annuale piu' recente dal sito dell'emittente nella cache "
+                          "dell'esplorazione"
+                          + (f" ({errore_righe})" if errore_righe else
+                             f" ({'; '.join(esclusi)})" if esclusi else
+                             " (esplorazione del sito non eseguita o senza pacchetti)")}
+    archivio = Path(CACHE_DIR) / f"esef_sito_{lei}"
+    estratti = cache.setdefault("sito", {})
+    out, motivi = {}, list(esclusi)
+    for r in sorted(nuove, key=lambda x: x["period_end"]):
+        url = r["json_url"]
+        host = (urlsplit(url).hostname or "").lower()
+        fine = str(r["period_end"])[:10]
+        try:
+            pacchetto = (scarica_fn or esef_sito.scarica_pacchetto_json)(url, archivio, {host})
+            voce = estratti.get(url)
+            if not (isinstance(voce, dict) and voce.get("sha256") == pacchetto["sha256"] and voce.get("facts")
+                    and voce.get("chiusura_verificata") == fine):
+                raw = json.loads(Path(pacchetto["path"]).read_bytes().decode("utf-8-sig"))
+                facts, altre = _fatti_da_raw(raw, lei)
+                if not facts:
+                    raise ValueError(f"nessun fatto ifrs-full dell'entita' LEI {lei} nel pacchetto "
+                                     f"({altre} fatti di altre entita')")
+                fini = _fini_durate_annuali(raw, lei)
+                if fine not in fini:
+                    raise ValueError(f"nessun fatto di durata annuale dell'entita' che chiude il {fine} (nome del "
+                                     "pacchetto); esercizi annuali nel pacchetto: "
+                                     f"{', '.join(sorted(fini)) or 'nessuno'} - periodo del pacchetto diverso dal nome")
+                voce = {"sha256": pacchetto["sha256"], "pacchetto_sha256": pacchetto.get("pacchetto_sha256"),
+                        "facts": facts, "altre_entita": altre, "chiusura_verificata": fine,
+                        "extracted_at": datetime.now().isoformat(timespec="seconds")}
+                estratti[url] = voce
+            out[url] = {"period_end": r["period_end"], "date_added": None, "facts": voce["facts"],
+                        "origine": "sito", "url": url, "sha256": voce["sha256"],
+                        "pacchetto_sha256": voce.get("pacchetto_sha256"), "extracted_at": voce.get("extracted_at")}
+        except Exception as e:
+            motivi.append(f"FY{fine[:4]} dal sito ({host}): {type(e).__name__}: {str(e)[:240]}")
+    stato = "ok" if out and not motivi else "parziale" if out else "errore"
+    return {"stato": stato, "motivo": "; ".join(motivi) or None, "filings": out}
+
+
+GIORNI_TOLLERANZA_CHIUSURA = 20  # chiusure a 52/53 settimane e fine mese spostata: +/- 20 giorni
+
+
+def _chiusura_non_annuale(ultimo: Optional[str], fine: str) -> Optional[str]:
+    """Motivo se `fine` NON e' la chiusura attesa di un esercizio dopo `ultimo` (12/24/36 mesi), None se lo e'.
+    Senza un ultimo esercizio noto decide solo il controllo dei fatti nel pacchetto."""
+    if not ultimo:
+        return None
+    try:
+        a, b = datetime.fromisoformat(ultimo[:10]), datetime.fromisoformat(fine[:10])
+    except ValueError:
+        return f"data di chiusura non leggibile ({fine})"
+    giorni = (b - a).days
+    for anni in (1, 2, 3):
+        if abs(giorni - 365.25 * anni) <= GIORNI_TOLLERANZA_CHIUSURA:
+            return None
+    return (f"chiusura a {giorni} giorni dall'ultimo esercizio del repository ({ultimo[:10]}): non e' l'esercizio "
+            "annuale successivo, probabile relazione semestrale o infrannuale")
+
+
+def _fini_durate_annuali(raw: Dict[str, Any], lei: str) -> set:
+    """Chiusure (AAAA-MM-GG) dei fatti ifrs-full dell'entita' `lei` con durata annuale (300-400 giorni), senza
+    assi. Convenzione xBRL-JSON: la fine «2026-01-01T00:00:00» e' la fine giornata del 31/12."""
+    fini = set()
+    for fact in (raw.get("facts") or {}).values():
+        dims = fact.get("dimensions") or {}
+        if set(dims.keys()) - _DIM_KEYS_BASE or "/" not in str(dims.get("period") or ""):
+            continue
+        if str(dims.get("entity") or "").rpartition(":")[2].upper() != lei.upper():
+            continue
+        if not str(dims.get("concept") or "").startswith("ifrs-full:"):
+            continue
+        try:
+            st_s, en_s = str(dims["period"]).split("/", 1)
+            st, en = datetime.fromisoformat(st_s.replace("Z", "")), datetime.fromisoformat(en_s.replace("Z", ""))
+        except ValueError:
+            continue
+        if 300 <= (en - st).days <= 400:
+            fine = en - timedelta(days=1) if (en.hour, en.minute, en.second) == (0, 0, 0) and "T" in en_s else en
+            fini.add(fine.date().isoformat())
+    return fini
+
+
+def _etichetta_deposito(f: Dict[str, Any]) -> str:
+    anno = str(f.get("period_end") or "?")[:4]
+    return f"FY{anno} (" + ("sito dell'emittente" if f.get("origine") == "sito" else "filings.xbrl.org") + ")"
 
 
 def _refresh_entity_cache(lei: str) -> Dict[str, Any]:
@@ -594,12 +739,17 @@ def get_esef_history(ticker: str, years: int = 10, company_name: Optional[str] =
         return {"error": f"{ticker}: {lei_note}"}
     cache = _refresh_entity_cache(lei)
     filings = cache.get("filings") or {}
-    if not filings:
+    # R-FONTI 10/10: esercizi mancanti dal pacchetto ufficiale sul sito dell'emittente (percorso della pipeline)
+    sito = _depositi_dal_sito(lei, filings, cache)
+    if sito["filings"]:
+        _save_cache(lei, cache)
+    if not filings and not sito["filings"]:
         return {"error": f"{ticker}: nessun filing ESEF per LEI {lei} "
-                         f"({cache.get('index_error') or 'repository vuoto per questa entita'''})"}
+                         f"({cache.get('index_error') or 'repository vuoto per questa entita'''})"
+                         + (f"; sito dell'emittente: {sito['motivo']}" if sito.get("motivo") else "")}
     # fusione per concetto: filing in ordine cronologico, il PIU' RECENTE sovrascrive
-    # (restatement/comparativo aggiornato vince sul deposito originale)
-    ordered = sorted(filings.values(),
+    # (restatement/comparativo aggiornato vince sul deposito originale) e, dal 10/10, lo DICHIARA
+    ordered = sorted(list(filings.values()) + list(sito["filings"].values()),
                      key=lambda x: (str(x.get("period_end") or ""), str(x.get("date_added") or "")))
     # review 17/07 F1: i BUCHI del repository si DICHIARANO (filing senza xBRL-JSON
     # — caso reale FY2025 di un emittente del book — o con estrazione fallita), mai anni spariti zitti
@@ -610,6 +760,8 @@ def get_esef_history(ticker: str, years: int = 10, company_name: Optional[str] =
             gaps.append(f"FY{_fy}: filing sul repository SENZA xBRL-JSON (non estraibile)")
         elif f.get("extract_error"):
             gaps.append(f"FY{_fy}: estrazione fallita ({f['extract_error']})")
+    if sito["stato"] in ("nessun_pacchetto", "errore", "parziale") and sito.get("motivo"):
+        gaps.append(f"esercizi dopo il repository: {sito['motivo']}")
     gaps = sorted(set(gaps))
     # review 17/07 F2: indice non aggiornabile = staleness DICHIARATA nel payload
     index_note = None
@@ -620,10 +772,31 @@ def get_esef_history(ticker: str, years: int = 10, company_name: Optional[str] =
                       "possibili depositi recenti mancanti" % (cache["index_error"], _quando))
     by_concept: Dict[str, Dict[int, Any]] = {}
     unit_count: Dict[str, Dict[str, int]] = {}
+    voci_di: Dict[str, List[str]] = {}
+    for canon, tags in _canonical_ifrs().items():
+        for t in tags:
+            voci_di.setdefault(t, []).append(canon)
+    da_deposito: Dict[str, Dict[int, str]] = {}
+    rideterminazioni: List[Dict[str, Any]] = []
     for f in ordered:
+        etichetta = _etichetta_deposito(f)
         for concept, rows in (f.get("facts") or {}).items():
             for fy, val, unit in rows:
-                by_concept.setdefault(concept, {})[int(fy)] = val
+                serie = by_concept.setdefault(concept, {})
+                prec, fonte_prec = serie.get(int(fy)), da_deposito.get(concept, {}).get(int(fy))
+                if (concept in voci_di and fonte_prec and fonte_prec != etichetta
+                        and isinstance(prec, (int, float)) and isinstance(val, (int, float))
+                        and abs(prec - val) > 1e-9 * max(abs(prec), abs(val), 1.0)):
+                    # R-FONTI 10/10: comparativo diverso nel deposito piu' recente: vale il suo, DICHIARATO
+                    rideterminazioni.append({
+                        "voci": voci_di[concept], "concetto": "ifrs-full:" + concept, "anno": int(fy),
+                        "valore_precedente": prec, "deposito_precedente": fonte_prec,
+                        "valore_usato": val, "deposito_usato": etichetta,
+                        "nota": (f"comparativo rideterminato nel deposito {etichetta.split(' ')[0]}"
+                                 if str(f.get("period_end") or "")[:4] > str(fy)
+                                 else f"valore aggiornato dal deposito {etichetta}")})
+                serie[int(fy)] = val
+                da_deposito.setdefault(concept, {})[int(fy)] = etichetta
                 uc = unit_count.setdefault(concept, {})
                 uc[unit] = uc.get(unit, 0) + 1
     if not by_concept:
@@ -684,6 +857,7 @@ def get_esef_history(ticker: str, years: int = 10, company_name: Optional[str] =
             derived["fcf"][y] = cfo - abs(capex)
     derived = {k: v for k, v in derived.items() if v}
 
+    anni_sito = sorted("FY" + str(f.get("period_end"))[:4] for f in sito["filings"].values())
     out = {"ticker": ticker.upper(), "lei": lei, "lei_note": lei_note,
            "years": all_years, "n_items": len(out_items),
            "items": out_items, "derived": derived,
@@ -691,15 +865,40 @@ def get_esef_history(ticker: str, years: int = 10, company_name: Optional[str] =
            # review 17/07 F7: nota DINAMICA — dice quanti esercizi ci sono davvero
            "coverage_note": ("ESEF copre dal FY2020-21 (non 10 anni): %d esercizi per "
                              "questo nome, ultimo sul repository FY%s"
-                             % (len(all_years), all_years[-1])),
+                             % (len(all_years), all_years[-1])) if not anni_sito else (
+                             "ESEF copre dal FY2020-21 (non 10 anni): %d esercizi per questo nome, ultimo FY%s; "
+                             "%s dal sito dell'emittente (repository filings.xbrl.org fermo)"
+                             % (len(all_years), all_years[-1], ", ".join(anni_sito))),
            # review 17/07 F1 finanza: base contabile ESPLICITA — i dual-reporter
            # (es. STM) pubblicano al mercato numeri US GAAP diversi dall'IFRS ESEF
            "accounting_basis": ("IFRS (bilancio ESEF): per i dual-reporter USA "
                                 "puo' divergere dai numeri US GAAP di mercato"),
-           "_source": "ESEF filings.xbrl.org (annual financial reports, xBRL-JSON)",
+           "_source": "ESEF filings.xbrl.org (annual financial reports, xBRL-JSON)" + (
+               " + " + ORIGINE_SITO + " per " + ", ".join(anni_sito) if anni_sito else ""),
+           # R-FONTI 10/10: esito del ripiego sul sito dell'emittente (anche quando non serve o manca)
+           "sito_emittente": {"stato": sito["stato"], "motivo": sito.get("motivo"), "origine": ORIGINE_SITO,
+                              "depositi": [{k: f.get(k) for k in ("period_end", "url", "sha256", "pacchetto_sha256",
+                                                                  "extracted_at")}
+                                           for f in sorted(sito["filings"].values(), key=lambda x: x["period_end"])]},
            "_timestamp": datetime.now().isoformat(timespec="seconds")}
     if gaps:
         out["gaps"] = gaps
+    if rideterminazioni:
+        out["rideterminazioni"] = rideterminazioni  # anno sovrapposto: vale il deposito piu' recente, dichiarato
+        # v2 (riserva MEDIO-2, stessa regola dello storico SEC): l'anno prima del primo rideterminato resta sulla
+        # base del deposito originale; la variazione fra i due NON e' omogenea e si dichiara per voce
+        discontinuita = {}
+        for canon in sorted({v for x in rideterminazioni for v in x["voci"]}):
+            anni = sorted({x["anno"] for x in rideterminazioni if canon in x["voci"]
+                           and out_items.get(canon, {}).get(x["anno"]) == x["valore_usato"]})
+            if anni and anni[0] - 1 in out_items.get(canon, {}):
+                discontinuita[canon] = {
+                    "tra": [anni[0] - 1, anni[0]],
+                    "motivo": (f"FY{'/'.join(str(a) for a in anni)} rideterminato nel deposito piu' recente; "
+                               f"FY{anni[0] - 1} e precedenti restano sulla base del deposito originale: variazione "
+                               f"FY{anni[0] - 1}->FY{anni[0]} non omogenea")}
+        if discontinuita:
+            out["discontinuita"] = discontinuita
     if index_note:
         out["index_note"] = index_note
     _mixed = sorted(c for c, t in tags_used.items() if "+" in t)

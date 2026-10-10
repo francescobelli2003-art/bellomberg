@@ -531,6 +531,9 @@ async function run(q) {
     assert.ok(firstPost.input.legs[0].days > 0 && !Number.isInteger(firstPost.input.legs[0].days), 'fractional days to the 16:00 ET close');
     // While the first (slow) response is in flight: a burst of three edits 40 ms apart, inside the debounce.
     await q.fixture({ setWrite: { '/options/strategy/simulate': { body: engineResult(777.77), delayMs: 120 } } });
+    // 10/10 v2 (Opus 5.5): impianto Ticket, the market fields open from «Modifica» (compact row by default).
+    await q.click(builder + ' .ob-market-head button.ob-link');
+    await q.waitFor(sel => !!document.querySelector(sel + ' .ob-inputs input'), 'market assumptions editor open', 3000, builder);
     const spotField = await markInput(q, { root: builder + ' .ob-inputs', selector: 'input', nth: 0 });
     const beforeBurst = await q.counts();
     await q.js(async sel => {
@@ -558,7 +561,7 @@ async function run(q) {
       el.dispatchEvent(new Event('input', { bubbles: true })); }, spotField);
     await q.waitFor(sel => /engine/i.test(document.querySelector(sel + ' .ob-alert')?.textContent || '')
       && /entry_cost/.test(document.querySelector(sel + ' .ob-alert')?.textContent || ''), 'malformed engine response declared with its field', 5000, builder);
-    assert.ok(await q.js(sel => !!document.querySelector(sel + ' .ob-legs') && !document.querySelector(sel + ' .ob-chart svg'), builder),
+    assert.ok(await q.js(sel => !!document.querySelector(sel + ' .ob-ticket') && !document.querySelector(sel + ' .ob-chart svg'), builder),
       'the builder stays mounted and shows no chart for an unreadable response');
     // Back to a complete response, then the busy state must survive a presentation-mode switch.
     await q.fixture({ setWrite: { '/options/strategy/simulate': { body: engineResult(520), delayMs: 1600 } } });

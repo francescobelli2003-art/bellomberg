@@ -16,6 +16,25 @@ import { localizePayload } from '@/lib/api-presentation';
 import type { VolWorkspace } from '@/lib/vol-atlas';
 
 type Mode = VolWorkspace;
+/* Righe di stato dell'avviso «copertura e fonti» (v3 10/10/2026, Opus 5.5 — estratte per provarle).
+   Gli avvisi ambra (catalogo, download incompleto / STALE / in errore, errore del download, scadenze non
+   caricate) restano in OGNI area di lavoro: in Laboratorio alimentano il builder (niente fallback
+   silenziosi). In Laboratorio si omette solo il riepilogo neutro della copertura della superficie. */
+export function CoverageNoticeLines({ mode, catalogError, download, downloadStale, downloadLabel, downloadError, coverage }: {
+  mode: Mode; catalogError: string; download: DownloadStatus | null; downloadStale: boolean; downloadLabel: string;
+  downloadError: string; coverage?: Coverage;
+}) {
+  const coverageLabel: Record<string, string> = { loaded: tr('voldeck.ui_loaded_171'), partial: tr('voldeck.ui_partial_172'), error: tr('voldeck.ui_error_173'), excluded: tr('voldeck.ui_excluded_174') };
+  const coverageGaps = coverage?.rows.filter(row => row.status !== 'loaded') || [];
+  return <div className="vd-actions" role="status">
+    {catalogError && <span className="vd-amber">{tr('voldeck.catalog')}: {catalogError}</span>}
+    {download && (!download.download_complete || downloadStale || !!download.error) && <span className="vd-amber" data-vol-download-warning>{downloadLabel} · {download.completed_expiries}/{download.expirations.length} {tr('voldeck.ui_expiries_downloaded_149')}{downloadStale ? ` · ${tr('voldeck.ui_stale_acquisition_started_more_than_144')} ${Math.round(download.cache_ttl_seconds / 60)} ${tr('voldeck.ui_minutes_ago_145')}` : ''}{download.error ? ` · ${download.error}` : ''}</span>}
+    {downloadError && <span className="vd-amber">{tr('voldeck.ui_reported_error_60')} {downloadError}</span>}
+    {coverage && mode !== 'laboratory' && <span data-vol-coverage-summary>{tr('voldeck.ui_latest_surface_coverage_165')} {coverage.loaded.length}/{coverage.requested.length} {tr('voldeck.ui_curves_166')} {coverage.excluded.length} {tr('voldeck.ui_excluded_167')} {coverage.errors.length} {tr('voldeck.ui_errors_168')}{!coverage.complete ? tr('voldeck.ui_incomplete_mesh_169') : ''}</span>}
+    {coverageGaps.map(row => <span key={row.expiry} className="vd-amber" title={row.reason || undefined}>{row.expiry} · {coverageLabel[row.status]}{row.reason ? ` — ${row.reason}` : ''}</span>)}
+  </div>;
+}
+
 type Props = { ticker: string; mode: Mode; coverage?: Coverage; surfaceBusy: boolean;
   onSurface: (result: any, expiries: string[]) => void; onLaboratory: () => void; onAcquisition: () => void };
 
@@ -298,13 +317,8 @@ export default function VolWorkbench({ ticker, mode, coverage, surfaceBusy, onSu
     </section>
     {mode !== 'acquisition' && toolsNotice && <section className="va-context-action" aria-label={tr('voldeck.coverage_sources')} data-vol-coverage-notice>
       <div className="vd-actions">
-        <div className="vd-actions" role="status">
-          {catalogError && <span className="vd-amber">{tr('voldeck.catalog')}: {catalogError}</span>}
-          {download && (!download.download_complete || downloadStale || !!download.error) && <span className="vd-amber">{downloadLabel} · {download.completed_expiries}/{download.expirations.length} {tr('voldeck.ui_expiries_downloaded_149')}{downloadStale ? ` · ${tr('voldeck.ui_stale_acquisition_started_more_than_144')} ${Math.round(download.cache_ttl_seconds / 60)} ${tr('voldeck.ui_minutes_ago_145')}` : ''}{download.error ? ` · ${download.error}` : ''}</span>}
-          {downloadError && <span className="vd-amber">{tr('voldeck.ui_reported_error_60')} {downloadError}</span>}
-          {coverage && <span>{tr('voldeck.ui_latest_surface_coverage_165')} {coverage.loaded.length}/{coverage.requested.length} {tr('voldeck.ui_curves_166')} {coverage.excluded.length} {tr('voldeck.ui_excluded_167')} {coverage.errors.length} {tr('voldeck.ui_errors_168')}{!coverage.complete ? tr('voldeck.ui_incomplete_mesh_169') : ''}</span>}
-          {coverageGaps.map(row => <span key={row.expiry} className="vd-amber" title={row.reason || undefined}>{row.expiry} · {coverageLabel[row.status]}{row.reason ? ` — ${row.reason}` : ''}</span>)}
-        </div>
+        <CoverageNoticeLines mode={mode} catalogError={catalogError} download={download} downloadStale={downloadStale}
+          downloadLabel={downloadLabel || ''} downloadError={downloadError} coverage={coverage} />
         <button type="button" className="vd-secondary" onClick={onAcquisition}>{tr('voldeck.coverage_sources')}</button>
       </div>
     </section>}

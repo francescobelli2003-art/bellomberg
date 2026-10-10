@@ -56,7 +56,8 @@ export function SmileChart({ model, expiry, column, onColumn, onExpiryStep, quot
   const lo = grid[0], hi = grid[grid.length - 1];
   // solo quote OTM dentro la griglia: le ITM non si disegnano (convenzione OTM del builder)
   const inDomain = (quotes || []).filter(q => q.otm && q.m >= lo - 1e-9 && q.m <= hi + 1e-9);
-  const W = Math.max(width, 320), plotW = W - M.l - M.r, plotH = H - M.t - M.b;
+  // v2 (10/10): la larghezza misurata comanda (a 390 px il minimo fisso di 320 sbordava); 320 solo se non misurata
+  const W = width > 0 ? Math.max(width, 200) : 320, plotW = W - M.l - M.r, plotH = H - M.t - M.b;
   // MEDIA-8: la scala la fanno griglia e quote liquide non segnalate; le altre fuori scala si tagliano e si contano
   const scale = smileScale(points.map(p => p.iv), inDomain);
   const y0 = scale ? scale.y0 : 0.1, y1 = scale ? scale.y1 : 0.3;
@@ -151,7 +152,8 @@ export function TermChart({ model, column, expiry, onExpiry }: {
   const pts = termSeries(model, column);
   if (!pts.length) return <p className="bbn-empty vdn-empty-line">{tr('voldeck.ui_n_a_at_least_2_expiries_required_16')}</p>;
   const values = pts.flatMap(p => [p.atm, p.col]).filter(finite);
-  const W = Math.max(width, 320), plotW = W - M.l - M.r, plotH = H - M.t - M.b;
+  // v2 (10/10): la larghezza misurata comanda (a 390 px il minimo fisso di 320 sbordava); 320 solo se non misurata
+  const W = width > 0 ? Math.max(width, 200) : 320, plotW = W - M.l - M.r, plotH = H - M.t - M.b;
   const maxD = Math.max(...pts.map(p => p.days));
   const X = (d: number) => M.l + plotW * Math.sqrt(Math.max(0, d) / (maxD || 1));
   const yLo = values.length ? Math.min(...values) : 0.1, yHi = values.length ? Math.max(...values) : 0.3;

@@ -48,6 +48,10 @@ class Element extends Node {
   removeAttribute(name) { this.attributes.delete(name); }
   removeAttributeNS(_ns, name) { this.removeAttribute(name); }
   get className() { return this.getAttribute('class') || ''; }
+  // <select>: React legge e marca le <option> discendenti (10/10/2026, Opus 5.5 — option builder)
+  // type come proprieta': il ChangeEventPlugin di React riconosce cosi' i campi di testo e i cursori
+  get type() { return this.getAttribute('type') || (this.localName === 'input' ? 'text' : undefined); }
+  get options() { return this.localName === 'select' ? this.all(el => el.localName === 'option') : undefined; }
   addEventListener(type, listener, options) { this.listeners.push({ type, listener, capture: options === true || !!options?.capture }); }
   removeEventListener(type, listener) { this.listeners = this.listeners.filter(l => l.type !== type || l.listener !== listener); }
   getBoundingClientRect() {
@@ -79,6 +83,8 @@ function createDocument() {
   document.addEventListener = (type, listener) => document.listeners.push({ type, listener });
   document.removeEventListener = () => {};
   document.baseURI = 'http://synthetic.invalid/';
+  // React sceglie l'evento 'input' solo se 'oninput' in document; senza, ricade sul polyfill di IE
+  document.oninput = null;
   return document;
 }
 

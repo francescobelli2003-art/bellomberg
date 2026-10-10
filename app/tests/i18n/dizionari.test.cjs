@@ -13,6 +13,8 @@ const { en } = carica('i18n/en/index.ts');
 // Exact shared domain term; do not exempt other content under the same namespace.
 const NEUTRE_PER_CHIAVE = { 'mandate.no': 'No', 'mandate.sum_profilo': '{a} · {b} · {c}', 'trade.opening_ticker': 'Ticker', 'voldeck.chain': 'Chain',
   'voldeck.spot': 'Spot', 'voldeck.expected_move': 'Expected move 1σ',
+  // Vol Deck v3 (10/10/2026, Opus 5.5): termine di mercato e titolo della colorbar, uguali nelle due lingue
+  'voldeck.n_view_smile': 'Smile', 'voldeck.n_iv_scale_title': 'IV %',
   'newsdesk.blipCountOne': '{a} BLIP', 'progress.callsCountOne': '{a} call',
   'dashboardPage.heroNav': 'NAV',
   'performancePage.unitPct': '%', 'performancePage.unitEur': '€',

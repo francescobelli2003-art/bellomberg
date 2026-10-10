@@ -348,9 +348,11 @@ def test_pipeline_6k_fpi_entra_e_il_comunicato_senza_periodo_resta_da_confermare
     out = filing_pipeline.esegui_profilo(PROFILO_6K, archivio=tmp_path / 'a', oggi='2025-10-31')
     stati = {c['url'].rsplit('/', 2)[-2][-6:] + '/' + c['url'].rsplit('/', 1)[-1]: c for c in out['candidati']}
     q2 = stati['000009/q2-results.htm']
-    assert q2['stato'] == 'verificato' and q2['regola_verifica'].startswith('standard_6k_fpi')
+    # R-FONTI 10/10: le regole automatiche salvate prima del 06/10 si aggiornano a quelle correnti del generatore
+    # (dichiarato nei limiti): il Q2 passa col profilo aggiornato, non piu' dal ripiego standard.
+    assert q2['stato'] == 'verificato' and 'regola_verifica' not in q2
     assert q2['metadati']['periodo_fine'] == '2025-06-30' and q2['motivi'] == []
-    assert any('tipo: prova testuale assente' in m for m in q2['motivi_profilo'])
+    assert any('regole tipo e periodo del profilo automatico' in x for x in out['copertura']['limiti'])
     h1 = stati['000010/h1-update-results.htm']
     assert h1['stato'] == 'periodo_da_confermare' and h1['periodo_stato'] == 'da_confermare'
     assert h1['path'] and h1['sha256']                       # byte conservati per il ponte

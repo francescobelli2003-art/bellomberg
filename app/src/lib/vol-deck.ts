@@ -357,10 +357,13 @@ export function surfaceQuoteScale(model: SurfaceModel, observed: Record<string, 
 
 /** Clic sulla superficie 3D: customdata[0] = scadenza, customdata[1] = indice di colonna (se il punto
  *  lo porta); altrimenti la colonna piu' vicina all'x cliccata sull'asse mostrato. */
-export function pickFromPoint(point: any, model: SurfaceModel, axis: 'moneyness' | 'strike'): { expiry: string; column: number } | null {
+export function pickFromPoint(point: any, model: SurfaceModel, axis: 'moneyness' | 'strike', ySqrt = false): { expiry: string; column: number } | null {
   if (!point) return null;
   const cd = point.customdata;
-  const expiry = Array.isArray(cd) && typeof cd[0] === 'string' ? cd[0] : model.rows.find(r => r.days === Number(point.y))?.expiry;
+  // v3 (10/10, Opus 5.5): il 3D disegna le scadenze in √t; senza customdata la y si confronta con √giorni,
+  // con tolleranza RELATIVA (v2: la y torna da WebGL in float, 1e-9 assoluto la scartava)
+  const yOf = (days: number) => ySqrt ? Math.sqrt(days) : days;
+  const expiry = Array.isArray(cd) && typeof cd[0] === 'string' ? cd[0] : model.rows.find(r => Math.abs(yOf(r.days) - Number(point.y)) <= 1e-6 * Math.max(1, Math.abs(Number(point.y))))?.expiry;
   if (!expiry || !model.rows.some(r => r.expiry === expiry)) return null;
   let column = Array.isArray(cd) && Number.isInteger(cd[1]) ? cd[1] as number : -1;
   if (column < 0 || column >= model.grid.length) {

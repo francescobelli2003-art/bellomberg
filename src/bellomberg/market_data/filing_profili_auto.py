@@ -57,14 +57,57 @@ def forme_presenti(catalogo):
 
 
 def sonda_tipo_6k(testo):
-    """trimestrale / semestrale dal testo di una relazione 6-K, None se non e' un bilancio."""
+    """trimestrale / semestrale dal testo di una relazione 6-K, None se non e' un bilancio.
+
+    R-FONTI 10/10 (Opus 5.5): anche «three-month period ended», «three-months period ended», «three month
+    period ended» e i trattini tipografici; «six-month period ended» e' semestrale (prima: None); «twelve-month
+    period» e l'esercizio restano None (non sono una relazione infrannuale)."""
     t = (testo or "").lower()
-    if re.search(r"\bthree(?:\s+and\s+(?:six|nine))?[\s-]+months?(?:\s+periods?)?\s+ended\b"
-                 r"|\bquarter\s+ended\b", t):
+    if re.search(rf"(?<![\w{_TRATTINI}])three(?:\s+and\s+(?:six|nine))?[\s{_TRATTINI}]+months?(?:\s+periods?)?"
+                 r"\s+ended\b|\bquarter\s+ended\b", t):
         return "trimestrale"
-    if re.search(r"\bsix\s+months\s+ended\b|\bhalf[-\s]year\b", t):
+    if re.search(rf"(?<![\w{_TRATTINI}])six[\s{_TRATTINI}]+months?(?:\s+periods?)?\s+ended\b|\bhalf[-\s]year\b", t):
         return "semestrale"
     return None
+
+
+_TRATTINI = "\\-\u2010\u2011\u2012\u2013"
+# R-FONTI 10/10 (Opus 5.5): regole 6-K che il generatore automatico scriveva nei profili fino al 06/10
+# (commit ebc6dfe, «months ended» senza «period»). I profili salvati allora le tengono: il 6-K Q1 2026 di un emittente del book
+# («three-month period ended March 31, 2026») restava «tipo: prova testuale assente». Si sostituiscono SOLO
+# queste stringhe esatte (scritte dal codice, non da una persona) con le regole correnti del generatore;
+# lingua e perimetro del profilo restano i suoi. La sostituzione si dichiara nei limiti del run. Regole piu'
+# larghe su tipo/periodo: la pipeline prova l'identita' anche nel CORPO di ogni 6-K verificato (identita_6k,
+# riserva ALTO-1 v2): la regola «emittente» del profilo passa sempre sulla copertina del registrante.
+_DATA_LEGACY = r"(?P<fine>[A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+[A-Za-z]+\s+\d{4})"
+REGOLE_6K_LEGACY = {
+    "tipo": r"months\s+ended|half[-\s]year",
+    "trimestrale": rf"(?P<mesi>three|3)(?:\s+and\s+(?:six|nine))?\s+months\s+ended\s+{_DATA_LEGACY}",
+    "semestrale": rf"(?P<mesi>six|6)\s+months\s+ended\s+{_DATA_LEGACY}"}
+
+
+def aggiorna_regole_6k(profilo):
+    """(profilo, nota): le regole 6-K automatiche di prima del 06/10 diventano quelle correnti.
+
+    Profilo (gia' fuso con la sua variante) 6-K trimestrale/semestrale: `verifica.tipo` uguale alla
+    vecchia regola automatica -> TIPO_6K_STANDARD; `verifica.periodo` uguale alla vecchia regola del suo
+    tipo -> PERIODO_6K_STANDARD del tipo. Regole scritte a mano o gia' correnti: invariate, nota None."""
+    if (not isinstance(profilo, dict) or profilo.get("forme_sec") != ["6-K"]
+            or profilo.get("tipo") not in _PERIODO_6K or not isinstance(profilo.get("verifica"), dict)):
+        return profilo, None
+    verifica, cambiate = dict(profilo["verifica"]), []
+    if verifica.get("tipo") == REGOLE_6K_LEGACY["tipo"]:
+        verifica["tipo"] = TIPO_6K_STANDARD
+        cambiate.append("tipo")
+    if verifica.get("periodo") == REGOLE_6K_LEGACY[profilo["tipo"]]:
+        verifica["periodo"] = _PERIODO_6K[profilo["tipo"]]
+        cambiate.append("periodo")
+    if not cambiate:
+        return profilo, None
+    return {**profilo, "verifica": verifica}, (
+        "SEC 6-K: regole " + " e ".join(cambiate) + " del profilo automatico (generatore anteriore al 06/10, "
+        "«months ended» senza «period») aggiornate alle regole correnti del codice; identita' provata anche "
+        "nel corpo di ogni 6-K (la copertina del registrante non basta).")
 
 
 # Tra le parole del nome: spazi, trattini, punti, «&» o «and/und/et/e/y» («Nova & Kore-Tech»).

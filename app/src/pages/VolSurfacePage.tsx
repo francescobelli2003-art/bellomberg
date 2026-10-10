@@ -10,13 +10,14 @@ import { linguaCorrente, localeDi } from '@/i18n/lingua';
 import { surfaceExpiries, toggleExpiry, visibleSurface, type VolWorkspace } from '@/lib/vol-atlas';
 import VolWorkbench from '@/components/VolWorkbench';
 import {
-  atmIndex, DEFAULT_MAX_REL_SPREAD, surfaceQuoteScale, discardTotals, finite, ivText, MAX_REFETCH_EXPIRIES, nearestIndex, nearestQuotes, numText, nyTime,
+  atmIndex, DEFAULT_MAX_REL_SPREAD, discardTotals, finite, ivText, MAX_REFETCH_EXPIRIES, nearestIndex, nearestQuotes, numText, nyTime,
   observedQuotes, partialExpiries, priceText, surfaceFreshness, surfaceModel, volRequest, type ObservedQuote,
 } from '@/lib/vol-deck';
 import { localizePayload } from '@/lib/api-presentation';
-import Surface3D, { SCALE_DARK, SCALE_LIGHT } from './voldeck/Surface3D';
+import Surface3D, { CAMERA_PRESETS, SCALE_VOL, type CameraPreset } from './voldeck/Surface3D';
 import { SmileChart, TermChart, type AxisMode } from './voldeck/SliceCharts';
 import PointReadout from './voldeck/PointReadout';
+import IvGrid from './voldeck/IvGrid';
 import { useObservedChains } from './voldeck/useObservedChains';
 import '@/components/nuova/nuova.css';
 import './vol-atlas.css';
@@ -48,11 +49,6 @@ const px = (v: number) =>
   v >= 1000 ? v.toLocaleString(localeDi(linguaCorrente()), { maximumFractionDigits: 0 })
   : v >= 100 ? v.toFixed(1) : v.toFixed(2);
 
-// mix lineare fra due colori RGB (per la scala vicino→lontano dello X-RAY)
-function mixc(a: [number, number, number], b: [number, number, number], t: number) {
-  const c = a.map((v, i) => Math.round(v + (b[i] - v) * t));
-  return `rgb(${c[0]},${c[1]},${c[2]})`;
-}
 /* ============================================================
    PROIETTORE DI STRIKE — strumento-firma F12: il cono expected-move
    per scadenza (spot ± ATM IV × √T), 1σ banda piena + 2σ tratteggiata,
@@ -225,79 +221,7 @@ function IvAltimeter({ ctx }: { ctx: any }) {
     </div>
   );
 }
-/* palette del mesh riusata per la vista top-down (coerenza fra le due rese) */
-const rgb = (hex: string): [number, number, number] => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)) as [number, number, number];
-const HEAT_STOPS: [number, [number, number, number]][] = SCALE_LIGHT.map(([at, hex]) => [at, rgb(hex)]);
-/* Dark Nuova: same five anchors as the dark Plotly colourscale below (deep blue
-   -> sky -> amber -> orange), so the 3D mesh and the top-down view agree. */
-const HEAT_STOPS_DARK: [number, [number, number, number]][] = SCALE_DARK.map(([at, hex]) => [at, rgb(hex)]);
-function heatColor(t: number, stops = HEAT_STOPS) {
-  const x = Math.max(0, Math.min(1, t));
-  for (let i = 1; i < stops.length; i++) {
-    if (x <= stops[i][0]) {
-      const [a, ca] = stops[i - 1], [b, cb] = stops[i];
-      return mixc(ca, cb, (x - a) / ((b - a) || 1));
-    }
-  }
-  return mixc(stops[stops.length - 2][1], stops[stops.length - 1][1], 1);
-}
 const kfmt = (n: number) => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
-/* SURFACE TOP-DOWN // HEAT — la verità cella per cella (buchi = celle scure).
-   v4-ter (feedback PM live "le scritte laterali non si leggono"): resa HTML
-   con etichette a PX FISSI — la leggibilità non scala più col contenitore. */
-function HeatTopDown({ grid, slices }: { grid: number[]; slices: any[] }) {
-  const dark = useInterfaceTheme().effective === 'dark';
-  const stops = dark ? HEAT_STOPS_DARK : HEAT_STOPS;
-  const use = (slices || []).filter((s: any) => s.days >= 2);
-  if (!grid?.length || !use.length) return <div className="num" style={{ padding: '12px', fontSize: 12, fontWeight: 600, color: 'var(--bbn-muted)' }}>{tr('voldeck.ui_n_a_15')}</div>;
-  const vals = use.flatMap((s: any) => s.iv_grid.filter((v: any) => v != null && isFinite(v)));
-  if (!vals.length) return <div className="num" style={{ padding: '12px', fontSize: 12, fontWeight: 600, color: 'var(--bbn-muted)' }}>{tr('voldeck.ui_n_a_empty_grid_20')}</div>;
-  const vmin = Math.min(...vals), vmax = Math.max(...vals);
-  const iAtm = atmIndex(grid);
-  const LBL = 108;
-  return (
-    <div style={{ padding: '2px 10px 0' }} role="img" aria-label={tr('voldeck.ui_top_down_iv_surface_expiries_by_moneyness_21')}>
-      {use.map((s: any, r: number) => (
-        <div key={r} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-          <span className="num" style={{ flex: `0 0 ${LBL}px`, fontSize: 12, color: 'var(--bbn-muted)', textAlign: 'right' }}>
-            {s.expiry.slice(8, 10)}/{s.expiry.slice(5, 7)} · {s.days}{tr('voldeck.short_days')}
-          </span>
-          <div style={{ flex: 1, display: 'flex', gap: 1, height: 24 }}>
-            {grid.map((m: number, c: number) => {
-              const v = s.iv_grid[c];
-              const ok = v != null && isFinite(v);
-              return (
-                <div key={c}
-                     title={`${s.expiry} · K/S ${m.toFixed(3)} · ${ok ? 'IV ' + (v * 100).toFixed(1) + '%' : tr('voldeck.ui_n_a_missing_quote_declared_gap_22')}`}
-                     className={ok ? undefined : 'vdn-heat-hole'}
-                     style={{ flex: 1, borderRadius: 3, background: ok ? heatColor((v - vmin) / ((vmax - vmin) || 1), stops) : undefined,
-                              boxShadow: c === iAtm ? 'inset 0 0 0 1.5px var(--bbn-text)' : undefined }} />
-              );
-            })}
-          </div>
-        </div>
-      ))}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3 }}>
-        <span style={{ flex: `0 0 ${LBL}px` }} />
-        <div style={{ flex: 1, display: 'flex', gap: 1 }}>
-          {grid.map((m: number, c: number) => {
-            const show = c === 0 || c === grid.length - 1 || c === iAtm || c === Math.floor(grid.length / 4) || c === Math.floor(3 * grid.length / 4);
-            return (
-              <span key={c} className="num" style={{ flex: 1, fontSize: 12, color: c === iAtm ? 'var(--bbn-text)' : 'var(--bbn-muted)', textAlign: 'center' }}>
-                {show ? (c === iAtm ? 'ATM' : m.toFixed(2)) : ''}
-              </span>
-            );
-          })}
-        </div>
-      </div>
-      <div className="num" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '7px 0 2px' }}>
-        <span style={{ flex: `0 0 ${LBL}px`, fontSize: 12, fontWeight: 600, color: 'var(--bbn-muted)', textAlign: 'right' }}>{tr('voldeck.ui_iv_scale_23')}</span>
-        <div style={{ flex: '0 0 190px', height: 8, background: `linear-gradient(90deg, ${heatColor(0, stops)}, ${heatColor(0.35, stops)}, ${heatColor(0.62, stops)}, ${heatColor(0.85, stops)}, ${heatColor(1, stops)})` }} />
-        <span style={{ fontSize: 12, color: 'var(--bbn-muted)' }}>{(vmin * 100).toFixed(0)}% → {(vmax * 100).toFixed(0)}%</span>
-      </div>
-    </div>
-  );
-}
 
 /* FORWARD VOL — varianza forward fra scadenze consecutive: dove la curva
    prezza gli eventi. σ_fwd = √((σ2²·T2 − σ1²·T1)/(T2−T1)); varianza negativa
@@ -619,6 +543,12 @@ function SkewTable({ term, note }: { term: any[]; note?: string | null }) {
   </>;
 }
 
+/* Provenienza della superficie, sempre in vista sotto la legenda (v2/v3 10/10): griglia interpolata del
+   builder, saturazione del colore, fonte dichiarata (o «non dichiarata», mai vuota). */
+function SurfaceSourceLine({ data }: { data: any }) {
+  return <p className="vdn-src-line" data-vol-surface-src>{tr('voldeck.n_surface_src_line', { s: data?._source || tr('voldeck.n_source_na') })}</p>;
+}
+
 /* METODO E LIMITI — le definizioni dichiarate dal builder (contratto cbcfd0b), una per riga; un campo
    assente e' «non dichiarato», mai una definizione scritta qui al posto del backend. */
 const QUALITY_REASONS = ['no_bid', 'crossed', 'wide_spread', 'stale', 'iv_out_of_range'] as const;
@@ -666,6 +596,7 @@ export default function VolSurfacePage() {
   const [pickedExpiry, setPickedExpiry] = useState<string | null>(null);
   const [pickedColumn, setPickedColumn] = useState<number | null>(null);
   const [resetKey, setResetKey] = useState(0);
+  const [view, setView] = useState<{ name: CameraPreset | null; n: number }>({ name: 'perspective', n: 0 });
   const [plotError, setPlotError] = useState<string | null>(null);
   // ALTA-1 (v2 10/10): da quale istantanea viene il contesto mostrato
   const [contextOrigin, setContextOrigin] = useState<{ kind: 'download'; at: string | null } | { kind: 'new_fetch'; at: string | null; previous: string | null } | null>(null);
@@ -756,7 +687,6 @@ export default function VolSurfacePage() {
   const nMeasured = model.rows.reduce((a, r) => a + (observed[r.expiry] || []).filter(q => inGrid(q) && q.liquid && !q.flagged).length, 0);
   const nFlagged = model.rows.reduce((a, r) => a + (observed[r.expiry] || []).filter(q => inGrid(q) && q.flagged).length, 0);
   const nAdjustedObs = Object.values(observedFull).reduce((a, o) => a + (o?.adjusted || 0), 0);
-  const nClipped3d = useMemo(() => surfaceQuoteScale(model, observed).clipped, [model, observed]);
   const nOutside = model.rows.reduce((a, r) => a + (observed[r.expiry] || []).filter(q => q.otm && (q.m < lo - 1e-9 || q.m > hi + 1e-9)).length, 0);
   const selQuotes = expiry ? (observed[expiry] ?? null) : null;
   const selStrike = column != null ? model.strikes[column] : null;
@@ -831,7 +761,7 @@ export default function VolSurfacePage() {
         {fresh.stoppedAfterRateLimit && <span className="fat-pill is-warn">{tr('voldeck.n_rate_limited')}</span>}
         <span className="fat-chip vdn-method" title={rawData.smoothing || undefined}>{rawData.smoothing || t('voldeck.method_unknown')}</span>
       </div>}
-      {rawData && <div className="vdn-tiles">
+      {rawData && workspace !== 'laboratory' && <div className="vdn-tiles">
         <Tile label={tr('voldeck.n_tile_front')} value={ivText(front?.atm, na)}
           sub={front ? `${front.expiry} · ${front.days}${tr('voldeck.short_days')}${front.atm == null && front.atmUnqualified != null ? ' · ' + tr('voldeck.n_unqualified', { v: ivText(front.atmUnqualified, na) }) : ''}` : na} title={tr('voldeck.n_term_atm')} />
         <Tile label={t('voldeck.structure')} value={!finite(slope) ? na : slope < 0 ? 'Backwardation' : 'Contango'}
@@ -882,82 +812,81 @@ export default function VolSurfacePage() {
       {plotError && <div className="fat-note is-bad" role="alert"><span className="txt">{plotError}</span></div>}
 
       {workspace === 'tools' && model.rows.length > 0 && <>
-        {/* ══ SUPERFICIE 3D + PUNTO SCELTO ══ */}
-        <div className="vdn-stage">
-          <Card className="vdn-surface-card" titolo={tr('voldeck.n_surface_title')}
-            conteggio={tr('voldeck.n_surface_count', { r: model.rows.length, c: model.cells, h: model.holes })}
-            azioni={<>
-              <div className="bbn-seg" role="group" aria-label={tr('voldeck.n_axis_mode')}>
-                <button type="button" aria-pressed={axis === 'moneyness'} className={axis === 'moneyness' ? 'is-on' : undefined} onClick={() => setAxis('moneyness')}>K/S</button>
-                <button type="button" aria-pressed={axis === 'strike'} className={axis === 'strike' ? 'is-on' : undefined} disabled={!strikeAxis}
-                  title={strikeAxis ? undefined : tr('voldeck.n_strike_unavailable')} onClick={() => setAxis('strike')}>Strike</button>
-              </div>
-              <button type="button" className="bbn-btn vdn-small-btn" onClick={() => setResetKey(k => k + 1)}>{tr('voldeck.n_reset_view')}</button>
-            </>}>
-            <div className="vdn-plot-wrap">
-              <Surface3D model={model} axis={axis === 'strike' && strikeAxis ? 'strike' : 'moneyness'} expiry={expiry} column={column}
-                observed={observed} dark={themeDark} onPick={pick} onError={setPlotError} resetKey={resetKey} />
-              <div id="vol-surface-expiry-axis-label" data-vol-axis-title="expiry" className="vdn-axis-note">
-                {tr('voldeck.n_axes_note', { d: tr('voldeck.ui_days_to_expiry_53') })}
-              </div>
+        {/* ══ SUPERFICIE 3D in primo piano (v3 istituzionale 10/10, Opus 5.5): sotto, lettura del punto e stato dei dati ══ */}
+        <Card className="vdn-surface-card" titolo={tr('voldeck.n_surface_title')}
+          conteggio={tr('voldeck.n_surface_count', { r: model.rows.length, c: model.cells, h: model.holes })}
+          azioni={<>
+            <div className="bbn-seg" role="group" aria-label={tr('voldeck.n_view_aria')} data-vol-views>
+              {CAMERA_PRESETS.map(name => <button key={name} type="button" aria-pressed={view.name === name} className={view.name === name ? 'is-on' : undefined}
+                data-vol-view={name} onClick={() => setView(v => ({ name, n: v.n + 1 }))}>{tr(`voldeck.n_view_${name}`)}</button>)}
+              <button type="button" className="vdn-reset" data-vol-reset aria-label={tr('voldeck.n_reset_view')} title={tr('voldeck.n_reset_view')}
+                onClick={() => { setView(v => ({ name: 'perspective', n: v.n })); setResetKey(k => k + 1); }}>↺</button>
             </div>
-            <div className="vdn-keyrow" aria-label={tr('voldeck.n_legend_aria')}>
-              <span><i className="vdn-key is-surface" />{tr('voldeck.n_legend_grid')}</span>
-              <span><i className="vdn-key is-obs" />{tr('voldeck.n_legend_observed')}</span>
-              <span><i className="vdn-key is-illiquid" />{tr('voldeck.n_legend_illiquid')}</span>
-              <span><i className="vdn-key is-flag" />{tr('voldeck.n_legend_flagged')}</span>
-              <span><i className="vdn-key is-cell" />{tr('voldeck.n_legend_cells')}</span>
-              <span><i className="vdn-key is-hole">×</i>{tr('voldeck.n_legend_hole')}</span>
-              <span><i className="vdn-key is-sel-expiry" />{tr('voldeck.n_legend_sel_expiry')}</span>
-              <span><i className="vdn-key is-col" />{tr('voldeck.n_legend_sel_col')}</span>
+            <div className="bbn-seg" role="group" aria-label={tr('voldeck.n_axis_mode')}>
+              <button type="button" aria-pressed={axis === 'moneyness'} className={axis === 'moneyness' ? 'is-on' : undefined} onClick={() => setAxis('moneyness')}>K/S</button>
+              <button type="button" aria-pressed={axis === 'strike'} className={axis === 'strike' ? 'is-on' : undefined} disabled={!strikeAxis}
+                title={strikeAxis ? undefined : tr('voldeck.n_strike_unavailable')} onClick={() => setAxis('strike')}>Strike</button>
             </div>
-            <div className="vdn-notes">
+          </>}>
+          <div className="vdn-plot-wrap">
+            <Surface3D model={model} axis={axis === 'strike' && strikeAxis ? 'strike' : 'moneyness'} expiry={expiry} column={column}
+              dark={themeDark} onPick={pick} onError={setPlotError} resetKey={resetKey} preset={view}
+              onUserRotate={() => setView(v => (v.name == null ? v : { name: null, n: v.n }))} />
+            <div id="vol-surface-expiry-axis-label" data-vol-axis-title="expiry" className="vdn-axis-note">
+              {tr('voldeck.n_axes_note', { d: tr('voldeck.ui_days_to_expiry_53') })}
+            </div>
+          </div>
+          <div className="vdn-keyrow" aria-label={tr('voldeck.n_legend_aria')}>
+            <span><i className="vdn-key is-scale" style={{ background: `linear-gradient(90deg, ${SCALE_VOL.map(([, c]) => c).join(', ')})` }} />{tr('voldeck.n_legend_scale')}</span>
+            <span><i className="vdn-key is-sel-line" />{tr('voldeck.n_legend_sel_expiry')}</span>
+            <span><i className="vdn-key is-sel-dash" />{tr('voldeck.n_legend_sel_col')}</span>
+            <span><i className="vdn-key is-hole">×</i>{tr('voldeck.n_legend_hole')}</span>
+          </div>
+          <SurfaceSourceLine data={data} />
+          <div className="vdn-selbar">
+            {row && <PointReadout model={model} row={row} column={column} />}
+            <div className="vdn-quotes">
+              <h3>{tr('voldeck.n_sel_quotes')}</h3>
+              {!downloadId ? <p className="vdn-legend">{tr('voldeck.n_observed_none')}</p>
+                : chainOf(expiry)?.state === 'loading' || !chainOf(expiry) ? <p className="vdn-legend">{tr('voldeck.n_observed_loading')}</p>
+                : chainOf(expiry)?.state === 'error' ? <p className="vdn-warn-text">{tr('voldeck.n_observed_error', { e: expiry || '', err: (chainOf(expiry) as any).error })}</p>
+                : !near || near.strike == null ? <p className="vdn-legend">{tr('voldeck.n_sel_none')}</p>
+                : <table className="vdn-table is-compact num" title={tr('voldeck.n_quotes_source', { k: priceText(near.strike, na) })}><thead><tr><th className="l">{tr('voldeck.n_col_type')}</th><th>Strike</th><th>Bid</th><th>Ask</th><th>IV</th><th>OI</th></tr></thead>
+                  <tbody>{([['Put', near.put], ['Call', near.call]] as const).map(([label, q]) => <tr key={label} className={q && !q.liquid ? 'is-dim' : undefined} title={q?.flags.length ? q.flags.join(' · ') : undefined}>
+                    <td className="l">{label}{q && q.otm ? <small> OTM</small> : null}{q?.flagged ? <small className="vdn-warn-text"> ⚠</small> : null}</td><td>{priceText(q?.strike ?? near.strike, na)}</td>
+                    <td>{priceText(q?.bid, na)}</td><td>{priceText(q?.ask, na)}</td><td>{ivText(q?.iv, na)}</td><td>{q?.oi == null ? na : q.oi}</td>
+                  </tr>)}</tbody></table>}
+            </div>
+          </div>
+          {/* stato dei dati: resta sempre in vista (buchi, esclusioni, quote mancanti o parziali) */}
+          <div className="vdn-notes" data-vol-status>
+            {row?.partial && <p className="vdn-warn-text">{tr('voldeck.n_partial_note')}</p>}
+            {model.excludedShort.length > 0 && <p>{tr('voldeck.n_short_excluded', { n: model.excludedShort.length })}</p>}
+            {nOpt > 0 && <p data-vol-quality>{tr('voldeck.n_quotes_used', { n: nOpt, i: nIll })}
+              {discards.total ? ' · ' + tr('voldeck.n_quality_excluded', { n: discards.total }) + ' (' + QUALITY_REASONS.filter(k => discards.byReason[k])
+                .map(k => tr(`voldeck.n_reason_${k}`) + ' ' + discards.byReason[k])
+                .concat(Object.keys(discards.byReason).filter(k => !(QUALITY_REASONS as readonly string[]).includes(k)).map(k => k + ' ' + discards.byReason[k])).join(', ') + ')' : ''}
+              {discards.adjusted ? ' · ' + tr('voldeck.n_adjusted_excluded', { n: discards.adjusted }) : ''}</p>}
+            {!downloadId ? <p className="vdn-warn-text">{tr('voldeck.n_observed_none')}</p>
+              : nLoading ? <p>{tr('voldeck.n_observed_loading')}</p>
+              : <p>{tr('voldeck.n_observed_count', { n: nMeasured, e: nLoaded })}{nFlagged ? ' · ' + tr('voldeck.n_flagged_count', { n: nFlagged }) : ''}{nAdjustedObs ? ' · ' + tr('voldeck.n_adjusted_hidden', { n: nAdjustedObs }) : ''}{nOutside ? ' · ' + tr('voldeck.n_out_of_grid', { n: nOutside, a: numText(lo, 2), b: numText(hi, 2) }) : ''}</p>}
+            {chainErrors.map(x => <p key={x.e} className="vdn-warn-text">{tr('voldeck.n_observed_error', { e: x.e, err: x.c.error })}</p>)}
+            {chainNotes.map(x => <p key={x.e} className="vdn-warn-text">{x.c.truncated ? tr('voldeck.n_observed_truncated', { e: x.e, n: x.c.chain.length })
+              : tr('voldeck.n_observed_partial', { e: x.e, n: x.c.chain.length, why: x.c.rowError || tr('voldeck.n_chain_incomplete') })}</p>)}
+          </div>
+          {/* note lunghe e definizioni del builder: chiuse per default */}
+          <details className="vdn-methodbox" data-vol-method-details>
+            <summary>{tr('voldeck.n_method_title')}</summary>
+            <div className="vdn-method-body">
               <p>{tr('voldeck.n_drag_hint')}</p>
-              <p>{tr('voldeck.n_smoothing_note', { m: rawData?.smoothing || t('voldeck.method_unknown') })} {tr('voldeck.ui_colour_saturated_above_the_99th_percentile_geometry_un_69')}{data?._source || tr('voldeck.n_source_na')}]</p>
-              {model.excludedShort.length > 0 && <p>{tr('voldeck.n_short_excluded', { n: model.excludedShort.length })}</p>}
-              {nOpt > 0 && <p data-vol-quality>{tr('voldeck.n_quotes_used', { n: nOpt, i: nIll })}
-                {discards.total ? ' · ' + tr('voldeck.n_quality_excluded', { n: discards.total }) + ' (' + QUALITY_REASONS.filter(k => discards.byReason[k])
-                  .map(k => tr(`voldeck.n_reason_${k}`) + ' ' + discards.byReason[k])
-                  .concat(Object.keys(discards.byReason).filter(k => !(QUALITY_REASONS as readonly string[]).includes(k)).map(k => k + ' ' + discards.byReason[k])).join(', ') + ')' : ''}
-                {discards.adjusted ? ' · ' + tr('voldeck.n_adjusted_excluded', { n: discards.adjusted }) : ''}</p>}
-              {!downloadId ? <p className="vdn-warn-text">{tr('voldeck.n_observed_none')}</p>
-                : nLoading ? <p>{tr('voldeck.n_observed_loading')}</p>
-                : <p>{tr('voldeck.n_observed_count', { n: nMeasured, e: nLoaded })}{nFlagged ? ' · ' + tr('voldeck.n_flagged_count', { n: nFlagged }) : ''}{nAdjustedObs ? ' · ' + tr('voldeck.n_adjusted_hidden', { n: nAdjustedObs }) : ''}{nOutside ? ' · ' + tr('voldeck.n_out_of_grid', { n: nOutside, a: numText(lo, 2), b: numText(hi, 2) }) : ''}{nClipped3d ? ' · ' + tr('voldeck.n_surface_clipped', { n: nClipped3d }) : ''}</p>}
-              {chainErrors.map(x => <p key={x.e} className="vdn-warn-text">{tr('voldeck.n_observed_error', { e: x.e, err: x.c.error })}</p>)}
-              {chainNotes.map(x => <p key={x.e} className="vdn-warn-text">{x.c.truncated ? tr('voldeck.n_observed_truncated', { e: x.e, n: x.c.chain.length })
-                : tr('voldeck.n_observed_partial', { e: x.e, n: x.c.chain.length, why: x.c.rowError || tr('voldeck.n_chain_incomplete') })}</p>)}
+              <p>{tr('voldeck.n_smoothing_note', { m: rawData?.smoothing || t('voldeck.method_unknown') })}</p>
+              <p>{tr('voldeck.n_surface_method')}</p>
+              {near?.strike != null && <p>{tr('voldeck.n_quotes_source', { k: priceText(near.strike, na) })}</p>}
+              <p>{tr('voldeck.n_keys_hint')}</p>
+              <MethodNotes data={rawData} />
             </div>
-          </Card>
-
-          <Card className="vdn-side-card" titolo={tr('voldeck.n_sel_title')}>
-            <div className="vdn-side-body">
-              <div className="vdn-expiry-list" role="listbox" aria-label={tr('voldeck.n_sel_expiries')}>
-                {model.rows.map(r => <button key={r.expiry} type="button" role="option" aria-selected={r.expiry === expiry}
-                  className={'vdn-expiry' + (r.expiry === expiry ? ' is-on' : '')} onClick={() => setPickedExpiry(r.expiry)}>
-                  <b>{r.expiry}</b><span>{r.days}{tr('voldeck.short_days')}</span>
-                  {r.partial && <em className="fat-pill is-warn">{tr('voldeck.n_partial_badge')}</em>}
-                  <span className="vdn-expiry-iv" title={r.atm == null && r.atmUnqualified != null ? tr('voldeck.n_unqualified', { v: ivText(r.atmUnqualified, na) }) : undefined}>{ivText(r.atm, na)}</span>
-                </button>)}
-              </div>
-              {row && <PointReadout model={model} row={row} column={column} />}
-              {row?.partial && <p className="fat-note is-warn"><span className="txt">{tr('voldeck.n_partial_note')}</span></p>}
-              <div className="vdn-quotes">
-                <h3>{tr('voldeck.n_sel_quotes')}</h3>
-                {!downloadId ? <p className="vdn-legend">{tr('voldeck.n_observed_none')}</p>
-                  : chainOf(expiry)?.state === 'loading' || !chainOf(expiry) ? <p className="vdn-legend">{tr('voldeck.n_observed_loading')}</p>
-                  : chainOf(expiry)?.state === 'error' ? <p className="vdn-warn-text">{tr('voldeck.n_observed_error', { e: expiry || '', err: (chainOf(expiry) as any).error })}</p>
-                  : !near || near.strike == null ? <p className="vdn-legend">{tr('voldeck.n_sel_none')}</p>
-                  : <table className="vdn-table is-compact num"><thead><tr><th className="l">{tr('voldeck.n_col_type')}</th><th>Strike</th><th>Bid</th><th>Ask</th><th>IV</th><th>OI</th></tr></thead>
-                    <tbody>{([['Put', near.put], ['Call', near.call]] as const).map(([label, q]) => <tr key={label} className={q && !q.liquid ? 'is-dim' : undefined} title={q?.flags.length ? q.flags.join(' · ') : undefined}>
-                      <td className="l">{label}{q && q.otm ? <small> OTM</small> : null}{q?.flagged ? <small className="vdn-warn-text"> ⚠</small> : null}</td><td>{priceText(q?.strike ?? near.strike, na)}</td>
-                      <td>{priceText(q?.bid, na)}</td><td>{priceText(q?.ask, na)}</td><td>{ivText(q?.iv, na)}</td><td>{q?.oi == null ? na : q.oi}</td>
-                    </tr>)}</tbody></table>}
-                {near?.strike != null && <p className="vdn-legend">{tr('voldeck.n_quotes_source', { k: priceText(near.strike, na) })}</p>}
-              </div>
-              <p className="vdn-legend">{tr('voldeck.n_keys_hint')}</p>
-            </div>
-          </Card>
-        </div>
+          </details>
+        </Card>
 
         {/* ══ FETTE: SMILE della scadenza scelta + TERM STRUCTURE ══ */}
         <div className="vdn-slices">
@@ -973,7 +902,7 @@ export default function VolSurfacePage() {
               <span><i className="vdn-key is-flag" />{tr('voldeck.n_legend_flagged')}</span>
               <span><i className="vdn-key is-hole-band" />{tr('voldeck.n_legend_hole')}</span>
             </div>
-            {selQuotes && <p className="vdn-legend">{tr('voldeck.n_itm_hidden')}{(() => { const c = chainOf(expiry); const o = expiry ? observedFull[expiry] : undefined; return (o?.withoutIv ? ' · ' + tr('voldeck.n_without_iv', { n: o.withoutIv }) : '') + (o?.adjusted ? ' · ' + tr('voldeck.n_adjusted_hidden', { n: o.adjusted }) : ''); })()}</p>}
+            {selQuotes && <p className="vdn-legend">{tr('voldeck.n_itm_hidden')}{(() => { const o = expiry ? observedFull[expiry] : undefined; return (o?.withoutIv ? ' · ' + tr('voldeck.n_without_iv', { n: o.withoutIv }) : '') + (o?.adjusted ? ' · ' + tr('voldeck.n_adjusted_hidden', { n: o.adjusted }) : ''); })()}</p>}
           </Card>
           <Card className="vdn-slice-card" titolo={tr('voldeck.n_term_title')}
             conteggio={column != null ? `K/S ${numText(model.grid[column], 3)}` : undefined}>
@@ -981,6 +910,13 @@ export default function VolSurfacePage() {
             <p className="vdn-legend">{tr('voldeck.n_term_legend')}</p>
           </Card>
         </div>
+
+        {/* ══ GRIGLIA NUMERICA: scadenze × K/S, stessa scala colore del 3D, buchi «n.d.» ══ */}
+        <Card className="vdn-grid-card" titolo={tr('voldeck.n_grid_title')}
+          conteggio={tr('voldeck.n_tile_holes_sub', { f: model.filledCells, c: model.cells })}>
+          <IvGrid model={model} axis={axis === 'strike' && strikeAxis ? 'strike' : 'moneyness'} expiry={expiry} column={column}
+            onPick={pick} onExpiry={e => setPickedExpiry(e)} onColumn={c => setPickedColumn(c)} />
+        </Card>
       </>}
 
       {workspace === 'tools' && rawData?.slices?.length > 0 && <div className="fat-note is-plain vdn-context" data-vol-context>
@@ -1035,16 +971,9 @@ export default function VolSurfacePage() {
           <OiProfile term={data.term_structure} />
           <p className="vdn-legend">{tr('voldeck.ui_red_put_oi_green_call_oi_p_c_1_5_in_amber_src_polygon__103')}</p>
         </Card>
-        <Card className="vdn-inst is-wide" titolo={tr('voldeck.n_heat_title')} conteggio={tr('voldeck.ui_cell_by_cell_observations_92')}>
-          <HeatTopDown grid={data.moneyness_grid} slices={data.slices} />
-          <p className="vdn-legend">{tr('voldeck.n_heat_legend')}</p>
-        </Card>
         <Card className="vdn-inst" titolo="Gamma exposure" conteggio={tr('voldeck.ui_by_strike_104')}>
           {contextState === 'not_requested' ? <p className="vdn-legend">{t('voldeck.context_not_requested')} · {t('voldeck.explicit_provider')}</p> : <GexProfile gex={data.gex} spot={Number(data.spot_est)} />}
           <p className="vdn-legend">{tr('voldeck.ui_gex_0_dealer_long_gamma_dampened_moves_0_short_gamma_a_105')}</p>
-        </Card>
-        <Card className="vdn-inst is-wide" titolo={tr('voldeck.n_method_title')} conteggio={tr('voldeck.n_method_count')}>
-          <MethodNotes data={rawData} />
         </Card>
         <Card className="vdn-inst is-full" titolo="Vol cone · realized vs implied" conteggio={tr('voldeck.ui_5_10_21_63_trading_day_windows_1y_percentiles_90')}>
           <div className="vdn-inst-body">

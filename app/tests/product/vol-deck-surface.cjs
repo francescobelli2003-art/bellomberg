@@ -203,13 +203,15 @@ test('MEDIA-8: the smile scale follows the grid and liquid unflagged quotes; ill
   assert.equal(vd.smileScale([null], []), null);
 });
 
-test('MEDIA-8 in 3D: off-scale illiquid or flagged quotes are not drawn on the surface and are counted', () => {
+test('v3 (10/10): measured quotes are no longer drawn on the 3D surface (they live on the smile); the scale helper still counts off-scale ones', () => {
   const S3 = load('pages/voldeck/Surface3D.tsx');
   const m = vd.surfaceModel({ spot_est: 200, moneyness_grid: [0.9, 1, 1.1], slices: [{ expiry: '2035-02-01', days: 30, iv_grid: [0.3, 0.25, 0.27] }] });
   const observed = { '2035-02-01': vd.observedQuotes([quote('put', 190, 0.29), quote('call', 215, 0.9, { oi: 0, volume: 0 }), quote('call', 205, 1.2, { bid: 1.2, ask: 1.1 })], 200).quotes };
   assert.equal(vd.surfaceQuoteScale(m, observed).clipped, 2);
   const fig = S3.surfaceFigure(m, { axis: 'moneyness', expiry: null, column: null, observed, palette: { text: '#000', muted: '#555', line: '#ddd', accent: '#00f', violet: '#70f', warn: '#850', card: '#fff', scale: S3.SCALE_LIGHT }, labels: { na: 'n/a' } });
-  assert.deepEqual(fig.traces.filter(t => ['observed', 'illiquid', 'flagged'].includes(t.meta)).map(t => [t.meta, t.x.length]), [['observed', 1]]);
+  assert.deepEqual(fig.traces.filter(t => ['observed', 'illiquid', 'flagged', 'cells'].includes(t.meta)), []);
+  // v2: una sola scadenza = nessuna faccia, ogni cella ha il suo marcatore con lettura e clic
+  assert.deepEqual(fig.traces.map(t => t.meta), ['surface', 'wire', 'orphans', 'sel-expiry', 'sel-col', 'sel-point']);
 });
 
 test('3D click picks the column carried by the point, else the nearest one on the axis shown', () => {
@@ -218,6 +220,14 @@ test('3D click picks the column carried by the point, else the nearest one on th
   assert.deepEqual(plain(vd.pickFromPoint({ x: 1.08, y: 30 }, m, 'moneyness')), { expiry: '2035-02-01', column: 2 });
   assert.deepEqual(plain(vd.pickFromPoint({ x: 181, y: 30 }, m, 'strike')), { expiry: '2035-02-01', column: 0 });
   assert.equal(vd.pickFromPoint({ x: 1, y: 99 }, m, 'moneyness'), null, 'an unknown expiry picks nothing');
+  // v3: il 3D disegna le scadenze in sqrt(t); senza customdata la y e' sqrt(giorni)
+  assert.deepEqual(plain(vd.pickFromPoint({ x: 1.01, y: Math.sqrt(30) }, m, 'moneyness', true)), { expiry: '2035-02-01', column: 1 });
+  assert.equal(vd.pickFromPoint({ x: 1, y: 30 }, m, 'moneyness', true), null, 'on the sqrt axis a raw day count is not an expiry');
+  // v3: la y torna da WebGL in float: uno scarto relativo di 1e-7 sceglie comunque la scadenza giusta, fra scadenze vicine
+  const near = vd.surfaceModel({ spot_est: 100, moneyness_grid: [0.9, 1, 1.1], slices: [2, 3, 4].map(d => ({ expiry: '2035-01-0' + d, days: d, iv_grid: [0.2, 0.2, 0.2] })) });
+  for (const d of [2, 3, 4]) for (const f of [1 + 1e-7, 1 - 1e-7]) {
+    assert.equal(vd.pickFromPoint({ x: 1, y: Math.sqrt(d) * f }, near, 'moneyness', true)?.expiry, '2035-01-0' + d, `float y for ${d} days`);
+  }
 });
 
 test('New York times and localized numbers', () => {
@@ -260,49 +270,203 @@ async function mount(element) {
     rerender: async el => { await React.act(async () => { root.render(el); }); await settle(); },
     unmount: async () => { await React.act(async () => { root.unmount(); }); dom.restore(); } };
 }
+// v3 10/10 (Opus 5.5): il finto Plotly tiene DUE camere come quello vero: quella scritta nel layout
+// (_fullLayout.scene.camera) e quella che la scena WebGL mostra (_scene.getCamera()). Un drag rilasciato
+// fuori dal canvas muove la seconda senza toccare la prima: e' il difetto della diagnosi diag3d_f.
 const fakePlotly = () => {
   const calls = [], handlers = {};
-  return { calls, handlers,
-    newPlot(node, traces, layout) { calls.push(['newPlot', node, traces, layout]); node._fullLayout = layout; node.on = (ev, fn) => { handlers[ev] = fn; }; return Promise.resolve(node); },
-    react(node, traces, layout) { calls.push(['react', node, traces, layout]); return Promise.resolve(node); },
-    relayout(node, update) { calls.push(['relayout', node, update]); return Promise.resolve(); },
+  const scene = { written: null, shown: null };
+  const fullLayout = layout => ({ scene: { get camera() { return scene.written; }, _scene: { getCamera: () => scene.shown } }, _src: layout });
+  const copy = c => JSON.parse(JSON.stringify(c));
+  return { calls, handlers, scene,
+    /** l'utente ruota con un drag che finisce fuori dal canvas: la vista cambia, il layout no */
+    rotate(camera) { scene.shown = copy(camera); },
+    newPlot(node, traces, layout, config) { calls.push(['newPlot', node, traces, layout, config]); scene.written = copy(layout.scene.camera); scene.shown = copy(layout.scene.camera);
+      node._fullLayout = fullLayout(layout); node.on = (ev, fn) => { handlers[ev] = fn; }; return Promise.resolve(node); },
+    react(node, traces, layout, config) { calls.push(['react', node, traces, layout, config]); scene.written = copy(layout.scene.camera); scene.shown = copy(layout.scene.camera); return Promise.resolve(node); },
+    restyle(node, update, indices) { calls.push(['restyle', node, update, indices]); scene.shown = copy(scene.written); return Promise.resolve(node); },
+    relayout(node, update) { calls.push(['relayout', node, update]);
+      if (update['scene.camera']) { scene.written = copy(update['scene.camera']); scene.shown = copy(update['scene.camera']); handlers.plotly_relayout?.(update); }
+      return Promise.resolve(); },
     purge(node) { calls.push(['purge', node]); } };
 };
 
-test('3D wiring: newPlot once then react (camera kept), click picks the right column, reset camera, purge on unmount', async () => {
+test('3D wiring: camera survives redraws (live camera read back), selection = restyle only, wheel off, turntable, presets, purge', async () => {
   languages.impostaLinguaCorrente('en');
   const S3 = load('pages/voldeck/Surface3D.tsx');
   const m = vd.surfaceModel({ spot_est: 200, moneyness_grid: [0.9, 1, 1.1],
     slices: [{ expiry: '2035-02-01', days: 30, iv_grid: [0.3, null, 0.27] }, { expiry: '2035-03-01', days: 60, iv_grid: [0.29, 0.26, 0.27] }] });
   const picks = [], errors = [];
-  const props = { model: m, axis: 'moneyness', expiry: '2035-02-01', column: 1, observed: {}, dark: false, resetKey: 0,
-    onPick: (e, c) => picks.push([e, c]), onError: e => errors.push(e) };
+  let rotations = 0;
+  const props = { model: m, axis: 'moneyness', expiry: '2035-02-01', column: 0, dark: false, resetKey: 0,
+    onPick: (e, c) => picks.push([e, c]), onError: e => errors.push(e), onUserRotate: () => rotations++ };
   const plotly = fakePlotly();
   const view = await mount(React.createElement('div')); // DOM installato, poi Plotly gia' caricato come nell'app
+  const winListeners = {};
   globalThis.window.Plotly = plotly;
+  globalThis.window.addEventListener = (type, fn) => { (winListeners[type] ||= []).push(fn); };
+  globalThis.window.removeEventListener = (type, fn) => { winListeners[type] = (winListeners[type] || []).filter(f => f !== fn); };
   await view.rerender(React.createElement(S3.default, props));
+  const names = () => plotly.calls.map(c => c[0]);
+  const rotated = { eye: { x: 0.3, y: 2.0, z: -0.4 }, up: { x: 0, y: 0, z: 1 }, center: { x: 0, y: 0, z: 0 } };
+  const rotated2 = { eye: { x: -2.1, y: 0.2, z: 0.7 }, up: { x: 0, y: 0, z: 1 }, center: { x: 0.1, y: 0, z: -0.1 } };
   try {
     const node = view.container.byAttr('data-vol-3d')[0];
     assert.equal(node.getAttribute('role'), 'group', 'an interactive chart is not role=img');
-    assert.deepEqual(plotly.calls.map(c => c[0]), ['newPlot'], 'first draw creates the plot: ' + errors.join());
+    assert.deepEqual(names(), ['newPlot'], 'first draw creates the plot: ' + errors.join());
     assert.equal(plotly.calls[0][1], node, 'Plotly draws into the real node');
-    const cells = plotly.calls[0][2].find(t => t.meta === 'cells');
-    assert.equal(cells.x.length, 5, 'every valid cell (5 of 6) has a clickable marker');
+    assert.equal(plotly.calls[0][4].scrollZoom, false, 'the wheel scrolls the page');
+    assert.equal(plotly.calls[0][3].scene.dragmode, 'turntable');
     assert.equal(plotly.calls[0][3].scene.yaxis.title.text, '');
-    await view.rerender(React.createElement(S3.default, { ...props, column: 2 }));
-    assert.deepEqual(plotly.calls.map(c => c[0]), ['newPlot', 'react'], 'a redraw updates the plot (react), never recreates it');
-    assert.equal(plotly.calls[1][3].scene.uirevision, S3.SCENE_REVISION, 'uirevision keeps the user camera');
-    plotly.handlers.plotly_click({ points: [{ x: 1.1, y: 30, customdata: ['2035-02-01', 2] }] });
-    plotly.handlers.plotly_click({ points: [{ x: 0.91, y: 60 }] });
+    assert.equal(plotly.calls[0][2][0].type, 'mesh3d');
+    // 1) rotazione con rilascio fuori dal canvas, poi cambio di selezione: la vista NON torna indietro
+    plotly.rotate(rotated);
+    await view.rerender(React.createElement(S3.default, { ...props, column: 1 }));
+    assert.deepEqual(names(), ['newPlot', 'relayout', 'restyle'], 'a selection change is a restyle (after writing the live camera), never a react');
+    assert.deepEqual(plain(plotly.calls[1][2]['scene.camera']), rotated, 'the live camera is written into the layout before restyle');
+    const [, , upd, idx] = plotly.calls[2];
+    const sel = plotly.calls[0][2].map((t, i) => [t.meta, i]).filter(([meta]) => meta.startsWith('sel-')).map(([, i]) => i);
+    assert.deepEqual(plain(idx), sel, 'restyle touches only the three selection traces');
+    assert.deepEqual(plain(upd.z[1]), [null, 26], 'the K/S line at column 1: grid values, the hole stays null');
+    assert.deepEqual(plain(upd.x[2]), [], 'no selected-point marker on a hole');
+    assert.deepEqual(plain(plotly.scene.shown), rotated, 'after the redraw the user still sees the rotated view');
+    // 2) seconda rotazione rilasciata fuori: il mouseup su window la scrive nel layout
+    plotly.rotate(rotated2);
+    assert.ok((winListeners.mouseup || []).length >= 1, 'mouseup listened on window, not only on the canvas');
+    for (const fn of winListeners.mouseup) fn({});
+    await view.settle();
+    assert.deepEqual(plain(plotly.calls[plotly.calls.length - 1][2]['scene.camera']), rotated2);
+    // 3) un ridisegno completo (asse strike) passa la camera VIVA esplicita nel layout
+    await view.rerender(React.createElement(S3.default, { ...props, column: 2, axis: 'strike' }));
+    const react = plotly.calls.filter(c => c[0] === 'react').pop();
+    assert.ok(react, 'axis change is a full react: ' + names().join());
+    assert.deepEqual(plain(react[3].scene.camera), rotated2, 'camera preserved after a full redraw');
+    assert.equal(react[3].scene.uirevision, S3.SCENE_REVISION);
+    assert.deepEqual(plain(plotly.scene.shown), rotated2);
+    // clic: customdata vince; senza customdata la y e' sqrt(giorni)
+    plotly.handlers.plotly_click({ points: [{ x: 220, y: Math.sqrt(30), customdata: ['2035-02-01', 2] }] });
+    plotly.handlers.plotly_click({ points: [{ x: 181, y: Math.sqrt(60) }] });
     assert.deepEqual(picks, [['2035-02-01', 2], ['2035-03-01', 0]]);
-    await view.rerender(React.createElement(S3.default, { ...props, column: 2, resetKey: 1 }));
-    const reset = plotly.calls.find(c => c[0] === 'relayout');
-    assert.deepEqual(plain(reset[2]), { 'scene.camera': plain(S3.DEFAULT_CAMERA) });
+    // drag vs clic: gl3d emette plotly_click DURANTE la pressione; si applica al rilascio solo se il puntatore e' fermo
+    const own = type => node.listeners.filter(l => l.type === type && l.capture).map(l => l.listener);
+    const fire = (type, ev) => { for (const fn of own(type)) fn(ev); };
+    const win = (type, ev) => { for (const fn of winListeners[type] || []) fn(ev); };
+    fire('pointerdown', { clientX: 100, clientY: 100 });
+    win('pointermove', { clientX: 140, clientY: 110, buttons: 1 });
+    plotly.handlers.plotly_click({ points: [{ x: 200, y: Math.sqrt(60), customdata: ['2035-03-01', 1] }] });
+    win('pointerup', {}); win('mouseup', {});
+    await view.settle();
+    assert.equal(picks.length, 2, 'a rotation drag released on the canvas does not change the selection');
+    fire('pointerdown', { clientX: 100, clientY: 100 });
+    win('pointermove', { clientX: 102, clientY: 101, buttons: 1 });
+    plotly.handlers.plotly_click({ points: [{ x: 200, y: Math.sqrt(60), customdata: ['2035-03-01', 1] }] });
+    assert.equal(picks.length, 2, 'the pick waits for the release');
+    win('pointerup', {});
+    await view.settle();
+    assert.deepEqual(picks[2], ['2035-03-01', 1], 'a still click (<= DRAG_PX) picks on release');
+    // rotella: in cattura sul contenitore, ferma la propagazione verso il canvas e NON blocca lo scorrimento
+    let stopped = 0, prevented = 0;
+    fire('wheel', { stopPropagation: () => stopped++, preventDefault: () => prevented++ });
+    assert.equal(stopped, 1, 'the wheel never reaches the Plotly canvas (which would preventDefault)');
+    assert.equal(prevented, 0, 'the page keeps scrolling');
+    // v2: solo il drag oltre DRAG_PX e' una rotazione manuale (il preset in vista si spegne); il clic fermo no
+    assert.equal(rotations, 1, 'one manual rotation so far (the 40 px drag), the still click is not one');
+    // pointercancel: il gesto annullato non sceglie nulla e non e' una rotazione
+    fire('pointerdown', { clientX: 100, clientY: 100 });
+    plotly.handlers.plotly_click({ points: [{ x: 200, y: Math.sqrt(30), customdata: ['2035-02-01', 0] }] });
+    win('pointercancel', {}); win('pointerup', {});
+    await view.settle();
+    assert.equal(picks.length, 3, 'a cancelled gesture picks nothing'); assert.equal(rotations, 1);
+    // cambio di tema: ridisegno completo (react), mai un restyle coi colori vecchi
+    const before = plotly.calls.length;
+    await view.rerender(React.createElement(S3.default, { ...props, column: 2, axis: 'strike', dark: true }));
+    assert.deepEqual(plotly.calls.slice(before).map(c => c[0]).filter(n => n !== 'relayout'), ['react'], 'theme change is a react');
+    await view.rerender(React.createElement(S3.default, { ...props, column: 2, axis: 'strike' }));
+    // 4) preset di camera e ripristino
+    await view.rerender(React.createElement(S3.default, { ...props, column: 2, axis: 'strike', preset: { name: 'top', n: 1 } }));
+    assert.deepEqual(plain(plotly.calls.filter(c => c[0] === 'relayout').pop()[2]), { 'scene.camera': plain(S3.CAMERAS.top) });
+    await view.rerender(React.createElement(S3.default, { ...props, column: 2, axis: 'strike', preset: { name: 'top', n: 1 }, resetKey: 1 }));
+    assert.deepEqual(plain(plotly.calls.filter(c => c[0] === 'relayout').pop()[2]), { 'scene.camera': plain(S3.DEFAULT_CAMERA) });
+    // dopo il ripristino un cambio di selezione non resuscita la vista vecchia
+    await view.rerender(React.createElement(S3.default, { ...props, column: 0, axis: 'strike', preset: { name: 'top', n: 1 }, resetKey: 1 }));
+    assert.equal(plotly.calls[plotly.calls.length - 1][0], 'restyle');
+    assert.deepEqual(plain(plotly.scene.shown), plain(S3.DEFAULT_CAMERA));
     await view.rerender(React.createElement('div')); // il grafico esce dalla pagina
+    assert.deepEqual(winListeners.mouseup, [], 'the window listener is removed on unmount');
   } finally { await view.unmount(); }
   const purge = plotly.calls.find(c => c[0] === 'purge');
   assert.ok(purge && purge[1] === plotly.calls[0][1], 'the plot is purged when the component goes away (WebGL context released)');
   assert.deepEqual(errors, []);
+});
+
+test('v3 numeric grid: holes are hatched n/a never filled, cells use the 3D scale with readable ink, click/hover sync expiry and K/S', async () => {
+  languages.impostaLinguaCorrente('en');
+  const IvGrid = load('pages/voldeck/IvGrid.tsx').default;
+  const S3 = load('pages/voldeck/Surface3D.tsx');
+  const m = vd.surfaceModel({ spot_est: 200, moneyness_grid: [0.9, 1, 1.1],
+    slices: [{ expiry: '2035-02-01', days: 30, iv_grid: [0.3, null, 0.2] }, { expiry: '2035-03-01', days: 60, iv_grid: [0.29, 0.26, 0.4] }] }, ['2035-03-01']);
+  const picks = [], exps = [], cols = [];
+  const props = { model: m, axis: 'moneyness', expiry: '2035-03-01', column: 2, onPick: (e, c) => picks.push([e, c]), onExpiry: e => exps.push(e), onColumn: c => cols.push(c) };
+  const html = renderToStaticMarkup(React.createElement(IvGrid, props));
+  const holes = html.match(/<td[^>]*data-vol-grid-hole[^>]*>([^<]*)<\/td>/g) || [];
+  assert.equal(holes.length, 1, 'one hole, one hatched cell');
+  assert.ok(holes[0].includes('>n/a</td>') && !holes[0].includes('background'), 'a hole is n/a with no fill colour: ' + holes[0]);
+  const cells = [...html.matchAll(/<td class="([^"]*)" style="background:rgb\((\d+),(\d+),(\d+)\);color:(#[0-9a-f]+)"[^>]*>([^<]*)<\/td>/g)];
+  assert.equal(cells.length, 5, 'five valid cells are coloured: ' + html);
+  const top = cells.find(c => c[6] === '40.0'), low = cells.find(c => c[6] === '20.0');
+  assert.ok(Number(top[2]) > 200 && Number(top[4]) < 80, 'highest IV is red: ' + top.slice(2, 5));
+  assert.ok(Number(low[4]) > Number(low[2]), 'lowest IV is blue: ' + low.slice(2, 5));
+  for (const c of cells) assert.equal(c[5], S3.inkOn([+c[2], +c[3], +c[4]]), 'ink chosen for contrast');
+  assert.ok(top[1].includes('is-pick'), 'the selected cell (60d, K/S 1.1) is marked');
+  // v2: stessi estremi del 3D (colorRange, p1/p99) — qui il p99 (30%) non e' il massimo (40%)
+  const cr = S3.colorRange(m);
+  assert.equal(cr.cmax, 30, 'p99 of five cells is the second largest');
+  for (const c of cells) {
+    const rgb = S3.scaleColor((Number(c[6]) - cr.cmin) / (cr.cmax - cr.cmin));
+    assert.deepEqual([+c[2], +c[3], +c[4]], rgb, `cell ${c[6]} coloured on the shared extremes`);
+  }
+  // v2 accessibilita': una sola cella nel Tab (quella scelta), ⚠ parziale con testo per i lettori di schermo
+  assert.equal((html.match(/tabindex="0"/g) || []).length, 1);
+  assert.ok(/<td class="is-pick[^"]*" style="[^"]*" title="[^"]*" tabindex="0"/.test(html), 'the tab stop is the selected cell');
+  assert.ok(html.includes('<span aria-hidden="true">⚠</span><span class="vdn-sr">partial chain</span>'), 'partial flag has accessible text');
+  const view = await mount(React.createElement(IvGrid, props));
+  try {
+    const tds = view.container.byTag('td');
+    await React.act(async () => { dispatch(view.container, tds[1], 'click'); });
+    await React.act(async () => { dispatch(view.container, tds[0], 'click'); });
+    await React.act(async () => { dispatch(view.container, tds[3], 'keydown', { key: 'Enter' }); });
+    await React.act(async () => { dispatch(view.container, tds[0], 'keydown', { key: 'ArrowDown' }); });
+    assert.equal(view.dom.document.activeElement, tds[3], 'ArrowDown moves the focus one expiry DOWN (row 1, same column)');
+    await React.act(async () => { dispatch(view.container, tds[3], 'keydown', { key: 'ArrowRight' }); });
+    assert.equal(view.dom.document.activeElement, tds[4], 'ArrowRight moves one K/S right');
+    await React.act(async () => { dispatch(view.container, tds[4], 'keydown', { key: 'ArrowUp' }); });
+    assert.equal(view.dom.document.activeElement, tds[1], 'ArrowUp moves one expiry up');
+    await React.act(async () => { dispatch(view.container, tds[4], 'focusin'); });
+    const read = view.container.byAttr('data-vol-grid-read')[0].textContent;
+    assert.ok(read.includes('2035-03-01') && read.includes('1.000') && read.includes('26.00%'), 'focus gives the exact reading: ' + read);
+    const buttons = view.container.byTag('button');
+    await React.act(async () => { dispatch(view.container, buttons[0], 'click'); dispatch(view.container, buttons[buttons.length - 1], 'click'); });
+    assert.deepEqual(picks, [['2035-02-01', 1], ['2035-02-01', 0], ['2035-03-01', 0]],
+      'a hole picks itself (readouts then say hole); a valid cell picks row AND column; Enter on a focused cell picks it');
+    assert.deepEqual(cols, [0]); assert.deepEqual(exps, ['2035-03-01']);
+  } finally { await view.unmount(); }
+});
+
+test('v3 slices take the MEASURED width (250 px at 390): no fixed 320 px minimum that overflows the page', async () => {
+  languages.impostaLinguaCorrente('en');
+  const { SmileChart, TermChart } = load('pages/voldeck/SliceCharts.tsx');
+  const m = vd.surfaceModel({ spot_est: 200, moneyness_grid: [0.9, 1, 1.1],
+    slices: [{ expiry: '2035-02-01', days: 30, iv_grid: [0.3, 0.25, 0.27] }, { expiry: '2035-03-01', days: 60, iv_grid: [0.29, 0.26, 0.27] }] });
+  const view = await mount(React.createElement('div'));
+  view.dom.document.defaultRect = { left: 0, top: 0, width: 250, height: 300 };
+  try {
+    await view.rerender(React.createElement('div', null,
+      React.createElement(SmileChart, { model: m, expiry: '2035-02-01', column: 1, onColumn() {}, onExpiryStep() {}, quotes: null, axis: 'moneyness' }),
+      React.createElement(TermChart, { model: m, column: 1, expiry: '2035-02-01', onExpiry() {} })));
+    const svgs = view.container.byTag('svg');
+    assert.equal(svgs.length, 2);
+    for (const svg of svgs) assert.equal(String(svg.getAttribute('width')), '250', 'the chart is as wide as its box, not 320');
+  } finally { await view.unmount(); }
 });
 
 test('smile wiring: holes break the line, ITM is not drawn, flagged marked, hover/click/keys read the right column', async () => {

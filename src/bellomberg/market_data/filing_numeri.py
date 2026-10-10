@@ -95,12 +95,78 @@ def numeri_per_coppia(cik, coppia):
         return {"stato": "non_disponibile", "motivo": "companyfacts non disponibile", "voci": [],
                 "fonte": "SEC companyfacts"}
     if not _ha_fine(facts, fine):
-        return {"stato": "non_aggiornato", "voci": [], "fonte": "SEC companyfacts",
-                "motivo": f"companyfacts non contiene ancora il periodo chiuso il {fine}"
-                          + (f" ({nota})" if nota else "")}
-    out = {**variazioni(facts, periodo("prima"), periodo("dopo")), "fonte": "SEC companyfacts"}
+        motivo = f"companyfacts non contiene ancora il periodo chiuso il {fine}" + (f" ({nota})" if nota else "")
+        return _numeri_ixbrl(cik, coppia, facts, periodo("prima"), periodo("dopo"), motivo)
+    out = {**variazioni(facts, periodo("prima"), periodo("dopo")), "fonte": "SEC companyfacts",
+           "origine": "companyfacts"}
     if nota:
         out["nota_fonte"] = nota
+    return out
+
+
+def _numeri_ixbrl(cik, coppia, facts_cf, prima, dopo, motivo_cf):
+    """Ripiego dichiarato (R-FONTI 10/10, Opus 5.5): companyfacts non ha ancora il periodo del documento
+    verificato; se il documento scaricato e' inline XBRL, i numeri vengono dai suoi fatti (stesse VOCI e
+    stesse guardie: emittente del CIK, periodo esatto, unita'/valuta per voce). Il periodo precedente resta
+    quello di companyfacts quando coincide (entro l'arrotondamento dichiarato); se il documento lo
+    RIDETERMINA vale il documento (stessa base dei due lati, come nello storico ESEF) e si dichiara per voce
+    (riserva MEDIO-2 v2). Documento non iXBRL (6-K) o conversione fallita: «non_aggiornato» col motivo."""
+    from bellomberg.market_data import sec_xbrl
+    lato = (coppia or {}).get("dopo") or {}
+    accn = sec_xbrl.accession_da_url(lato.get("url"))
+    base = {"voci": [], "fonte": "SEC companyfacts", "origine": "companyfacts"}
+    if not lato.get("path") or not sec_xbrl.e_ixbrl(lato["path"]):
+        return {**base, "stato": "non_aggiornato",
+                "motivo": motivo_cf + "; documento del periodo senza inline XBRL: nessun fatto da convertire"}
+    concetti = sec_xbrl._concetti_canonici({chiave for _, chiave, _ in VOCI})
+    meta = {"accn": accn}
+    try:
+        letto = sec_xbrl.fatti_ixbrl_documento(lato["path"], cik, meta=meta)
+    except Exception as exc:
+        return {**base, "stato": "non_aggiornato",
+                "motivo": motivo_cf + f"; iXBRL del deposito {accn} non convertito ({type(exc).__name__}: "
+                                      f"{str(exc)[:160]})"}
+    fonte = sec_xbrl.fonte_ixbrl(accn)
+    if letto["periodo_documento"] and dopo[1] not in letto["periodo_documento"]:
+        return {**base, "stato": "non_aggiornato",
+                "motivo": motivo_cf + f"; {fonte}: periodo del documento {', '.join(letto['periodo_documento'])} "
+                                      f"diverso dal periodo confrontato {dopo[1]}"}
+    if not _ha_fine({"facts": letto["facts"]}, dopo[1]):
+        return {**base, "stato": "non_aggiornato",
+                "motivo": motivo_cf + f"; {fonte}: nessun fatto dell'emittente chiuso il {dopo[1]}"}
+    uniti, rideterminati = sec_xbrl.unisci_fatti((facts_cf or {}).get("facts") or {}, letto["facts"],
+                                                 fonte_base="SEC companyfacts", fonte_aggiunta=fonte,
+                                                 concetti=concetti)
+    calcolo = variazioni({"facts": uniti}, prima, dopo)
+    modi = {voce: (chiave, modo) for voce, chiave, modo in VOCI}
+    rideterminazioni = []
+    for v in calcolo["voci"]:  # fonte di ciascun lato, per voce
+        chiave, modo = modi[v["voce"]]
+        cf = _valore(facts_cf or {}, CANONICAL[chiave], prima, modo)[0]
+        v["fonte_prima"] = "SEC companyfacts" if cf is not None and cf == v["prima"] else fonte
+        v["fonte_dopo"] = fonte
+        if cf is not None and cf != v["prima"]:
+            v["rideterminato"] = {"valore_companyfacts": cf, "valore_usato": v["prima"], "fonte_usata": fonte}
+            rideterminazioni.append({"voce": v["voce"], "fine": prima[1], "valore_precedente": cf,
+                                     "fonte_precedente": "SEC companyfacts", "valore_usato": v["prima"],
+                                     "fonte_usata": fonte})
+    prima_cf = sorted({v["fonte_prima"] for v in calcolo["voci"]}) == ["SEC companyfacts"]
+    out = {**calcolo, "fonte": fonte + (" (periodo precedente: SEC companyfacts)" if prima_cf else ""),
+           "origine": sec_xbrl.ORIGINE_IXBRL,
+           "fonti_periodi": {"prima": sorted({v["fonte_prima"] for v in calcolo["voci"]}), "dopo": fonte},
+           "nota_fonte": motivo_cf + f": numeri del periodo dall'{fonte}",
+           "conversione": {**letto["conversione"], "altre_entita": letto["altre_entita"]}}
+    incoerenti = [x for x in letto["incoerenti"] if x["concetto"] in concetti]
+    if incoerenti:
+        out["incoerenti"] = incoerenti  # stesso fatto con valori diversi nel documento: tolto, dichiarato
+    if rideterminazioni:
+        out["rideterminazioni"] = rideterminazioni
+        out.setdefault("avvisi", []).append(
+            f"{len(rideterminazioni)} comparativi del periodo precedente rideterminati nel {fonte} "
+            f"({', '.join(r['voce'] for r in rideterminazioni)}): vale il deposito piu' recente, companyfacts "
+            "dichiarato accanto")
+    if rideterminati:
+        out["rideterminazioni_fatti"] = rideterminati  # tutti i fatti sostituiti, anche fuori dalle voci
     return out
 
 

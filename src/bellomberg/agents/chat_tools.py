@@ -1710,12 +1710,25 @@ def dispatch(tool_name: str, tool_input: Dict[str, Any], caller: str = None, *,
                     if not r2.get("error"):
                         r2["sec_note"] = "SEC non copre il ticker (%s): fonte ESEF" % r["error"]
                         r2 = _con_ultimo_periodo(r2, tool_input["ticker"], as_of, caller)
-                        return _stamp(r2, "ESEF filings.xbrl.org (" + str(tool_input["ticker"]) + ")")
+                        # R-FONTI v2: la ricevuta nomina IN TESTA il pacchetto dal sito dell'emittente quando usato
+                        _sito = [str(d.get("period_end"))[:4] for d in
+                                 ((r2.get("sito_emittente") or {}).get("depositi") or []) if isinstance(d, dict)]
+                        return _stamp(r2, (("pacchetto ESEF ufficiale dal sito dell'emittente (FY" + ", FY".join(_sito)
+                                            + ") + ") if _sito else "")
+                                      + "ESEF filings.xbrl.org (" + str(tool_input["ticker"]) + ")")
                     r["esef_note"] = "anche ESEF senza dati: " + str(r2.get("error"))
                 except Exception as _e2:
                     r["esef_note"] = "fallback ESEF fallito (%s)" % type(_e2).__name__
                 r = _con_ultimo_periodo(r, tool_input["ticker"], as_of, caller)
-            return _stamp(r, "SEC XBRL companyfacts (" + str(tool_input["ticker"]) + ")")
+            # R-FONTI v2 (riserva MEDIO-2): la ricevuta nomina IN TESTA il ripiego iXBRL quando usato (esercizi non
+            # ancora in companyfacts o comparativi rideterminati); prima diceva sempre «companyfacts»
+            _rip = r.get("ripiego_ixbrl") if isinstance(r, dict) else None
+            _testa = None
+            if isinstance(_rip, dict):
+                from bellomberg.market_data.sec_xbrl import etichetta_ripiego
+                _testa = etichetta_ripiego(_rip.get("anni_per_voce"), _rip.get("rideterminazioni") or [], _rip)
+            return _stamp(r, ((_testa + " + ") if _testa else "")
+                          + "SEC XBRL companyfacts (" + str(tool_input["ticker"]) + ")")
 
         if tool_name == "get_dat_metrics":
             # 04/09 (Opus 5): stesso difetto di get_cef_lookthrough, qui col DAT del book.

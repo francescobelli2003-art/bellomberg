@@ -172,7 +172,8 @@ def _raccogli(profilo, archivio, oggi=None):
                     if not documento:
                         senza_risultati += 1
                         continue
-                    row = {**row, "url": documento["url"], "documento_sec": documento["tipo"]}
+                    row = {**row, "url": documento["url"], "documento_sec": documento["tipo"],
+                           "documento_seq": documento.get("seq")}
                 motivo = "rettifica /A esclusa: versione corrente da verificare" if form.endswith("/A") else None
                 aggiungi("SEC EDGAR", row, row.get("url"),
                          hosts_extra | {"sec.gov", "www.sec.gov", "data.sec.gov"}, motivo)
@@ -413,7 +414,11 @@ def _esegui_singolo(profilo, *, archivio, oggi=None, max_documenti=20):
     out = {"ticker": profilo["ticker"], "stato": "non_disponibile", "motivi": [],
            "candidati": [], "coppia": None, "confronto_corrente": None,
            "confronto_storico": None, "ultimo_non_verificato": False, "src": "filing_pipeline"}
+    from bellomberg.market_data.filing_profili_auto import aggiorna_regole_6k
+    profilo, nota_regole_6k = aggiorna_regole_6k(profilo)  # R-FONTI 10/10: regole 6-K automatiche pre-06/10
     candidati, fonti, limiti, calendario = _raccogli(profilo, archivio, oggi)
+    if nota_regole_6k:
+        limiti.append(nota_regole_6k)
     esef_blocchi = profilo.get("esef_modo") == "blocchi"
     lingua_esef = next((f.get("lingua") for f in fonti if f.get("nome") == "ESEF" and f.get("lingua")), None)
     if esef_blocchi and lingua_esef and lingua_esef != profilo["lingua"]:
@@ -466,10 +471,25 @@ def _esegui_singolo(profilo, *, archivio, oggi=None, max_documenti=20):
                 from bellomberg.market_data.filing_verifica import verifica_documento
                 verifica = verifica_documento(snapshot["path"], url=item["url"], profilo=profilo,
                                                catalogo=catalogo)
-            if (verifica.get("stato") != "ok" and profilo.get("forme_sec") == ["6-K"]
+            identita_corpo_fallita = False
+            if (verifica.get("stato") == "ok" and profilo.get("forme_sec") == ["6-K"]
                     and item["fonte"] == "SEC EDGAR"):
+                # R-FONTI 10/10 v2 (riserva ALTO-1): sotto il CIK del titolo la COPERTINA del 6-K porta sempre il
+                # registrante, quindi la regola «emittente» del profilo (nuovo, automatico aggiornato o legacy)
+                # passa anche col comunicato di un partner, di una controllata o la revisione di un'altra entita'.
+                # L'identita' si prova anche nel CORPO, per OGNI 6-K verificato con regole testuali.
+                from bellomberg.market_data.filing_verifica import identita_6k
+                motivo_corpo, prova_corpo = identita_6k(snapshot["path"], url=item["url"], profilo=profilo,
+                                                        catalogo=catalogo)
+                if motivo_corpo:
+                    verifica = {"stato": "non_verificato", "motivi": [motivo_corpo]}
+                    identita_corpo_fallita = True
+                else:
+                    c["identita_verifica"] = prova_corpo
+            if (verifica.get("stato") != "ok" and profilo.get("forme_sec") == ["6-K"]
+                    and item["fonte"] == "SEC EDGAR" and not identita_corpo_fallita):
                 # APERTO-TI 06/10: allegato 6-K FPI («quarter ended ...»), regola standard dichiarata;
-                # identita' del profilo invariata. I motivi del profilo restano accanto.
+                # identita' del profilo e prova nel corpo (identita_6k). I motivi del profilo restano accanto.
                 from bellomberg.market_data.filing_verifica import verifica_6k_standard
                 standard = verifica_6k_standard(snapshot["path"], url=item["url"], profilo=profilo,
                                                 catalogo=catalogo)

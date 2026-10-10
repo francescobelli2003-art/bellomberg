@@ -11,6 +11,7 @@ API:
     core di IS/BS/CF + derivate (margini, payout, capex/ricavi).
 """
 import json
+import re
 import tempfile
 import os
 import time
@@ -268,6 +269,47 @@ def _osservazioni(facts: Dict[str, Any], tags_gaap: List[str], tags_ifrs: List[s
             yield f"{taxo}:{tag}", unit, units[unit]
 
 
+def depositato_entro(filed, fino_al: Optional[str], oggi: Optional[str] = None) -> bool:
+    """True se un deposito con data `filed` era noto alla run con cutoff `fino_al` (ISO).
+
+    R-FONTI 10/10 v3 (Opus 5.5): le date di deposito SEC dei companyfacts e delle submissions non hanno l'ora.
+    Con un cutoff STORICO (fino_al anteriore a oggi) un deposito dello STESSO giorno puo' essere successivo
+    all'ora della decisione: per prudenza e' escluso (filed < fino_al). Con fino_al = oggi (run corrente)
+    vale filed <= fino_al: cio' che la fonte riporta adesso e' gia' pubblicato. Data mancante: non noto."""
+    if not fino_al:
+        return True
+    filed = str(filed or "")[:10]
+    if len(filed) != 10:
+        return False
+    oggi = str(oggi or datetime.now().date().isoformat())[:10]
+    return filed < fino_al or (filed == fino_al and fino_al >= oggi)
+
+
+def _facts_fino_al(facts: Dict[str, Any], fino_al: Optional[str]) -> Dict[str, Any]:
+    """Copia di companyfacts con le sole osservazioni depositate entro il cutoff (`depositato_entro`).
+
+    R-FONTI 10/10 v3 (Opus 5.5, riserva MEDIO della revisione v2): le serie annuali e l'ultimo esercizio del
+    ripiego leggevano companyfacts INTERO anche con fino_al (FY2024 da un 20-F depositato dopo il cutoff
+    compariva nello storico mentre latest_period diceva FY2023). Ora storico, ripiego e trimestri vedono lo
+    stesso insieme di depositi."""
+    if not fino_al:
+        return facts
+    oggi = datetime.now().date().isoformat()
+    out: Dict[str, Any] = {}
+    for taxo, nodo in (facts or {}).items():
+        if not isinstance(nodo, dict):
+            continue
+        tags = {}
+        for tag, item in nodo.items():
+            units = {u: [ob for ob in obs if isinstance(ob, dict) and depositato_entro(ob.get("filed"), fino_al, oggi)]
+                     for u, obs in ((item or {}).get("units") or {}).items()}
+            units = {u: obs for u, obs in units.items() if obs}
+            if units:
+                tags[tag] = {**item, "units": units}
+        out[taxo] = tags
+    return out
+
+
 def _fine_per_accession(facts: Dict[str, Any], fino_al: Optional[str]) -> Dict[str, str]:
     """{accession: fine del periodo del deposito} = la fine piu' recente fra i suoi fatti (le voci
     canoniche). Un 10-Q riporta anche i comparativi (fine esercizio precedente, stesso trimestre
@@ -310,7 +352,7 @@ def quarterly_history(facts: Dict[str, Any], quarters: int = 8, fino_al: Optiona
                 annuale = form in ANNUAL_FORMS and ob.get("fp") in ("FY", None, "")
                 if not (trimestrale or annuale) or len(end) != 10:
                     continue
-                if fino_al and (end > fino_al or str(ob.get("filed") or "9999") > fino_al):
+                if fino_al and (end > fino_al or not depositato_entro(ob.get("filed"), fino_al)):
                     continue
                 if fine_accn.get(ob.get("accn"), end) != end:
                     continue                      # comparativo di un altro periodo
@@ -342,7 +384,8 @@ def quarterly_history(facts: Dict[str, Any], quarters: int = 8, fino_al: Optiona
                                 ("USD", "EUR", "GBP", "USD/shares", "EUR/shares", "GBP/shares") else None,
                             "definition": tag, "form": form, "accession": ob.get("accn"),
                             "filing_date": ob.get("filed"), "fiscal_period": ob.get("fp"),
-                            "source": "SEC companyfacts"}}
+                            "source": (fonte_ixbrl(ob.get("accn")) if ob.get("fonte") == ORIGINE_IXBRL
+                                       else "SEC companyfacts")}}
                 if trimestrale and (canon in INSTANT_ITEMS or (durata is not None and 80 <= durata <= 100)):
                     prev = serie.setdefault(canon, {}).get(end)
                     if prev is None or (-priorita, str(ob.get("filed", ""))) >= prev[1]:
@@ -395,6 +438,416 @@ def quarterly_history(facts: Dict[str, Any], quarters: int = 8, fino_al: Optiona
     return {"quarters": out_q, "quarter_ends": fine_trimestri, "q4": q4, "latest_period": latest}
 
 
+# RIPIEGO iXBRL (R-FONTI 10/10, Opus 5.5): companyfacts puo' restare indietro di mesi rispetto a un deposito
+# gia' pubblicato (prova reale su un emittente del book: 20-F FY2025 depositato l'08/04/2026, companyfacts fermo al FY2024 il 10/10).
+# Se il deposito e' inline XBRL, i suoi fatti si leggono dal documento (ixbrl_oim, convertitore del progetto)
+# con le stesse voci e le stesse guardie: SOLO l'emittente del CIK, solo fatti senza assi con unita', periodo
+# esatto, valori incoerenti nello stesso documento tolti e dichiarati. La fonte e' sempre dichiarata
+# («iXBRL del deposito <accession> convertito in locale», origine `ixbrl_locale`), mai «companyfacts».
+# Sui periodi presenti in entrambe vale companyfacts e una divergenza e' un CONFLITTO dichiarato.
+ORIGINE_IXBRL = "ixbrl_locale"
+SCHEMA_CIK = "http://www.sec.gov/CIK"
+_IX_NS = b"http://www.xbrl.org/2013/inlineXBRL"
+_ACCESSION_URL = re.compile(r"/Archives/edgar/data/\d{1,10}/(\d{10})(\d{2})(\d{6})/")
+_DIM_BASE = {"concept", "entity", "period", "unit", "language"}
+MAX_DOCUMENTO_IXBRL = 80 * 1024 * 1024
+RIPIEGO_TTL_S = 24 * 3600          # elenco depositi annuali (submissions) riletto al piu' una volta al giorno
+GIORNI_ESERCIZIO_ATTESO = 400      # oltre la chiusura dell'ultimo esercizio: il successivo puo' esistere
+MAX_DEPOSITI_RIPIEGO = 2
+
+
+def accession_da_url(url) -> Optional[str]:
+    """«0001292814-26-002166» dall'URL EDGAR del documento, None se non e' un percorso di deposito."""
+    m = _ACCESSION_URL.search(str(url or ""))
+    return f"{m[1]}-{m[2]}-{m[3]}" if m else None
+
+
+def fonte_ixbrl(accession) -> str:
+    return f"iXBRL del deposito {accession or 'n.d.'} convertito in locale"
+
+
+def e_ixbrl(path, testa: int = 512 * 1024) -> bool:
+    """Il file dichiara il namespace inline XBRL nella testa (i 6-K senza XBRL no)."""
+    try:
+        with open(path, "rb") as fh:
+            return _IX_NS in fh.read(testa)
+    except OSError:
+        return False
+
+
+def _data_iso(valore) -> str:
+    """Data ISO da un fatto dei (il convertitore lascia il testo visualizzato: «December 31, 2025»)."""
+    testo = " ".join(str(valore or "").split())
+    try:
+        return datetime.fromisoformat(testo).date().isoformat()
+    except ValueError:
+        pass
+    try:
+        from bellomberg.market_data.filing_verifica import _data
+        return _data(testo).isoformat()
+    except (ValueError, TypeError):
+        return testo
+
+
+def fatti_ixbrl(raw: Dict[str, Any], cik, *, meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Fatti numerici di un xBRL-JSON (ixbrl_oim) nella forma companyfacts {tassonomia: {concetto: {units}}}.
+
+    Guardie: emittente = CIK `cik` con schema SEC (le altre entita' contate in `altre_entita`); solo fatti
+    us-gaap/ifrs-full senza assi, con unita' e valore numerico; stesso concetto/unita'/periodo con valori
+    diversi nel documento -> tolto e dichiarato in `incoerenti`. Ogni riga porta `fonte: ixbrl_locale` e i
+    campi di `meta` (accn, form, fp, filed). `periodo_documento`: dei:DocumentPeriodEndDate (insieme)."""
+    from bellomberg.market_data.filing_esef import _istante, _periodo
+    ns = ((raw or {}).get("documentInfo") or {}).get("namespaces") or {}
+
+    def tassonomia(prefisso):
+        uri = str(ns.get(prefisso) or "")
+        if prefisso == "ifrs-full" or "xbrl.ifrs.org" in uri:
+            return "ifrs-full"
+        if "fasb.org/us-gaap" in uri:
+            return "us-gaap"
+        if "xbrl.sec.gov/dei" in uri:
+            return "dei"
+        return None
+    cik_n = int(str(cik))
+    righe: Dict[Any, set] = {}
+    altre, periodo_doc = 0, set()
+    for f in ((raw or {}).get("facts") or {}).values():
+        dims = (f or {}).get("dimensions") or {}
+        schema, _, ident = str(dims.get("entity") or "").partition(":")
+        if ns.get(schema) != SCHEMA_CIK or not ident.strip().isdigit() or int(ident) != cik_n:
+            altre += 1
+            continue
+        prefisso, _, nome = str(dims.get("concept") or "").partition(":")
+        tax = tassonomia(prefisso)
+        if set(dims) - _DIM_BASE:
+            continue  # scomposizione per assi: non il totale dell'emittente
+        if tax == "dei" and nome == "DocumentPeriodEndDate":
+            periodo_doc.add(_data_iso(f.get("value")))
+            continue
+        if tax not in ("us-gaap", "ifrs-full") or not dims.get("unit"):
+            continue
+        try:
+            valore = float(f.get("value"))
+        except (TypeError, ValueError):
+            continue
+        periodo = str(dims.get("period") or "")
+        chiave = _periodo(periodo) if "/" in periodo else ((None, _istante(periodo)) if periodo else None)
+        if not chiave or not chiave[1]:
+            continue
+        unita = "/".join(u.split(":", 1)[-1] for u in str(dims["unit"]).split("/"))
+        decimali = f.get("decimals")
+        righe.setdefault((tax, nome, unita, chiave), set()).add(
+            (valore, decimali if isinstance(decimali, int) and not isinstance(decimali, bool) else None))
+    facts: Dict[str, Dict[str, Any]] = {}
+    incoerenti, arrotondati = [], 0
+    for (tax, nome, unita, (inizio, fine)), valori in sorted(righe.items(), key=lambda kv: str(kv[0])):
+        scelto = valore_coerente(valori)
+        if scelto is None:
+            incoerenti.append({"concetto": f"{tax}:{nome}", "unita": unita, "inizio": inizio, "fine": fine,
+                               "valori": sorted({v for v, _ in valori})})
+            continue
+        arrotondati += len({v for v, _ in valori}) > 1
+        riga = {**(meta or {}), "end": fine, "val": scelto[0], "fonte": ORIGINE_IXBRL}
+        if scelto[1] is not None:
+            riga["decimals"] = scelto[1]
+        if inizio:
+            riga["start"] = inizio
+        facts.setdefault(tax, {}).setdefault(nome, {"units": {}})["units"].setdefault(unita, []).append(riga)
+    return {"facts": facts, "altre_entita": altre, "incoerenti": incoerenti,
+            "coerenti_per_arrotondamento": arrotondati, "periodo_documento": sorted(periodo_doc)}
+
+
+def tolleranza(decimali) -> float:
+    """Mezza unita' dell'ultima cifra dichiarata (decimals=-3: 500); 0 se la precisione non e' dichiarata."""
+    return 0.5 * 10.0 ** (-decimali) if isinstance(decimali, int) and not isinstance(decimali, bool) else 0.0
+
+
+def valore_coerente(valori):
+    """(valore, decimals) del fatto piu' preciso se TUTTI i valori dello stesso fatto (stesso concetto, unita' e
+    periodo) coincidono entro l'arrotondamento dichiarato di ciascuno (BASSI v2: «1.234.567» con decimals=0 e
+    «1.235.000» con decimals=-3 sono lo stesso fatto); None se almeno uno diverge oltre l'arrotondamento."""
+    ordinati = sorted(valori, key=lambda vd: (vd[1] is not None, vd[1] if vd[1] is not None else 0), reverse=True)
+    # precisione non dichiarata = esatta (prima); poi decimals piu' alto
+    ordinati = [vd for vd in ordinati if vd[1] is None] + [vd for vd in ordinati if vd[1] is not None]
+    migliore = ordinati[0]
+    for v, d in ordinati[1:]:
+        if abs(v - migliore[0]) > tolleranza(d) + 1e-9 * max(abs(v), abs(migliore[0]), 1.0):
+            return None
+    return migliore
+
+
+def fatti_ixbrl_documento(path, cik, *, meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """fatti_ixbrl del documento convertito in locale; ValueError se nessun fatto e' dell'emittente."""
+    from bellomberg.market_data import ixbrl_oim
+    raw = ixbrl_oim.converti_xhtml(path)
+    out = fatti_ixbrl(raw, cik, meta=meta)
+    if not out["facts"]:
+        raise ValueError(f"iXBRL senza fatti numerici dell'emittente CIK {str(cik).zfill(10)} "
+                         f"({out['altre_entita']} fatti di altre entita')")
+    out["conversione"] = {k: (raw.get("conversione") or {}).get(k) for k in ("fatti", "limiti")}
+    return out
+
+
+def _chiave_riga(r):
+    return (r.get("start"), r.get("end"))
+
+
+def unisci_fatti(base: Dict[str, Any], aggiunta: Dict[str, Any], *, fonte_base: str, fonte_aggiunta: str,
+                 concetti: Optional[set] = None):
+    """(fatti uniti, rideterminazioni). Le righe di `aggiunta` (deposito PIU' RECENTE di `base`) entrano per i
+    periodi che `base` non ha; sullo stesso periodo, concetto e unita' un valore diverso OLTRE l'arrotondamento
+    dichiarato (decimals del deposito) e' un comparativo RIDETERMINATO: vale il deposito piu' recente, come
+    nello storico ESEF e come fa `_series_from_tag` (vince il «filed» piu' recente), e si dichiara
+    (riserva MEDIO-2 v2: prima vinceva companyfacts e la serie mescolava due basi, +257% falso sui crediti di
+    un emittente del book). `concetti`: solo questi «tassonomia:concetto» nella dichiarazione. `base` intatto."""
+    unito = {tax: dict(nodo) for tax, nodo in (base or {}).items()}
+    rideterminazioni = []
+    for tax, nodo in (aggiunta or {}).items():
+        dest = unito.setdefault(tax, {})
+        for nome, item in nodo.items():
+            vecchio = dest.get(nome) or {"units": {}}
+            unita = {u: list(r) for u, r in (vecchio.get("units") or {}).items()}
+            for u, righe in (item.get("units") or {}).items():
+                presenti: Dict[Any, List[Any]] = {}
+                for r in unita.get(u, []):
+                    presenti.setdefault(_chiave_riga(r), []).append(r.get("val"))
+                for r in righe:
+                    k = _chiave_riga(r)
+                    if k not in presenti:
+                        unita.setdefault(u, []).append(r)
+                        presenti[k] = [r.get("val")]
+                        continue
+                    tol = tolleranza(r.get("decimals"))
+                    diversi = sorted({v for v in presenti[k] if not isinstance(v, (int, float)) or not isinstance(
+                        r.get("val"), (int, float)) or abs(v - r["val"]) > tol + 1e-9 * max(abs(v), 1.0)})
+                    if not diversi:
+                        continue  # stesso valore entro l'arrotondamento dichiarato: vale la riga gia' presente
+                    unita[u] = [x for x in unita.get(u, []) if _chiave_riga(x) != k] + [r]
+                    presenti[k] = [r.get("val")]
+                    if concetti is None or f"{tax}:{nome}" in concetti:
+                        rideterminazioni.append({
+                            "concetto": f"{tax}:{nome}", "unita": u, "inizio": k[0], "fine": k[1],
+                            "valore_precedente": diversi[0] if len(diversi) == 1 else diversi,
+                            "fonte_precedente": fonte_base, "valore_usato": r.get("val"),
+                            "fonte_usata": fonte_aggiunta,
+                            "nota": "comparativo rideterminato nel deposito piu' recente: vale il suo valore"})
+            dest[nome] = {**vecchio, "units": unita}
+    return unito, rideterminazioni
+
+
+def _concetti_canonici(chiavi=None) -> set:
+    out = set()
+    for canon, (tg, ti) in CANONICAL.items():
+        if chiavi is None or canon in chiavi:
+            out.update(f"us-gaap:{t}" for t in tg)
+            out.update(f"ifrs-full:{t}" for t in ti)
+    return out
+
+
+def _ultima_fine_annuale(facts: Dict[str, Any]) -> Optional[str]:
+    """Fine dell'ultimo esercizio depositato (10-K/20-F/40-F) fra le voci canoniche di companyfacts."""
+    fine = None
+    for _canon, (tg, ti) in CANONICAL.items():
+        for _tag, _unit, obs in _osservazioni(facts, tg, ti):
+            for ob in obs:
+                e = ob.get("end") or ""
+                if ob.get("form") in ANNUAL_FORMS and len(e) == 10 and (fine is None or e > fine):
+                    fine = e
+    return fine
+
+
+def _submissions_sec(cik: str) -> Dict[str, Any]:
+    """submissions EDGAR dell'emittente (rete SEC nel ritmo condiviso). Eccezione se non disponibile."""
+    import requests
+    from bellomberg.market_data import sec_edgar
+    from bellomberg.market_data.sec_edgar import _headers
+    sec_edgar.attendi_sec()
+    r = requests.get(f"https://data.sec.gov/submissions/CIK{cik}.json", headers=_headers(), timeout=30)
+    if r.status_code != 200:
+        raise ValueError(f"submissions SEC: HTTP {r.status_code}")
+    dati = r.json()
+    if not isinstance(dati, dict) or not isinstance((dati.get("filings") or {}).get("recent"), dict):
+        raise ValueError("submissions SEC senza elenco filings.recent")
+    return dati
+
+
+def _scarica_documento_sec(url: str, cartella: str) -> Dict[str, Any]:
+    """Snapshot del documento primario (solo www.sec.gov, HTTPS, tetto MAX_DOCUMENTO_IXBRL)."""
+    from bellomberg.market_data.lettore_trimestrali import scarica_documento
+    return scarica_documento(url, cartella, host_consentiti={"www.sec.gov"}, public_only=True,
+                             max_bytes=MAX_DOCUMENTO_IXBRL, solo_https=True)
+
+
+def _annuali_ixbrl_dopo(submissions: Dict[str, Any], cik: str, dopo: Optional[str], fino_al: Optional[str]):
+    """Depositi annuali (10-K/20-F/40-F, rettifiche escluse) con reportDate > `dopo` e depositati entro
+    `fino_al` (cutoff della run: MAI un deposito successivo, nessun look-ahead). `dopo`/`fino_al` None: tutti."""
+    recent = submissions["filings"]["recent"]
+
+    def col(nome, i):
+        v = recent.get(nome) or []
+        return v[i] if i < len(v) else None
+    out = []
+    for i, form in enumerate(recent.get("form") or []):
+        report, filed = str(col("reportDate", i) or ""), str(col("filingDate", i) or "")
+        if form not in ("10-K", "20-F", "40-F") or not report:
+            continue
+        acc, doc = str(col("accessionNumber", i) or ""), str(col("primaryDocument", i) or "")
+        if not acc or not doc:
+            continue
+        out.append({"accn": acc, "form": form, "filed": filed, "report_date": report,
+                    "inline": bool(col("isInlineXBRL", i)),
+                    "url": f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc.replace('-', '')}/{doc}"})
+    return _filtra_depositi(out, dopo, fino_al)
+
+
+def _filtra_depositi(elenco, dopo: Optional[str], fino_al: Optional[str]):
+    """Solo reportDate > `dopo` (esercizi che companyfacts non ha) e depositati entro `fino_al` (cutoff, regola
+    di `depositato_entro`: lo stesso giorno di un cutoff storico e' escluso)."""
+    out = [d for d in elenco if isinstance(d, dict) and (not dopo or str(d.get("report_date") or "") > dopo)
+           and depositato_entro(d.get("filed"), fino_al)]
+    return sorted(out, key=lambda d: (d["report_date"], d["filed"]), reverse=True)
+
+
+def _ripiego_path(cik: str) -> str:
+    return os.path.join(CACHE_DIR, f"ixbrl_CIK{cik}.json")
+
+
+# Riserva MEDIO-3 v2: memoria dei fallimenti. Il documento di un deposito EDGAR e' immutabile: una conversione
+# fallita (iXBRL senza fatti dell'emittente, periodo diverso, file rotto) si ricorda per accession + sha256 e
+# non si riscarica (fino a 80 MB, ~22 chiamate per run) per GIORNI_DEPOSITO_INVALIDO giorni; un download o
+# l'elenco submissions non riusciti (rete, SEC) si ricordano per RIPIEGO_ERRORE_TTL_S. Sempre dichiarato.
+GIORNI_DEPOSITO_INVALIDO = 30
+RIPIEGO_ERRORE_TTL_S = 3600
+
+
+def _leggi_cache_ripiego(cik: str) -> Dict[str, Any]:
+    try:
+        with open(_ripiego_path(cik), "r", encoding="utf-8") as f:
+            cache = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return cache if isinstance(cache, dict) and cache.get("versione") == 2 else {}
+
+
+def _fresco(quando, ttl_s) -> bool:
+    try:
+        return 0 <= time.time() - float(quando) < ttl_s
+    except (TypeError, ValueError):
+        return False
+
+
+def ripiego_ixbrl_annuale(cik: str, facts: Dict[str, Any], fino_al: Optional[str] = None,
+                          oggi: Optional[datetime] = None) -> Dict[str, Any]:
+    """Esercizi annuali depositati ma assenti da companyfacts, letti dall'iXBRL del deposito.
+
+    {"stato": "non_necessario" | "nessun_deposito" | "ok" | "parziale" | "errore", "motivo", "depositi":
+    [{accn, form, filed, report_date, url, sha256, fonte, facts, conversione, ...}]}. Rete solo se
+    companyfacts e' fermo da oltre GIORNI_ESERCIZIO_ATTESO dalla chiusura dell'ultimo esercizio. Cache per
+    emittente: elenco COMPLETO dei depositi annuali (letto al piu' ogni RIPIEGO_TTL_S, filtrato per `fino_al`
+    a ogni chiamata: una run storica non vede depositi successivi al suo cutoff), conversioni per accession
+    (deposito immutabile), fallimenti per accession + sha256 ed errore dell'elenco (riserva MEDIO-3 v2)."""
+    ultima = _ultima_fine_annuale(facts)
+    rif = datetime.fromisoformat(fino_al) if fino_al else (oggi or datetime.now())
+    if not ultima:
+        return {"stato": "non_necessario", "motivo": "companyfacts senza esercizi annuali", "depositi": []}
+    if (rif - datetime.fromisoformat(ultima)).days <= GIORNI_ESERCIZIO_ATTESO:
+        return {"stato": "non_necessario", "motivo": None, "depositi": []}
+    cache = _leggi_cache_ripiego(cik) or {"versione": 2}
+    motivi: List[str] = []
+
+    def scrivi():
+        try:
+            os.makedirs(CACHE_DIR, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=CACHE_DIR, suffix=".tmp")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(cache, f)
+            os.replace(tmp, _ripiego_path(cik))
+        except OSError as e:
+            motivi.append(f"cache del ripiego non scritta ({type(e).__name__}): sara' riletta dalla rete")
+
+    elenco_noto = cache.get("elenco")
+    if isinstance(elenco_noto, list) and _fresco(cache.get("elenco_letto_at"), RIPIEGO_TTL_S):
+        tutti = elenco_noto
+    elif isinstance(cache.get("errore_elenco"), dict) and _fresco(cache["errore_elenco"].get("at"),
+                                                                   RIPIEGO_ERRORE_TTL_S):
+        err = cache["errore_elenco"]
+        return {"stato": "errore", "depositi": [],
+                "motivo": f"elenco depositi SEC non letto ({err.get('motivo')}; errore del "
+                          f"{datetime.fromtimestamp(float(err['at'])).isoformat(timespec='minutes')}, non ritentato "
+                          f"per {RIPIEGO_ERRORE_TTL_S // 60} minuti): esercizi dopo il {ultima} non verificati"}
+    else:
+        try:
+            tutti = _annuali_ixbrl_dopo(_submissions_sec(cik), cik, None, None)
+        except Exception as e:
+            cache["errore_elenco"] = {"motivo": f"{type(e).__name__}: {str(e)[:160]}", "at": time.time()}
+            scrivi()
+            return {"stato": "errore", "depositi": [],
+                    "motivo": f"elenco depositi SEC non letto ({type(e).__name__}: {str(e)[:160]}): esercizi dopo "
+                              f"il {ultima} non verificati" + (f"; {motivi[0]}" if motivi else "")}
+        cache.update(elenco=tutti, elenco_letto_at=time.time())
+        cache.pop("errore_elenco", None)
+    elenco = _filtra_depositi(tutti, ultima, fino_al)
+    if not elenco:
+        scrivi()
+        return {"stato": "nessun_deposito", "depositi": [],
+                "motivo": f"nessun deposito annuale dopo il {ultima}" + (f" depositato entro il {fino_al}"
+                                                                         if fino_al else "") + " nell'elenco SEC"}
+    convertiti = cache.setdefault("convertiti", {})
+    falliti = cache.setdefault("falliti", {})
+    concetti = _concetti_canonici()
+    depositi = []
+    for d in elenco[:MAX_DEPOSITI_RIPIEGO]:
+        etichetta = f"{d['form']} {d['accn']} ({d['report_date']})"
+        if not d.get("inline"):
+            motivi.append(f"{etichetta}: non inline XBRL, nessun fatto da convertire")
+            continue
+        voce = convertiti.get(d["accn"])
+        if isinstance(voce, dict) and voce.get("facts"):
+            depositi.append(voce)
+            continue
+        noto = falliti.get(d["accn"])
+        if isinstance(noto, dict) and _fresco(noto.get("at"), GIORNI_DEPOSITO_INVALIDO * 86400
+                                               if noto.get("sha256") else RIPIEGO_ERRORE_TTL_S):
+            motivi.append(f"{etichetta}: gia' fallito il "
+                          f"{datetime.fromtimestamp(float(noto['at'])).isoformat(timespec='minutes')} "
+                          + (f"(sha256 {str(noto['sha256'])[:12]}, deposito immutabile)" if noto.get("sha256")
+                             else "(download)") + f": {noto.get('motivo')}; non riscaricato")
+            continue
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        cartella = tempfile.mkdtemp(dir=CACHE_DIR, prefix="ixbrl_")
+        sha = None
+        try:
+            snap = _scarica_documento_sec(d["url"], cartella)
+            if snap.get("stato") != "ok":
+                raise ValueError(snap.get("motivo") or "documento non scaricato")
+            sha = snap.get("sha256")
+            meta = {"accn": d["accn"], "form": d["form"], "fp": "FY", "filed": d["filed"]}
+            letto = fatti_ixbrl_documento(snap["path"], cik, meta=meta)
+            if d["report_date"] not in letto["periodo_documento"]:
+                raise ValueError(f"periodo del documento {letto['periodo_documento'] or 'non dichiarato'} "
+                                 f"diverso dalla reportDate SEC {d['report_date']}")
+            voce = {**d, "sha256": sha, "fonte": fonte_ixbrl(d["accn"]),
+                    "convertito_il": datetime.now().isoformat(timespec="seconds"),
+                    "conversione": letto["conversione"], "altre_entita": letto["altre_entita"],
+                    "coerenti_per_arrotondamento": letto.get("coerenti_per_arrotondamento", 0),
+                    "incoerenti": [x for x in letto["incoerenti"] if x["concetto"] in concetti],
+                    "facts": {tax: {n: it for n, it in nodo.items() if f"{tax}:{n}" in concetti}
+                              for tax, nodo in letto["facts"].items()}}
+            convertiti[d["accn"]] = voce
+            falliti.pop(d["accn"], None)
+            depositi.append(voce)
+        except Exception as e:
+            motivo = f"{type(e).__name__}: {str(e)[:200]}"
+            falliti[d["accn"]] = {"sha256": sha, "motivo": motivo, "at": time.time()}
+            motivi.append(f"{etichetta}: {motivo}")
+        finally:
+            import shutil
+            shutil.rmtree(cartella, ignore_errors=True)
+    scrivi()
+    stato = "ok" if depositi and not motivi else "parziale" if depositi else "errore"
+    return {"stato": stato, "depositi": depositi, "motivo": "; ".join(motivi) or None}
+
+
 def get_financial_history(ticker: str, years: int = 10, fino_al: Optional[str] = None) -> Dict[str, Any]:
     """Storico annuale riga-per-riga dai filing SEC (10-K/20-F). ~30 voci canoniche + derivate."""
     try:
@@ -415,7 +868,20 @@ def get_financial_history(ticker: str, years: int = 10, fino_al: Optional[str] =
     data = _fetch_companyfacts(cik, esito=lettura)
     if not data:
         return {"error": f"companyfacts non disponibile per CIK {cik}"}
-    facts = data.get("facts") or {}
+    # v3: con un cutoff, companyfacts senza i depositi successivi (serie annuali, ultimo esercizio del ripiego e
+    # trimestri sullo stesso insieme: nessun look-ahead)
+    facts = facts_cf = _facts_fino_al(data.get("facts") or {}, fino_al)
+    # RIPIEGO iXBRL (R-FONTI 10/10): esercizi depositati ma non ancora in companyfacts, dal documento
+    ripiego = ripiego_ixbrl_annuale(cik, facts_cf, fino_al=fino_al)
+    rideterminati: List[Dict[str, Any]] = []
+    # dal deposito MENO recente al piu' recente: sullo stesso periodo vale l'ultimo deposito (comparativo
+    # rideterminato), come nello storico ESEF; ogni sostituzione si dichiara (riserva MEDIO-2 v2)
+    for dep in sorted(ripiego.get("depositi") or [],
+                      key=lambda d: (d.get("report_date") or "", d.get("filed") or "")):
+        facts, c = unisci_fatti(facts, dep.get("facts") or {}, fonte_base="SEC companyfacts" if facts is facts_cf
+                                else "SEC companyfacts o deposito iXBRL precedente",
+                                fonte_aggiunta=dep["fonte"], concetti=_concetti_canonici())
+        rideterminati.extend(c)
     out_items: Dict[str, Dict[int, Any]] = {}
     tags_used: Dict[str, str] = {}
     unit_used: Dict[str, str] = {}
@@ -428,6 +894,14 @@ def get_financial_history(ticker: str, years: int = 10, fino_al: Optional[str] =
             unit_used[canon] = unit
     if not out_items:
         return {"error": f"{ticker}: companyfacts presente ma nessuna voce mappata (tassonomia atipica)"}
+    da_ixbrl: Dict[str, List[int]] = {}
+    if facts is not facts_cf:
+        for canon, (tg, ti) in CANONICAL.items():
+            ser_cf = _annual_series(facts_cf, tg, ti)[0] or {}
+            anni = sorted(y for y in out_items.get(canon, {}) if y not in ser_cf)
+            if anni:
+                da_ixbrl[canon] = anni
+    rideterminazioni, discontinuita = _voci_rideterminate(rideterminati, out_items, tags_used, unit_used)
     all_years = sorted({y for s in out_items.values() for y in s.keys()})[-years:]
 
     def g(item, y):
@@ -454,20 +928,84 @@ def get_financial_history(ticker: str, years: int = 10, fino_al: Optional[str] =
     # FRESCHEZZA: trimestri dei 10-Q e ultimo periodo depositato con period_end/filing_date (ricevuta attestabile)
     trimestri = quarterly_history(facts, fino_al=fino_al)   # cutoff della run: mai un deposito successivo
 
-    return {"ticker": ticker.upper(), "cik": cik,
+    fonte_testa = etichetta_ripiego(da_ixbrl, rideterminazioni, ripiego)
+    out = {"ticker": ticker.upper(), "cik": cik,
             "quarters": trimestri["quarters"], "quarter_ends": trimestri["quarter_ends"], "q4": trimestri["q4"],
             "latest_period": trimestri["latest_period"],
             "entity": data.get("entityName"),
             "years": all_years, "n_items": len(out_items),
             "items": out_items, "derived": derived,
             "tags_used": tags_used, "units": unit_used,
-            "_source": "SEC XBRL companyfacts (10-K/20-F/40-F fp=FY; trimestri dai 10-Q fp=Q1-Q3)",
+            # la fonte del ripiego sta IN TESTA (riserva MEDIO-2 v2: in coda il tetto del tool la tagliava)
+            "_source": ((fonte_testa + " + ") if fonte_testa else "")
+                       + "SEC XBRL companyfacts (10-K/20-F/40-F fp=FY; trimestri dai 10-Q fp=Q1-Q3)",
+            # RIPIEGO iXBRL dichiarato: stato, depositi letti, anni per voce, comparativi rideterminati
+            "ripiego_ixbrl": {"stato": ripiego["stato"], "motivo": ripiego.get("motivo"),
+                              "origine": ORIGINE_IXBRL,
+                              "depositi": [{k: d.get(k) for k in ("accn", "form", "filed", "report_date", "url",
+                                                                  "sha256", "fonte", "convertito_il", "conversione",
+                                                                  "altre_entita", "incoerenti",
+                                                                  "coerenti_per_arrotondamento")}
+                                           for d in ripiego["depositi"]],
+                              "anni_per_voce": da_ixbrl, "rideterminazioni": rideterminazioni},
             "_timestamp": datetime.now().isoformat(timespec="seconds"),
             # REV_G2a R-4: eta' del dato (cache fino a 7 giorni) e cache nota come superata
             "da_cache": lettura.get("da_cache"), "companyfacts_letto_il": lettura.get("letto_il"),
             **({"index_note": "companyfacts in cache anteriore a un deposito gia' pubblicato ("
                               + str(superata.get("motivo")) + "): possibili dati recenti mancanti"}
                if (superata := cache_superata(cik)) and lettura.get("da_cache") else {})}
+    if rideterminazioni:
+        out["rideterminazioni"] = rideterminazioni  # stessa chiave dello storico ESEF
+    if discontinuita:
+        out["discontinuita"] = discontinuita
+    return out
+
+
+def _voci_rideterminate(rideterminati, out_items, tags_used, unit_used):
+    """(rideterminazioni per voce, discontinuita') dai comparativi sostituiti da unisci_fatti.
+
+    Una riga conta per una voce canonica solo se il suo concetto e' fra i tag USATI dalla voce, l'unita' e'
+    quella della voce e il valore in `items` e' davvero quello del deposito piu' recente. Discontinuita':
+    l'anno precedente al primo rideterminato resta sulla base vecchia (il deposito recente ridetermina solo i
+    suoi comparativi): la variazione fra i due anni NON e' omogenea e si dichiara."""
+    rideterminazioni, discontinuita = [], {}
+    for r in rideterminati:
+        tax, _, nome = str(r.get("concetto") or "").partition(":")
+        anno = int(str(r.get("fine") or "0")[:4] or 0)
+        for canon, usato in tags_used.items():
+            if not usato or not usato.startswith(tax + ":") or nome not in usato.split(":", 1)[1].split("+"):
+                continue
+            if unit_used.get(canon) != r.get("unita") or out_items.get(canon, {}).get(anno) != r.get("valore_usato"):
+                continue
+            rideterminazioni.append({"voce": canon, "anno": anno, "concetto": r["concetto"],
+                                     "valore_precedente": r["valore_precedente"],
+                                     "fonte_precedente": r["fonte_precedente"], "valore_usato": r["valore_usato"],
+                                     "fonte_usata": r["fonte_usata"], "nota": r["nota"]})
+    for canon in sorted({x["voce"] for x in rideterminazioni}):
+        anni = sorted({x["anno"] for x in rideterminazioni if x["voce"] == canon})
+        prec = anni[0] - 1
+        if prec in out_items.get(canon, {}):
+            discontinuita[canon] = {
+                "tra": [prec, anni[0]],
+                "motivo": (f"FY{'/'.join(str(a) for a in anni)} rideterminato nel deposito piu' recente; FY{prec} e "
+                           "precedenti restano sulla base del deposito originale: variazione "
+                           f"FY{prec}->FY{anni[0]} non omogenea")}
+    return rideterminazioni, discontinuita
+
+
+def etichetta_ripiego(da_ixbrl, rideterminazioni, ripiego) -> Optional[str]:
+    """Fonte del ripiego iXBRL da mettere IN TESTA a `_source` e alla ricevuta del tool, None se non usato."""
+    if not da_ixbrl and not rideterminazioni:
+        return None
+    usati = sorted({x["fonte_usata"] for x in rideterminazioni}
+                   | ({d["fonte"] for d in (ripiego or {}).get("depositi") or []} if da_ixbrl else set()))
+    anni = sorted({y for a in (da_ixbrl or {}).values() for y in a})
+    parti = []
+    if anni:
+        parti.append("FY" + ", FY".join(str(y) for y in anni) + " (companyfacts non ancora aggiornato)")
+    if rideterminazioni:
+        parti.append(f"{len(rideterminazioni)} comparativi rideterminati (vale il deposito piu' recente)")
+    return " + ".join(usati) + ": " + "; ".join(parti)
 
 
 if __name__ == "__main__":

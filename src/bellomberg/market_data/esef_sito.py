@@ -1308,13 +1308,85 @@ _TIPI_PDF = (
     ("trimestrale", re.compile(r"md\W?&?\W?a\b|mda\b|management.?s[\s_-]*discussion|quarter|trimestr|quartal"
                                r"|resoconto[\s_-]*intermedio|zwischenmitteilung"
                                r"|\bq[1-4]\b|[\s_-]q[1-4][\s_-]", re.I)),
-    ("semestrale", re.compile(r"half[\s_-]*year|semestr|halbjahr|first[\s_-]*half|\bh1\b|interim|semi[\s_-]*annual"
-                              r"|halfjaar", re.I)),
+    ("semestrale", re.compile(r"half[\s_-]*year|semestr|halbjahr|first[\s_-]*half|\bh1\b|\b1h\b|interim"
+                              r"|semi[\s_-]*annual|halfjaar", re.I)),  # «1H_2026» (BASSI v2)
     ("annuale", re.compile(r"annual|annuale|annuel|bilancio|gesch(?:a|ä|ae)ftsbericht|rapport[\s_-]*annuel|jahresfinanz"
                            r"|registration[\s_-]*document|document[\s_-]*d.enregistrement|integrated[\s_-]*report"
                            r"|relazione[\s_-]*finanziaria|informe[\s_-]*anual|cuentas[\s_-]*anuales|jaarverslag"
                            r"|konzernabschluss|[aå]rsredovisning|vuosikertomus", re.I)),
 )
+# R-FONTI 10/10 (Opus 5.5): «Relazione finanziaria» senza aggettivo e' il nome italiano sia dell'annuale sia
+# della semestrale (prova reale: «ING_Relazione_Finanziaria_30_giugno_2026.pdf», copertina «HALF-YEAR
+# FINANCIAL REPORT AT 30 JUNE 2026», classificata annuale e scartata in verifica). Senza un'altra parola da
+# annuale il tipo lo decidono il titolo della prima pagina e la data di chiusura nel nome; se non bastano o
+# si contraddicono il tipo e' «da confermare» (dichiarato), mai annuale per difetto.
+_RELAZIONE_GENERICA = re.compile(r"relazione[\s_-]*finanziaria", re.I)
+# BASSI v2: «bilancio» da solo non e' una parola da annuale («Bilancio consolidato semestrale abbreviato»): prima
+# «Relazione_Finanziaria_Bilancio_30_giugno_2026.pdf» usciva ANNUALE al 30/06; ora decide la chiusura nel nome.
+_ANNUALE_ESPLICITO = re.compile(
+    r"annual|annuale|annuel|bilancio[\s_-]*(?:d.esercizio|annuale)|gesch(?:a|ä|ae)ftsbericht|rapport[\s_-]*annuel"
+    r"|jahresfinanz"
+    r"|registration[\s_-]*document|document[\s_-]*d.enregistrement|integrated[\s_-]*report"
+    r"|informe[\s_-]*anual|cuentas[\s_-]*anuales|jaarverslag"
+    r"|konzernabschluss|[aå]rsredovisning|vuosikertomus", re.I)
+_TITOLO_TIPO = (
+    ("semestrale", re.compile(r"half[\s_-]*year(?:ly)?[\s_-]+(?:condensed[\s_-]+)?(?:consolidated[\s_-]+)?"
+                              r"(?:financial[\s_-]+)?(?:report|statements)|relazione[\s_-]+finanziaria[\s_-]+semestrale"
+                              r"|semi[\s_-]*annual[\s_-]+(?:financial[\s_-]+)?report|bilancio[\s_-]+semestrale", re.I)),
+    ("annuale", re.compile(r"annual[\s_-]+(?:financial[\s_-]+)?report|relazione[\s_-]+finanziaria[\s_-]+annuale"
+                           r"|bilancio[\s_-]+(?:consolidato[\s_-]+)?(?:d['’]esercizio|annuale)", re.I)),
+    ("trimestrale", re.compile(r"quarterly[\s_-]+(?:financial[\s_-]+)?report|resoconto[\s_-]+intermedio"
+                               r"|relazione[\s_-]+finanziaria[\s_-]+trimestrale", re.I)),
+)
+_TIPO_DA_CHIUSURA = {"06-30": "semestrale", "12-31": "annuale"}
+# BASSI v2: un nome da annuale («Annual_Report_2025.pdf») con la prima pagina di un'altra relazione (remunerazione,
+# governo societario, sostenibilita') non e' la relazione finanziaria: tipo da confermare, non ammesso. Conta solo
+# se il titolo NON finanziario viene prima di qualunque titolo da relazione finanziaria nella prima pagina.
+_TITOLO_NON_FINANZIARIO = re.compile(
+    r"remuneration[\s_-]+(?:report|policy)|report[\s_-]+on[\s_-]+remuneration|compensation[\s_-]+report"
+    r"|relazione[\s_-]+(?:sulla[\s_-]+)?(?:politica[\s_-]+(?:in[\s_-]+materia[\s_-]+)?di[\s_-]+)?remunerazione"
+    r"|relazione[\s_-]+sul(?:la)?[\s_-]+(?:governo[\s_-]+societario|politica[\s_-]+(?:in[\s_-]+materia[\s_-]+)?di"
+    r"[\s_-]+remunerazione)|corporate[\s_-]+governance[\s_-]+report|sustainability[\s_-]+report"
+    r"|verg(?:ü|ue)tungsbericht|rapport[\s_-]+sur[\s_-]+la[\s_-]+r(?:é|e)mun(?:é|e)ration"
+    r"|informe[\s_-]+(?:anual[\s_-]+)?(?:sobre[\s_-]+)?(?:las[\s_-]+)?remuneraciones", re.I)
+
+
+def _prima_pagina_non_finanziaria(testa):
+    """Il titolo non finanziario della prima pagina se viene PRIMA di ogni titolo da relazione, altrimenti None."""
+    m = _TITOLO_NON_FINANZIARIO.search(testa or "")
+    if not m:
+        return None
+    primo = min((x.start() for _, rx in _TITOLO_TIPO for x in [rx.search(testa)] if x), default=None)
+    return m.group(0) if primo is None or m.start() < primo else None
+
+
+def _tipo_dal_titolo(testa):
+    """Tipo dal titolo della relazione nella prima pagina (il primo per posizione), None se non c'e'."""
+    trovati = [(m.start(), tipo) for tipo, rx in _TITOLO_TIPO for m in [rx.search(testa or "")] if m]
+    return min(trovati)[1] if trovati else None
+
+
+def _tipo_relazione_generica(periodo, base, testa):
+    """(tipo, base) di una «relazione finanziaria» senza aggettivo, (None, motivo) se resta da confermare.
+
+    Decidono il titolo della prima pagina (se letta) e la chiusura scritta nel nome del file (30/06 ->
+    semestrale, 31/12 -> annuale); discordi o entrambi assenti: da confermare."""
+    da_data = (_TIPO_DA_CHIUSURA.get(str(periodo)[5:]) if periodo and base == "data di chiusura nel nome del file"
+               else None)
+    da_titolo = _tipo_dal_titolo(testa) if testa else None
+    if da_data and da_titolo and da_data != da_titolo:
+        return None, (f"tipo da confermare: «relazione finanziaria» con chiusura {periodo} nel nome ({da_data}) "
+                      f"e titolo della prima pagina da relazione {da_titolo}")
+    if da_titolo:
+        return da_titolo, (f"tipo {da_titolo} dal titolo della prima pagina"
+                           + (" e dalla chiusura nel nome del file" if da_data else ""))
+    if da_data:
+        return da_data, (f"tipo {da_data} dalla chiusura {periodo[8:10]}/{periodo[5:7]} nel nome di una "
+                         "«relazione finanziaria» senza aggettivo")
+    return None, ("tipo da confermare: «relazione finanziaria» senza aggettivo, senza chiusura al 30/06 o al "
+                  "31/12 nel nome" + (" e senza titolo da relazione nella prima pagina" if testa is not None else ""))
+
+
 # Parola da documento: senza, il nome e' generico («First Half 2026 results») e serve la prima pagina
 _NOME_DOCUMENTO = re.compile(
     r"report|bericht|mitteilung|statement|relazione|resoconto|rapport|informe|bilancio|md\W?&?\W?a\b|mda\b"
@@ -1494,7 +1566,7 @@ def classifica_pdf(voce, *, prima_pagina=None, dominio=None):
            "base_periodo": None, "motivo": None, "nota": None, "serve_prima_pagina": False,
            "origine": ORIGINE_SITO, "etichetta": ETICHETTA_SITO, "etichetta_en": ETICHETTA_SITO_EN, "via_host": None,
            "sito_ir": None, "cdn_generico": False, "tipo_documento": None, "periodo_stato": None, "periodi_visti": [],
-           "periodo_fiscale": None}
+           "periodo_fiscale": None, "tipo_base": None}
     if (isinstance(dominio, tuple) and len(dominio) > 1 and stesso_dominio(url, dominio[1])
             and not stesso_dominio(url, dominio[0])):
         out["sito_ir"] = dominio[1]  # documento del sito IR scoperto (altro dominio): dichiarato
@@ -1586,7 +1658,27 @@ def classifica_pdf(voce, *, prima_pagina=None, dominio=None):
             periodo, base = None, None
             note.append(f"trimestre fiscale {out['periodo_fiscale']}: chiusura non deducibile dal nome "
                         "(esercizio non solare)")
+        if tipo == "annuale" and not _ANNUALE_ESPLICITO.search(testo) and (
+                _RELAZIONE_GENERICA.search(testo) or (str(periodo or "")[5:] == "06-30"
+                                                      and base == "data di chiusura nel nome del file")):
+            # BASSI v2: mai annuale con chiusura al 30/06 nel nome se nessuna parola dice «annuale»
+            deciso, perche = _tipo_relazione_generica(periodo, base, testa)
+            if deciso is None:
+                da_leggere = testa is None and not errore
+                return scarto(perche + ("; prima pagina non letta" + (f" ({errore})" if errore else "")
+                                        if testa is None else ""), serve_prima_pagina=da_leggere,
+                              tipo="da_confermare")
+            out["tipo_base"] = perche
+            note.append(perche)
+            if deciso != tipo and "presunt" in str(base):  # chiusura presunta dal solo anno: quella del tipo deciso
+                periodo, base, deciso = _periodo_dal_nome(nome, testo, deciso)
+            tipo = deciso
     out["tipo"] = tipo
+    if testa is not None and tipo in ("annuale", "semestrale"):
+        altra = _prima_pagina_non_finanziaria(testa)
+        if altra:
+            return scarto(f"tipo da confermare: nome da relazione {tipo} ma la prima pagina e' «{altra}» (non la "
+                          "relazione finanziaria)", tipo="da_confermare")
     visti = set()
     if generico or periodo is None:
         perche = ("nome generico, senza una parola da relazione" if generico
@@ -1630,7 +1722,7 @@ def classifica_pdf(voce, *, prima_pagina=None, dominio=None):
             note.append(f"periodo di riferimento non valido ({periodo})")
             periodo, base = None, None
     if (periodo and tipo == "semestrale" and periodo[5:7] in ("03", "09")
-            and not re.search(r"half|semestr|halbjahr|\bh1\b", testo, re.I)):
+            and not re.search(r"half|semestr|halbjahr|\bh1\b|\b1h\b", testo, re.I)):
         tipo = "trimestrale"  # «interim report at 31 March»: un trimestre (prova reale)
     if periodo:
         visti.add(periodo)

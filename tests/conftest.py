@@ -125,6 +125,33 @@ def niente_rete_siti_emittenti(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def niente_rete_ripiego_ixbrl(monkeypatch):
+    """TRIPWIRE di rete (R-FONTI 10/10, Opus 5.5; v2 riserva BASSI): il ripiego iXBRL dello storico SEC (elenco
+    depositi e documento primario) che tenta la rete in un test FA FALLIRE il test. Si solleva `pytest.fail`
+    (BaseException): l'`except Exception` del ripiego NON lo inghiotte (prima: ConnectionError dichiarato come
+    «errore» e il test restava verde con una chiamata di rete imprevista). Chi prova il ripiego monta finti
+    espliciti su `_submissions_sec` / `_scarica_documento_sec`; chi prova la rete giu' usa `ripiego_ixbrl_giu`."""
+    import bellomberg.market_data.sec_xbrl as _sx
+
+    def _vietata(*a, **k):
+        pytest.fail("rete SEC imprevista nel test: ripiego iXBRL senza finti espliciti "
+                    "(monta _submissions_sec/_scarica_documento_sec o la fixture ripiego_ixbrl_giu)", pytrace=False)
+    monkeypatch.setattr(_sx, "_submissions_sec", _vietata)
+    monkeypatch.setattr(_sx, "_scarica_documento_sec", _vietata)
+
+
+@pytest.fixture
+def ripiego_ixbrl_giu(monkeypatch):
+    """Rete SEC «giu'» ESPLICITA per il ripiego iXBRL: ConnectionError, che il ripiego dichiara come «errore»."""
+    import bellomberg.market_data.sec_xbrl as _sx
+
+    def _giu(*a, **k):
+        raise ConnectionError("rete SEC giu' (finto esplicito del test)")
+    monkeypatch.setattr(_sx, "_submissions_sec", _giu)
+    monkeypatch.setattr(_sx, "_scarica_documento_sec", _giu)
+
+
+@pytest.fixture(autouse=True)
 def niente_rete_openrouter(monkeypatch):
     """TRIPWIRE di rete (05/09): un client OpenRouter costruito SENZA trasporto finto
     (httpx.MockTransport) e' un test che sta per chiamare l'API vera con la chiave dummy:
