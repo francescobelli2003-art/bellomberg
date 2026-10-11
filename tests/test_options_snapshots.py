@@ -372,6 +372,42 @@ def _stem(r):
     return r["id"].split("~")[1]
 
 
+from contextlib import contextmanager
+
+
+@contextmanager
+def _locked(monkeypatch, target):
+    """«File tenuto aperto da un lettore» in modo PORTABILE (fix CI 11/10, Opus 5.5).
+
+    Su Windows un file aperto senza FILE_SHARE_DELETE non si cancella (PermissionError); su
+    Linux/macOS os.remove/os.unlink riescono anche col file aperto, quindi aprire il file non
+    simula nulla. Qui la rimozione di QUEL percorso (os.remove, os.unlink, Path.unlink: quelli
+    che la pulizia potrebbe usare) solleva PermissionError come su Windows; ogni altro percorso
+    passa all'originale. Prima si apre e chiude davvero il file: su Linux e' il caso «nessun
+    blocco», e il blocco resta solo quello simulato, identico sulle due piattaforme.
+    """
+    import pathlib
+    with open(target, "rb"):
+        pass
+    want = os.path.normcase(os.path.abspath(target))
+    hit = {"n": 0}
+
+    def guard(original):
+        def wrapper(path, *a, **k):
+            if os.path.normcase(os.path.abspath(os.fspath(path))) == want:
+                hit["n"] += 1
+                raise PermissionError(13, "file in uso da un altro processo (simulato)", os.fspath(path))
+            return original(path, *a, **k)
+        return wrapper
+
+    with monkeypatch.context() as m:
+        m.setattr(os, "remove", guard(os.remove))
+        m.setattr(os, "unlink", guard(os.unlink))
+        original_unlink = pathlib.Path.unlink
+        m.setattr(pathlib.Path, "unlink", lambda self, *a, **k: guard(lambda q, *b, **c: original_unlink(pathlib.Path(q), *b, **c))(self, *a, **k))
+        yield hit
+
+
 def test_prune_meta_held_open_keeps_the_snapshot_whole_and_says_which_file(tmp_path, monkeypatch):
     root = tmp_path / "aperto"
     t0 = datetime.now(timezone.utc) - timedelta(hours=29)
@@ -380,8 +416,9 @@ def test_prune_meta_held_open_keeps_the_snapshot_whole_and_says_which_file(tmp_p
     gz = root / "ZZHO" / f"{_stem(old)}.json.gz"
     monkeypatch.setenv(arch.MAX_PER_TICKER_ENV, "1")
     t1 = t0 + timedelta(hours=3)
-    with open(meta, "rb"):            # Windows: un lettore tiene aperto l'indice
+    with _locked(monkeypatch, meta) as hit:   # un lettore tiene aperto l'indice (simulato, portabile)
         new = _fake(root, "ZZHO", t1.strftime("%Y%m%dT%H%M%SZ"), "00000000000000e2", t1.isoformat())
+    assert hit["n"] == 1                      # il blocco e' scattato davvero, una volta
     failed = new["pruned"]["failed"]
     assert new["status"] == "saved" and len(failed) == 1
     assert failed[0]["id"] == old["id"] and failed[0]["step"] == "meta"
@@ -399,8 +436,9 @@ def test_prune_gz_held_open_leaves_a_readable_gz_without_index(tmp_path, monkeyp
     gz = root / "ZZHG" / f"{_stem(old)}.json.gz"
     monkeypatch.setenv(arch.MAX_PER_TICKER_ENV, "1")
     t1 = t0 + timedelta(hours=5)
-    with open(gz, "rb"):
+    with _locked(monkeypatch, gz) as hit:
         new = _fake(root, "ZZHG", t1.strftime("%Y%m%dT%H%M%SZ"), "00000000000000e4", t1.isoformat())
+        assert hit["n"] == 1
         f = new["pruned"]["failed"][0]
         assert f["step"] == "gz" and f["remaining"] == [gz.name]
         listed = arch.list_snapshots("ZZHG", root)
