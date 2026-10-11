@@ -5,6 +5,7 @@ import test from 'node:test';
 import {
   buildPreset, daysToClose, editLeg, engineLegs, engineResultProblem, expiryCloseUtc, fieldNumber, horizonDays, invertLeg,
   nearestPoint, optionLeg, premiums, quoteLeg, returnOnRisk, stockLeg, strikesOf, type ChainContract,
+  atmIv, expiryNear, lognormalAt, probAbove, theoreticalPrice,
 } from '../../src/lib/option-builder.ts';
 
 const read = (s: string) => { const v = Number(s.replace(',', '.')); return s.trim() && Number.isFinite(v) && v > 0 ? v : null; };
@@ -52,10 +53,11 @@ test('manual overrides belong to one contract and drop when it changes', () => {
 });
 
 test('a missing quote, IV or multiplier is n.d. with its reason, never 0', () => {
-  const holes = new Map([[NEAR, [row('call', 100, NEAR, { bid: null, ask: null, mid: null }), row('put', 100, NEAR, { iv: null }),
+  // 11/10: an unquoted contract WITH its IV now gets the theoretical price (tests below); without IV it stays n.d.
+  const holes = new Map([[NEAR, [row('call', 100, NEAR, { bid: null, ask: null, mid: null, iv: null }), row('put', 100, NEAR, { iv: null }),
     row('call', 105, NEAR, { multiplier: null }), row('put', 95, NEAR, { bid: 3, ask: 2, mid: null })]]]);
   const q = (l: ReturnType<typeof optionLeg>) => quoteLeg(l, holes, 'mid', 100, NOW, read);
-  assert.deepEqual(q(optionLeg('call', 'buy', NEAR, 100)).reasons, ['no_quote']);
+  assert.deepEqual(q(optionLeg('call', 'buy', NEAR, 100)).reasons, ['no_quote', 'no_iv']);
   assert.equal(q(optionLeg('call', 'buy', NEAR, 100)).price, null);
   assert.deepEqual(q(optionLeg('put', 'buy', NEAR, 100)).reasons, ['no_iv']);
   assert.deepEqual(q(optionLeg('call', 'buy', NEAR, 105)).reasons, ['no_multiplier']);
@@ -69,7 +71,7 @@ test('a missing quote, IV or multiplier is n.d. with its reason, never 0', () =>
   assert.deepEqual(!out.ok && out.missing.map(m => m.index), [0, 1]);
   assert.equal(premiums(legs, quotes).mid, null, 'one missing price makes the net premium n.d.');
   // a manual price fills the hole and is declared as manual
-  const filled = quoteLeg({ ...legs[0], price: '2' }, holes, 'mid', 100, NOW, read);
+  const filled = quoteLeg({ ...legs[0], price: '2', iv: '25' }, holes, 'mid', 100, NOW, read);
   assert.equal(filled.ok, true); assert.equal(filled.priceSource, 'manual');
 });
 
@@ -190,4 +192,90 @@ test('M3: the engine response is checked before the page reads it; the first bad
   assert.equal(damage(r => { r.breakevens = ['103']; }), 'breakevens');
   assert.equal(damage(r => { r.unlimited_loss = 0; }), 'unlimited_loss');
   assert.equal(damage(r => { delete r.limits; }), 'limits');
+});
+
+// ── 11/10/2026 (Opus 5.5): quotes absent (bid and ask null on every contract, only IV) ─────────
+
+test('theoretical price = the backend engine formula (_unit_price), on reference values computed by Python', () => {
+  // references printed by bellomberg.portfolio.options_strategy._unit_price for the same inputs
+  const cases: [Parameters<typeof theoreticalPrice>, number][] = [
+    [['call', 100, 100, 30, .25, .04, 0], 3.0211408989744584],
+    [['put', 100, 110, 30, .25, .04, .01], 10.06584994318358],
+    [['call', 100, 90, 7.5, .6, .05, .02], 10.479106303955817],
+    [['put', 50, 80, 400, .35, .03, 0], 28.695300412573346],
+    [['call', 100, 100, 0, .25, .04, 0], 0],
+    [['put', 100, 95, 0, .25, .04, 0], 0],
+  ];
+  for (const [args, ref] of cases) assert.ok(Math.abs((theoreticalPrice(...args) as number) - ref) < 1e-5, `${args.join(' ')}: ${theoreticalPrice(...args)} vs ${ref}`);
+  assert.equal(theoreticalPrice('call', 100, 100, 30, 0, .04, 0), null, 'no IV, no price');
+  assert.equal(theoreticalPrice('call', 100, 100, 30, Number.NaN, .04, 0), null);
+});
+
+const unquoted = (e: string, over: Partial<ChainContract> = {}) => strikes.flatMap(k => [row('call', k, e, { bid: null, ask: null, mid: null, ...over }), row('put', k, e, { bid: null, ask: null, mid: null, ...over })]);
+const THEORY = { rate: .04, dividend: 0 };
+
+test('an unquoted contract (bid and ask null) takes the theoretical price from ITS IV, declared «theory», in both price modes', () => {
+  const book = new Map([[NEAR, unquoted(NEAR)]]);
+  const leg = optionLeg('call', 'buy', NEAR, 100);
+  for (const mode of ['mid', 'natural'] as const) {
+    const q = quoteLeg(leg, book, mode, 100, NOW, read, THEORY);
+    assert.deepEqual(q.reasons, [], mode);
+    assert.equal(q.priceSource, 'theory');
+    assert.ok(Math.abs((q.price as number) - (theoreticalPrice('call', 100, 100, q.days as number, .25, .04, 0) as number)) < 1e-12);
+    assert.equal(q.bid, null); assert.equal(q.mid, null, 'no mid is invented');
+  }
+  const put = quoteLeg(optionLeg('put', 'sell', NEAR, 100), book, 'mid', 100, NOW, read, THEORY);
+  assert.ok(Math.abs((put.price as number) - (theoreticalPrice('put', 100, 100, put.days as number, .27, .04, 0) as number)) < 1e-12, 'the put reads its own IV');
+  const ok = engineLegs([leg], [quoteLeg(leg, book, 'mid', 100, NOW, read, THEORY)]);
+  assert.ok(ok.ok && ok.legs[0].premium > 0, 'the engine receives the theoretical premium');
+});
+
+test('no IV, no theoretical price: the unquoted leg stays n.d.; without the rate it waits, declared; a crossed quote is not replaced', () => {
+  const noIv = new Map([[NEAR, unquoted(NEAR, { iv: null })]]);
+  const q = quoteLeg(optionLeg('call', 'buy', NEAR, 100), noIv, 'mid', 100, NOW, read, THEORY);
+  assert.equal(q.price, null); assert.ok(q.reasons.includes('no_iv') && q.reasons.includes('no_quote'), q.reasons.join());
+  const waiting = quoteLeg(optionLeg('call', 'buy', NEAR, 100), new Map([[NEAR, unquoted(NEAR)]]), 'mid', 100, NOW, read, null);
+  assert.deepEqual(waiting.reasons, ['theory_needs_rate']); assert.equal(waiting.price, null);
+  const crossed = new Map([[NEAR, chain(NEAR).map(r => ({ ...r, bid: 2, ask: 1, mid: null }))]]);
+  const c = quoteLeg(optionLeg('call', 'buy', NEAR, 100), crossed, 'mid', 100, NOW, read, THEORY);
+  assert.equal(c.price, null); assert.ok(c.reasons.includes('crossed_quote'));
+  const oneSided = new Map([[NEAR, chain(NEAR).map(r => ({ ...r, bid: null, mid: null }))]]);
+  const o = quoteLeg(optionLeg('call', 'sell', NEAR, 100), oneSided, 'natural', 100, NOW, read, THEORY);
+  assert.equal(o.priceSource, null, 'a one-sided quote is not a missing quote: no theoretical price'); assert.ok(o.reasons.includes('no_quote'));
+  const manual = quoteLeg({ ...optionLeg('call', 'buy', NEAR, 100), price: '2,5' }, new Map([[NEAR, unquoted(NEAR)]]), 'mid', 100, NOW, read, THEORY);
+  assert.equal(manual.priceSource, 'manual'); assert.equal(manual.price, 2.5);
+});
+
+test('the example expiry is the one nearest to 30 days, at least one day away', () => {
+  const now = Date.UTC(2035, 0, 1, 15);
+  assert.equal(expiryNear(['2035-01-01', '2035-01-02', '2035-01-26', '2035-02-02', '2035-03-16'], now), '2035-02-02');
+  assert.equal(expiryNear(['2035-01-01'], now), null, 'expiring today is not an example');
+  assert.equal(expiryNear(['2035-06-15', '2035-03-16'], now), '2035-03-16');
+});
+
+test('ATM IV, lognormal bands and the probability of ending above a price agree with each other', () => {
+  const atm = atmIv(chain(NEAR), 101);
+  assert.deepEqual(atm, { iv: .26, strike: 100 }, 'mean of call .25 and put .27 at the strike nearest to spot');
+  assert.equal(atmIv(unquoted(NEAR, { iv: null }), 100), null);
+  const d = { spot: 100, sigma: .3, days: 30, rate: .04, dividend: 0 };
+  for (const z of [-2, -1, 0, 1, 2]) {
+    const p = probAbove(d, lognormalAt(d, z)) as number;
+    const n = (x: number) => { let s = 0; for (let i = 0; i < 20000; i++) { const t = -8 + (x + 8) * (i + .5) / 20000; s += Math.exp(-t * t / 2); } return s * (x + 8) / 20000 / Math.sqrt(2 * Math.PI); };
+    assert.ok(Math.abs(p - (1 - n(z))) < 1e-6, `z=${z}: ${p}`);
+  }
+  assert.ok(lognormalAt(d, -1) < 100 && lognormalAt(d, 1) > 100);
+  assert.equal(probAbove({ ...d, sigma: 0 }, 100), null);
+});
+
+test('v2: a chain IV above 500% is n.d. «iv_out_of_range», never the base of a theoretical price; a manual IV replaces it', () => {
+  const book = new Map([[NEAR, unquoted(NEAR, { iv: 5.2 })]]);
+  const q = quoteLeg(optionLeg('call', 'buy', NEAR, 100), book, 'mid', 100, NOW, read, THEORY);
+  assert.ok(q.reasons.includes('iv_out_of_range'), q.reasons.join()); assert.equal(q.price, null); assert.equal(q.iv, null);
+  assert.ok(!q.reasons.includes('no_iv'));
+  const quotedBad = quoteLeg(optionLeg('call', 'buy', NEAR, 100), new Map([[NEAR, chain(NEAR).map(r => ({ ...r, iv: 6 }))]]), 'mid', 100, NOW, read, THEORY);
+  assert.deepEqual(quotedBad.reasons, ['iv_out_of_range'], 'quoted, but the engine would refuse the IV');
+  const fixed = quoteLeg({ ...optionLeg('call', 'buy', NEAR, 100), iv: '80' }, book, 'mid', 100, NOW, read, THEORY);
+  assert.deepEqual(fixed.reasons, []); assert.equal(fixed.priceSource, 'theory'); assert.equal(fixed.iv, .8);
+  const edge = quoteLeg(optionLeg('call', 'buy', NEAR, 100), new Map([[NEAR, unquoted(NEAR, { iv: 5 })]]), 'mid', 100, NOW, read, THEORY);
+  assert.equal(edge.priceSource, 'theory', '500% exactly is still in range');
 });

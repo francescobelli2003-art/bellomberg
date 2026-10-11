@@ -286,7 +286,7 @@ const fakePlotly = () => {
     purge(node) { calls.push(['purge', node]); } };
 };
 
-test('3D wiring: camera survives redraws (live camera read back), selection = restyle only, wheel off, turntable, presets, purge', async () => {
+test('3D wiring: camera survives redraws (live camera read back), selection = restyle only, wheel zoom, turntable, presets, purge', async () => {
   languages.impostaLinguaCorrente('en');
   const S3 = load('pages/voldeck/Surface3D.tsx');
   const m = vd.surfaceModel({ spot_est: 200, moneyness_grid: [0.9, 1, 1.1],
@@ -310,7 +310,8 @@ test('3D wiring: camera survives redraws (live camera read back), selection = re
     assert.equal(node.getAttribute('role'), 'group', 'an interactive chart is not role=img');
     assert.deepEqual(names(), ['newPlot'], 'first draw creates the plot: ' + errors.join());
     assert.equal(plotly.calls[0][1], node, 'Plotly draws into the real node');
-    assert.equal(plotly.calls[0][4].scrollZoom, false, 'the wheel scrolls the page');
+    // 11/10 (PM): rotella sopra il grafico = zoom della camera (Plotly gl3d); fuori dal grafico la pagina scorre
+    assert.equal(plotly.calls[0][4].scrollZoom, true, 'the wheel over the plot zooms');
     assert.equal(plotly.calls[0][3].scene.dragmode, 'turntable');
     assert.equal(plotly.calls[0][3].scene.yaxis.title.text, '');
     assert.equal(plotly.calls[0][2][0].type, 'mesh3d');
@@ -359,11 +360,17 @@ test('3D wiring: camera survives redraws (live camera read back), selection = re
     win('pointerup', {});
     await view.settle();
     assert.deepEqual(picks[2], ['2035-03-01', 1], 'a still click (<= DRAG_PX) picks on release');
-    // rotella: in cattura sul contenitore, ferma la propagazione verso il canvas e NON blocca lo scorrimento
-    let stopped = 0, prevented = 0;
-    fire('wheel', { stopPropagation: () => stopped++, preventDefault: () => prevented++ });
-    assert.equal(stopped, 1, 'the wheel never reaches the Plotly canvas (which would preventDefault)');
-    assert.equal(prevented, 0, 'the page keeps scrolling');
+    // rotella (11/10, PM): nessun listener la intercetta piu', arriva al canvas di Plotly che fa lo zoom
+    assert.equal(own('wheel').length, 0, 'no listener stops the wheel before the Plotly canvas');
+    assert.equal(node.listeners.filter(l => l.type === 'wheel').length, 0, 'no wheel listener at all on the container');
+    // zoom = la scena avvicina l'occhio (stessa camera viva della rotazione): un cambio di selezione non lo perde
+    const shown = plain(plotly.scene.shown);
+    const zoomed = { ...shown, eye: { x: shown.eye.x * 0.55, y: shown.eye.y * 0.55, z: shown.eye.z * 0.55 } };
+    plotly.rotate(zoomed);
+    await view.rerender(React.createElement(S3.default, { ...props, column: 1, axis: 'strike' }));
+    assert.deepEqual(plain(plotly.scene.shown), zoomed, 'after a wheel zoom and a selection change the user still sees the zoomed view');
+    assert.equal(plotly.calls[plotly.calls.length - 1][0], 'restyle', 'the selection after the zoom is still a restyle');
+    assert.deepEqual(plain(plotly.calls[plotly.calls.length - 2][2]['scene.camera']), zoomed, 'the zoomed camera is written before the restyle');
     // v2: solo il drag oltre DRAG_PX e' una rotazione manuale (il preset in vista si spegne); il clic fermo no
     assert.equal(rotations, 1, 'one manual rotation so far (the 40 px drag), the still click is not one');
     // pointercancel: il gesto annullato non sceglie nulla e non e' una rotazione
@@ -381,7 +388,8 @@ test('3D wiring: camera survives redraws (live camera read back), selection = re
     await view.rerender(React.createElement(S3.default, { ...props, column: 2, axis: 'strike', preset: { name: 'top', n: 1 } }));
     assert.deepEqual(plain(plotly.calls.filter(c => c[0] === 'relayout').pop()[2]), { 'scene.camera': plain(S3.CAMERAS.top) });
     await view.rerender(React.createElement(S3.default, { ...props, column: 2, axis: 'strike', preset: { name: 'top', n: 1 }, resetKey: 1 }));
-    assert.deepEqual(plain(plotly.calls.filter(c => c[0] === 'relayout').pop()[2]), { 'scene.camera': plain(S3.DEFAULT_CAMERA) });
+    assert.deepEqual(plain(plotly.calls.filter(c => c[0] === 'relayout').pop()[2]), { 'scene.camera': plain(S3.DEFAULT_CAMERA) },
+      'reset brings back the default eye: rotation AND zoom');
     // dopo il ripristino un cambio di selezione non resuscita la vista vecchia
     await view.rerender(React.createElement(S3.default, { ...props, column: 0, axis: 'strike', preset: { name: 'top', n: 1 }, resetKey: 1 }));
     assert.equal(plotly.calls[plotly.calls.length - 1][0], 'restyle');
@@ -695,7 +703,10 @@ test('quant wiring: forward from parity, delta grid and OVDV table show exactly 
     QTEXT.ptText(skew[1].bf10), QTEXT.ratioText(skew[1].skewNorm25)]) assert.ok(row60.includes(`>${v}</td>`), `OVDV shows ${v}: ${row60}`);
   // il forward con la sua qualita' (coppie e dispersione dei candidati della parita')
   const fr = q.forwards['2035-03-03'];
+  // 11/10: livello del forward dichiarato (gerarchia); un solo livello in pagina = nessuna etichetta per riga
+  assert.equal(fr.level, 'parity_quotes', 'quotes present: the parity on bid/ask is the level used');
   assert.ok(row60.includes(`>${vd.priceText(fr.forward, '')}<small> ±${vd.numText(fr.dispersionRel * 100, 3)}%</small>`), 'forward and its dispersion: ' + row60);
+  assert.ok(!row60.includes('data-vol-skew-fwd-level'), 'one level only: no per-row tag');
   assert.ok(row60.includes('de-americanised (raw F ' + vd.numText(fr.rawForward, 2)), 'raw forward and de-americanisation residual declared: ' + row60);
   assert.ok(row60.includes(`${fr.pairs.length} call/put pairs`), 'pairs used are declared');
   assert.ok(skew[1].rr25 < 0, 'synthetic put skew: RR25 negative');
@@ -953,5 +964,154 @@ test('Termine: the curve and its tooltip read the library ATMF, never the builde
     const lines = chart.byClass('vdn-tip')[0].childNodes.map(n => n.textContent);
     const atmLine = lines.find(l => l.startsWith('ATMF'));
     assert.ok(atmLine && atmLine.includes(atmf) && !atmLine.includes(spot), 'tooltip ATMF line: ' + lines.join(' | '));
+  } finally { await view.unmount(); }
+});
+
+test('11/10 desk rendering: floor heat map, lit surface, z axis clipped p1/p99 only for an extreme wing, true value in the readout and declared', async () => {
+  languages.impostaLinguaCorrente('en');
+  const S3 = load('pages/voldeck/Surface3D.tsx');
+  const palette = { text: '#000', muted: '#555', line: '#ddd', accent: '#00f', violet: '#70f', warn: '#850', card: '#fff', scale: S3.SCALE_LIGHT };
+  const labels = { na: 'n/a', d: 'd', ivGrid: 'IV grid', strikeEq: 'K', hole: 'hole', partial: 'p', zClipped: 'beyond the clip', zClipShort: 'clipped' };
+  const grid = [0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1, 1.15, 1.2];
+  const smooth = d => grid.map(m => 0.30 + 0.25 * (m - 1) ** 2 + 0.002 * Math.sqrt(d));
+  const days = [3, 7, 14, 30, 60, 90, 180, 365];
+  const plainSlices = days.map((d, n) => ({ expiry: `2035-0${1 + Math.floor(n / 4)}-${String(10 + n).padStart(2, '0')}`, days: d, iv_grid: smooth(d) }));
+  // ala estrema sintetica: scadenza piu' breve, strike piu' alto
+  const spiked = plainSlices.map((s, n) => n === 0 ? { ...s, iv_grid: s.iv_grid.map((v, i) => i === grid.length - 1 ? 1.6 : v) } : s);
+  const calm = vd.surfaceModel({ spot_est: 100, moneyness_grid: grid, slices: plainSlices });
+  const wing = vd.surfaceModel({ spot_est: 100, moneyness_grid: grid, slices: spiked });
+  assert.ok(calm.filledCells >= S3.ZCLIP_MIN_CELLS, 'enough cells for the clip rule');
+  // senza un'ala estrema nessun taglio: la geometria e' il valore
+  assert.equal(S3.zClip(calm).applied, false);
+  const f0 = S3.surfaceFigure(calm, { axis: 'moneyness', expiry: null, column: null, palette, labels });
+  const mesh0 = f0.traces.find(t => t.meta === 'surface');
+  assert.deepEqual(plain(mesh0.z), plain(mesh0.intensity), 'no clip: drawn z = IV');
+  assert.equal(f0.layout.scene.zaxis.title.text, 'IV');
+  // pavimento: mappa di calore con le stesse facce e la stessa scala, tutta alla quota del pavimento, muta all'hover
+  const floor = f0.traces.find(t => t.meta === 'floor-map');
+  assert.ok(floor && floor.type === 'mesh3d', 'a floor heat map is drawn');
+  assert.deepEqual(plain(floor.i), plain(mesh0.i)); assert.deepEqual(plain(floor.intensity), plain(mesh0.intensity));
+  assert.equal(new Set(floor.z).size, 1); assert.ok(floor.z[0] < Math.min(...mesh0.z), 'the map lies below the surface');
+  assert.equal(floor.hoverinfo, 'skip'); assert.equal(floor.showscale, false);
+  assert.ok(mesh0.lighting.diffuse > 0.5 && mesh0.lightposition, 'directional light reads the shape');
+  assert.ok(f0.traces.find(t => t.meta === 'wire').line.width < 1, 'thin wireframe');
+  assert.ok(f0.layout.scene.aspectratio.z >= 0.85, 'the surface is not flattened');
+  // con l'ala estrema: z tagliato al p99, colore e lettura sul valore vero, taglio dichiarato
+  const clip = S3.zClip(wing);
+  assert.ok(clip.applied && clip.above >= 1 && clip.hi < 160, 'the extreme wing is clipped: ' + JSON.stringify(clip));
+  const f1 = S3.surfaceFigure(wing, { axis: 'moneyness', expiry: spiked[0].expiry, column: grid.length - 1, palette, labels });
+  const mesh1 = f1.traces.find(t => t.meta === 'surface');
+  const n = mesh1.intensity.findIndex(v => Math.abs(v - 160) < 1e-9);
+  assert.ok(n >= 0, 'the colour keeps the true value');
+  assert.ok(Math.abs(mesh1.z[n] - clip.hi) < 1e-9, 'the geometry stops at the clip');
+  assert.ok(mesh1.text[n].includes('160.00%') && mesh1.text[n].includes('beyond the clip'), 'the readout shows the true IV and says it is beyond the clip: ' + mesh1.text[n]);
+  assert.ok(Math.max(...mesh1.z) <= clip.hi + 1e-9);
+  assert.ok(f1.layout.scene.zaxis.range[1] < 100, 'the axis no longer stretches to the wing');
+  assert.equal(f1.layout.scene.zaxis.title.text, 'IV (clipped)');
+  const point = f1.traces.find(t => t.meta === 'sel-point');
+  assert.ok(point.z[0] > clip.hi && point.z[0] < clip.hi + (clip.hi - clip.lo) * 0.05, 'the selection sits just above the clipped surface');
+  // la pagina dichiara il taglio sotto il grafico
+  const html = renderToStaticMarkup(React.createElement(S3.default, { model: wing, axis: 'moneyness', expiry: null, column: null, dark: false,
+    resetKey: 0, onPick() {}, onError() {} }));
+  assert.ok(/data-vol-zclip="\d+"/.test(html) && html.includes('true values in the readout'), 'clip declared: ' + html);
+  assert.ok(!renderToStaticMarkup(React.createElement(S3.default, { model: calm, axis: 'moneyness', expiry: null, column: null, dark: false,
+    resetKey: 0, onPick() {}, onError() {} })).includes('data-vol-zclip'), 'no clip, no note');
+});
+
+/* ===========================================================================
+   11/10 v2 (review su chain vere, Opus 5.5): proxy marcato, proxy fuori dal ΔIV, livelli misti, stato degli
+   eseguibili, altezza e camera della Superficie. Fixture sintetiche con la forma reale: bid/ask null, solo IV.
+   =========================================================================== */
+/** la stessa chain sintetica senza quote (forma del piano senza last_quote): bid, ask e mid null */
+const qNoQuotes = (x, opts = {}) => qChain(x, opts).map(c => ({ ...c, bid: null, ask: null, mid: null }));
+const QRATE = { value: QPCT / 100, percent: QPCT, status: 'solid', date: '2035-01-01', source: 'FRED DGS3MO', error: null };
+
+test('v2: a forward on the proxy is marked «proxy» in OVDV cells, delta-grid readout and cone, and never saved for ΔIV', () => {
+  languages.impostaLinguaCorrente('en');
+  const chains = Object.fromEntries(QEXP.map(x => [x.e, { status: 'ok', chain: qNoQuotes(x) }]));
+  const { model, q } = qBuild({}, { chains });
+  QEXP.forEach(x => assert.equal(q.forwards[x.e].level, 'proxy_carry', 'no quotes, no closes: carry proxy'));
+  const table = renderToStaticMarkup(React.createElement(SKEWV.OvdvTable, { q, model, expiry: null, onExpiry() {} }));
+  const row = table.split('data-vol-skew-row="2035-03-03"')[1].split('</tr>')[0];
+  const marks = (row.match(/data-vol-proxy-mark/g) || []).length;
+  const s60 = q.skew.find(s => s.expiry === '2035-03-03');
+  const valued = ['atmf', 'rr25', 'bf25', 'rr10', 'bf10', 'skewNorm25'].filter(k => Number.isFinite(s60[k])).length;
+  assert.ok(valued >= 3 && marks === valued, `every valued ATMF/RR/BF cell carries the proxy mark: ${marks} of ${valued}`);
+  assert.ok(row.includes('Rests on the proxy forward: proxy S·e^(rT)'), 'the tooltip says which proxy: ' + row);
+  const label = SKEWV.deltaCellLabel(q, model)(1, q.delta.columns.indexOf('ATMF'));
+  assert.ok(label.includes('proxy') && label.includes('dividends ignored'), 'delta grid and 3D delta-axis readout: ' + label);
+  const term = renderToStaticMarkup(React.createElement(TERMV, { q, model, column: 4, expiry: null, onExpiry() {}, earnings: null }));
+  assert.ok((term.match(/data-vol-proxy-mark/g) || []).length >= 2 * QEXP.length, 'cone ±1σ and range carry the mark');
+  // ΔIV: i forward proxy non entrano nell'istantanea salvata
+  assert.deepEqual(plain(QUANT.savedForwards(q.forwards)), Object.fromEntries(QEXP.map(x => [x.e, null])));
+  assert.ok(Object.values(QUANT.savedForwards(qBuild().q.forwards)).every(v => Number.isFinite(v)), 'parity forwards are saved');
+  // con un rendimento da dividendo dichiarato: livello 3b, ancora proxy
+  const data = qPayload(), withQ = QUANT.volQuant({ data, model: vd.surfaceModel(data), chains, rate: QRATE, previous: null,
+    dividend: { q: 0.03, source: 'synthetic yield', asOf: '2035-01-02' } });
+  assert.equal(withQ.forwards['2035-03-03'].level, 'proxy_carry_q');
+  assert.ok(Math.abs(withQ.forwards['2035-03-03'].forward - 100 * Math.exp((QR - 0.03) * TY(QEXP[1]))) < 1e-9, 'F = S·e^{(r−q)T}');
+  assert.equal(QUANT.savedForwards(withQ.forwards)['2035-03-03'], null, 'the dividend proxy is not saved either');
+  assert.ok(QTEXT.fwdQuality(withQ.forwards['2035-03-03']).includes('q = 3.00%'), QTEXT.fwdQuality(withQ.forwards['2035-03-03']));
+});
+
+test('v2: per-row level tags only with mixed levels; executable status says «chain not downloaded» before «quotes missing»', () => {
+  languages.impostaLinguaCorrente('en');
+  const chains = Object.fromEntries(QEXP.map((x, n) => [x.e, { status: 'ok', chain: n === 0 ? qChain(x) : qNoQuotes(x) }]));
+  const { model, q } = qBuild({}, { chains });
+  assert.equal(q.forwards['2035-02-01'].level, 'parity_quotes'); assert.equal(q.forwards['2035-03-03'].level, 'proxy_carry');
+  const table = renderToStaticMarkup(React.createElement(SKEWV.OvdvTable, { q, model, expiry: null, onExpiry() {} }));
+  assert.ok(table.includes('data-vol-skew-fwd-level="parity_quotes"') && table.includes('data-vol-skew-fwd-level="proxy_carry"'), 'mixed: a tag per row');
+  const basis = QTEXT.forwardBasisLine(q, model.rows.map(r => r.expiry));
+  assert.ok(basis.includes('(1/3)') && basis.includes('(2/3)'), basis);
+  const none = qBuild({}, { chains: {} }).q;
+  assert.equal(none.execStatus, 'no_chain');
+  const view = c => renderToStaticMarkup(React.createElement(QUALV.default, { q: c, model, expiry: null, column: null, onPick() {}, onExpiry() {}, onColumn() {},
+    diff: { nowText: 'now', prevText: null, persisted: true }, onShowDiff() {} }));
+  assert.ok(view(none).includes('data-vol-exec-status="no_chain"') && view(none).includes('chain not downloaded'));
+  assert.ok(!view(none).includes('quotes missing'), 'no chain is not «quotes missing»');
+  const bare = qBuild({}, { chains: Object.fromEntries(QEXP.map(x => [x.e, { status: 'ok', chain: qNoQuotes(x) }])) }).q;
+  assert.equal(bare.execStatus, 'quotes_missing'); assert.ok(view(bare).includes('quotes missing'));
+  assert.equal(qBuild().q.execStatus, 'checked');
+});
+
+test('v2: Termine says which all-n/a columns were removed and why', () => {
+  languages.impostaLinguaCorrente('en');
+  const { model, q } = qBuild({}, { rate: null });
+  const html = renderToStaticMarkup(React.createElement(TERMV, { q, model, column: 4, expiry: null, onExpiry() {}, earnings: null }));
+  assert.ok(html.includes('data-vol-term-all-na') || html.includes('data-vol-term-hidden'), 'a declaration line, never a silent removal');
+  // forward presenti ma vol forward tutta n.d. (una sola scadenza): la colonna sparisce con la sua riga
+  const one = qPayload(); one.slices = one.slices.slice(0, 2);
+  const m1 = vd.surfaceModel(one), q1 = QUANT.volQuant({ data: one, model: m1, chains: qChains(), rate: QRATE, previous: null });
+  const h1 = renderToStaticMarkup(React.createElement(TERMV, { q: q1, model: m1, column: 4, expiry: null, onExpiry() {}, earnings: null }));
+  assert.ok(h1.includes('data-vol-term-hidden') && h1.includes('Forward vol'), 'hidden column named: ' + h1.slice(0, 300));
+});
+
+test('v2: the 3D height follows the page (relayout only) and a camera from plotly_relayout survives a full redraw', async () => {
+  languages.impostaLinguaCorrente('en');
+  const S3 = load('pages/voldeck/Surface3D.tsx');
+  const m = vd.surfaceModel({ spot_est: 200, moneyness_grid: [0.9, 1, 1.1],
+    slices: [{ expiry: '2035-02-01', days: 30, iv_grid: [0.3, 0.28, 0.27] }, { expiry: '2035-03-01', days: 60, iv_grid: [0.29, 0.26, 0.27] }] });
+  const props = { model: m, axis: 'moneyness', expiry: '2035-02-01', column: 0, dark: false, resetKey: 0, onPick() {}, onError() {}, height: 560 };
+  const plotly = fakePlotly();
+  const view = await mount(React.createElement('div'));
+  globalThis.window.Plotly = plotly;
+  globalThis.window.addEventListener = () => {}; globalThis.window.removeEventListener = () => {};
+  try {
+    await view.rerender(React.createElement(S3.default, props));
+    const node = view.container.byAttr('data-vol-3d')[0];
+    assert.equal(plotly.calls[0][3].height, 560);
+    node._fullLayout.height = 560;   // come Plotly vero: l'altezza disegnata sta nel layout completo
+    await view.rerender(React.createElement(S3.default, { ...props, height: 812 }));
+    const last = plotly.calls[plotly.calls.length - 1];
+    assert.equal(last[0], 'relayout'); assert.deepEqual(plain(last[2]), { height: 812 }, 'a new height is a relayout, never a react');
+    assert.equal(plotly.calls.filter(c => c[0] === 'react').length, 0);
+    // camera arrivata col plotly_relayout (zoom o rotazione) quando la scena non la sa riportare: il ridisegno la usa
+    const cam = { eye: { x: 0.6, y: -0.9, z: 0.4 }, up: { x: 0, y: 0, z: 1 }, center: { x: 0, y: 0, z: -0.1 } };
+    plotly.handlers.plotly_relayout({ 'scene.camera': cam });
+    plotly.scene.shown = null; plotly.scene.written = null;
+    await view.rerender(React.createElement(S3.default, { ...props, height: 812, axis: 'strike' }));
+    const react = plotly.calls.filter(c => c[0] === 'react').pop();
+    assert.ok(react, 'axis change redraws'); assert.deepEqual(plain(react[3].scene.camera), cam, 'the relayout camera is kept');
+    assert.equal(react[3].height, 812, 'the redraw uses the live height');
   } finally { await view.unmount(); }
 });

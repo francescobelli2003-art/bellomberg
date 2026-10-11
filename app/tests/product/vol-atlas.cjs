@@ -120,7 +120,8 @@ test('3D surface figure keeps holes, unclipped geometry, measured points apart a
     assert.deepEqual(rest.find(t => t.meta === 'sel-point').x, [], 'no selected-point marker on a hole');
     assert.equal(fig.layout.scene.uirevision, SCENE_REVISION); assert.deepEqual(fig.layout.scene.camera, DEFAULT_CAMERA);
     assert.equal(fig.layout.scene.dragmode, 'turntable', 'turntable: the vertical axis never flips');
-    assert.equal(fig.config.scrollZoom, false, 'the wheel scrolls the page, never zooms the plot');
+    // 11/10 (cambio voluto dal PM): la rotella SOPRA il grafico fa zoom della camera; fuori la pagina scorre
+    assert.equal(fig.config.scrollZoom, true, 'the wheel over the plot zooms the camera');
     assert.equal(fig.config.responsive, true); assert.equal(fig.config.displayModeBar, false);
     assert.deepEqual(mesh.colorscale, dark ? SCALE_DARK : SCALE_LIGHT);
     assert.equal(mesh.showscale, true); assert.equal(mesh.colorbar.ticksuffix, '%');
@@ -394,17 +395,20 @@ test('workspaces that hide acquisition declare its coverage gaps, with the reaso
 const conePanel = () => {
   const filename = path.resolve(__dirname, '../../src/pages/VolSurfacePage.tsx');
   const source = ts.createSourceFile(filename, fs.readFileSync(filename, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  let cone, panel;
+  let cone, panel, invite;
   const visit = node => {
     if (ts.isFunctionDeclaration(node) && node.name?.text === 'VolCone') cone = node.getText(source);
+    if (ts.isFunctionDeclaration(node) && node.name?.text === 'ContextInvite') invite = node.getText(source);
     if (ts.isJsxExpression(node) && node.expression && ts.isConditionalExpression(node.expression)
       && /<VolCone\b/.test(node.expression.getText(source))) panel = node.expression.getText(source);
     ts.forEachChild(node, visit);
   };
-  visit(source); assert.ok(cone && panel, 'VolCone and its panel come from the real page');
+  visit(source); assert.ok(cone && panel && invite, 'VolCone, its panel and the context invite come from the real page');
+  // 11/10: senza cono il pannello e' l'invito al contesto (Card e ContextInvite veri; stato della pagina finto)
   const scope = { exports: {}, React, useState: React.useState, useRef: React.useRef, tr: translate.t, t: translate.t,
-    finite: numbers.finite, numText: numbers.numText, nyTime: numbers.nyTime };
-  vm.runInNewContext(ts.transpileModule(cone + '\nexports.panel = (contextState, cone) => (' + panel + ');', {
+    finite: numbers.finite, numText: numbers.numText, nyTime: numbers.nyTime, Card: load('components/nuova/Card.tsx').default,
+    loading: false, downloadId: 'synthetic-job', loadContext: async () => {} };
+  vm.runInNewContext(ts.transpileModule(cone + '\n' + invite + '\nexports.panel = (contextState, cone) => (' + panel + ');', {
     fileName: 'vol-cone-panel.tsx',
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
   }).outputText, scope);
@@ -417,9 +421,9 @@ test('an unanswered context is named as its state, never as an empty /options/vo
   const previous = { realized: { windows: [band(5, .3), band(21, .28), band(63, .25)] }, implied: {}, confronto: [] };
   // Frozen oracle: the words the PM reads, not keys taken from the code under test.
   const words = {
-    it: { loading: 'In caricamento', error: 'Richiesta fallita', idle: 'Non richiesto', backend: 'DICHIARATO DAL BACKEND:',
+    it: { loading: 'In caricamento', error: 'Richiesta fallita', idle: 'Carica il contesto', backend: 'DICHIARATO DAL BACKEND:',
       client: 'RICHIESTA DEL CONO NON RIUSCITA:', coneLoading: 'interrogo /options/vol_cone' },
-    en: { loading: 'Loading', error: 'Request failed', idle: 'Not requested', backend: 'REPORTED BY THE BACKEND:',
+    en: { loading: 'Loading', error: 'Request failed', idle: 'Load the context', backend: 'REPORTED BY THE BACKEND:',
       client: 'VOLATILITY CONE REQUEST FAILED:', coneLoading: 'Loading volatility cone' },
   };
   for (const language of ['it', 'en']) {
@@ -572,10 +576,11 @@ test('day units on the numeric grid, forward ladder and cone follow the language
     p75: current + .02, max: current + .05, n_obs: young ? 40 : 250, young });
   const cone = { realized: { windows: [band(5, .3), band(21, .28), band(63, .25, true)] }, implied: {},
     confronto: [{ expiry: '2035-02-10', days: 34, window: 21, atm_iv: .251, pct_realized_leq_iv: 62 }] };
+  // 11/10 (Opus 5.5): senza chain il Termine non mostra una tabella tutta n.d. ma UNA riga di dichiarazione
   const words = {
-    it: { heat: '<b>10/02/35</b><span>34g</span>', ladder: '34g → 62g', tick: '>21g</text>', young: '>63g*</text>',
+    it: { heat: '<b>10/02/35</b><span>34g</span>', ladder: 'Forward, vol forward e ±1σ non disponibili', tick: '>21g</text>', young: '>63g*</text>',
       reading: 'pct realized 21g' },
-    en: { heat: '<b>10/02/35</b><span>34d</span>', ladder: '34d → 62d', tick: '>21d</text>', young: '>63d*</text>',
+    en: { heat: '<b>10/02/35</b><span>34d</span>', ladder: 'Forward, forward vol and ±1σ unavailable', tick: '>21d</text>', young: '>63d*</text>',
       reading: 'realised percentile 21d' },
   };
   const render = conePanel();

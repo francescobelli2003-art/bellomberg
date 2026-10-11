@@ -2,7 +2,7 @@ import { t as tr } from '@/i18n/t';
 import { daysToExpiry, finite, ivText, numText, priceText, type SurfaceModel } from '@/lib/vol-deck';
 import type { OverlayCtx } from './Surface3D';
 import type { VolQuant } from './quant';
-import { flagLine, fwdQuality, naWhy, whyText } from './quantText';
+import { flagLine, fwdQuality, naWhy, onProxy, whyText } from './quantText';
 
 /* ============================================================================
    Sovrapposizioni del Vol Deck «quant» (10/10/2026, Opus 5.5): tracce Plotly per il 3D e
@@ -46,7 +46,7 @@ export function eventLine(q: VolQuant, date: string | null): string {
 export function overlayTraces(model: SurfaceModel, q: VolQuant, on: OverlayToggles, c: OverlayColors, date: string | null, delta: boolean, asOf: string | null = null) {
   return (ctx: OverlayCtx): any[] => {
     const out: any[] = [];
-    const ys = ctx.ys, lift = (ctx.zTop - ctx.floor) * 0.02;
+    const ys = ctx.ys, lift = (ctx.zTop - ctx.floor) * 0.02, zv = (pct: number) => ctx.zOf ? ctx.zOf(pct) : pct;
     if (on.forward) {
       const x: (number | null)[] = [], y: (number | null)[] = [], z: (number | null)[] = [], text: string[] = [];
       model.rows.forEach((row, j) => {
@@ -56,7 +56,7 @@ export function overlayTraces(model: SurfaceModel, q: VolQuant, on: OverlayToggl
         const px = delta ? (ctx.xs[q.delta.columns.indexOf('ATMF')] ?? null) : priceX(model, F, ctx.strikeAxis, ctx.xs);
         if (F == null || px == null || !finite(cell?.iv)) { x.push(null); y.push(null); z.push(null); text.push(''); return; }
         const res = q.forwards[row.expiry];
-        x.push(px); y.push(ys[j]); z.push((cell!.iv as number) * 100 + lift);
+        x.push(px); y.push(ys[j]); z.push(zv((cell!.iv as number) * 100) + lift);
         text.push(`<b>${row.expiry}</b> · ${row.days}${tr('voldeck.short_days')}<br>${tr('voldeck.q_fwd_hover', {
           f: priceText(F, ''), m: model.spot != null ? numText(F / model.spot, 4) : tr('voldeck.ui_n_a_15'), v: ivText(cell!.iv, '', 2),
           q: res ? fwdQuality(res) : tr('voldeck.ui_n_a_15') })}`);
@@ -72,7 +72,7 @@ export function overlayTraces(model: SurfaceModel, q: VolQuant, on: OverlayToggl
           const px = r ? priceX(model, r[side], ctx.strikeAxis, ctx.xs) : null;
           if (!r || px == null) { x.push(null); y.push(null); z.push(null); text.push(''); return; }
           x.push(px); y.push(ys[j]); z.push(ctx.floor);
-          text.push(`<b>${row.expiry}</b><br>${tr('voldeck.q_cone_hover', { dn: numText((r.downPct as number) * 100, 2), up: numText((r.upPct as number) * 100, 2), lo: priceText(r.low, ''), hi: priceText(r.high, ''), f: priceText(r.forward, '') })}`);
+          text.push(`<b>${row.expiry}</b>${onProxy(q, row.expiry) ? ' · ' + tr('voldeck.q_proxy_mark') : ''}<br>${tr('voldeck.q_cone_hover', { dn: numText((r.downPct as number) * 100, 2), up: numText((r.upPct as number) * 100, 2), lo: priceText(r.low, ''), hi: priceText(r.high, ''), f: priceText(r.forward, '') })}`);
         });
         if (x.some(v => v != null)) out.push({ type: 'scatter3d', mode: 'lines', meta: 'ov-cone-' + side, name: tr('voldeck.q_ov_cone'),
           x, y, z, text, hoverinfo: 'text', connectgaps: false, line: { color: c.cone, width: 5, dash: 'dash' } });
@@ -95,7 +95,7 @@ export function overlayTraces(model: SurfaceModel, q: VolQuant, on: OverlayToggl
         model.rows.forEach((row, j) => row.iv.forEach((v, i) => {
           const key = row.expiry + '|' + i, hits = q.cellFlags.get(key);
           if (!hits || !finite(v) || q.cellLevel.get(key) !== level) return;
-          x.push(ctx.xs[i]); y.push(ys[j]); z.push(v * 100 + lift); cd.push([row.expiry, i]);
+          x.push(ctx.xs[i]); y.push(ys[j]); z.push(zv(v * 100) + lift); cd.push([row.expiry, i]);
           text.push(`<b>${row.expiry}</b> · K/S ${numText(model.grid[i], 3)}<br>` + hits.map(h => flagLine(q.flags[h])).join('<br>'));
         }));
         const color = level === 'executable' ? c.arb : (c.arbInd || c.muted);

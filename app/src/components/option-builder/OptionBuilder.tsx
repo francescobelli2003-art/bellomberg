@@ -8,14 +8,22 @@
 // payoff, cursori di scenario), sotto un cassetto «Dettagli» chiuso. Stato, richieste e motore
 // sono quelli di prima: cambia solo la disposizione. Le dichiarazioni che cambiano la decisione
 // (gamba n.d., quote DELAYED, perdita illimitata, input mancanti) restano fuori dal cassetto.
+//
+// 11/10/2026 (Opus 5.5) — feedback PM sul download reale del weekend (bid/ask null su TUTTI i
+// contratti, solo IV): ogni gamba era n.d. «denaro/lettera assenti» e il motore non partiva mai.
+// Ora un contratto senza alcuna quota prende il prezzo TEORICO dall'IV del provider (lib:
+// theoreticalPrice), etichettato «teorico · quote assenti»; senza IV resta n.d. Le strategie sono
+// una griglia di pulsanti col glifo del payoff sopra il ticket (niente select troncata), la
+// scadenza ha il suo campo, «Aggiungi call/put/azioni» sono pulsanti (niente menu che copre) e il
+// builder vuoto parte da un esempio dichiarato (call spread rialzista ATM a ~30 giorni).
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import type { Dispatch, SetStateAction } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { ChevronDown, Plus, RefreshCw, RotateCcw, Trash2, X } from 'lucide-react';
 import { t as tr } from '@/i18n/t';
 import { leggiNumero, leggiNumeroConSegno } from '@/lib/cassa';
 import { volRequest, type ChainPage, type DownloadStatus } from '@/lib/vol-deck';
 import {
-  PRESET_GROUPS, buildPreset, daysToClose, editLeg, engineLegs, engineResultProblem, fieldNumber, horizonDays, invertLeg, optionLeg,
+  EXAMPLE_PRESET, PRESET_GROUPS, atmIv, buildPreset, daysToClose, expiryNear, editLeg, engineLegs, engineResultProblem, fieldNumber, horizonDays, invertLeg, optionLeg,
   premiums, quoteLeg, returnOnRisk, stockLeg, strikesOf,
   type BuilderLeg, type ChainContract, type EngineResult, type LegQuote, type NdReason, type PresetId, type PriceMode, type RateQuote, type VolModel,
 } from '@/lib/option-builder';
@@ -70,7 +78,8 @@ export default function OptionBuilder({ ticker, download, catalog, downloadBusy,
 
   useEffect(() => {
     if (selected && future.includes(selected)) return;
-    const first = downloaded.find(e => daysToClose(e, now) >= 1) || downloaded.find(e => daysToClose(e, now) > 0);
+    // 11/10: the ticket opens on the downloaded expiry nearest to ~30 days (the example's horizon)
+    const first = expiryNear(downloaded, now) || downloaded.find(e => daysToClose(e, now) > 0);
     if (first) setSelected(first);
   }, [downloaded, future, selected, now]);
 
@@ -126,7 +135,11 @@ export default function OptionBuilder({ ticker, download, catalog, downloadBusy,
   const [dragSpot, setDragSpot] = useState(false);
   const [ivPts, setIvPts] = useState(0);
   const [daysPassed, setDaysPassed] = useState(0);
-  const quotes = useMemo(() => legs.map(l => quoteLeg(l, contracts, mode, spot, now, read)), [legs, contracts, mode, spot, now]);
+  // 11/10: rate and dividend for the theoretical price of unquoted contracts (null while unknown)
+  const theoryRate = rateValue != null && Math.abs(rateValue) <= 100 ? rateValue / 100 : null;
+  const theoryDiv = divValue != null && Math.abs(divValue) <= 100 ? divValue / 100 : null;
+  const theory = useMemo(() => theoryRate == null || theoryDiv == null ? null : { rate: theoryRate, dividend: theoryDiv }, [theoryRate, theoryDiv]);
+  const quotes = useMemo(() => legs.map(l => quoteLeg(l, contracts, mode, spot, now, read, theory)), [legs, contracts, mode, spot, now, theory]);
   const horizon = horizonDays(quotes);
   const elapsed = horizon == null ? 0 : Math.min(daysPassed, horizon);
   const minIv = Math.min(...quotes.filter(q => q.iv != null).map(q => (q.iv as number) * 100));
@@ -183,8 +196,10 @@ export default function OptionBuilder({ ticker, download, catalog, downloadBusy,
     if (pending && pendingFrom.current !== legs) setNotice(tr('optionbuilder.pendingCancelled', { e: selected ? f.date(selected) : tr('optionbuilder.na') }));
   }, [legs]);
   // Identity, not shape: any edit (even one undone by hand) makes the ticket «Custom» — the strict reading.
-  const [applied, setApplied] = useState<{ id: PresetId; legs: BuilderLeg[] } | null>(null);
+  const [applied, setApplied] = useState<{ id: PresetId; legs: BuilderLeg[]; example?: boolean } | null>(null);
+  const exampleRebuild = useRef(false);
   const strategy = applied && applied.legs === legs ? applied.id : '';
+  const isExample = !!applied?.example && applied.legs === legs;
   const applyPreset = (id: PresetId) => {
     setNotice('');
     if (!selected) { setNotice(tr('optionbuilder.pickExpiry')); return; }
@@ -195,7 +210,9 @@ export default function OptionBuilder({ ticker, download, catalog, downloadBusy,
     }
     const later = future.filter(e => e > selected);
     const out = buildPreset(id, spot, selected, contracts, later.filter(e => contracts.get(e)?.length));
-    if (out.ok) { setLegs(out.legs); setApplied({ id, legs: out.legs }); setPending(null); setMovePct(0); setDaysPassed(0); return; }
+    // v2 review 9fd3c56 (4b): an example rebuilt on another expiry is still the example (badge kept)
+    const example = exampleRebuild.current; exampleRebuild.current = false;
+    if (out.ok) { setLegs(out.legs); setApplied({ id, legs: out.legs, example: example || undefined }); setPending(null); setMovePct(0); setDaysPassed(0); return; }
     if (out.reason === 'needs_far_expiry') {
       const far = later.find(e => downloaded.includes(e)) || later[0];
       if (!far) { setNotice(tr('optionbuilder.presetFail_no_far')); return; }
@@ -224,6 +241,16 @@ export default function OptionBuilder({ ticker, download, catalog, downloadBusy,
       });
     return () => controller.abort();
   }, [farHint, ready, download?.id]);
+  // 11/10: an empty builder starts from a declared example, once per mount of the builder (VolWorkbench
+  // keys it by ticker), never over legs: v2 review 9fd3c56 (4a) the write keeps legs that arrived meanwhile
+  const exampleDone = useRef(legs.length > 0);
+  useEffect(() => {
+    if (legs.length) { exampleDone.current = true; return; }
+    if (exampleDone.current || pending || !selected || spot == null || !contracts.get(selected)?.length) return;
+    exampleDone.current = true;
+    const out = buildPreset(EXAMPLE_PRESET, spot, selected, contracts, []);
+    if (out.ok) { setLegs(prev => prev.length ? prev : out.legs); setApplied({ id: EXAMPLE_PRESET, legs: out.legs, example: true }); }
+  }, [legs.length, pending, selected, spot, contracts]);
   useEffect(() => {
     if (!pending || !selected || !contracts.get(selected)?.length) return;
     if (pending === 'calendar') {
@@ -233,6 +260,12 @@ export default function OptionBuilder({ ticker, download, catalog, downloadBusy,
     applyPreset(pending);
   }, [pending, contracts, selected, downloaded]);
 
+  /** A click on the strategy grid: the preset on the ticket is kept (an example becomes the choice). */
+  const pickPreset = (id: PresetId) => {
+    exampleRebuild.current = false;
+    if (id !== strategy) { applyPreset(id); return; }
+    if (isExample && applied) setApplied({ id, legs: applied.legs });
+  };
   const usedExpiries = [...new Set(legs.map(l => l.expiry).filter((e): e is string => !!e))];
   const refresh = () => requestExpiries(usedExpiries.length ? usedExpiries : selected ? [selected] : []);
   /** Ticket expiry: new legs and presets use it; a preset on the ticket is rebuilt on it. */
@@ -240,12 +273,10 @@ export default function OptionBuilder({ ticker, download, catalog, downloadBusy,
     if (!e) return;
     setSelected(e);
     if (!downloaded.includes(e)) requestExpiries([...usedExpiries, e]);
-    if (strategy) { setNotice(''); setPending(strategy); }
+    if (strategy) { setNotice(''); exampleRebuild.current = isExample; setPending(strategy); }
   };
 
-  const [addOpen, setAddOpen] = useState(false);
   const addLeg = (kind: 'call' | 'put' | 'stock') => {
-    setAddOpen(false);
     if (legs.length >= MAX_LEGS) return;
     if (kind === 'stock') { setLegs(prev => [...prev, stockLeg('buy', 100)]); return; }
     const chain = contracts.get(selected);
@@ -268,6 +299,11 @@ export default function OptionBuilder({ ticker, download, catalog, downloadBusy,
 
   const loadingSelected = !!selected && !contracts.get(selected)?.length;
   const spotWarn = spotSource != null && !/polygon/i.test(spotSource);
+  // 11/10: the download carries no quote at all (bid and ask null on every loaded contract)
+  const loadedRows = [...contracts.values()].flat();
+  const noQuotes = loadedRows.length > 0 && loadedRows.every(r => r.bid == null && r.ask == null);
+  const strategyName = !legs.length ? tr('optionbuilder.noLegs')
+    : tr(legs.length === 1 ? 'optionbuilder.legsCountOne' : 'optionbuilder.legsCount', { t: strategy ? tr(`optionbuilder.preset_${strategy}`) : tr('optionbuilder.strategyCustom'), n: legs.length });
   // quote delay of the contracts in use (DELAYED, REAL-TIME…), declared next to the spot
   const timeframes = [...new Set(quotes.filter(q => q.contract).map(q => q.contract!.quote_timeframe || tr('optionbuilder.na')))];
   const delayed = timeframes.some(tf => !/real/i.test(tf));
@@ -275,6 +311,18 @@ export default function OptionBuilder({ ticker, download, catalog, downloadBusy,
     ? { text: `${rate.source} · ${rate.date}${rate.status === 'stale' ? ' · ' + tr('optionbuilder.stale') : ''}`, tone: rate.status === 'stale' ? 'warn' as const : 'ok' as const }
     : rate ? { text: tr('optionbuilder.rateMissing', { err: rate.error || tr('optionbuilder.na') }), tone: 'bad' as const } : { text: tr('optionbuilder.loading'), tone: 'muted' as const };
   const legExpiries = [...new Set(legs.filter(l => l.kind === 'option' && l.expiry).map(l => l.expiry as string))].sort();
+  // 11/10: σ bands and crosshair probability at the first leg expiry, σ = ATM IV of that chain (declared)
+  const firstLeg = quotes.reduce<{ e: string; d: number } | null>((best, q, i) => q.days != null && q.days > 0 && legs[i].expiry && (!best || q.days < best.d)
+    ? { e: legs[i].expiry as string, d: q.days } : best, null);
+  const atm = firstLeg && spot != null ? atmIv(contracts.get(firstLeg.e), spot) : null;
+  // v2 review 9fd3c56 (point 2): the scenario IV shock moves σ too; the basis is declared (it is NOT the
+  // engine's probability of profit, which uses the IV of the legs)
+  const sigma = atm ? atm.iv + ivPts / 100 : null;
+  const dist = atm && sigma != null && sigma > 0 && firstLeg && spot != null && theory ? { spot, sigma, days: firstLeg.d, rate: theory.rate, dividend: theory.dividend,
+    label: tr(ivPts ? 'optionbuilder.bandLegendShock' : 'optionbuilder.bandLegend', { v: f.pct(sigma, 1), k: f.strike(atm.strike), s: f.signed(ivPts, 1) }),
+    basis: tr('optionbuilder.probBasis', { v: f.pct(sigma, 1) }) } : null;
+  // v2 review 9fd3c56 (point 1): at least one leg on a theoretical price → every figure says so
+  const anyTheory = quotes.some(q => q.priceSource === 'theory');
   const hasSecondExpiry = legs.some(l => l.kind === 'option' && l.expiry && l.expiry !== selected);
   const expiryList = [...new Set([...(selected ? [selected] : []), ...future])].sort();
 
@@ -284,9 +332,10 @@ export default function OptionBuilder({ ticker, download, catalog, downloadBusy,
       <h2 id="vd-lab-title"><span className="ob-strip-ticker">{ticker}</span><span className="ob-strip-title">{tr('optionbuilder.title')}</span></h2>
       <strong className="ob-num ob-strip-spot" data-spot>{f.num(spot, 2)}</strong>
       <span className={'ob-badge' + (spotText.trim() ? ' is-manual' : spot == null ? ' is-bad' : spotWarn ? ' is-warn' : '')}>
-        {spotText.trim() ? tr('optionbuilder.manual') : spot == null ? tr('optionbuilder.na') : `${spotSource || tr('optionbuilder.sourceUnknown')} · ${f.time(spotStamp || download?.snapshot_at)}`}
+        {spotText.trim() ? tr('optionbuilder.manual') : spot == null ? tr('optionbuilder.na') : tr('optionbuilder.spotFrom', { src: spotSource || tr('optionbuilder.sourceUnknown'), time: f.time(spotStamp || download?.snapshot_at) })}
       </span>
-      {latest && <span className={'ob-badge' + (delayed ? ' is-warn' : '')} data-quote-delay={timeframes.join(',') || undefined}>
+      {noQuotes && <span className="ob-badge is-warn" data-no-quotes title={tr('optionbuilder.noQuotesHelp')}>{tr('optionbuilder.noQuotesAt', { time: f.time(latest?._timestamp) })}</span>}
+      {latest && !noQuotes && <span className={'ob-badge' + (delayed ? ' is-warn' : '')} data-quote-delay={timeframes.join(',') || undefined}>
         {tr('optionbuilder.quotesAt', { src: 'Polygon', time: f.time(latest._timestamp) })}{timeframes.length ? ' · ' + timeframes.join(' · ') : ''}</span>}
       {spotWarn && !spotText.trim() && <span className="ob-badge is-warn">{tr('optionbuilder.spotNotPolygon')}</span>}
       {downloadBusy && <span className="ob-badge is-muted"><RefreshCw size={12} className="ob-spin" aria-hidden />{tr('optionbuilder.downloading')}</span>}
@@ -296,54 +345,52 @@ export default function OptionBuilder({ ticker, download, catalog, downloadBusy,
       <button type="button" className="ob-btn is-ghost" onClick={refresh} disabled={downloadBusy || (!usedExpiries.length && !selected)} title={tr('optionbuilder.refreshNote')}><RefreshCw size={14} aria-hidden />{tr('optionbuilder.refreshQuotes')}</button>
     </header>
 
+    {/* ── 11/10: expiry and the strategy grid (glyph = payoff shape), above the ticket ── */}
+    <section className="ob-picker" aria-labelledby="ob-picker-title">
+      <h3 id="ob-picker-title" className="ob-sr">{tr('optionbuilder.strategy')}</h3>
+      <label className="ob-group ob-expiry-field">
+        <span className="ob-group-k">{tr('optionbuilder.expiry')}</span>
+        <span className="ob-expiry-line"><span className="ob-select-box">
+          <select value={selected} aria-label={tr('optionbuilder.expiry')} onChange={e => chooseExpiry(e.target.value)} data-expiry>
+            {!selected && <option value="">{catalog.length ? tr('optionbuilder.pickExpiryShort') : tr('optionbuilder.noCatalog')}</option>}
+            {expiryList.map(e => <option key={e} value={e}>{tr(downloaded.includes(e) ? 'optionbuilder.expiryOption' : 'optionbuilder.expiryOptionToDownload',
+              { e: f.date(e), d: f.num(daysToClose(e, now), daysToClose(e, now) < 2 ? 2 : 0) })}</option>)}
+          </select>
+          <ChevronDown size={14} aria-hidden className="ob-caret" />
+        </span>
+        <small className="ob-field-note">{tr('optionbuilder.expiryNote')}</small></span>
+      </label>
+      <div className="ob-groups" data-strategy>
+        {PRESET_GROUPS.map(g => <div key={g.id} className="ob-group" role="group" aria-labelledby={'ob-g-' + g.id}>
+          <span className="ob-group-k" id={'ob-g-' + g.id}>{tr(`optionbuilder.group_${g.id}`)}</span>
+          <div className="ob-chips">{g.presets.map(id => <button key={id} type="button" className={'ob-chip' + (pending === id ? ' is-pending' : '')}
+            aria-pressed={strategy === id} data-preset={id} title={tr('optionbuilder.presetReplace')} onClick={() => pickPreset(id)}>
+            <PresetGlyph id={id} /><span>{tr(`optionbuilder.preset_${id}`)}</span></button>)}</div>
+        </div>)}
+      </div>
+    </section>
+
     <div className="ob-main">
       {/* ── ticket ── */}
       <section className="ob-card ob-ticket" aria-labelledby="ob-ticket-title">
         <div className="ob-card-head">
           <h3 id="ob-ticket-title">{tr('optionbuilder.ticket')}</h3>
-          <span className="ob-card-note">{legs.length === 1 ? tr('optionbuilder.legsCountOne', { t: ticker }) : tr('optionbuilder.legsCount', { t: ticker, n: legs.length })}</span>
+          <span className="ob-card-note" data-strategy-name>{strategyName}</span>
+          {isExample && <span className="ob-badge is-manual" data-example>{tr('optionbuilder.example')}</span>}
           <span className="ob-grow" />
           {legs.length > 0 && <button type="button" className="ob-icon" onClick={() => setLegs([])} aria-label={tr('optionbuilder.clear')} title={tr('optionbuilder.clear')}><Trash2 size={14} /></button>}
-          <div className="ob-add">
-            <button type="button" className="ob-btn" aria-expanded={addOpen} aria-haspopup="menu" disabled={legs.length >= MAX_LEGS} onClick={() => setAddOpen(v => !v)} data-add-leg>
-              <Plus size={14} aria-hidden />{tr('optionbuilder.addLeg')}</button>
-            {addOpen && <div className="ob-menu" role="menu">
-              <button type="button" role="menuitem" onClick={() => addLeg('call')}>{tr('optionbuilder.addCall')}</button>
-              <button type="button" role="menuitem" onClick={() => addLeg('put')}>{tr('optionbuilder.addPut')}</button>
-              <button type="button" role="menuitem" onClick={() => addLeg('stock')}>{tr('optionbuilder.addShares')}</button>
-            </div>}
-          </div>
         </div>
         <div className="ob-ticket-body">
-          <div className="ob-pick">
-            <label className="ob-field">
-              <span className="ob-k">{tr('optionbuilder.strategy')}</span>
-              <span className={'ob-select-box' + (pending ? ' is-pending' : '')}>
-                {strategy ? <PresetGlyph id={strategy} /> : pending ? <PresetGlyph id={pending} /> : <span className="ob-glyph-empty" aria-hidden />}
-                <select value={pending || strategy} aria-label={tr('optionbuilder.strategy')} title={tr('optionbuilder.presetReplace')} data-strategy
-                  onChange={e => { const v = e.target.value as PresetId | ''; if (v && v !== strategy) applyPreset(v); }}>
-                  <option value="">{legs.length ? tr('optionbuilder.strategyCustom') : tr('optionbuilder.strategyPick')}</option>
-                  {PRESET_GROUPS.map(g => <optgroup key={g.id} label={tr(`optionbuilder.group_${g.id}`)}>
-                    {g.presets.map(id => <option key={id} value={id}>{tr(`optionbuilder.preset_${id}`)}</option>)}</optgroup>)}
-                </select>
-                <ChevronDown size={14} aria-hidden className="ob-caret" />
-              </span>
-            </label>
-            <label className="ob-field">
-              <span className="ob-k">{tr('optionbuilder.expiry')}</span>
-              <span className="ob-select-box">
-                <select value={selected} aria-label={tr('optionbuilder.expiry')} onChange={e => chooseExpiry(e.target.value)} data-expiry>
-                  {!selected && <option value="">{catalog.length ? tr('optionbuilder.pickExpiryShort') : tr('optionbuilder.noCatalog')}</option>}
-                  {expiryList.map(e => <option key={e} value={e}>{f.date(e)} · {tr('optionbuilder.dte', { d: f.num(daysToClose(e, now), daysToClose(e, now) < 2 ? 2 : 0) })}{downloaded.includes(e) ? '' : ' · ' + tr('optionbuilder.toDownload')}</option>)}
-                </select>
-                <ChevronDown size={14} aria-hidden className="ob-caret" />
-              </span>
-            </label>
-          </div>
           {(notice || pending) && <p className="ob-notice" role="status">{notice || tr('optionbuilder.presetPending', { name: tr(`optionbuilder.preset_${pending!}`) })}</p>}
+          {isExample && <p className="ob-note" data-example-note>{tr('optionbuilder.exampleNote')}</p>}
           {legs.length ? <TicketLegs legs={legs} quotes={quotes} contracts={contracts} selected={selected} showExpiry={hasSecondExpiry} update={update}
             remove={id => setLegs(prev => prev.filter(l => l.id !== id))} invert={id => setLegs(prev => prev.map(l => l.id === id ? invertLeg(l) : l))} />
             : <p className="ob-empty-text">{tr('optionbuilder.emptyLegs')}</p>}
+          <div className="ob-add-row" role="group" aria-label={tr('optionbuilder.addLegGroup')}>
+            {(['call', 'put', 'stock'] as const).map(kind => <button key={kind} type="button" className="ob-btn is-small" data-add-leg={kind}
+              disabled={legs.length >= MAX_LEGS} onClick={() => addLeg(kind)}><Plus size={13} aria-hidden />
+              {tr(kind === 'call' ? 'optionbuilder.addCall' : kind === 'put' ? 'optionbuilder.addPut' : 'optionbuilder.addShares')}</button>)}
+          </div>
           {legs.length > 0 && <NetLine result={shown} mode={mode} quotes={quotes} />}
         </div>
         <div className={'ob-market' + (marketOpen ? ' is-open' : '')}>
@@ -399,9 +446,9 @@ export default function OptionBuilder({ ticker, download, catalog, downloadBusy,
           {busy && <span className="ob-badge is-muted"><RefreshCw size={12} className="ob-spin" aria-hidden />{tr('optionbuilder.computing')}</span>}
           {!busy && shown && !current && <span className="ob-badge is-warn">{tr('optionbuilder.staleResult')}</span>}
         </div>
-        <Alerts nd={nd} inputErrors={inputErrors} engineError={engineError} rateLoading={rateLoading} />
-        <KeyFigures result={shown} spot={spot} />
-        {shown ? <PayoffChart result={shown} strikes={legs.flatMap(l => l.strike == null ? [] : [l.strike])} spot={spot as number} scenarioSpot={(spot as number) * (1 + movePct / 100)} elapsed={elapsed} ivPts={ivPts} freeze={dragSpot} />
+        <Alerts nd={rateLoading ? nd.filter(m => m.reasons.some(r => r !== 'theory_needs_rate')) : nd} inputErrors={inputErrors} engineError={engineError} rateLoading={rateLoading} />
+        <KeyFigures result={shown} spot={spot} theory={anyTheory} />
+        {shown ? <PayoffChart result={shown} strikes={legs.flatMap(l => l.strike == null ? [] : [l.strike])} spot={spot as number} scenarioSpot={(spot as number) * (1 + movePct / 100)} elapsed={elapsed} ivPts={ivPts} freeze={dragSpot} dist={dist} theory={anyTheory} />
           : <ChartPlaceholder legs={legs.length} nd={nd.length} />}
         <Scenario movePct={movePct} setMovePct={setMovePct} ivPts={ivPts} setIvPts={setIvPts} ivMin={ivMin}
           days={daysPassed} setDays={setDaysPassed} horizon={horizon} spot={spot} result={shown} elapsed={elapsed} onDrag={setDragSpot} />
@@ -442,7 +489,7 @@ function Alerts({ nd, inputErrors, engineError, rateLoading }: { nd: { index: nu
 }
 
 /** The four figures at the head of the P/L profile, all from the engine. */
-function KeyFigures({ result, spot }: { result: EngineResult | null; spot: number | null }) {
+function KeyFigures({ result, spot, theory }: { result: EngineResult | null; spot: number | null; theory: boolean }) {
   const f = useFormat();
   const kind = result?.entry_kind;
   const profitLabel = result && !result.unlimited_profit && result.max_profit != null && result.max_profit < 0 ? tr('optionbuilder.kpiMinLoss') : tr('optionbuilder.kpiMaxProfit');
@@ -450,24 +497,29 @@ function KeyFigures({ result, spot }: { result: EngineResult | null; spot: numbe
   const theoreticalLoss = !!result?.unlimited_loss && result.unlimited_loss_reason === 'european_dividend';
   const bes = result ? result.breakevens : [];
   const intervals = result?.breakeven_intervals || [];
-  const beText = !result ? f.na : [...bes.map(v => f.num(v, 2)), ...intervals.map(i => `${f.num(i.from, 2)}–${i.to == null ? '∞' : f.num(i.to, 2)}`)].join(' · ') || tr('optionbuilder.kpiBeNone');
-  const beSub = result && spot && bes.length ? tr('optionbuilder.beFromSpot', { v: bes.map(b => f.signed((b / spot - 1) * 100, 1) + '%').join(' · ') }) : undefined;
+  // 11/10: one breakeven per line, each with its distance from spot (no «·» chain that overflows)
+  const beItems = !result ? [] : [...bes.map(v => ({ k: 'p' + v, text: f.num(v, 2), sub: spot ? f.signed((v / spot - 1) * 100, 1) + '%' : '' })),
+    ...intervals.map(i => ({ k: 'i' + i.from, text: `${f.num(i.from, 2)}–${i.to == null ? '∞' : f.num(i.to, 2)}`, sub: '' }))];
+  const beText = !result ? f.na : !beItems.length ? tr('optionbuilder.kpiBeNone')
+    : <span className={'ob-be-list' + (beItems.length > 1 ? ' is-many' : '')}>{beItems.map(b => <span key={b.k}>{b.text}{b.sub && <small>{b.sub}</small>}</span>)}</span>;
   const usd = (v: number | null | undefined) => v == null ? f.na : f.num(v, 2);
   return <dl className="ob-figs" aria-label={tr('optionbuilder.summary')}>
     <Fig label={kind === 'credit' ? tr('optionbuilder.kpiCreditIn') : kind === 'even' ? tr('optionbuilder.kpiEven') : tr('optionbuilder.kpiDebitPaid')}
       value={result ? usd(Math.abs(result.entry_cost)) : f.na} unit={result ? 'USD' : undefined} data="entry" valueClass={'ob-hero-v' + (kind === 'credit' ? ' is-up' : '')}
-      sub={result?.fees ? tr('optionbuilder.feesIncl', { v: f.num(result.fees, 2) }) : undefined} />
+      sub={[...(result?.fees ? [tr('optionbuilder.feesIncl', { v: f.num(result.fees, 2) })] : []), ...(result && theory ? [tr('optionbuilder.onTheory')] : [])].join(', ') || undefined} />
     <Fig label={profitLabel} tone={!result ? undefined : result.unlimited_profit || (result.max_profit ?? 0) > 0 ? 'up' : 'down'} data="max-profit"
-      value={!result ? f.na : result.unlimited_profit ? tr('optionbuilder.unlimited') : f.signed(result.max_profit, 2)} unit={result && !result.unlimited_profit && result.max_profit != null ? 'USD' : undefined} />
+      value={!result ? f.na : result.unlimited_profit ? tr('optionbuilder.unlimited') : f.signed(result.max_profit, 2)} unit={result && !result.unlimited_profit && result.max_profit != null ? 'USD' : undefined}
+      sub={result && theory ? tr('optionbuilder.onTheory') : undefined} />
     <Fig label={tr('optionbuilder.kpiMaxLoss')} tone={result ? 'down' : undefined} data="max-loss"
       value={!result ? f.na : result.unlimited_loss ? tr('optionbuilder.unlimitedLoss') + (theoreticalLoss ? ' · ' + tr('optionbuilder.lossTheoretical') : '') : f.signed(result.max_loss == null ? null : -result.max_loss, 2)}
-      unit={result && !result.unlimited_loss && result.max_loss != null ? 'USD' : undefined}
+      unit={result && !result.unlimited_loss && result.max_loss != null ? 'USD' : undefined} sub={result && theory ? tr('optionbuilder.onTheory') : undefined}
       title={theoreticalLoss && result?.tail_reference ? tr('optionbuilder.lossTheoreticalNote', { v: f.signed(result.tail_reference.pnl, 2), p: f.num(result.tail_reference.price, 2) }) : undefined} />
-    <Fig label={bes.length + intervals.length > 1 ? tr('optionbuilder.kpiBePlural') : tr('optionbuilder.kpiBe')} value={beText} sub={beSub} data="breakevens" />
+    <Fig label={bes.length + intervals.length > 1 ? tr('optionbuilder.kpiBePlural') : tr('optionbuilder.kpiBe')} value={beText} data="breakevens" valueClass={beItems.length > 1 ? 'is-list' : undefined}
+      sub={result && theory ? tr('optionbuilder.onTheory') : undefined} />
   </dl>;
 }
 
-function Fig({ label, value, unit, sub, tone, valueClass, title, data }: { label: string; value: string; unit?: string; sub?: string; tone?: 'up' | 'down';
+function Fig({ label, value, unit, sub, tone, valueClass, title, data }: { label: string; value: ReactNode; unit?: string; sub?: string; tone?: 'up' | 'down';
   valueClass?: string; title?: string; data?: string }) {
   return <div className="ob-fig" title={title} data-fig={data}><dt>{label}</dt>
     <dd className={'ob-num ob-fig-v' + (tone ? ' is-' + tone : '') + (valueClass ? ' ' + valueClass : '')}>{value}{unit && <small>{unit}</small>}</dd>
@@ -480,11 +532,12 @@ function NetLine({ result, mode, quotes }: { result: EngineResult | null; mode: 
   const f = useFormat();
   const v = result ? result.net_premium : null;
   const manual = quotes.filter(q => q.priceSource === 'manual').length;
+  const theory = quotes.some(q => q.priceSource === 'theory');
   const label = v == null ? tr('optionbuilder.netNd') : v < 0 ? tr('optionbuilder.netCredit') : v > 0 ? tr('optionbuilder.netDebit') : tr('optionbuilder.kpiEven');
   return <div className="ob-net" data-net>
     <span className="ob-net-k">{label}</span>
     <b className={'ob-num' + (v != null && v < 0 ? ' is-up' : '')}>{v == null ? f.na : <>{f.num(Math.abs(v), 2)}<small>USD</small></>}</b>
-    <small className="ob-net-sub">{tr(mode === 'mid' ? 'optionbuilder.pricedMid' : 'optionbuilder.pricedNatural')}
+    <small className={'ob-net-sub' + (theory ? ' is-theory' : '')} data-net-basis={theory ? 'theory' : mode}>{tr(theory ? 'optionbuilder.pricedTheory' : mode === 'mid' ? 'optionbuilder.pricedMid' : 'optionbuilder.pricedNatural')}
       {result?.fees ? ' · ' + tr('optionbuilder.netFeesExcluded') : ''}
       {manual ? ' · ' + tr('optionbuilder.manualPrices', { n: manual }) : ''}</small>
   </div>;
@@ -509,21 +562,22 @@ function TicketLegs({ legs, quotes, contracts, selected, showExpiry, update, rem
       return <Fragment key={leg.id}><tr className={(leg.side === 'buy' ? 'is-buy' : 'is-sell') + (bad ? ' is-nd' : '')} data-leg={i + 1}>
         <td><button type="button" className={'ob-side is-' + leg.side} onClick={() => invert(leg.id)} aria-label={tr('optionbuilder.invert', { n: i + 1 })} title={tr('optionbuilder.invert', { n: i + 1 })}>
           {leg.side === 'buy' ? tr('optionbuilder.buy') : tr('optionbuilder.sell')}</button></td>
-        <td className="r"><input className="ob-cell-input is-qty" type="text" inputMode="decimal" value={leg.qty} aria-label={tr('optionbuilder.qtyOf', { n: i + 1 })}
+        <td className="r" data-label={tr('optionbuilder.col_qty')}><input className="ob-cell-input is-qty" type="text" inputMode="decimal" value={leg.qty} aria-label={tr('optionbuilder.qtyOf', { n: i + 1 })}
           onChange={e => update(leg.id, { qty: e.target.value })} aria-invalid={q.reasons.includes('bad_qty') || undefined} /></td>
         <td>{leg.kind === 'stock' ? <span className="ob-type is-stock">{tr('optionbuilder.sharesShort')}</span>
           : <select className="ob-cell-select" value={leg.type} aria-label={tr('optionbuilder.typeOf', { n: i + 1 })} onChange={e => update(leg.id, { type: e.target.value as 'call' | 'put' })}>
             <option value="call">{tr('optionbuilder.call')}</option><option value="put">{tr('optionbuilder.put')}</option></select>}
           {showExpiry && leg.kind === 'option' && leg.expiry && <small className={'ob-leg-exp' + (leg.expiry !== selected ? ' is-other' : '')}>{f.shortDate(leg.expiry)}</small>}</td>
-        <td className="r">{leg.kind === 'stock' ? <span className="ob-muted">—</span>
+        <td className="r ob-c-strike" data-label={tr('optionbuilder.col_strike')}>{leg.kind === 'stock' ? <span className="ob-muted">—</span>
           : <select className="ob-cell-select is-strike" value={leg.strike ?? ''} aria-label={tr('optionbuilder.strikeOf', { n: i + 1 })} onChange={e => update(leg.id, { strike: Number(e.target.value) })}>
             {leg.strike != null && !strikes.includes(leg.strike) && <option value={leg.strike}>{f.strike(leg.strike)} · {tr('optionbuilder.notInChain')}</option>}
             {strikes.map(k => <option key={k} value={k}>{f.strike(k)}</option>)}</select>}</td>
-        <td className="r"><input className={'ob-cell-input is-price' + (q.priceSource === 'manual' ? ' is-manual' : '')} type="text" inputMode="decimal" value={leg.price || ''}
+        <td className="r ob-c-price" data-label={tr('optionbuilder.col_priceShort')}><input className={'ob-cell-input is-price' + (q.priceSource === 'manual' ? ' is-manual' : q.priceSource === 'theory' ? ' is-theory' : '')} type="text" inputMode="decimal" value={leg.price || ''}
           placeholder={q.priceSource && q.priceSource !== 'manual' ? fieldNumber(q.price, comma, 2) : f.na}
           title={q.priceSource ? tr(`optionbuilder.src_${q.priceSource}`) : tr('optionbuilder.na')}
-          aria-label={tr('optionbuilder.priceOf', { n: i + 1 })} onChange={e => update(leg.id, { price: e.target.value })} aria-invalid={q.reasons.includes('bad_price') || undefined} /></td>
-        <td className="r">{leg.kind === 'stock' ? <span className="ob-muted">—</span> : <input className={'ob-cell-input is-iv' + (q.ivSource === 'manual' ? ' is-manual' : '')} type="text" inputMode="decimal" value={leg.iv || ''}
+          aria-label={tr('optionbuilder.priceOf', { n: i + 1 })} onChange={e => update(leg.id, { price: e.target.value })} aria-invalid={q.reasons.includes('bad_price') || undefined} />
+          {q.priceSource === 'theory' && <small className="ob-theory-t" data-price-theory={i + 1}>{tr('optionbuilder.src_theory')}</small>}</td>
+        <td className="r ob-c-iv" data-label={tr('optionbuilder.col_iv')}>{leg.kind === 'stock' ? <span className="ob-muted">—</span> : <input className={'ob-cell-input is-iv' + (q.ivSource === 'manual' ? ' is-manual' : '')} type="text" inputMode="decimal" value={leg.iv || ''}
           placeholder={c?.iv != null ? fieldNumber(c.iv * 100, comma, 1) : f.na} title={q.ivSource === 'manual' ? tr('optionbuilder.src_manual') : q.ivSource ? tr('optionbuilder.src_chain') : tr('optionbuilder.na')}
           aria-label={tr('optionbuilder.ivOf', { n: i + 1 })} onChange={e => update(leg.id, { iv: e.target.value })} aria-invalid={q.reasons.includes('bad_iv') || undefined} />}</td>
         <td className="ob-actions"><button type="button" className="ob-icon is-small" onClick={() => remove(leg.id)} aria-label={tr('optionbuilder.remove', { n: i + 1 })} title={tr('optionbuilder.remove', { n: i + 1 })}><X size={13} /></button></td>
@@ -550,7 +604,7 @@ function Scenario({ movePct, setMovePct, ivPts, setIvPts, ivMin, days, setDays, 
       text={tr('optionbuilder.ptsValue', { v: f.signed(ivPts, 1) })} />
     <div className="ob-scn-out" data-scenario-out>
       <span className="ob-k">{tr('optionbuilder.kpiScenario')}</span>
-      <strong className={'ob-num' + (!result ? '' : result.scenario.pnl >= 0 ? ' is-up' : ' is-down')} data-scenario-pnl>{result ? <>{f.signed(result.scenario.pnl, 2)}<small>USD</small></> : f.na}</strong>
+      <strong className={'ob-num' + (!result || Math.abs(result.scenario.pnl) < .005 ? '' : result.scenario.pnl > 0 ? ' is-up' : ' is-down')} data-scenario-pnl>{result ? <>{f.signed(result.scenario.pnl, 2)}<small>USD</small></> : f.na}</strong>
       <small className="ob-sub">{tr('optionbuilder.scenarioAt', { p: f.num(result ? result.scenario.price : spot == null ? null : spot * (1 + movePct / 100), 2), d: f.num(elapsed, elapsed % 1 ? 2 : 0), v: f.signed(ivPts, 1) })}</small>
       <button type="button" className="ob-btn is-ghost" onClick={() => { setMovePct(0); setIvPts(0); setDays(0); }} disabled={!moved} data-scenario-reset>
         <RotateCcw size={13} aria-hidden />{tr('optionbuilder.reset')}</button>
@@ -623,7 +677,7 @@ function Details({ result, prem, legs, quotes, future, downloaded, now, current,
       </div>
       {legs.length > 0 && <LegsDetail legs={legs} quotes={quotes} future={future} downloaded={downloaded} now={now} result={result && current ? result : null}
         update={update} requestExpiries={requestExpiries} />}
-      {result && <Heatmap result={result} />}
+      {result && <Heatmap result={result} theory={quotes.some(q => q.priceSource === 'theory')} />}
       <div className="ob-panel ob-method">
         <h4>{tr('optionbuilder.method')}</h4>
         <ul>{[tr('optionbuilder.subtitle'), tr('optionbuilder.engineNote'), tr('optionbuilder.daysNote'), tr('optionbuilder.priceNote'), ...(result?.limits || []),
@@ -680,11 +734,12 @@ function LegsDetail({ legs, quotes, future, downloaded, now, result, update, req
     </table></div></div>;
 }
 
-function Heatmap({ result }: { result: EngineResult }) {
+function Heatmap({ result, theory }: { result: EngineResult; theory: boolean }) {
   const f = useFormat();
   const max = Math.max(1, ...result.heatmap.flatMap(r => r.cells.map(c => Math.abs(c.pnl))));
   return <div className="ob-panel ob-heat" aria-labelledby="ob-heat-title">
     <h4 id="ob-heat-title">{tr('optionbuilder.heatmap')} <small>{tr('optionbuilder.heatmapNote')}</small></h4>
+    {theory && <p className="ob-note ob-theory-t" data-heat-theory>{tr('optionbuilder.heatTheory')}</p>}
     <div className="ob-table-wrap"><table className="ob-heat-table">
       <thead><tr><th scope="col">{tr('optionbuilder.heatDays')}</th>{result.heatmap[0]?.cells.map(c => <th key={c.price} scope="col" className="ob-num">{f.num(c.price, 2)}</th>)}</tr></thead>
       <tbody>{result.heatmap.map((row, i) => <tr key={i}><th scope="row" className="ob-num">{f.num(row.elapsed_days, row.elapsed_days % 1 ? 1 : 0)}</th>

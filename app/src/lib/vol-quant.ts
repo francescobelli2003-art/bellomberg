@@ -5,7 +5,8 @@
 
    REGOLA DI CASA: un dato che manca resta mancante. Ogni risultato che non si può calcolare
    esce `null` con un `reason` (codice stabile, v. REASONS / reasonText) e un `detail` coi numeri.
-   Mai spot·e^{rT} al posto del forward, mai estrapolazione fuori dagli strike coperti, mai 0.
+   Mai estrapolazione fuori dagli strike coperti, mai 0. Lo spot·e^{rT} entra SOLO come terzo
+   livello dichiarato di `forwardLevels` (v2.1, 11/10), etichettato «proxy», mai in silenzio.
 
    ---------------------------------------------------------------------------------------------
    CONVENZIONI (scelte, motivate, usate ovunque nel file)
@@ -35,6 +36,11 @@
            La griglia delta dichiara la fonte riga per riga.
    FORWARD da put-call parity DE-AMERICANIZZATA (default): EEP = CRR americano − europeo con l'IV
            del provider, sottratto dai mid; residuo e forward grezzo dichiarati.
+           GERARCHIA (forwardLevels, 11/10, v2 dopo la review su chain vere): 1) parità su bid/ask;
+           2) parità sui prezzi di CHIUSURA della stessa seduta (l'ultima della chain; volume > 0;
+           dentro una banda di plausibilità rispetto al carry); 3b) PROXY F = S·e^{(r−q)T} con il
+           rendimento da dividendo dichiarato; 3) PROXY F = S·e^{rT} con q = 0 (dividendi ignorati,
+           quote assenti). Ogni risultato porta `level`, la sua qualità e i suoi avvisi.
    TASSO   r CONTINUO DECIMALE (0,043, non 4,3). FRED DGS3MO (rotta /options/strategy/rate) è
            in percento bond-equivalent: rateFromDgs3mo(percent) = 2·ln(1 + y/2). |r| > 0,5 = n.d.
            (quasi certamente un percento). Un solo tasso a 3 mesi per tutte le scadenze: sulle
@@ -69,6 +75,8 @@
                                                             + bisezione su k. put: target < 0.
    continuousFromBondEquivalent(y), rateFromDgs3mo(pct)     tasso continuo decimale
    impliedForward(chainsPerExpiry, options?)                Record<expiry, ForwardResult>
+   forwardLevels(chainsPerExpiry, options?)                 idem con la gerarchia quote → chiusure
+                                                            → proxy S·e^{rT} (campo `level`)
    forwardInfo(forwards, expiry)                            { F, reason } col motivo VERO
    buildSmile(slice, F, forwardReason?)                     smile interpolato di una scadenza
    smileFromChain(expiry, T, contracts, F, options?)        smile OTM osservato a giunzione K = F
@@ -122,6 +130,9 @@ export const REASONS = {
   no_event_premium: ['varianza d\'evento ≤ 0: nessun premio utili misurabile', 'event variance ≤ 0: no measurable earnings premium'],
   not_comparable: ['cella non confrontabile fra le due istantanee', 'cell not comparable between the two snapshots'],
   outside_term: ['tenor fuori dalle scadenze coperte (mai estrapolato)', 'tenor outside the covered expiries (never extrapolated)'],
+  quotes_missing: ['non verificabili: quote assenti', 'not verifiable: quotes missing'],
+  implausible_vs_carry: ['forward dalle chiusure fuori dalla banda di plausibilità rispetto al carry: scartato', 'forward from closes outside the plausibility band against carry: discarded'],
+  chain_not_downloaded: ['chain non scaricata', 'chain not downloaded'],
 } as const;
 export type ReasonCode = keyof typeof REASONS;
 export const reasonText = (code: ReasonCode | null | undefined, lang: 'it' | 'en' = 'it'): string =>
@@ -341,6 +352,8 @@ export const DEAM_MAX_ITER = 8;
 export interface ParityContract {
   type: OptionType | string; strike: number | null; bid: number | null; ask: number | null;
   oi?: number | null; volume?: number | null; adjusted?: boolean; multiplier?: number | null; iv?: number | null;
+  /** chiusura della barra del giorno (Polygon day.close) e sua ora ISO (day.last_updated): livello 2 */
+  close?: number | null; close_timestamp?: string | null;
 }
 export interface ForwardInput {
   expiry: string; T: number | null;
@@ -376,7 +389,8 @@ export interface ParityPair {
   callMid: number; putMid: number;
   /** premi d'esercizio anticipato sottratti (0 con 'european') */
   callEep: number; putEep: number;
-  forward: number; halfWidth: number;
+  /** halfWidth null = nessuno spread noto (parità sulle chiusure) */
+  forward: number; halfWidth: number | null;
 }
 export interface ForwardResult {
   expiry: string; forward: number | null; reason: ReasonCode | null; detail: string | null;
@@ -397,10 +411,12 @@ export interface ForwardResult {
 }
 
 /** Motivo di esclusione di una quota, o null se utilizzabile. */
-const quoteDefect = (c: ParityContract, maxRelSpread: number): string | null => {
+const quoteDefect = (c: ParityContract, maxRelSpread: number, allowNoQuote = false): string | null => {
   if (!isPos(c.strike)) return 'no_strike';
   if (c.adjusted || (c.multiplier != null && c.multiplier !== 100)) return 'adjusted';
   if (!((c.oi ?? 0) > 0 || (c.volume ?? 0) > 0)) return 'no_activity';
+  // smile senza quote (IV del fornitore): una gamba senza bid E ask passa, una quota presente si controlla
+  if (allowNoQuote && c.bid == null && c.ask == null) return null;
   if (!isPos(c.bid) || !isPos(c.ask)) return 'no_bid_ask';
   if ((c.ask as number) < (c.bid as number)) return 'crossed';
   const mid = ((c.bid as number) + (c.ask as number)) / 2;
@@ -409,14 +425,15 @@ const quoteDefect = (c: ParityContract, maxRelSpread: number): string | null => 
 const objs = <T>(xs: unknown): T[] => Array.isArray(xs) ? xs.filter(x => x !== null && typeof x === 'object') as T[] : [];
 /** Migliore quota per (tipo, strike): OI maggiore, a parità lo spread più stretto. */
 const bestQuotes = (contracts: unknown, maxRel: number, extra: (c: ParityContract) => string | null = () => null,
-  excluded?: Record<string, number>) => {
+  excluded?: Record<string, number>, allowNoQuote = false) => {
   const best = new Map<string, ParityContract>();
   for (const c of objs<ParityContract>(contracts)) {
     if (c.type !== 'call' && c.type !== 'put') { if (excluded) excluded.no_type = (excluded.no_type ?? 0) + 1; continue; }
-    const why = quoteDefect(c, maxRel) ?? extra(c);
+    const why = quoteDefect(c, maxRel, allowNoQuote) ?? extra(c);
     if (why) { if (excluded) excluded[why] = (excluded[why] ?? 0) + 1; continue; }
     const key = c.type + '|' + c.strike, prev = best.get(key);
-    const spread = (x: ParityContract) => (x.ask as number) - (x.bid as number);
+    // senza quote lo spread e' ignoto: a parita' di OI vince la gamba quotata (spread finito < Infinity)
+    const spread = (x: ParityContract) => isPos(x.bid) && isPos(x.ask) ? (x.ask as number) - (x.bid as number) : Infinity;
     if (!prev || (c.oi ?? 0) > (prev.oi ?? 0) || ((c.oi ?? 0) === (prev.oi ?? 0) && spread(c) < spread(prev))) best.set(key, c);
   }
   return best;
@@ -500,7 +517,157 @@ export function impliedForward(chainsPerExpiry: ForwardInput[], options: Forward
     const fs = pairs.map(p => p.forward), dispersion = Math.max(...fs) - Math.min(...fs);
     const carry = S !== null ? Math.log(F / S) / T : null;
     out[expiry] = { ...base, forward: F, detail: ivNote, pairs, dispersion, dispersionRel: dispersion / F, rawForward: rawF, deamericanizationResidual: residual,
-      halfWidth: median(pairs.map(p => p.halfWidth)), impliedCarry: carry, impliedDividendYield: carry === null ? null : r - carry };
+      halfWidth: median(pairs.map(p => p.halfWidth as number)), impliedCarry: carry, impliedDividendYield: carry === null ? null : r - carry };
+  }
+  return out;
+}
+
+/* ---------------------------------------------------------------- 2b. gerarchia del forward */
+/** 'parity_quotes' = parità su bid/ask (impliedForward); 'parity_close' = parità sulle chiusure del
+ *  giorno; 'proxy_carry_q' = F = S·e^{(r−q)T} con q = rendimento da dividendo dichiarato (fonte, data);
+ *  'proxy_carry' = F = S·e^{rT} con q = 0 (PROXY: dividendi ignorati, quote assenti), ultimo gradino. */
+export type ForwardLevel = 'parity_quotes' | 'parity_close' | 'proxy_carry_q' | 'proxy_carry';
+export const FORWARD_LEVELS: readonly ForwardLevel[] = ['parity_quotes', 'parity_close', 'proxy_carry_q', 'proxy_carry'];
+/** I due livelli che NON vengono da prezzi di opzioni: chi mostra un numero che ci poggia lo marca «proxy». */
+export const isProxyLevel = (level: ForwardLevel | null | undefined): boolean => level === 'proxy_carry' || level === 'proxy_carry_q';
+/** Avvisi del livello 2: chiusure di sedute diverse, dispersione dei candidati oltre CLOSE_MAX_DISPERSION. */
+export type ForwardWarning = 'close_mixed_sessions' | 'close_dispersion_high' | 'carry_unchecked';
+/** Dispersione relativa dei candidati oltre la quale il livello 2 porta un avviso (1%). */
+export const CLOSE_MAX_DISPERSION = 0.01;
+/** Banda di plausibilità del livello 2 rispetto al carry senza dividendi: ln(F2 / S·e^{rT}) in
+ *  [−(0,5% + 12%·T), +(0,5% + 2%·T)]. Asimmetrica: i dividendi abbassano F (fino a ~12% annuo), sopra il
+ *  carry c'è solo rumore (o un costo di prestito negativo). Fuori banda il livello 2 si scarta. */
+export const CARRY_BAND = { base: 0.005, below: 0.12, above: 0.02 } as const;
+export interface LeveledForward extends ForwardResult {
+  /** livello usato; null = nessun livello (motivo in `reason`) */
+  level: ForwardLevel | null;
+  /** livelli provati PRIMA di quello usato, col motivo e, se scartato per plausibilità, il valore */
+  tried: { level: ForwardLevel; reason: ReasonCode | null; detail: string | null; value?: number | null }[];
+  /** livello 2: sedute (New York) delle chiusure delle gambe usate; gambe usate senza ora */
+  closeDays: string[]; closeUndated: number;
+  /** livello 2: seduta di riferimento (l'ultima della chain) e gambe escluse perché di un'altra seduta o senza ora */
+  closeSession: string | null; closeExcluded: { otherSession: number; undated: number };
+  /** livello 'proxy_carry_q': q usato, fonte e data dichiarate */
+  dividend: { q: number; source: string; asOf: string | null } | null;
+  warnings: ForwardWarning[];
+}
+export interface ForwardLevelOptions extends ForwardOptions {
+  /** false = niente livelli proxy (3 e 3b); default true */
+  proxy?: boolean;
+  /** rendimento da dividendo CONTINUO DECIMALE (0,065, non 6,5) con fonte e data: abilita 'proxy_carry_q'.
+   *  |q| > MAX_ABS_RATE o non finito = ignorato (dichiarato in `detail`). */
+  dividend?: { q: number | null; source: string; asOf?: string | null } | null;
+  /** seduta di riferimento delle chiusure (YYYY-MM-DD, New York); default: l'ultima seduta presente nelle chain */
+  closeSession?: string | null;
+}
+/** Motivi per cui si scende al livello successivo: mancano le coppie, non il tempo, il tasso o lo spot. */
+const FALL_THROUGH: ReadonlySet<ReasonCode> = new Set<ReasonCode>(['no_valid_pairs', 'too_few_pairs']);
+/** Data di New York di un ISO (la seduta di una chiusura); null se illeggibile. */
+export function nyDay(iso: unknown): string | null {
+  if (typeof iso !== 'string') return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(t);
+  } catch { return null; }
+}
+/** Chiusura utilizzabile: prezzo > 0 e scambi nella seduta (una chiusura senza volume è un prezzo vecchio). */
+const tradedClose = (c: ParityContract) => isPos(c.close) && isNum(c.volume) && c.volume > 0;
+
+/**
+ * Forward per scadenza con GERARCHIA DICHIARATA (richiesta PM 11/10: niente fallback silenziosi,
+ * proxy solo etichettati; v2 dopo la review su chain vere):
+ *  1. 'parity_quotes': impliedForward sui bid/ask (invariato).
+ *  2. 'parity_close': stessa parità sulle CHIUSURE del giorno come mid. Solo gambe con volume > 0 E della
+ *     STESSA seduta: l'ultima della chain (`closeSession`); quelle di altre sedute o senza ora si escludono e
+ *     si contano (`closeExcluded`). Con meno di `minPairs` coppie così si usano tutte le gambe scambiate,
+ *     con l'avviso 'close_mixed_sessions'. Dispersione dei candidati > CLOSE_MAX_DISPERSION = avviso.
+ *     PLAUSIBILITÀ: ln(F2 / S·e^{rT}) dentro CARRY_BAND, altrimenti il livello si scarta
+ *     ('implausible_vs_carry', col valore scartato in `tried`). Senza spot la banda non si misura:
+ *     avviso 'carry_unchecked'. Nessuno spread noto: `halfWidth` null.
+ *  3b. 'proxy_carry_q': F = S·e^{(r−q)T} con q = rendimento da dividendo passato in `options.dividend`
+ *     (fonte e data dichiarate). PROXY: q storico, non quello implicito.
+ *  3. 'proxy_carry': F = S·e^{rT} con q = 0 (dividendi ignorati, quote assenti): solo come ultimo gradino.
+ * Si scende di livello SOLO se mancano le coppie (o il livello 2 non è plausibile); tempo, tasso, spot o
+ * input ripetuti mancanti fermano la gerarchia col loro motivo. `tried` elenca i livelli scartati e perché.
+ */
+export function forwardLevels(chainsPerExpiry: ForwardInput[], options: ForwardLevelOptions = {}): Record<string, LeveledForward> {
+  const inputs = objs<ForwardInput>(chainsPerExpiry);
+  const quotes = impliedForward(inputs, options);
+  // seduta di riferimento: quella passata, altrimenti l'ultima fra le chiusure scambiate di TUTTA la chain
+  let session = typeof options.closeSession === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(options.closeSession) ? options.closeSession : null;
+  if (!session) for (const i of inputs) for (const c of objs<ParityContract>(i.contracts)) {
+    const d = tradedClose(c) ? nyDay(c.close_timestamp) : null;
+    if (d && (!session || d > session)) session = d;
+  }
+  const excluded: Record<string, { otherSession: number; undated: number }> = {};
+  const asClose = (i: ForwardInput, sameSession: boolean) => ({ ...i, contracts: objs<ParityContract>(i.contracts).map(c => {
+    let ok = tradedClose(c);
+    if (ok && sameSession) {
+      const d = nyDay(c.close_timestamp), ex = excluded[String(i.expiry ?? '')] ??= { otherSession: 0, undated: 0 };
+      if (!d) { ex.undated++; ok = false; } else if (d !== session) { ex.otherSession++; ok = false; }
+    }
+    return { ...c, bid: ok ? c.close as number : null, ask: ok ? c.close as number : null };
+  }) });
+  const closes = impliedForward(inputs.map(i => asClose(i, true)), options);
+  const closesAll = impliedForward(inputs.map(i => asClose(i, false)), options);
+  const dq = options.dividend && isNum(options.dividend.q) && Math.abs(options.dividend.q) <= MAX_ABS_RATE ? options.dividend : null;
+  const out: Record<string, LeveledForward> = {};
+  for (const input of inputs) {
+    const expiry = String(input.expiry ?? '');
+    if (out[expiry]) continue;
+    const lev = (res: ForwardResult, level: ForwardLevel | null, tried: LeveledForward['tried'], extra: Partial<LeveledForward> = {}): LeveledForward =>
+      ({ ...res, level, tried, closeDays: [], closeUndated: 0, closeSession: null, closeExcluded: { otherSession: 0, undated: 0 },
+        dividend: null, warnings: [], ...extra });
+    const q1 = quotes[expiry];
+    if (q1.forward !== null) { out[expiry] = lev(q1, 'parity_quotes', []); continue; }
+    const tried: LeveledForward['tried'] = [{ level: 'parity_quotes', reason: q1.reason, detail: q1.detail }];
+    if (!q1.reason || !FALL_THROUGH.has(q1.reason)) { out[expiry] = lev(q1, null, tried); continue; }
+    const S = isPos(input.spot) ? input.spot : null, T = input.T as number, r = input.r as number;  // T e r validati da impliedForward
+    const carry = S !== null ? S * Math.exp(r * T) : null;
+    // livello 2: prima la stessa seduta, poi (con l'avviso) tutte le chiusure scambiate
+    const same = closes[expiry], all = closesAll[expiry];
+    const q2 = same.forward !== null ? same : all;
+    const mixed = same.forward === null && all.forward !== null;
+    if (q2.forward !== null) {
+      const x = carry !== null ? Math.log(q2.forward / carry) : null;
+      const lo = -(CARRY_BAND.base + CARRY_BAND.below * T), hi = CARRY_BAND.base + CARRY_BAND.above * T;
+      if (x === null || (x >= lo && x <= hi)) {
+        const days = new Set<string>();
+        let undated = 0;
+        const legs = objs<ParityContract>(input.contracts);
+        for (const p of q2.pairs) for (const ty of ['call', 'put']) {
+          for (const c of legs.filter(c => c.type === ty && c.strike === p.strike && tradedClose(c) && (mixed || nyDay(c.close_timestamp) === session))) {
+            const d = nyDay(c.close_timestamp); if (d) days.add(d); else undated++;
+          }
+        }
+        const warnings: ForwardWarning[] = [];
+        if (mixed) warnings.push('close_mixed_sessions');
+        if (isNum(q2.dispersionRel) && q2.dispersionRel > CLOSE_MAX_DISPERSION) warnings.push('close_dispersion_high');
+        if (x === null) warnings.push('carry_unchecked');
+        out[expiry] = lev({ ...q2, halfWidth: null, pairs: q2.pairs.map(p => ({ ...p, halfWidth: null })) }, 'parity_close', tried,
+          { closeDays: [...days].sort(), closeUndated: undated, closeSession: session, closeExcluded: excluded[expiry] ?? { otherSession: 0, undated: 0 }, warnings });
+        continue;
+      }
+      tried.push({ level: 'parity_close', reason: 'implausible_vs_carry', value: q2.forward,
+        detail: `ln(F/S·e^{rT}) = ${(x * 100).toFixed(2)}% outside [${(lo * 100).toFixed(2)}%, ${(hi * 100).toFixed(2)}%]` });
+    } else {
+      tried.push({ level: 'parity_close', reason: q2.reason, detail: q2.detail });
+      if (options.proxy === false || !q2.reason || !FALL_THROUGH.has(q2.reason)) { out[expiry] = lev(q2, null, tried); continue; }
+    }
+    if (options.proxy === false) { out[expiry] = lev({ ...q2, forward: null, reason: 'implausible_vs_carry' }, null, tried); continue; }
+    if (S === null) { out[expiry] = lev({ ...q2, forward: null, reason: 'spot_missing', detail: 'the carry proxy needs the spot' }, null, tried); continue; }
+    const proxyBase = { ...q2, reason: null, pairs: [], validPairs: 0, dispersion: null, dispersionRel: null, halfWidth: null, rawForward: null,
+      deamericanizationResidual: null };
+    if (dq) {
+      out[expiry] = lev({ ...proxyBase, forward: S * Math.exp((r - (dq.q as number)) * T), impliedCarry: r - (dq.q as number), impliedDividendYield: null,
+        detail: `proxy F = S·e^{(r−q)T}, q = ${dq.q} (${dq.source}${dq.asOf ? ', ' + dq.asOf : ''}): historical dividend yield, quotes missing` },
+        'proxy_carry_q', tried, { dividend: { q: dq.q as number, source: dq.source, asOf: dq.asOf ?? null } });
+      continue;
+    }
+    out[expiry] = lev({ ...proxyBase, forward: S * Math.exp(r * T), impliedCarry: r, impliedDividendYield: null,
+      detail: 'proxy F = S·e^{rT}, q = 0: dividends ignored, quotes missing'
+        + (options.dividend ? ` (dividend yield not usable: ${options.dividend.q})` : '') }, 'proxy_carry', tried);
   }
   return out;
 }
@@ -526,6 +693,9 @@ export interface SmileSlice {
   discount?: number | null;
   /** quote escluse per motivo (solo smileFromChain) */
   excluded?: Record<string, number>;
+  /** smile osservato: 'quotes' = nodi con bid/ask validi; 'provider_iv' = IV del fornitore SENZA
+   *  quote (contratti con OI o volume > 0): dichiarato, e gli arbitraggi eseguibili non si provano */
+  basis?: 'quotes' | 'provider_iv';
 }
 export interface SmileSurface { asOf: string | null; spot: number | null; slices: SmileSlice[]; reason?: ReasonCode | null; detail?: string | null }
 export type ForwardLike = number | null | undefined | { forward: number | null; reason?: ReasonCode | null };
@@ -604,14 +774,19 @@ export function buildSmile(slice: SmileSlice, F: number | null, forwardReason: R
  * `r` facoltativo: dà lo sconto e^{−rT} per i butterfly eseguibili a cavallo della giunzione.
  */
 export function smileFromChain(expiry: string, T: number | null, contracts: ParityContract[], F: number | null,
-  options: { maxRelSpread?: number; r?: number | null } = {}): SmileSlice {
+  options: { maxRelSpread?: number; r?: number | null; requireQuotes?: boolean } = {}): SmileSlice {
+  const requireQuotes = options.requireQuotes !== false;
   const slice: SmileSlice = { expiry, T: isT(T) ? T : null, points: [], source: 'observed', excluded: {}, junction: null,
+    basis: requireQuotes ? 'quotes' : 'provider_iv',
     discount: isT(T) && isNum(options.r) && Math.abs(options.r) <= MAX_ABS_RATE ? Math.exp(-options.r * T) : null };
   if (!isPos(F)) return { ...slice, reason: 'forward_missing' };
   slice.junction = { strike: F, putsInclusive: false };
   const ex = slice.excluded as Record<string, number>;
   const otm = objs<ParityContract>(contracts).filter(c => !isPos(c.strike) || c.type === ((c.strike as number) < F ? 'put' : 'call'));
-  const best = bestQuotes(otm, options.maxRelSpread ?? QUOTE_MAX_REL_SPREAD, c => isIv(c.iv) ? null : 'iv_out_of_range', ex);
+  const maxRel = options.maxRelSpread ?? QUOTE_MAX_REL_SPREAD;
+  const ivCheck = (c: ParityContract) => isIv(c.iv) ? null : 'iv_out_of_range';
+  // senza quote (requireQuotes false): bid/ask assenti ammessi; dove ci sono valgono le stesse regole
+  const best = bestQuotes(otm, maxRel, ivCheck, ex, !requireQuotes);
   slice.points = [...best.values()].map(c => ({ strike: c.strike as number, iv: c.iv as number, type: c.type as OptionType, bid: c.bid, ask: c.ask }))
     .sort((a, b) => a.strike - b.strike);
   return slice;
@@ -620,12 +795,16 @@ export function smileFromChain(expiry: string, T: number | null, contracts: Pari
 /** Superficie OSSERVATA (la fonte predefinita della griglia delta): uno smileFromChain per
  *  scadenza col forward di `forwards` (il suo motivo se manca) e lo sconto da `r`. */
 export function surfaceFromChains(chains: { expiry: string; T: number | null; contracts: ParityContract[] }[], forwards: Forwards,
-  options: { asOf?: string | null; spot?: number | null; r?: number | null; maxRelSpread?: number } = {}): SmileSurface {
+  options: { asOf?: string | null; spot?: number | null; r?: number | null; maxRelSpread?: number; ivFallback?: boolean } = {}): SmileSurface {
   return { asOf: options.asOf ?? null, spot: isPos(options.spot) ? options.spot : null, reason: null,
     slices: objs<{ expiry: string; T: number | null; contracts: ParityContract[] }>(chains).map(c => {
       const fi = forwardInfo(forwards, c.expiry);
       const s = smileFromChain(c.expiry, c.T, c.contracts, fi.F, { r: options.r, maxRelSpread: options.maxRelSpread });
-      return fi.F === null ? { ...s, reason: fi.reason } : s;
+      if (fi.F === null) return { ...s, reason: fi.reason };
+      // 11/10: senza abbastanza quote, le IV del fornitore (basis 'provider_iv', dichiarato) se richiesto
+      if (options.ivFallback && s.points.length < MIN_SMILE_NODES)
+        return smileFromChain(c.expiry, c.T, c.contracts, fi.F, { r: options.r, maxRelSpread: options.maxRelSpread, requireQuotes: false });
+      return s;
     }) };
 }
 
@@ -660,6 +839,8 @@ export interface DeltaCell {
 }
 export interface DeltaRow {
   expiry: string; T: number | null; days: number | null; forward: number | null; source: SmileSource;
+  /** smile osservato: su quote o sulle IV del fornitore senza quote (null = griglia del builder) */
+  basis: 'quotes' | 'provider_iv' | null;
   /** false = griglia del builder dichiarata non qualificata: mostrare l'etichetta */
   qualified: boolean;
   /** strike duplicati mediati, IV fuori IV_RANGE scartate (dichiarati, mai scelti a caso) */
@@ -677,7 +858,8 @@ const naCells = (reason: ReasonCode, detail: string | null = null) =>
 export function deltaGrid(surface: SmileSurface, forwards: Forwards): DeltaGrid {
   const rows = objs<SmileSlice>(surface?.slices).sort((a, b) => (isT(a.T) ? a.T : Infinity) - (isT(b.T) ? b.T : Infinity)).map((slice): DeltaRow => {
     const { F, reason: fReason } = forwardInfo(forwards, slice.expiry);
-    const row = { expiry: slice.expiry, T: isT(slice.T) ? slice.T : null, days: isNum(slice.days) ? slice.days : null, forward: F, source: slice.source, qualified: slice.qualified !== false };
+    const row = { expiry: slice.expiry, T: isT(slice.T) ? slice.T : null, days: isNum(slice.days) ? slice.days : null, forward: F, source: slice.source,
+      basis: slice.basis ?? null, qualified: slice.qualified !== false };
     const { smile, reason, duplicates } = buildSmile(slice, F, fReason);
     if (!smile) return { ...row, kRange: null, reason, duplicates, outOfRange: 0, cells: naCells(reason as ReasonCode) };
     const cells = {} as Record<DeltaKey, DeltaCell>;
@@ -810,6 +992,11 @@ export interface ArbitrageReport {
   /** false = nessuna coppia di scadenze confrontabile: il calendario non è stato controllato */
   calendarChecked: boolean;
   checked: { expiries: string[]; calendarPairs: number; butterflyTriplets: number; executableTriplets: number };
+  /** 11/10: prove in PREZZO ESEGUIBILE fatte (verticali + butterfly su bid/ask). 'quotes_missing' =
+   *  nessuna: gli arbitraggi eseguibili sono «non verificabili: quote assenti», MAI «pulito» anche
+   *  se `clean` è true sul modello; null = nulla controllato */
+  executableTests: number;
+  executableStatus: 'checked' | 'quotes_missing' | null;
   skipped: { expiry: string; reason: ReasonCode }[];
   /** ivNoise null = valore passato non valido (non riecheggiato) */
   tolerances: { ivNoise: number | null; rule: string };
@@ -864,14 +1051,15 @@ export function arbitrageChecks(surface: SmileSurface, forwards: Forwards, optio
   const flags: ArbitrageFlag[] = [], skipped: ArbitrageReport['skipped'] = [], smiles: Smile[] = [];
   if (!isNum(eps) || eps < 0)
     return { flags, clean: null, cleanReason: 'invalid_input', calendarChecked: false,
-      checked: { expiries: [], calendarPairs: 0, butterflyTriplets: 0, executableTriplets: 0 }, skipped, tolerances: { ivNoise: null, rule } };
+      checked: { expiries: [], calendarPairs: 0, butterflyTriplets: 0, executableTriplets: 0 }, executableTests: 0, executableStatus: null,
+      skipped, tolerances: { ivNoise: null, rule } };
   for (const s of objs<SmileSlice>(surface?.slices)) {
     const fi = forwardInfo(forwards, s.expiry);
     const { smile, reason } = buildSmile(s, fi.F, fi.reason);
     if (smile) smiles.push(smile); else skipped.push({ expiry: s.expiry, reason: reason as ReasonCode });
   }
   smiles.sort((a, b) => a.T - b.T);
-  let triplets = 0, executable = 0, pairs = 0;
+  let triplets = 0, executable = 0, pairs = 0, execVerticals = 0;
   const callN = (k: number, T: number, iv: number) => forwardPrice('call', 1, Math.exp(k), T, iv) as number;
   const vegaN = (k: number, T: number, iv: number) => forwardVega(1, Math.exp(k), T, iv);
   const originOf = (sm: Smile, strikes: number[], fallback: ArbitrageFlag['origin']): ArbitrageFlag['origin'] => {
@@ -905,6 +1093,7 @@ export function arbitrageChecks(surface: SmileSurface, forwards: Forwards, optio
     for (let i = 0; i + 1 < n.length; i++) {
       const qt = quotes([i, i + 1]), dK = n[i + 1].strike - n[i].strike, maxPay = (sm.discount ?? 1) * dK;
       if (qt) {
+        execVerticals++;
         // call: C1 − C2 ∈ [0, D·ΔK]; put: P2 − P1 ∈ [0, D·ΔK]
         const [lo, hi] = qt.kind === 'call' ? [0, 1] : [1, 0];
         const buyCredit = -(qt.ask[lo] - qt.bid[hi]), sellOver = (qt.bid[lo] - qt.ask[hi]) - maxPay;
@@ -1007,6 +1196,8 @@ export function arbitrageChecks(surface: SmileSurface, forwards: Forwards, optio
   return { flags, clean: checkedAny ? flags.every(f => f.indicative) : null,
     cleanReason: checkedAny ? null : (skipped[0]?.reason ?? 'iv_missing'), calendarChecked: pairs > 0,
     checked: { expiries: smiles.map(s => s.expiry), calendarPairs: pairs, butterflyTriplets: triplets, executableTriplets: executable },
+    executableTests: execVerticals + executable,
+    executableStatus: !checkedAny ? null : execVerticals + executable > 0 ? 'checked' : 'quotes_missing',
     skipped, tolerances: { ivNoise: eps, rule } };
 }
 

@@ -70,6 +70,21 @@ def test_chain_wrong_expiry_cursor_and_zero_quotes_are_not_valid_data(monkeypatc
         vol.get_chain_detail("XX01", expiry(7), "https://example.com")
 
 
+def test_day_close_and_last_trade_carry_their_own_time_when_quotes_are_absent():
+    # 11/10 (Opus 5.5): forma del piano Options Starter, niente last_quote; la barra del giorno e
+    # l'ultimo scambio arrivano con l'ora, che il payload porta invece di scartarla.
+    ns = 1_900_000_000 * 10**9
+    row = vol._contract_row({"details": {"ticker": "O:ZZQQ", "contract_type": "call", "strike_price": 50},
+                             "day": {"close": 2.35, "volume": 7, "last_updated": ns},
+                             "last_trade": {"price": 2.4, "sip_timestamp": ns + 10**9},
+                             "implied_volatility": 0.41})
+    assert row["bid"] is None and row["ask"] is None and row["mid"] is None
+    assert row["close"] == 2.35 and row["close_timestamp"].startswith("2030-03-17T17:46:40")
+    assert row["last_trade_price"] == 2.4 and row["last_trade_timestamp"].startswith("2030-03-17T17:46:41")
+    bare = vol._contract_row({"details": {"strike_price": 50}, "day": {"close": 2.35}})
+    assert bare["close"] == 2.35 and bare["close_timestamp"] is None and bare["last_trade_price"] is None
+
+
 def test_malformed_nested_fields_stay_missing_and_adjusted_contract_is_flagged():
     row = vol._contract_row({"details": [], "greeks": "invalid", "last_quote": 1, "day": None})
     assert row["strike"] is None and row["delta"] is None and row["bid"] is None

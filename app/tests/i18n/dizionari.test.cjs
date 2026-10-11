@@ -65,6 +65,9 @@ Object.assign(NEUTRE_PER_CHIAVE, {
   'optionbuilder.preset_strangle': 'Strangle', 'optionbuilder.preset_iron_condor': 'Iron condor',
   'optionbuilder.preset_iron_butterfly': 'Iron butterfly', 'optionbuilder.ptsValue': '{v} pt',
   'optionbuilder.g_delta': 'Delta', 'optionbuilder.g_gamma': 'Gamma', 'optionbuilder.g_vega': 'Vega',
+  // 11/10 (Opus 5.5): marcatori del grafico e origine dello spot, solo segnaposti e sigle
+  'optionbuilder.scenarioSpotLabel': 'Scenario {v}', 'optionbuilder.beMark': '{v} ({p})', 'optionbuilder.strikeMark': 'K{v}',
+  'optionbuilder.spotFrom': 'Spot {src}, {time}',
   'optionbuilder.g_theta': 'Theta', 'optionbuilder.g_rho': 'Rho', 'optionbuilder.col_strike': 'Strike',
   'optionbuilder.col_iv': 'IV %', 'optionbuilder.call': 'Call', 'optionbuilder.put': 'Put', 'optionbuilder.spreadPct': 'spread {v}%', 'optionbuilder.vol_forward': 'Forward vol',
   // Monte Carlo (05/10): sigle d'orizzonte identiche nelle due lingue
@@ -79,6 +82,9 @@ Object.assign(NEUTRE_PER_CHIAVE, {
   'voldeck.q_ov_forward': 'Forward', 'voldeck.q_ov_cone': '±1σ', 'voldeck.q_diff_scale': 'ΔIV pt', 'voldeck.q_diff_cell': 'ΔIV {v} pt',
   'voldeck.q_fwd_short': 'Forward F {f} (F/S {m})', 'voldeck.q_delta_smile_title': 'Smile in delta',
   'voldeck.q_cone_count': 'F · σ_ATM · √T', 'voldeck.q_kind_butterfly': 'Butterfly', 'voldeck.n_term_atm_short': 'ATMF',
+  // 11/10 (Opus 5.5): termini da desk identici nelle due lingue (titolo, etichetta del livello del forward)
+  'voldeck.ui_iv_rank_altimeter_79': 'IV rank', 'voldeck.q_fwd_tag_proxy_carry': 'proxy', 'voldeck.q_fwd_basis': 'Forward',
+  'voldeck.q_fwd_tag_proxy_carry_q': 'proxy q', 'voldeck.q_proxy_mark': 'proxy',
 });
 
 const NEUTRE = /^(OK|ESC|CTRL\+K|F\d{1,2}|N\.D\.|n\.d\.|n\/a|API|PING|LIVE|DOWN|ONLINE|OFFLINE|RUN LIVE|CONFIG|BELLOMBERG.*|PRIVATE INTELLIGENCE TERMINAL|V0\.9 OBSIDIAN|PIN AUTHENTICATION|◈ ACCESS GRANTED|◌ AUTHENTICATING…|◌ AUTHORIZE ACCESS|SAT-07|BLM-1 ASCENT|MEMORIA SQLITE|FEED NEWS \/ FRED|QUANT GARCH \/ MC|ALT|VEL|ORBIT|LINK|KM 0|Engine|Agents|SESSION|Command Center|Performance|Watchlist|Global Markets|News Desk|Fundamentals|Factor Lab|Monte Carlo|Vol Deck|Edge Scanner|Agent Chat|Agents Live|Memo Archive|Trade Entry|MKT \{ticker\}|NEWS \{ticker\}|REFRESH NEWS FEED|BACKUP DATABASE|pull \+ classify \(~60s\)|polygon -> yfinance.*|force refresh performance|weekly research note|snapshot data\/consigliere\.db|blotter \+ trade entry|\{tasto\} · \{label\} · \{gruppo\}|\{key\} \/\/ \{label\}|\{dd\}\/\{mm\}\/\{aa\}.*|\{n\} \{unita\}|\{n\}|\{testo\}|1 \{valuta\}|FX 60s|FX STALE \{minuti\}M|IMPATTO 2026-OB · 4\.2 KT|T\+\{mm\}:\{ss\}  ALT \{alt\} KM)$/;

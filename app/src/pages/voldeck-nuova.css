@@ -432,4 +432,23 @@
   .vdn-method-list div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .vdn-instruments { grid-template-columns: minmax(0, 1fr); }
 }
+/* ── 11/10 (Opus 5.5, prova del PM con dati veri): 3D a tutta altezza, Termine col grafico in alto,
+      Contesto con un solo invito. Stessi token --bbn-* delle pagine di Andrea, nessun movimento d'ingresso. ── */
+.vdn-surface-side { max-height: none; overflow-y: auto; }
+.vdn-proxy-mark { font-size: 9.5px; font-weight: 700; color: var(--bbn-warn); letter-spacing: .02em; }
+.vdn-plot { min-height: 420px; }
+.vdn-fwd-basis { margin: 0; padding: 2px 16px 10px; font-size: 12px; }
+[data-vol-view-panel="skew"] > .vdn-fwd-basis { padding: 0 2px; }
+.vdn-term-table { background: var(--bbn-card); border-radius: 14px; box-shadow: var(--bbn-shadow); padding: 4px 8px; }
+.vdn-term-table .vdn-table td small, .vdn-table td small[data-vol-skew-fwd-level] { color: var(--bbn-muted); font-weight: 600; }
+.bbn-vol section.bbn-card.vdn-ctx-invite { display: flex; flex-direction: row; align-items: center; gap: 16px 28px; flex-wrap: wrap; padding: 22px 24px; }
+.vdn-ctx-invite-text { flex: 1 1 360px; min-width: 0; }
+.vdn-ctx-invite-text h2 { margin: 0 0 6px; font-size: 18px; }
+.vdn-ctx-invite-text p { margin: 0; color: var(--bbn-muted); font-size: 13px; line-height: 1.5; max-width: 72ch; }
+.bb-page.bb-page-modern[data-page] .bbn-vol .vdn-ctx-invite .bbn-btn { flex: none; padding: 10px 20px; font-size: 14px; }
+.vdn-ctx-have { margin: 6px 2px -6px; font-size: 13px; color: var(--bbn-muted); font-weight: 700; }
+.vdn-ctx-have-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
+@container bellomberg-content (min-width: 960px) { .vdn-ctx-have-row { grid-template-columns: minmax(220px, 1fr) minmax(0, 3fr); } }
+.bbn-vol :is(button, summary, [tabindex="0"]):focus-visible { outline: 2px solid var(--bbn-accent, #1d56f0); outline-offset: 2px; }
+
 @media (prefers-reduced-motion: reduce) { .bbn-vol * { animation: none !important; transition: none !important; } }

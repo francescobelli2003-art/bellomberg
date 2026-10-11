@@ -21,6 +21,8 @@ export interface QuantInput {
   data: any; model: SurfaceModel;
   chains: Record<string, { status: ChainStatus; chain: OptionContract[] | null } | undefined>;
   rate: RateInfo | null; previous: SavedSnapshot | null;
+  /** rendimento da dividendo (continuo decimale) con fonte e data: abilita il proxy 3b; null = solo q = 0 */
+  dividend?: { q: number | null; source: string; asOf?: string | null } | null;
 }
 /** motivo per cui una scadenza non ha forward: codice della libreria o stato della chain */
 export type ForwardWhy = vq.ReasonCode | 'no_download' | 'chain_loading' | 'chain_error' | 'rate_loading';
@@ -43,8 +45,16 @@ export interface VolQuant {
   atmf: Record<string, number | null>;
   /** tasso continuo decimale usato (null = n.d.) */
   r: number | null;
-  forwards: Record<string, vq.ForwardResult>;
-  forwardOf: (expiry: string) => { F: number | null; why: ForwardWhy | null };
+  /** forward per scadenza con la gerarchia dichiarata (quote → chiusure → proxy S·e^{rT}): campo `level` */
+  forwards: Record<string, vq.LeveledForward>;
+  forwardOf: (expiry: string) => { F: number | null; why: ForwardWhy | null; level: vq.ForwardLevel | null };
+  /** scadenze per livello del forward (le chiavi mancanti = 0) */
+  forwardLevels: Partial<Record<vq.ForwardLevel, number>>;
+  /** arbitraggi ESEGUIBILI: 'checked' = provati su bid/ask; 'quotes_missing' = non verificabili (quote assenti);
+   *  'no_chain' = nessuna chain scaricata (v2 review 11/10: non e' «quote assenti») */
+  execStatus: 'checked' | 'quotes_missing' | 'no_chain';
+  /** scadenze il cui smile osservato poggia sulle IV del fornitore SENZA quote */
+  ivOnlyExpiries: string[];
   delta: vq.DeltaGrid; skew: vq.SkewRow[];
   term: vq.TermPoint[]; fwdVol: vq.ForwardVolPair[];
   /** null = nessuna data utili nel payload (n.d., niente ripiego) */
@@ -59,6 +69,12 @@ export interface VolQuant {
   /** scivolamento sullo skew e resto del diff, sulle stesse celle */
   diffSlide: (number | null)[][] | null; diffExSlide: (number | null)[][] | null;
   deltaModel: SurfaceModel; deltaHeads: string[];
+}
+
+/** Forward da salvare con l'istantanea (per il ΔIV a K/F): SOLO quelli da parita' (quote o chiusure). Un
+ *  forward proxy non e' una misura del mercato e non entra nel confronto storico (review 11/10). */
+export function savedForwards(forwards: Record<string, vq.LeveledForward>): Record<string, number | null> {
+  return Object.fromEntries(Object.entries(forwards).map(([e, f]) => [e, vq.isProxyLevel(f.level) ? null : f.forward]));
 }
 
 export const DELTA_HEADS: Record<vq.DeltaKey, string> = { '10P': '10ΔP', '25P': '25ΔP', ATMF: 'ATMF', '25C': '25ΔC', '10C': '10ΔC' };
@@ -103,7 +119,7 @@ export const snapshotDay = (data: any): string | null => {
   return typeof s === 'string' && s.trim() ? s : null;
 };
 
-export function volQuant({ data, model, chains, rate, previous }: QuantInput): VolQuant {
+export function volQuant({ data, model, chains, rate, previous, dividend = null }: QuantInput): VolQuant {
   const visible = visibleSlices(data, model);
   const surface = vq.surfaceFromBuilder(visible);
   const T: Record<string, number | null> = Object.fromEntries(surface.slices.map(s => [s.expiry, s.T]));
@@ -112,18 +128,23 @@ export function volQuant({ data, model, chains, rate, previous }: QuantInput): V
     const c = chains[row.expiry];
     return c?.status === 'ok' && c.chain ? [{ expiry: row.expiry, T: T[row.expiry] ?? null, r, contracts: c.chain, spot: model.spot }] : [];
   });
-  const forwards = vq.impliedForward(inputs);
-  const forwardOf = (expiry: string): { F: number | null; why: ForwardWhy | null } => {
+  // 11/10: gerarchia dichiarata del forward (parita' su quote, poi sulle chiusure, poi PROXY S·e^{rT} etichettato)
+  const forwards = vq.forwardLevels(inputs, { dividend });
+  const forwardOf = (expiry: string): { F: number | null; why: ForwardWhy | null; level: vq.ForwardLevel | null } => {
     if (forwards[expiry]) {
       const fi = vq.forwardInfo(forwards, expiry);
-      return { F: fi.F, why: fi.F == null ? (fi.reason === 'rate_missing' && !rate ? 'rate_loading' : fi.reason) : null };
+      return { F: fi.F, why: fi.F == null ? (fi.reason === 'rate_missing' && !rate ? 'rate_loading' : fi.reason) : null, level: forwards[expiry].level };
     }
     const c = chains[expiry];
-    return { F: null, why: !c || c.status === 'none' ? 'no_download' : c.status === 'loading' ? 'chain_loading' : 'chain_error' };
+    return { F: null, why: !c || c.status === 'none' ? 'no_download' : c.status === 'loading' ? 'chain_loading' : 'chain_error', level: null };
   };
+  const forwardLevels: Partial<Record<vq.ForwardLevel, number>> = {};
+  for (const f of Object.values(forwards)) if (f.level) forwardLevels[f.level] = (forwardLevels[f.level] ?? 0) + 1;
   // superficie OSSERVATA (quote OTM della chain a giunzione K = F): la fonte predefinita della griglia delta
+  // senza quote (piano del fornitore): lo smile osservato usa le IV del fornitore, dichiarato riga per riga (basis)
   const observed = vq.surfaceFromChains(inputs.map(i => ({ expiry: i.expiry, T: i.T, contracts: i.contracts as vq.ParityContract[] })), forwards,
-    { asOf: surface.asOf, spot: model.spot, r });
+    { asOf: surface.asOf, spot: model.spot, r, ivFallback: true });
+  const ivOnlyExpiries = observed.slices.filter(s => s.basis === 'provider_iv' && s.points.length > 0).map(s => s.expiry);
   const delta = vq.deltaGrid(observed, forwards);
   const skew = vq.skewMetrics(delta);
   const atmf: Record<string, number | null> = Object.fromEntries(model.rows.map(row => [row.expiry, delta.rows.find(x => x.expiry === row.expiry)?.cells.ATMF?.iv ?? null]));
@@ -134,7 +155,12 @@ export function volQuant({ data, model, chains, rate, previous }: QuantInput): V
   const event = earnings ? vq.eventVol(term, earnings, snapshotDay(data)) : null;
   const cone = vq.expectedMoveCone(forwards, term);
   const arb = vq.arbitrageChecks(surface, forwards);
-  const arbObserved = inputs.length ? vq.arbitrageChecks(observed, forwards) : null;
+  // arbitraggi «osservati» solo sugli smile con QUOTE: le IV del fornitore senza quote, strike per strike,
+  // sono rumore di modello (sul payload reale: 225 segnali indicativi, zero eseguibili) e la griglia del
+  // builder fa gia' il controllo di modello. Senza quote: eseguibili «non verificabili», mai «pulito».
+  const quoted = { ...observed, slices: observed.slices.filter(s => s.basis !== 'provider_iv') };
+  const arbObserved = inputs.length && quoted.slices.length ? vq.arbitrageChecks(quoted, forwards) : null;
+  const execStatus: VolQuant['execStatus'] = !inputs.length ? 'no_chain' : arbObserved?.executableStatus === 'checked' ? 'checked' : 'quotes_missing';
   const flags: FlagItem[] = [
     ...arb.flags.map(flag => ({ flag, set: 'grid' as const })),
     ...(arbObserved?.flags || []).map(flag => ({ flag, set: 'observed' as const })),
@@ -182,6 +208,6 @@ export function volQuant({ data, model, chains, rate, previous }: QuantInput): V
     excludedShort: model.excludedShort, cells: deltaRows.length * keys.length, filledCells: dv.length, holes: deltaRows.length * keys.length - dv.length,
     ivMin: dv.length ? Math.min(...dv) : null, ivMax: dv.length ? Math.max(...dv) : null };
 
-  return { T, atmf, r, forwards, forwardOf, delta, skew, term, fwdVol, event, cone, arb, arbObserved, flags, cellFlags, cellLevel, nExecutable, nIndicative,
+  return { T, atmf, r, forwards, forwardOf, forwardLevels, execStatus, ivOnlyExpiries, delta, skew, term, fwdVol, event, cone, arb, arbObserved, flags, cellFlags, cellLevel, nExecutable, nIndicative,
     diff, diffCells, diffReasons, diffRange, diffSlide, diffExSlide, deltaModel, deltaHeads: keys.map(k => DELTA_HEADS[k]) };
 }

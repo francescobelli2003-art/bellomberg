@@ -573,3 +573,25 @@ def test_load_busy_is_transient_503_and_missing_at_stat_is_404(tmp_path, monkeyp
     with pytest.raises(KeyError):
         arch.load(r["id"], root)
     assert client.get(f"/options/snapshots/{r['id']}", headers=H).status_code == 404
+
+
+# ------------------------------------------------------------------ 11/10 (Opus 5.5): campi nuovi
+def test_new_null_fields_do_not_change_the_hash_of_an_old_record():
+    old = {"contract": "O:ZZQ1", "expiry": "2031-01-17", "type": "call", "strike": 50, "bid": None, "ask": None,
+           "iv": .3, "oi": 4, "volume": 2}
+    new = {**old, "close": None, "close_timestamp": None, "delta": None}
+    spot = {"spot": 50.0}
+    assert arch.content_hash("ZZQA", spot, {"2031-01-17": [old]}) == arch.content_hash("ZZQA", spot, {"2031-01-17": [new]})
+    filled = {**old, "close": 1.25, "close_timestamp": "2031-01-09T21:00:00+00:00", "delta": .41}
+    assert arch.content_hash("ZZQA", spot, {"2031-01-17": [filled]}) != arch.content_hash("ZZQA", spot, {"2031-01-17": [old]})
+
+
+def test_archived_chain_keeps_close_with_its_time_and_the_provider_delta():
+    from bellomberg.portfolio import vol_surface as vol
+    ns = 1_900_000_000 * 10**9
+    row = vol._contract_row({"details": {"ticker": "O:ZZQ2", "contract_type": "put", "strike_price": 45, "expiration_date": "2031-01-17"},
+                             "day": {"close": 0.85, "volume": 9, "last_updated": ns}, "greeks": {"delta": -0.31},
+                             "implied_volatility": .33})
+    kept = arch.minimal_chains({"2031-01-17": {"contracts": [row]}})["2031-01-17"][0]
+    assert kept["close"] == 0.85 and kept["close_timestamp"].startswith("2030-03-17T") and kept["delta"] == -0.31
+    assert kept["bid"] is None and kept["ask"] is None

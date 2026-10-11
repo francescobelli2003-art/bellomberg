@@ -235,16 +235,20 @@ def _contract_row(raw):
     mapping = lambda value: value if isinstance(value, dict) else {}
     det, greek = mapping(raw.get("details")), mapping(raw.get("greeks"))
     quote, day = mapping(raw.get("last_quote")), mapping(raw.get("day"))
+    trade = mapping(raw.get("last_trade"))
     bid, ask = _finite(quote.get("bid")), _finite(quote.get("ask"))
     bid = bid if bid is not None and bid >= 0 else None
     ask = ask if ask is not None and ask >= 0 else None
-    stamp = _finite(quote.get("last_updated"), positive=True)
-    quote_time = None
-    if stamp is not None:
+
+    def ns_iso(value):
+        ns = _finite(value, positive=True)
+        if ns is None:
+            return None
         try:
-            quote_time = datetime.fromtimestamp(stamp / 1e9, timezone.utc).isoformat()
+            return datetime.fromtimestamp(ns / 1e9, timezone.utc).isoformat()
         except (OverflowError, OSError, ValueError):
-            pass
+            return None
+    quote_time = ns_iso(quote.get("last_updated"))
     warnings = []
     if bid is None or ask is None:
         warnings.append(_surface_text('bid/ask mancanti: permessi provider o quota non disponibile', 'Missing bid/ask: provider permissions or quote unavailable'))
@@ -280,7 +284,14 @@ def _contract_row(raw):
             "bid": bid, "ask": ask,
             "mid": (bid + ask) / 2 if bid is not None and ask is not None and ask >= bid and ask > 0 else None,
             "oi": _finite(raw.get("open_interest")), "volume": _finite(day.get("volume")),
-            "close": _finite(day.get("close")), "multiplier": multiplier,
+            "close": _finite(day.get("close")),
+            # 11/10 (Opus 5.5): ora della barra del giorno (day.last_updated) e ultimo scambio
+            # (last_trade), cosi' una parita' sui prezzi di chiusura dichiara di QUALE seduta sono.
+            # Sul piano Options Starter last_quote non arriva: bid/ask restano null (mai inventati).
+            "close_timestamp": ns_iso(day.get("last_updated")),
+            "last_trade_price": _finite(trade.get("price"), positive=True),
+            "last_trade_timestamp": ns_iso(trade.get("sip_timestamp")),
+            "multiplier": multiplier,
             "exercise_style": det.get("exercise_style"),
             "adjusted": adjusted, "quote_age_seconds": quote_age,
             "quote_timestamp": quote_time, "quote_timeframe": quote.get("timeframe"),

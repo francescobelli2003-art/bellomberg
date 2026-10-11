@@ -14,6 +14,14 @@
 //   L2  days are recomputed from the stored date at every request (no frozen day counts).
 //   L3  numbers shown in fields are rounded (no float noise).
 //   L5  quantities, strikes, prices and IV are read with leggiNumero (> 0) by the caller.
+//
+// 11/10/2026 (Opus 5.5) — the ONE exception to «no pricing here»: when the provider sent a contract
+// with NO quote at all (bid and ask both null, e.g. Polygon outside market hours / without quote
+// permissions) the leg's entry price is the THEORETICAL European Black–Scholes–Merton price from
+// that contract's own IV, the spot, the rate, the dividend yield and the fractional days — the same
+// formula as `_unit_price` in bellomberg/portfolio/options_strategy.py. It is a declared proxy
+// (priceSource 'theory', labelled «teorico · quote assenti» in the UI), never a silent fallback:
+// without the IV (or the rate) the leg stays n.d. A crossed or one-sided quote is NOT replaced.
 
 export type Side = 'buy' | 'sell';
 export type OptionType = 'call' | 'put';
@@ -131,14 +139,40 @@ function strikeBeyond(strikes: readonly number[], from: number, target: number, 
 // ── quote of a leg ──────────────────────────────────────────────────────────
 
 export type NdReason = 'no_contract' | 'no_quote' | 'crossed_quote' | 'no_iv' | 'no_multiplier' | 'expired'
-  | 'no_spot' | 'bad_qty' | 'bad_price' | 'bad_iv' | 'no_expiry' | 'adjusted';
+  | 'no_spot' | 'bad_qty' | 'bad_price' | 'bad_iv' | 'no_expiry' | 'adjusted' | 'theory_needs_rate' | 'iv_out_of_range';
+
+/** Inputs of the theoretical price (decimals: rate .04 = 4%); null while they are not known. */
+export interface TheoryInputs { rate: number; dividend: number }
+
+/** erf from the Numerical Recipes erfc (Chebyshev fit): fractional error below 1.2e-7. */
+function erf(x: number): number {
+  const z = Math.abs(x), t = 1 / (1 + z / 2);
+  const r = t * Math.exp(-z * z - 1.26551223 + t * (1.00002368 + t * (.37409196 + t * (.09678418 + t * (-.18628806
+    + t * (.27886807 + t * (-1.13520398 + t * (1.48851587 + t * (-.82215223 + t * .17087277)))))))));
+  return x >= 0 ? 1 - r : r - 1;
+}
+const cdf = (x: number) => (1 + erf(x / Math.SQRT2)) / 2;
+
+/** European BSM unit price — same formula as `_unit_price` of the backend engine (ACT/365,
+ *  continuous dividend yield, intrinsic at expiry, floored at 0). Returns null on unusable inputs. */
+export function theoreticalPrice(type: OptionType, spot: number, strike: number, days: number, iv: number, rate: number, dividend: number): number | null {
+  if (![spot, strike, days, iv, rate, dividend].every(Number.isFinite) || !(strike > 0) || spot < 0 || !(iv > 0) || days < 0) return null;
+  const call = type === 'call';
+  if (days === 0) return Math.max(0, call ? spot - strike : strike - spot);
+  const t = days / 365, dr = Math.exp(-rate * t), dq = Math.exp(-dividend * t);
+  if (spot === 0) return call ? 0 : strike * dr;
+  const rootT = Math.sqrt(t);
+  const d1 = (Math.log(spot / strike) + (rate - dividend + iv * iv / 2) * t) / (iv * rootT), d2 = d1 - iv * rootT;
+  const price = call ? spot * dq * cdf(d1) - strike * dr * cdf(d2) : strike * dr * cdf(-d2) - spot * dq * cdf(-d1);
+  return Math.max(0, price);
+}
 
 export interface LegQuote {
   ok: boolean; reasons: NdReason[];
   contract: ChainContract | null;
   bid: number | null; ask: number | null; mid: number | null;
   /** price per underlying unit actually used (null = n.d.) and where it comes from */
-  price: number | null; priceSource: 'mid' | 'ask' | 'bid' | 'manual' | 'spot' | null;
+  price: number | null; priceSource: 'mid' | 'ask' | 'bid' | 'manual' | 'spot' | 'theory' | null;
   /** natural price (buy at ask, sell at bid) and its distance from mid, per unit */
   natural: number | null;
   iv: number | null; ivSource: 'chain' | 'manual' | null;
@@ -148,7 +182,10 @@ export interface LegQuote {
 /** Parser injected by the caller (leggiNumero of lib/cassa: > 0, comma-aware, ambiguity refused). */
 export type Reader = (text: string) => number | null;
 
-export function quoteLeg(leg: BuilderLeg, chains: Chains, mode: PriceMode, spot: number | null, now: number, read: Reader): LegQuote {
+/** `theory`: rate and dividend for the theoretical price of an UNQUOTED contract (bid and ask both
+ *  null); null = not known yet (the leg is then n.d. «theory_needs_rate», never priced on a guess). */
+export function quoteLeg(leg: BuilderLeg, chains: Chains, mode: PriceMode, spot: number | null, now: number, read: Reader,
+  theory: TheoryInputs | null = null): LegQuote {
   const reasons: NdReason[] = [];
   const qtyRaw = read(leg.qty);
   const qty = qtyRaw != null && Number.isInteger(qtyRaw) ? qtyRaw : null;
@@ -175,15 +212,27 @@ export function quoteLeg(leg: BuilderLeg, chains: Chains, mode: PriceMode, spot:
   if (manualPrice != null) { price = manualPrice; priceSource = 'manual'; }
   else if (mode === 'mid') { price = mid; priceSource = mid == null ? null : 'mid'; }
   else { price = natural; priceSource = natural == null ? null : leg.side === 'buy' ? 'ask' : 'bid'; }
-  if (contract && price == null && !leg.price?.trim()) reasons.push(crossed ? 'crossed_quote' : 'no_quote');
   const manualIv = leg.iv?.trim() ? read(leg.iv) : null;
   if (leg.iv?.trim() && (manualIv == null || manualIv > 500)) reasons.push('bad_iv');
-  const iv = manualIv != null && manualIv <= 500 ? manualIv / 100 : contract?.iv ?? null;
-  if (contract && iv == null && !leg.iv?.trim()) reasons.push('no_iv');
+  // v2 review 9fd3c56 (point 3): a chain IV above 500% (5 as a decimal, the engine's limit and the
+  // manual one) is declared n.d. «iv_out_of_range» before any theoretical price is built on it
+  const chainIvBad = manualIv == null && contract?.iv != null && !(contract.iv <= 5);
+  if (chainIvBad && !leg.iv?.trim()) reasons.push('iv_out_of_range');
+  const iv = manualIv != null && manualIv <= 500 ? manualIv / 100 : chainIvBad ? null : contract?.iv ?? null;
+  // no quote at all: theoretical price from the contract's IV (declared proxy, see the header)
+  const unquoted = !!contract && contract.bid == null && contract.ask == null;
+  if (unquoted && price == null && manualPrice == null && !leg.price?.trim() && iv != null && spot != null && days != null && days > 0 && leg.strike != null) {
+    if (theory) {
+      price = theoreticalPrice(leg.type as OptionType, spot, leg.strike, days, iv, theory.rate, theory.dividend);
+      priceSource = price == null ? null : 'theory';
+    } else reasons.push('theory_needs_rate');
+  }
+  if (contract && price == null && !leg.price?.trim() && !reasons.includes('theory_needs_rate')) reasons.push(crossed ? 'crossed_quote' : 'no_quote');
+  if (contract && iv == null && !leg.iv?.trim() && !chainIvBad) reasons.push('no_iv');
   const multiplier = contract?.multiplier ?? null;
   if (contract && multiplier == null) reasons.push('no_multiplier');
   return { ok: !reasons.length, reasons, contract, bid, ask, mid, price, priceSource, natural,
-    iv, ivSource: manualIv != null ? 'manual' : contract?.iv != null ? 'chain' : null, multiplier, days, qty };
+    iv, ivSource: manualIv != null ? 'manual' : iv != null ? 'chain' : null, multiplier, days, qty };
 }
 
 const sign = (side: Side) => side === 'buy' ? 1 : -1;
@@ -236,6 +285,21 @@ export const PRESET_GROUPS: { id: 'directional' | 'vertical' | 'volatility'; pre
   { id: 'vertical', presets: ['bull_call', 'bear_call', 'bull_put', 'bear_put'] },
   { id: 'volatility', presets: ['straddle', 'strangle', 'iron_condor', 'iron_butterfly', 'calendar'] },
 ];
+
+/** 11/10/2026 (Opus 5.5): the example the empty builder starts from (declared «esempio» in the UI). */
+export const EXAMPLE_PRESET: PresetId = 'bull_call';
+export const EXAMPLE_DAYS = 30;
+
+/** Expiry closest to `target` calendar days among those at least one day away (ties: the earlier). */
+export function expiryNear(expiries: readonly string[], now: number, target = EXAMPLE_DAYS): string | null {
+  let best: string | null = null, gap = Infinity;
+  for (const e of [...expiries].sort()) {
+    const d = daysToClose(e, now);
+    if (d < 1) continue;
+    if (Math.abs(d - target) < gap) { gap = Math.abs(d - target); best = e; }
+  }
+  return best;
+}
 
 export type PresetOutcome = { ok: true; legs: BuilderLeg[] }
   | { ok: false; reason: 'no_spot' | 'no_chain' | 'few_strikes' | 'needs_far_expiry'; expiry?: string };
@@ -371,6 +435,36 @@ export function engineResultProblem(value: unknown): string | null {
 }
 
 export interface RateQuote { value: number | null; percent: number | null; date: string | null; source: string; status: 'solid' | 'stale' | 'error'; error: string | null }
+
+// ── expected move at the first expiry (chart bands and crosshair probability) ─────────────────
+
+/** ATM IV of a chain: mean of the call and put IV at the listed strike nearest to spot (each side
+ *  only if present); null when no contract near spot carries an IV. Declared «IV ATM» in the UI. */
+export function atmIv(chain: readonly ChainContract[] | undefined, spot: number | null): { iv: number; strike: number } | null {
+  if (spot == null || !chain?.length) return null;
+  const withIv = (chain || []).filter(r => usable(r) && r.iv != null && r.iv > 0);
+  const k = nearestStrike([...new Set(withIv.map(r => r.strike as number))], spot);
+  if (k == null) return null;
+  const ivs = withIv.filter(r => r.strike === k).map(r => r.iv as number);
+  return { iv: ivs.reduce((a, b) => a + b, 0) / ivs.length, strike: k };
+}
+
+/** Lognormal (risk-neutral drift r − q) distribution of the price at `days`, from spot and σ. */
+export interface Lognormal { spot: number; sigma: number; days: number; rate: number; dividend: number }
+
+/** Price at `z` standard deviations: S·exp((r − q − σ²/2)T + zσ√T). */
+export function lognormalAt(d: Lognormal, z: number): number {
+  const t = d.days / 365;
+  return d.spot * Math.exp((d.rate - d.dividend - d.sigma * d.sigma / 2) * t + z * d.sigma * Math.sqrt(t));
+}
+
+/** Probability that the price ends ABOVE `price` at `days` (N(d2)); null on unusable inputs. */
+export function probAbove(d: Lognormal, price: number): number | null {
+  const t = d.days / 365;
+  if (!(price > 0) || !(d.spot > 0) || !(d.sigma > 0) || !(t > 0)) return null;
+  const d2 = (Math.log(d.spot / price) + (d.rate - d.dividend - d.sigma * d.sigma / 2) * t) / (d.sigma * Math.sqrt(t));
+  return cdf(d2);
+}
 
 /** Index of the curve point nearest to `price` (the reading is the engine's exact value there). */
 export function nearestPoint(curve: readonly { price: number }[], price: number): number {

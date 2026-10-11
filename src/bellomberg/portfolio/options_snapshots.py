@@ -54,7 +54,10 @@ MAX_PER_TICKER_ENV = "BELLOMBERG_OPTIONS_SNAPSHOT_MAX_PER_TICKER"
 SOURCE = "Polygon option-chain snapshot"
 # campi di contratto che servono a ricostruire smile e forward (put-call parity)
 CHAIN_FIELDS = ("contract", "expiry", "type", "strike", "bid", "ask", "iv", "oi", "volume",
-                "adjusted", "multiplier", "exercise_style", "quote_timestamp", "quote_timeframe")
+                "adjusted", "multiplier", "exercise_style", "quote_timestamp", "quote_timeframe",
+                # 11/10 (Opus 5.5): chiusura del giorno con la sua ora (parita' sui prezzi di chiusura
+                # quando il piano non porta bid/ask) e delta del fornitore
+                "close", "close_timestamp", "delta")
 _REPLACE_PAUSES = (0.05, 0.15, 0.4, None)
 _TMP_MAX_AGE_SECONDS = 86400
 _STAMP_RE = re.compile(r"\d{8}T\d{6}Z")
@@ -162,7 +165,14 @@ def minimal_chains(rows: Dict[str, Dict[str, Any]]) -> Dict[str, List[Dict[str, 
     return out
 
 
+# campi aggiunti l'11/10 (close, close_timestamp, delta): a null NON entrano nell'impronta, cosi' un download
+# con lo stesso contenuto di un'istantanea archiviata prima di quel giorno ha la stessa impronta (dedup intatta)
+HASH_OPTIONAL_FIELDS = ("close", "close_timestamp", "delta")
+
+
 def content_hash(ticker: str, spot: Dict[str, Any], chains: Dict[str, List[Dict[str, Any]]]) -> str:
+    chains = {e: [{k: v for k, v in c.items() if not (k in HASH_OPTIONAL_FIELDS and v is None)} for c in rows]
+              for e, rows in chains.items()}
     canonical = json.dumps({"ticker": ticker, "spot": spot, "chains": chains}, sort_keys=True,
                            separators=(",", ":"), default=str, allow_nan=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]

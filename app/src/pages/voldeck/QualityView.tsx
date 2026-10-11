@@ -35,12 +35,18 @@ export function DiffBar({ info, axis }: { info: DiffInfo; axis: 'K/F' | 'K/S' | 
   </div>;
 }
 
+/** Nessun flag: «pulito» SOLO se le prove eseguibili sono state fatte; senza quote lo si dice (11/10). */
+function cleanText(q: VolQuant): string {
+  if (q.arb.clean === null && !q.arbObserved) return tr('voldeck.q_quality_unchecked');
+  return q.execStatus === 'checked' ? tr('voldeck.q_quality_clean') : q.execStatus === 'no_chain' ? tr('voldeck.q_exec_no_chain') : tr('voldeck.q_quality_model_only');
+}
+
 /** Riquadro compatto per la griglia della vista Superficie: eseguibili e indicativi contati a parte. */
 export function QualitySummary({ q, onOpen }: { q: VolQuant; onOpen: () => void }) {
   const worst = q.flags[0];
   return <button type="button" className={'vdn-quality-chip' + (q.nExecutable ? ' is-bad' : q.nIndicative ? ' is-ind' : '')} onClick={onOpen}
     data-vol-quality-chip={q.flags.length} data-vol-quality-exec={q.nExecutable} data-vol-quality-ind={q.nIndicative} title={worst ? flagLine(worst) : undefined}>
-    {q.flags.length ? tr('voldeck.q_quality_chip', { e: q.nExecutable, i: q.nIndicative }) : q.arb.clean === null ? tr('voldeck.q_quality_unchecked') : tr('voldeck.q_quality_clean')}
+    {q.flags.length ? tr('voldeck.q_quality_chip', { e: q.nExecutable, i: q.nIndicative }) : cleanText(q)}
   </button>;
 }
 
@@ -61,13 +67,16 @@ export default function QualityView({ q, model, expiry, column, onPick, onExpiry
   return <div className="vdn-view" data-vol-view-panel="quality">
     {part !== 'diff' && <Card className="vdn-wide-card" titolo={tr('voldeck.q_quality_title')} conteggio={tr('voldeck.q_quality_count', { g: q.arb.checked.calendarPairs, b: q.arb.checked.butterflyTriplets })} data-vol-quality>
       <div className="vdn-tiles is-four vdn-inner-tiles">
-        <div className="vdn-tile"><span>{tr('voldeck.q_flags_exec')}</span><b className={q.nExecutable ? 'is-bad' : 'is-good'} data-vol-flags-exec>{q.nExecutable}</b>
-          <small>{tr('voldeck.q_flags_exec_sub')}</small></div>
+        {/* senza quote nessuna prova eseguibile: «n.d.», mai uno 0 verde che passa per «pulito» (11/10) */}
+        <div className="vdn-tile"><span>{tr('voldeck.q_flags_exec')}</span>
+          <b className={q.execStatus !== 'checked' ? 'is-muted' : q.nExecutable ? 'is-bad' : 'is-good'} data-vol-exec-status={q.execStatus} data-vol-flags-exec>
+            {q.execStatus !== 'checked' ? na : q.nExecutable}</b>
+          <small>{q.execStatus === 'no_chain' ? tr('voldeck.q_exec_no_chain') : q.execStatus === 'quotes_missing' ? tr('voldeck.q_exec_unverifiable') : tr('voldeck.q_flags_exec_sub')}</small></div>
         <div className="vdn-tile"><span>{tr('voldeck.q_flags_ind')}</span><b className="is-muted" data-vol-flags-ind>{q.nIndicative}</b>
           <small>{tr('voldeck.q_flags_ind_sub', { t: q.arb.tolerances.ivNoise == null ? na : numText(q.arb.tolerances.ivNoise * 100, 1) })}</small></div>
         <div className="vdn-tile" title={worst ? flagLine(worst) : undefined}><span>{tr('voldeck.q_worst')}</span>
           <b className={worst ? (worst.level === 'executable' ? 'is-bad' : 'is-muted') : undefined} data-vol-worst>{worst ? kindText(worst.flag.kind) : '—'}</b>
-          <small>{worst ? `${levelText(worst.level)} · ${worst.flag.expiries.join(' → ')} · ${ratioOfFlag(worst)}` : q.arb.clean === null ? tr('voldeck.q_quality_unchecked') : tr('voldeck.q_quality_clean')}</small></div>
+          <small>{worst ? `${levelText(worst.level)} · ${worst.flag.expiries.join(' → ')} · ${ratioOfFlag(worst)}` : cleanText(q)}</small></div>
         <div className="vdn-tile"><span>{tr('voldeck.q_checked')}</span><b>{q.arb.checked.expiries.length}/{model.rows.length}</b>
           <small>{tr('voldeck.q_flags_split', { g: grid, o: obs })} · {q.arbObserved ? tr('voldeck.q_checked_obs', { n: q.arbObserved.checked.expiries.length }) : tr('voldeck.q_checked_obs_none')}</small></div>
       </div>

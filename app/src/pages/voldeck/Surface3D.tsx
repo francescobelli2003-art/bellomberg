@@ -22,8 +22,11 @@ import type { AxisMode } from './SliceCharts';
    - camera: quella VIVA (scene._scene.getCamera) si rilegge prima di ogni ridisegno e si passa esplicita
      nel layout; al rilascio del mouse OVUNQUE (listener su window) la camera viva si scrive nel layout.
      Prima (diagnosi 09/10, diag3d_f): un drag rilasciato fuori dal canvas non emetteva relayout e il
-     ridisegno successivo riportava indietro la vista. `turntable` (niente capovolgimenti), rotella spenta
-     (scorre la pagina), preset di camera;
+     ridisegno successivo riportava indietro la vista. `turntable` (niente capovolgimenti), preset di camera;
+     v4 (11/10, richiesta PM): la ROTELLA sopra il grafico fa zoom della camera (fuori dal grafico la pagina
+     scorre); la camera zoomata si rilegge come quella ruotata; «↺» riporta anche lo zoom. Resa «da desk»:
+     luce direzionale, wireframe sottile, mappa di calore proiettata sul pavimento, asse z TAGLIATO al p1/p99
+     quando un'ala estrema schiaccerebbe il resto (valori veri in lettura, taglio dichiarato sotto il grafico);
    - un cambio di selezione (scadenza / K/S) aggiorna con `Plotly.restyle` SOLO le tre tracce di
      selezione; `react` dell'intera figura solo se cambiano dati, asse o tema.
    ========================================================================== */
@@ -108,6 +111,25 @@ export function colorRange(model: SurfaceModel): { cmin: number; cmax: number } 
   return cmin == null || cmax == null ? null : { cmin, cmax: cmax > cmin ? cmax : cmin + 0.01 };
 }
 
+/** Taglio dell'asse z (11/10, PM): con un'ala estrema (es. scadenza brevissima, strike alto) la geometria si
+ *  ferma al p1/p99 delle celle cosi' il resto della superficie non resta schiacciato. Si taglia solo con
+ *  almeno ZCLIP_MIN_CELLS celle e solo se l'escursione oltre il percentile supera ZCLIP_EXCESS dell'intervallo
+ *  p1–p99: la lettura (hover) porta SEMPRE il valore vero e la pagina dichiara il taglio. */
+export const ZCLIP_MIN_CELLS = 50, ZCLIP_EXCESS = 0.15;
+export interface ZClip { lo: number; hi: number; applied: boolean; above: number; below: number }
+export function zClip(model: SurfaceModel): ZClip | null {
+  const flat = model.rows.flatMap(r => r.iv.filter(finite).map(v => v * 100));
+  if (!flat.length) return null;
+  const min = Math.min(...flat), max = Math.max(...flat);
+  const none: ZClip = { lo: min, hi: max, applied: false, above: 0, below: 0 };
+  if (flat.length < ZCLIP_MIN_CELLS) return none;
+  const lo = pctile(flat, 0.01) as number, hi = pctile(flat, 0.99) as number, span = hi - lo;
+  if (!(span > 0) || ((max - hi) <= ZCLIP_EXCESS * span && (lo - min) <= ZCLIP_EXCESS * span)) return none;
+  return { lo, hi, applied: true, above: flat.filter(v => v > hi).length, below: flat.filter(v => v < lo).length };
+}
+/** z disegnata di una cella (IV in %): tagliata ai bordi del ZClip se il taglio e' attivo. */
+export const zOf = (clip: ZClip | null, pct: number) => clip?.applied ? Math.min(clip.hi, Math.max(clip.lo, pct)) : pct;
+
 /** Scala divergente del confronto «ΔIV vs data»: blu = vol scesa, bianco = 0, rosso = vol salita. */
 export const SCALE_DIFF: [number, string][] = [[0, '#1e3a8a'], [0.25, '#3b82f6'], [0.5, '#f4f4f5'], [0.75, '#f87171'], [1, '#b91c1c']];
 /** Colore di una cella senza confronto (n.d.): grigio neutro, distinto dal bianco dello 0. */
@@ -118,7 +140,9 @@ export interface XAxisSpec { title: string; ticktext: string[]; cellLabel: (row:
 /** Modalita' colore: livello IV (default) o ΔIV rispetto a un'istantanea precedente (punti vol). */
 export type ColorSpec = { kind: 'level' } | { kind: 'diff'; cells: (number | null)[][]; range: number | null; title: string; line: (row: number, col: number) => string };
 /** Contesto per le sovrapposizioni: coordinate gia' calcolate della figura. */
-export interface OverlayCtx { xs: number[]; ys: number[]; floor: number; zTop: number; strikeAxis: boolean }
+export interface OverlayCtx { xs: number[]; ys: number[]; floor: number; zTop: number; strikeAxis: boolean;
+  /** z disegnata di un'IV in % (taglio dell'asse compreso): le sovrapposizioni stanno sulla superficie vista */
+  zOf?: (pct: number) => number }
 
 export interface Palette { text: string; muted: string; line: string; accent: string; violet: string; warn: string; card: string; scale: [number, string][]; wall?: string; wire?: string }
 
@@ -150,15 +174,17 @@ export function selectionTraces(model: SurfaceModel, opts: Pick<Opts, 'axis' | '
   const c = opts.column != null && opts.column >= 0 && opts.column < model.grid.length ? opts.column : null;
   const cell = row && c != null ? row.iv[c] : null;
   const point = row && c != null && cell != null;
+  // stessa z della superficie (taglio compreso); con il taglio attivo le linee stanno appena SOPRA il mesh
+  const clip = zClip(model), z = (v: number) => zOf(clip, v * 100) + (clip?.applied ? (clip.hi - clip.lo) * 0.012 : 0);
   return [
     { type: 'scatter3d', mode: 'lines', meta: 'sel-expiry', name: 'sel-expiry', x: row ? xs : [], y: row ? xs.map(() => Math.sqrt(row.days)) : [],
-      z: row ? row.iv.map(v => v == null ? null : v * 100) : [], connectgaps: false, line: { color: p.text, width: 5 }, hoverinfo: 'skip' },
+      z: row ? row.iv.map(v => v == null ? null : z(v)) : [], connectgaps: false, line: { color: p.text, width: 6 }, hoverinfo: 'skip' },
     { type: 'scatter3d', mode: 'lines', meta: 'sel-col', name: 'sel-col', x: c != null ? model.rows.map(() => xs[c]) : [], y: c != null ? ys : [],
-      z: c != null ? model.rows.map(r => r.iv[c] == null ? null : (r.iv[c] as number) * 100) : [], connectgaps: false,
-      line: { color: p.text, width: 5, dash: 'dash' }, hoverinfo: 'skip' },
+      z: c != null ? model.rows.map(r => r.iv[c] == null ? null : z(r.iv[c] as number)) : [], connectgaps: false,
+      line: { color: p.text, width: 6, dash: 'dash' }, hoverinfo: 'skip' },
     { type: 'scatter3d', mode: 'markers', meta: 'sel-point', name: 'sel-point', x: point ? [xs[c as number]] : [],
-      y: point ? [Math.sqrt((row as SurfaceModel['rows'][number]).days)] : [], z: point ? [(cell as number) * 100] : [],
-      marker: { symbol: 'diamond', size: 7, color: p.text, line: { color: p.card, width: 2 } }, hoverinfo: 'skip' },
+      y: point ? [Math.sqrt((row as SurfaceModel['rows'][number]).days)] : [], z: point ? [z(cell as number)] : [],
+      marker: { symbol: 'diamond', size: 8, color: p.text, line: { color: p.card, width: 2 } }, hoverinfo: 'skip' },
   ];
 }
 
@@ -171,7 +197,9 @@ export function surfaceFigure(model: SurfaceModel, opts: Opts) {
   const ys = model.rows.map(r => Math.sqrt(r.days));
   const flat = model.rows.flatMap(r => r.iv.filter(finite).map(v => v * 100));
   const range = colorRange(model);
-  const zmin = flat.length ? Math.min(...flat) : 0, zmax = flat.length ? Math.max(...flat) : 1;
+  const clip = zClip(model);
+  // estremi della GEOMETRIA: quelli del taglio quando attivo (i valori veri restano in lettura)
+  const zmin = clip ? clip.lo : 0, zmax = clip ? clip.hi : 1;
   const floor = flat.length ? zmin - Math.max(0.6, (zmax - zmin) * 0.08) : 0;
   const nd = L.na;
   const ks = (m: number) => numText(m, 3, nd);
@@ -190,12 +218,14 @@ export function surfaceFigure(model: SurfaceModel, opts: Opts) {
     return `rgb(${r},${g},${b})`;
   };
   // vertici = sole celle con un valore; facce = soli quadrilateri coi 4 vertici con un valore (2 triangoli)
-  const vx: number[] = [], vy: number[] = [], vz: number[] = [], vc: [string, number][] = [], vt: string[] = [], vcol: string[] = [];
+  const vx: number[] = [], vy: number[] = [], vz: number[] = [], vi: number[] = [], vc: [string, number][] = [], vt: string[] = [], vcol: string[] = [];
   const at = new Map<string, number>();
   model.rows.forEach((r, j) => r.iv.forEach((v, i) => {
     if (v == null) return;
     at.set(j + ':' + i, vx.length);
-    vx.push(xs[i]); vy.push(ys[j]); vz.push(v * 100); vc.push([r.expiry, i]); vt.push(cellText(r, i)); vcol.push(diffRgb(j, i));
+    const cut = zOf(clip, v * 100) !== v * 100;
+    vx.push(xs[i]); vy.push(ys[j]); vz.push(zOf(clip, v * 100)); vi.push(v * 100); vc.push([r.expiry, i]);
+    vt.push(cellText(r, i) + (cut ? `<br><i>${L.zClipped || 'z clipped'}</i>` : '')); vcol.push(diffRgb(j, i));
   }));
   const fi: number[] = [], fj: number[] = [], fk: number[] = [];
   const touched = new Set<number>();
@@ -209,13 +239,20 @@ export function surfaceFigure(model: SurfaceModel, opts: Opts) {
   const traces: any[] = [{
     type: 'mesh3d', name: L.surface, meta: 'surface', x: vx, y: vy, z: vz, i: fi, j: fj, k: fk,
     ...(diff ? { vertexcolor: vcol, showscale: false }
-      : { intensity: vz, intensitymode: 'vertex', colorscale: p.scale, cmin: range?.cmin, cmax: range?.cmax, showscale: true,
+      : { intensity: vi, intensitymode: 'vertex', colorscale: p.scale, cmin: range?.cmin, cmax: range?.cmax, showscale: true,
         colorbar: { thickness: 12, len: 0.78, outlinewidth: 0, x: 1.0, xpad: 4, ticksuffix: '%', nticks: 7,
           tickfont: { color: p.muted, size: 12, family: font },
           title: { text: L.ivScale || 'IV %', side: 'top', font: { color: p.muted, size: 12, family: font } } } }),
     customdata: vc, text: vt, hoverinfo: 'text', flatshading: false, opacity: 1,
-    lighting: { ambient: 0.85, diffuse: 0.32, specular: 0.04, roughness: 0.95, fresnel: 0.02 },
+    // luce direzionale da sinistra, davanti, in alto: la forma (pendenze di smile e termine) si legge dalle ombre
+    lighting: { ambient: 0.55, diffuse: 0.75, specular: 0.18, roughness: 0.5, fresnel: 0.12 },
+    lightposition: { x: -1e5, y: -2e5, z: 2.5e5 },
   }];
+  // mappa di calore proiettata sul pavimento: stesse facce e colori, z = pavimento, nessuna lettura (la da' il mesh)
+  if (fi.length) traces.push({ type: 'mesh3d', name: 'floor-map', meta: 'floor-map', x: vx, y: vy, z: vx.map(() => floor), i: fi, j: fj, k: fk,
+    ...(diff ? { vertexcolor: vcol } : { intensity: vi, intensitymode: 'vertex', colorscale: p.scale, cmin: range?.cmin, cmax: range?.cmax }),
+    showscale: false, hoverinfo: 'skip', opacity: 1, flatshading: false,
+    lighting: { ambient: 1, diffuse: 0, specular: 0, roughness: 1, fresnel: 0 } });
   // wireframe: righe (scadenze) e colonne (K/S), spezzato a ogni buco; sollevato dello 0,8% dell'escursione
   // solo per non affondare nel mesh (z-fighting): e' disegno, la lettura esatta resta sul mesh
   const lift = (zmax - zmin) * 0.008;
@@ -224,17 +261,17 @@ export function surfaceFigure(model: SurfaceModel, opts: Opts) {
     for (const q of pts) { wx.push(q ? q[0] : null); wy.push(q ? q[1] : null); wz.push(q ? q[2] + lift : null); }
     wx.push(null); wy.push(null); wz.push(null);
   };
-  model.rows.forEach((r, j) => run(r.iv.map((v, i) => v == null ? null : [xs[i], ys[j], v * 100])));
-  xs.forEach((x, i) => run(model.rows.map((r, j) => r.iv[i] == null ? null : [x, ys[j], (r.iv[i] as number) * 100])));
+  model.rows.forEach((r, j) => run(r.iv.map((v, i) => v == null ? null : [xs[i], ys[j], zOf(clip, v * 100)])));
+  xs.forEach((x, i) => run(model.rows.map((r, j) => r.iv[i] == null ? null : [x, ys[j], zOf(clip, (r.iv[i] as number) * 100)])));
   traces.push({ type: 'scatter3d', mode: 'lines', name: 'wire', meta: 'wire', x: wx, y: wy, z: wz, connectgaps: false,
-    line: { color: p.wire || 'rgba(10,10,12,.45)', width: 1.2 }, hoverinfo: 'skip' });
+    line: { color: p.wire || 'rgba(10,10,12,.22)', width: 0.8 }, hoverinfo: 'skip' });
   // celle con un valore che non sono vertice di nessuna faccia (una sola scadenza, colonna buca, ali che si
   // allargano, celle fra buchi): un marcatore con lettura e clic, cosi' nessun valore resta muto a schermo
   const orphans = vx.map((_, n) => n).filter(n => !touched.has(n));
   if (orphans.length) traces.push({ type: 'scatter3d', mode: 'markers', name: L.ivGrid, meta: 'orphans',
     x: orphans.map(n => vx[n]), y: orphans.map(n => vy[n]), z: orphans.map(n => vz[n]), customdata: orphans.map(n => vc[n]),
     text: orphans.map(n => vt[n]), hoverinfo: 'text',
-    marker: { symbol: 'square', size: 4.5, ...(diff ? { color: orphans.map(n => vcol[n]) } : { color: orphans.map(n => vz[n]), colorscale: p.scale, cmin: range?.cmin, cmax: range?.cmax }),
+    marker: { symbol: 'square', size: 4.5, ...(diff ? { color: orphans.map(n => vcol[n]) } : { color: orphans.map(n => vi[n]), colorscale: p.scale, cmin: range?.cmin, cmax: range?.cmax }),
       line: { color: p.line, width: 0.5 } } });
   // ΔIV: la scala divergente (in punti vol) la porta una traccia senza punti visibili, solo per la colorbar
   if (diff && finite(diff.range) && diff.range > 0) traces.push({ type: 'scatter3d', mode: 'markers', name: 'diff-scale', meta: 'diff-scale',
@@ -252,7 +289,7 @@ export function surfaceFigure(model: SurfaceModel, opts: Opts) {
   if (hx.length) traces.push({ type: 'scatter3d', mode: 'markers', name: L.hole, meta: 'holes', x: hx, y: hy, z: hz, customdata: hc,
     text: ht, hoverinfo: 'text', marker: { symbol: 'x', size: 2.6, color: p.muted, opacity: 0.6 } });
   // sovrapposizioni (forward, cono, utili, arbitraggi): prima della selezione, che resta in coda per il restyle
-  if (opts.overlays) traces.push(...opts.overlays({ xs, ys, floor, zTop: flat.length ? zmax : 1, strikeAxis }));
+  if (opts.overlays) traces.push(...opts.overlays({ xs, ys, floor, zTop: flat.length ? zmax : 1, strikeAxis, zOf: (pct: number) => zOf(clip, pct) }));
   const sel = selectionTraces(model, opts);
   const selIndex = sel.map((_, n) => traces.length + n);
   traces.push(...sel);
@@ -278,12 +315,13 @@ export function surfaceFigure(model: SurfaceModel, opts: Opts) {
         : axisStyle(strikeAxis ? 'Strike' : 'K/S', { tickformat: strikeAxis ? ',.0f' : '.2f', nticks: 6 }),
       // ALTA-3: Plotly tagliava il titolo nativo dell'asse dei giorni; l'etichetta e' l'HTML #vol-surface-expiry-axis-label
       yaxis: axisStyle('', { tickmode: 'array', tickvals: tickIdx.map(n => ys[n]), ticktext: tickIdx.map(n => `${model.rows[n].days}${L.d}`) }),
-      zaxis: axisStyle('IV', { ticksuffix: '%', nticks: 6, range: flat.length ? [floor, zmax + (zmax - zmin) * 0.04 + 0.1] : undefined }),
+      zaxis: axisStyle(clip?.applied ? `IV (${L.zClipShort || 'p1–p99'})` : 'IV', { ticksuffix: '%', nticks: 6, range: flat.length ? [floor, zmax + (zmax - zmin) * 0.04 + 0.1] : undefined }),
       bgcolor: 'rgba(0,0,0,0)', camera: plainCamera(opts.camera || DEFAULT_CAMERA), uirevision: SCENE_REVISION,
-      aspectmode: 'manual', aspectratio: { x: 1.7, y: 1.45, z: 0.72 }, dragmode: 'turntable',
+      aspectmode: 'manual', aspectratio: { x: 1.6, y: 1.5, z: 0.9 }, dragmode: 'turntable',
     },
   };
-  return { traces, layout, selIndex, config: { displayModeBar: false, responsive: true, scrollZoom: false } };
+  // rotella = zoom della camera (PM 11/10): Plotly gl3d la usa solo sopra il canvas, fuori la pagina scorre
+  return { traces, layout, selIndex, clip, config: { displayModeBar: false, responsive: true, scrollZoom: true } };
 }
 
 const readPalette = (node: HTMLElement, dark: boolean): Palette => {
@@ -291,7 +329,7 @@ const readPalette = (node: HTMLElement, dark: boolean): Palette => {
   return { text: v('--bbn-text', dark ? '#ffffff' : '#0a0a0b'), muted: v('--bbn-muted', dark ? '#a1a1aa' : '#62626b'),
     line: v('--vdn-grid', dark ? '#2e2e33' : '#e2e2e8'), accent: v('--bbn-accent', dark ? '#5b8cff' : '#1d56f0'),
     violet: v('--vdn-violet', dark ? '#c4b5fd' : '#7c3aed'), warn: v('--bbn-warn', '#8a5300'), card: v('--bbn-card', dark ? '#161618' : '#ffffff'),
-    wall: v('--vdn-wall', dark ? '#141418' : '#f4f4f7'), wire: dark ? 'rgba(0,0,0,.55)' : 'rgba(15,23,42,.55)', scale: SCALE_VOL };
+    wall: v('--vdn-wall', dark ? '#141418' : '#f4f4f7'), wire: dark ? 'rgba(0,0,0,.32)' : 'rgba(15,23,42,.2)', scale: SCALE_VOL };
 };
 
 /** Oltre questo spostamento (px) fra pressione e rilascio il gesto e' una rotazione, non un clic. */
@@ -321,6 +359,8 @@ export default function Surface3D({ model, axis, expiry, column, dark, onPick, o
   const modelRef = useRef(model); modelRef.current = model;
   const axisRef = useRef(axis); axisRef.current = axis;
   const camera = useRef<Camera>(plainCamera(DEFAULT_CAMERA));
+  // altezza VIVA: un ridisegno usa quella di adesso, non quella del render che lo ha accodato
+  const heightRef = useRef(height); heightRef.current = height;
   const drawn = useRef<{ model: SurfaceModel; axis: AxisMode; dark: boolean; extras: FigureExtras; selIndex: number[] } | null>(null);
   const press = useRef<{ x: number; y: number; moved: number } | null>(null);
   const pending = useRef<{ expiry: string; column: number } | null>(null);
@@ -342,7 +382,8 @@ export default function Surface3D({ model, axis, expiry, column, dark, onPick, o
       const node = ref.current;
       const labels = { na: tr('voldeck.ui_n_a_15'), d: tr('voldeck.short_days'), surface: tr('voldeck.n_surface_title'),
         strikeEq: tr('voldeck.n_strike_eq_short'), ivGrid: tr('voldeck.n_iv_grid'), hole: tr('voldeck.n_hole_word'),
-        partial: tr('voldeck.n_partial_badge'), ivScale: tr('voldeck.n_iv_scale_title') };
+        partial: tr('voldeck.n_partial_badge'), ivScale: tr('voldeck.n_iv_scale_title'),
+        zClipped: tr('voldeck.q_zclip_cell'), zClipShort: tr('voldeck.q_zclip_axis') };
       const palette = readPalette(node, dark);
       const draw = queue.current.catch(() => undefined).then(async () => {
         if (!active || !ref.current) return;
@@ -356,7 +397,7 @@ export default function Surface3D({ model, axis, expiry, column, dark, onPick, o
           mark(node, 'data-vdn-draw', 'restyle');
         } else {
           if (node._fullLayout) await syncCamera(Plotly, node);
-          const fig = surfaceFigure(model, { axis, expiry, column, palette, labels, camera: camera.current, height, ...extras });
+          const fig = surfaceFigure(model, { axis, expiry, column, palette, labels, camera: camera.current, height: heightRef.current, ...extras });
           await (node._fullLayout ? Plotly.react(node, fig.traces, fig.layout, fig.config) : Plotly.newPlot(node, fig.traces, fig.layout, fig.config));
           drawn.current = { model, axis, dark, extras, selIndex: fig.selIndex };
           mark(node, 'data-vdn-draw', 'react');
@@ -414,21 +455,17 @@ export default function Surface3D({ model, axis, expiry, column, dark, onPick, o
     };
   }, []);
 
-  // rotella: scrollZoom false spegne lo zoom ma il controllo camera di Plotly 2.32 (mouse-wheel sul canvas)
-  // chiama comunque preventDefault, e la pagina non scorreva (misurato 10/10: 0 px sopra il 3D, 600 px sulla
-  // griglia). In CATTURA sul contenitore l'evento non raggiunge il canvas; nessun preventDefault: la pagina scorre.
+  // rotella (11/10, PM): nessun listener la ferma piu': sopra il canvas e' lo zoom di Plotly (scrollZoom), la
+  // camera zoomata arriva col plotly_relayout e si rilegge viva prima di ogni ridisegno (syncCamera).
   // drag vs clic: la pressione sul grafico apre un gesto (vedi plotly_click e onUp: misurato 10/10, una
   // rotazione rilasciata sul canvas cambiava scadenza e K/S).
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
-    const onWheel = (e: Event) => { e.stopPropagation(); };
     const onDown = (e: Event) => { const p = e as PointerEvent; press.current = { x: p.clientX, y: p.clientY, moved: 0 }; pending.current = null; };
     const opts = { capture: true, passive: true };
-    node.addEventListener('wheel', onWheel, opts);
     node.addEventListener('pointerdown', onDown, opts);
     return () => {
-      node.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions);
       node.removeEventListener('pointerdown', onDown, { capture: true } as EventListenerOptions);
     };
   }, []);
@@ -442,6 +479,14 @@ export default function Surface3D({ model, axis, expiry, column, dark, onPick, o
     }
   };
   useEffect(() => { if (resetKey) setView(DEFAULT_CAMERA); }, [resetKey]);
+  // 11/10: l'altezza segue la finestra (la pagina la misura): solo relayout, ne' superficie ne' camera si toccano
+  useEffect(() => {
+    const node = ref.current, Plotly = window.Plotly;
+    if (!node || !Plotly) return;
+    // in coda dietro un eventuale primo disegno: si confronta con l'altezza VIVA quando tocca a noi
+    queue.current = queue.current.catch(() => undefined).then(() => typeof node._fullLayout?.height === 'number' && node._fullLayout.height !== heightRef.current
+      ? Plotly.relayout(node, { height: heightRef.current }) : undefined).catch(() => undefined);
+  }, [height]);
   useEffect(() => { if (preset?.name && preset.n) setView(CAMERAS[preset.name]); }, [preset?.name, preset?.n]);
 
   // il nodo si cattura al montaggio: allo smontaggio React ha gia' azzerato ref.current (v1: purge mai eseguito)
@@ -450,6 +495,11 @@ export default function Surface3D({ model, axis, expiry, column, dark, onPick, o
     return () => { if (node && window.Plotly) { try { window.Plotly.purge(node); } catch { /* gia' rimosso */ } } };
   }, []);
 
-  return <div ref={ref} className="vdn-plot" data-vol-3d role="group" aria-roledescription={tr('voldeck.n_interactive_chart')} style={{ minHeight: height }}
-    aria-label={tr('voldeck.mesh_label')} aria-describedby="vol-surface-expiry-axis-label" />;
+  const clip = zClip(model);
+  return <>
+    <div ref={ref} className="vdn-plot" data-vol-3d role="group" aria-roledescription={tr('voldeck.n_interactive_chart')} style={{ minHeight: height }}
+      aria-label={tr('voldeck.mesh_label')} aria-describedby="vol-surface-expiry-axis-label" />
+    {clip?.applied && <p className="vdn-axis-note vdn-zclip-note" data-vol-zclip={clip.above + clip.below}>
+      {tr('voldeck.q_zclip_note', { lo: numText(clip.lo, 1), hi: numText(clip.hi, 1), n: clip.above + clip.below })}</p>}
+  </>;
 }

@@ -2,7 +2,7 @@ import { t as tr } from '@/i18n/t';
 import { linguaCorrente } from '@/i18n/lingua';
 import * as vq from '@/lib/vol-quant';
 import { finite, numText } from '@/lib/vol-deck';
-import type { FlagItem, ForwardWhy } from './quant';
+import type { FlagItem, ForwardWhy, VolQuant } from './quant';
 
 /* Testi del Vol Deck «quant» (10/10/2026, Opus 5.5): solo formattazione dei risultati di
    lib/vol-quant e dei motivi; nessun calcolo. Punti vol = frazione × 100 col segno esplicito. */
@@ -36,8 +36,48 @@ export const kindText = (kind: vq.ArbitrageKind) => tr(`voldeck.q_kind_${kind}`)
 export const originText = (origin: vq.ArbitrageFlag['origin']) => tr(`voldeck.q_origin_${origin}`);
 /** prova del flag: in prezzo eseguibile (bid/ask veri) o sul modello con la tolleranza di rumore */
 export const testText = (test: vq.ArbitrageFlag['test']) => tr(`voldeck.q_test_${test}`);
+/** Sedute (New York) delle chiusure usate dal livello 2: una data, un intervallo, o «non riportata». */
+function daysText(days: string[]): string | null {
+  const d = [...new Set(days)].sort();
+  return d.length === 0 ? null : d.length === 1 ? d[0] : `${d[0]} – ${d[d.length - 1]}`;
+}
+const closeDaysText = (res: vq.LeveledForward) => daysText(res.closeDays || []);
+/** Avvisi del forward (livello 2) in parole, separati da « · »; '' se nessuno. */
+export function fwdWarningsText(res: vq.LeveledForward | null | undefined): string {
+  if (!res) return '';
+  const out = (res.warnings || []).map(w => tr(`voldeck.q_fwd_warn_${w}`));
+  const ex = res.closeExcluded;
+  if (res.level === 'parity_close' && ex && (ex.otherSession || ex.undated)) out.push(tr('voldeck.q_fwd_close_excluded', { a: ex.otherSession, b: ex.undated }));
+  return out.join(' · ');
+}
+/** Il numero poggia su un forward PROXY (livelli 3 e 3b)? Allora va marcato «proxy» dove compare. */
+export const onProxy = (q: VolQuant, expiry: string | null | undefined): boolean => Boolean(expiry) && vq.isProxyLevel(q.forwards[expiry as string]?.level);
+/** Testo del suggerimento di una cella che poggia sul proxy (tooltip). */
+export const proxyHint = (q: VolQuant, expiry: string): string => tr('voldeck.q_proxy_hint', { l: fwdLevelText(q.forwards[expiry]) });
+/** Livello del forward in parole (gerarchia dichiarata 11/10): fonte e, per il proxy, cosa ignora. */
+export function fwdLevelText(res: vq.LeveledForward | null | undefined): string {
+  if (!res?.level) return '';
+  if (res.level === 'parity_quotes') return tr('voldeck.q_fwd_level_quotes');
+  if (res.level === 'parity_close') {
+    const d = closeDaysText(res);
+    return d ? tr('voldeck.q_fwd_level_close', { d }) : tr('voldeck.q_fwd_level_close_undated');
+  }
+  if (res.level === 'proxy_carry_q' && res.dividend)
+    return tr('voldeck.q_fwd_level_proxy_q', { q: numText(res.dividend.q * 100, 2), s: res.dividend.source, d: res.dividend.asOf || na() });
+  return tr('voldeck.q_fwd_level_proxy');
+}
+/** Etichetta breve del livello accanto a un numero (tabelle). */
+export const fwdLevelTag = (level: vq.ForwardLevel | null | undefined): string => level ? tr(`voldeck.q_fwd_tag_${level}`) : '';
 /** Qualita' del forward (regola PM: residuo de-americanizzato e qualita' dove compare il forward). */
-export function fwdQuality(res: vq.ForwardResult): string {
+export function fwdQuality(res: vq.ForwardResult | vq.LeveledForward): string {
+  const level = (res as vq.LeveledForward).level;
+  if (level === 'proxy_carry') return tr('voldeck.q_fwd_q_proxy');
+  if (level === 'proxy_carry_q') return fwdLevelText(res as vq.LeveledForward) + ' · ' + tr('voldeck.q_fwd_q_proxy_q');
+  if (level === 'parity_close') {
+    const w = fwdWarningsText(res as vq.LeveledForward);
+    return fwdLevelText(res as vq.LeveledForward) + ' · ' + tr('voldeck.q_fwd_q_close', { n: res.pairs.length,
+      d: finite(res.dispersionRel) ? numText(res.dispersionRel * 100, 3) : na() }) + (w ? ' · ' + w : '');
+  }
   return tr('voldeck.q_fwd_quality', { n: res.pairs.length, d: finite(res.dispersionRel) ? numText(res.dispersionRel * 100, 3) : na(),
     raw: finite(res.rawForward) ? numText(res.rawForward, 2) : na(),
     res: finite(res.deamericanizationResidual) ? numText(res.deamericanizationResidual, 6) : na() });
@@ -64,4 +104,23 @@ export const ratioOfFlag = (item: FlagItem) => item.level === 'executable' ? tr(
 export function flagLine(item: FlagItem): string {
   const f = item.flag;
   return `${levelText(item.level)}${f.indicative ? ' (' + tr('voldeck.q_level_quoted') + ')' : ''} · ${kindText(f.kind)} · ${f.expiries.join(' → ')} · ${magnitudeText(f, item.level)} · ${ratioOfFlag(item)} · ${testText(f.test)} · ${originText(f.origin)} · ${sourceText(item.set, f.source)}`;
+}
+
+/** Una riga sola sul forward della pagina: livello per livello quante scadenze, o il motivo se manca. */
+export function forwardBasisLine(q: VolQuant, expiries: string[]): string {
+  const total = expiries.length;
+  const parts = vq.FORWARD_LEVELS.filter(l => q.forwardLevels[l]).map(l => {
+    const all = Object.values(q.forwards).filter(f => f.level === l);
+    // livello 2: le sedute di TUTTI i forward del livello (review 11/10), e quanti portano un avviso
+    if (l === 'parity_close') {
+      const d = daysText(all.flatMap(f => f.closeDays || []));
+      const warned = all.filter(f => (f.warnings || []).length).length;
+      return `${d ? tr('voldeck.q_fwd_level_close', { d }) : tr('voldeck.q_fwd_level_close_undated')} (${q.forwardLevels[l]}/${total})`
+        + (warned ? ' · ' + tr('voldeck.q_fwd_warned', { n: warned }) : '');
+    }
+    return `${fwdLevelText(all[0])} (${q.forwardLevels[l]}/${total})`;
+  });
+  if (parts.length) return `${tr('voldeck.q_fwd_basis')}: ${parts.join(' · ')}`;
+  const why = expiries.map(e => q.forwardOf(e).why).find(Boolean);
+  return tr('voldeck.q_fwd_basis_none', { why: whyText(why ?? 'forward_missing') });
 }
