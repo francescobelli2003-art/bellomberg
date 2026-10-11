@@ -188,7 +188,7 @@ jobs:
   suite-linux:
     runs-on: ubuntu-latest
     if: ${{ (github.event_name == 'push' && github.event.repository.private == false) || github.event_name == 'workflow_dispatch' }}
-    timeout-minutes: 90
+    timeout-minutes: 120  # 11/10: 19.3k test, la run 38089968771 era al 96% a 90 min
     permissions:
       contents: read
     concurrency:
