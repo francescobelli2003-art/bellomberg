@@ -20,6 +20,9 @@ from time import monotonic
 from urllib.parse import parse_qs, urlparse
 from typing import Dict, Any, List, Optional
 from bellomberg.core.presentation import message as _surface_text, render_payload, join_messages, error_text
+# 10/10 (Opus 5.5): soglie di lettura (prezzo della protezione, skew, percentile RV) dalla
+# fonte unica condivisa con options_score e signal_engine
+from bellomberg.core import soglie_score as _soglie
 
 
 try:
@@ -761,13 +764,32 @@ def build_vol_surface(ticker: str, max_expiries: int = 6,
         if _snapshot is None and not polygon_available():
             return {"error": _surface_text('POLYGON_API_KEY mancante o non attiva', 'POLYGON_API_KEY missing or inactive'), "_source": src}
 
+        # 10/10 (revisore, Opus 5.5): su un'istantanea di download giorni e t_years si
+        # contano dall'ORA DELL'ISTANTANEA (`snapshot_at`), non dall'ora della chiamata:
+        # la stessa istantanea riletta domani non deve perdere un giorno di tempo a
+        # scadenza. Senza `snapshot_at` leggibile lo si dichiara in `t_reference`.
+        t_reference = {"basis": "computation_time", "at": None}
+        now_ny = _ny_now()
+        if _snapshot is not None:
+            ref = _snapshot.get("snapshot_at")
+            try:
+                parsed = datetime.fromisoformat(ref) if isinstance(ref, str) else None
+            except ValueError:
+                parsed = None
+            if parsed is not None and parsed.tzinfo is not None:
+                from zoneinfo import ZoneInfo
+                now_ny = parsed.astimezone(ZoneInfo(_NY))
+                t_reference = {"basis": "snapshot_at", "at": ref}
+            else:
+                t_reference = {"basis": "computation_time", "at": None,
+                               "note": _surface_text('istantanea senza snapshot_at con fuso: tempo a scadenza contato dall\'ora del calcolo', 'Snapshot without a time-zoned snapshot_at: time to expiry counted from computation time')}
         if expiries is None:
             exp = get_option_expirations(ticker)
             if exp.get("error"):
                 return {"error": f"expirations: {exp['error']}", "_source": src, "coverage": coverage}
             chosen = _select_expiries(exp.get("expirations", []), max_expiries, max_days)
         else:
-            chosen = [{"expiry": e, "days": _days_to_expiry(e)} for e in sorted(expiries)]
+            chosen = [{"expiry": e, "days": _days_to_expiry(e, now_ny)} for e in sorted(expiries)]
         coverage["requested"] = [r["expiry"] for r in chosen]
         if not chosen:
             return {"error": _surface_text(f'nessuna expiry entro {max_days} giorni', f'No expiry within {max_days} days'), "_source": src}
@@ -791,7 +813,6 @@ def build_vol_surface(ticker: str, max_expiries: int = 6,
         spot_proxy = None  # R02-b: codice macchina quando lo spot e' uno strike
         spot_alignment = _snapshot.get("spot_alignment") if _snapshot is not None else None   # MA-1 (review v2)
         spot_reason = None
-        now_ny = _ny_now()
         slices = []
         stop_reason = None
         fetched = []   # (row, status, ch) — fase 1: tutte le chain, poi lo spot
@@ -1005,6 +1026,10 @@ def build_vol_surface(ticker: str, max_expiries: int = 6,
         term_slope_reason = None if term_slope is not None else (
             cm60["reason"] or _surface_text(f'front già a {front["days"]}g, oltre {BACK_TENOR_DAYS}g', f'Front already at {front["days"]}d, beyond {BACK_TENOR_DAYS}d'))
         ivrv = round(iv30 - rv30, 4) if (rv30 and iv30 is not None) else None
+        # 10/10 (Opus 5.5): prezzo della protezione INVARIANTE DI SCALA (IV/RV), stesse soglie
+        # dello score e del segnale Edge Scan (core/soglie_score.prezzo_protezione)
+        vrp_code, ivrv_ratio = _soglie.prezzo_protezione(iv30, rv30)
+        ivrv_ratio = round(ivrv_ratio, 4) if ivrv_ratio is not None else None
 
         if spot_proxy:
             # R02 punto 4: nessuna lettura costruita su uno strike usato come spot
@@ -1012,7 +1037,7 @@ def build_vol_surface(ticker: str, max_expiries: int = 6,
             term_slope_reason = term_slope_reason or _surface_text('spot proxy', 'Proxy spot')
         else:
             interpretation = _interpret(ticker, [front] + [s for s in slices if s is not front],
-                                        term_slope, rv30, ivrv,
+                                        term_slope, rv30, ivrv_ratio,
                                         expected_move=expected_move,
                                         exp_move_days=exp_move_days,
                                         rv_pct_1y=rv_pct_1y,
@@ -1081,6 +1106,8 @@ def build_vol_surface(ticker: str, max_expiries: int = 6,
             "rv_percentile_1y": rv_pct_1y,
             "iv_rv_spread_30d": ivrv,
             "iv_rv_spread_front": ivrv,
+            "iv_rv_ratio_30d": ivrv_ratio,
+            "protection_price": vrp_code,
             "expected_move_pct": expected_move,
             "expected_move_days": exp_move_days,
             "expected_move_basis": exp_move_basis,
@@ -1098,7 +1125,8 @@ def build_vol_surface(ticker: str, max_expiries: int = 6,
                                 else _surface_text('timeframe delle quote non dichiarato dal provider: ritardo non verificabile', 'Quote timeframe not declared by the provider: delay cannot be verified') if not timeframes else None),
             "market_session": _market_session(now_ny),
             "snapshot_kind": "download_snapshot" if _snapshot is not None else "new_fetch",
-            "snapshot_at": now_utc,
+            "snapshot_at": t_reference["at"] or now_utc,
+            "t_reference": t_reference,
             "deprecated_fields": {
                 "realized_vol_30d": _surface_text('alias di realized_vol_21d (finestra 21 sedute dal 09/10)', 'Alias of realized_vol_21d (21-session window since 09/10)'),
                 "iv_rv_spread_front": _surface_text('alias di iv_rv_spread_30d: dal 09/10 vale IV 30g costante − RV 21 sedute, non più ATM front − RV', 'Alias of iv_rv_spread_30d: since 09/10 it is 30-day constant-maturity IV − 21-session RV, no longer front ATM − RV')},
@@ -1119,7 +1147,7 @@ _TOOL_KEYS = ("ticker", "spot_est", "spot_source", "spot_timestamp", "spot_quali
               "spot_proxy", "metrics_qualified", "iv_grid_qualified", "partial", "data_delay",
               "quote_time_max", "skew_note", "iv_30d", "iv_30d_reason", "iv_60d",
               "term_slope_front_to_60d", "term_slope_reason", "realized_vol_21d", "rv_percentile_1y",
-              "iv_rv_spread_30d", "expected_move_pct", "expected_move_days", "next_earnings",
+              "iv_rv_spread_30d", "iv_rv_ratio_30d", "protection_price", "expected_move_pct", "expected_move_days", "next_earnings",
               "interpretation", "n_expiries", "_source", "_timestamp")
 _IV_CTX_KEYS = ("iv_30d_current", "iv_percentile", "iv_min", "iv_max", "n_obs", "min_obs", "young",
                 "history_from", "last_snap_date", "excluded_days", "current_partial", "iv_front_current",
@@ -1221,7 +1249,7 @@ def context_panels(ticker: str) -> Dict[str, Any]:
 
 def _interpret(ticker: str, slices: List[Dict[str, Any]],
                term_slope: Optional[float], rv30: Optional[float],
-               ivrv: Optional[float],
+               ivrv_ratio: Optional[float],
                expected_move: Optional[float] = None,
                exp_move_days: Optional[int] = None,
                rv_pct_1y: Optional[float] = None,
@@ -1256,25 +1284,34 @@ def _interpret(ticker: str, slices: List[Dict[str, Any]],
     else:
         parts.append(join_messages("", [_surface_text(f'ATM front a {atm_f:.1f}% (curva corta disponibile).', f'Front ATM at {atm_f:.1f}% (short curve available).'), earn_note]))
 
-    # 1bis. Regime di volatilità realizzata (percentile 1 anno)
+    # 1bis. Regime di volatilità realizzata (percentile 1 anno). 10/10: estremi 20/80 come il
+    # segnale (core/soglie_score.RV_PCT_*); prima qui 25/75.
     if rv_pct_1y is not None:
-        regime_rv = (_surface_text('regime di movimento COMPRESSO', 'COMPRESSED movement regime') if rv_pct_1y <= 25 else
-                     _surface_text('regime di movimento ELEVATO', 'ELEVATED movement regime') if rv_pct_1y >= 75 else
+        regime_rv = (_surface_text('regime di movimento COMPRESSO', 'COMPRESSED movement regime') if rv_pct_1y <= _soglie.RV_PCT_BASSO else
+                     _surface_text('regime di movimento ELEVATO', 'ELEVATED movement regime') if rv_pct_1y >= _soglie.RV_PCT_ALTO else
                      _surface_text('regime di movimento nella media', 'average movement regime'))
         parts.append(_surface_text(f"La realized vol a 21 sedute è al {rv_pct_1y:.0f}° percentile dell'ultimo anno: {{regime_rv}}. Gli estremi tendono a rientrare (mean reversion della volatilità).", f'21-session realized volatility is at the {rv_pct_1y:.0f}th percentile of the past year: {{regime_rv}}. Extremes tend to revert (volatility mean reversion).', regime_rv=regime_rv))
 
-    # 2. Skew (RR25)
+    # 2. Skew (RR25). 10/10 (Opus 5.5): la lettura usa lo skew NORMALIZZATO RR25/IV ATM della
+    # stessa scadenza con le costanti dello score (core/soglie_score.lettura_skew): prima
+    # «MARCATO» sotto -3 punti assoluti mentre lo score chiamava tipico -4/-6.
     rr = front.get("rr25")
-    if rr is not None:
+    rr_norm = _soglie.skew_normalizzato(rr, front.get("atm_iv"))
+    lettura = _soglie.lettura_skew(rr_norm)
+    if rr is not None and lettura is None:
+        # v3: RR25 misurato ma IV ATM del front mancante -> lo si dice, niente silenzio
+        parts.append(_surface_text(f'Skew n.d.: RR25 {rr * 100:.1f}pt misurato, IV ATM del front mancante (skew normalizzato non calcolabile).',
+                                   f'Skew n/a: RR25 {rr * 100:.1f}pt measured, front ATM IV missing (normalized skew cannot be computed).'))
+    if rr is not None and lettura is not None:
         rr_pt = rr * 100
-        if rr_pt < -3:
-            parts.append(_surface_text(f'Skew put MARCATO (RR25 {rr_pt:.1f}pt): la protezione al ribasso è cara — domanda di hedge consistente; chi compra put qui paga premio pieno, chi le vende viene pagato bene per il rischio.', f'PRONOUNCED put skew (RR25 {rr_pt:.1f}pt): downside protection is expensive — substantial hedging demand; put buyers pay a full premium and sellers are well compensated for the risk.'))
-        elif rr_pt < -0.5:
-            parts.append(_surface_text(f'Skew put nella norma equity (RR25 {rr_pt:.1f}pt): fisiologica domanda di protezione, nessun allarme.', f'Typical equity put skew (RR25 {rr_pt:.1f}pt): normal demand for protection, no alarm.'))
-        elif rr_pt > 0.5:
-            parts.append(_surface_text(f"Skew INVERTITO a favore delle call (RR25 +{rr_pt:.1f}pt): il mercato paga per l'upside — tipico di squeeze attesi, M&A o retail chase. Covered call ben remunerate.", f'INVERTED skew favoring calls (RR25 +{rr_pt:.1f}pt): the market pays for upside — typical of expected squeezes, M&A or retail chasing. Covered calls are well compensated.'))
+        if lettura == "MARCATO":
+            parts.append(_surface_text(f'Skew put MARCATO (RR25 {rr_pt:.1f}pt = {rr_norm:+.2f} IV ATM): la protezione al ribasso è cara — domanda di hedge consistente; chi compra put qui paga premio pieno, chi le vende viene pagato bene per il rischio.', f'PRONOUNCED put skew (RR25 {rr_pt:.1f}pt = {rr_norm:+.2f} IV ATM): downside protection is expensive — substantial hedging demand; put buyers pay a full premium and sellers are well compensated for the risk.'))
+        elif lettura == "NORMA":
+            parts.append(_surface_text(f'Skew put nella norma equity (RR25 {rr_pt:.1f}pt = {rr_norm:+.2f} IV ATM): fisiologica domanda di protezione, nessun allarme.', f'Typical equity put skew (RR25 {rr_pt:.1f}pt = {rr_norm:+.2f} IV ATM): normal demand for protection, no alarm.'))
+        elif lettura == "INVERTITO":
+            parts.append(_surface_text(f"Skew INVERTITO a favore delle call (RR25 +{rr_pt:.1f}pt = {rr_norm:+.2f} IV ATM): il mercato paga per l'upside — tipico di squeeze attesi, M&A o retail chase. Covered call ben remunerate.", f'INVERTED skew favoring calls (RR25 +{rr_pt:.1f}pt = {rr_norm:+.2f} IV ATM): the market pays for upside — typical of expected squeezes, M&A or retail chasing. Covered calls are well compensated.'))
         else:
-            parts.append(_surface_text(f'Skew neutro (RR25 {rr_pt:.1f}pt): smile simmetrico.', f'Neutral skew (RR25 {rr_pt:.1f}pt): symmetric smile.'))
+            parts.append(_surface_text(f'Skew neutro (RR25 {rr_pt:.1f}pt = {rr_norm:+.2f} IV ATM): smile simmetrico.', f'Neutral skew (RR25 {rr_pt:.1f}pt = {rr_norm:+.2f} IV ATM): symmetric smile.'))
 
     # 3. Curvatura (BF25)
     bf = front.get("bf25")
@@ -1283,16 +1320,17 @@ def _interpret(ticker: str, slices: List[Dict[str, Any]],
 
     # 4. IV vs RV (vol risk premium). M8 (09/10): stesso orizzonte — IV a scadenza
     # costante 30g contro RV 21 sedute; prima era l'ATM del front (anche 2-9 giorni,
-    # con eventi dentro) contro la RV 22 sedute.
-    if ivrv is not None and rv30 is not None and iv30 is not None:
-        sp = ivrv * 100
+    # con eventi dentro) contro la RV 22 sedute. 10/10 (Opus 5.5): RAPPORTO IV/RV con le
+    # soglie dello score (core/soglie_score.VRP_*), non piu' +-3 punti di differenza.
+    if ivrv_ratio is not None and rv30 is not None and iv30 is not None:
+        sp = (iv30 - rv30) * 100
         iv_pt = iv30 * 100
-        if sp > 3:
-            parts.append(_surface_text(f"IV 30g {iv_pt:.1f}% contro realizzata 21 sedute {rv30 * 100:.1f}%: premio di {sp:.1f}pt — le opzioni sono CARE rispetto al movimento effettivo. Contesto favorevole a strategie di vendita di premio coperta (covered call), sfavorevole all'acquisto di protezione.", f'30-day IV {iv_pt:.1f}% versus 21-session realized volatility of {rv30 * 100:.1f}%: premium of {sp:.1f}pt — options are EXPENSIVE relative to observed movement. This favors covered premium selling (covered calls) and disfavors buying protection.'))
-        elif sp < -3:
-            parts.append(_surface_text(f"IV 30g {iv_pt:.1f}% SOTTO la realizzata 21 sedute ({rv30 * 100:.1f}%): opzioni a sconto rispetto al movimento reale — l'hedge in put costa poco, vendere premio qui è mal pagato.", f'30-day IV {iv_pt:.1f}% BELOW 21-session realized volatility ({rv30 * 100:.1f}%): options are discounted relative to observed movement — put hedging is inexpensive and premium selling is poorly compensated.'))
+        if ivrv_ratio >= _soglie.VRP_CARA:
+            parts.append(_surface_text(f"IV 30g {iv_pt:.1f}% contro realizzata 21 sedute {rv30 * 100:.1f}%: rapporto {ivrv_ratio:.2f}x (premio {sp:+.1f}pt), da {_soglie.VRP_CARA:.2f}x in su — le opzioni sono CARE rispetto al movimento effettivo. Contesto favorevole a strategie di vendita di premio coperta (covered call), sfavorevole all'acquisto di protezione.", f'30-day IV {iv_pt:.1f}% versus 21-session realized volatility of {rv30 * 100:.1f}%: ratio {ivrv_ratio:.2f}x (premium {sp:+.1f}pt), at or above {_soglie.VRP_CARA:.2f}x — options are EXPENSIVE relative to observed movement. This favors covered premium selling (covered calls) and disfavors buying protection.'))
+        elif ivrv_ratio < _soglie.VRP_SCONTO:
+            parts.append(_surface_text(f"IV 30g {iv_pt:.1f}% contro realizzata 21 sedute {rv30 * 100:.1f}%: rapporto {ivrv_ratio:.2f}x, sotto {_soglie.VRP_SCONTO:.2f}x — opzioni a sconto rispetto al movimento reale: l'hedge in put costa poco, vendere premio qui è mal pagato.", f"30-day IV {iv_pt:.1f}% versus 21-session realized volatility of {rv30 * 100:.1f}%: ratio {ivrv_ratio:.2f}x, below {_soglie.VRP_SCONTO:.2f}x — options are discounted relative to observed movement: put hedging is inexpensive and premium selling is poorly compensated."))
         else:
-            parts.append(_surface_text(f'IV 30g {iv_pt:.1f}% allineata alla realizzata 21 sedute ({rv30 * 100:.1f}%): vol risk premium nella norma.', f'30-day IV {iv_pt:.1f}% aligned with 21-session realized volatility ({rv30 * 100:.1f}%): normal volatility risk premium.'))
+            parts.append(_surface_text(f'IV 30g {iv_pt:.1f}% contro realizzata 21 sedute {rv30 * 100:.1f}%: rapporto {ivrv_ratio:.2f}x, fra {_soglie.VRP_SCONTO:.2f}x e {_soglie.VRP_CARA:.2f}x — vol risk premium nella norma.', f'30-day IV {iv_pt:.1f}% versus 21-session realized volatility of {rv30 * 100:.1f}%: ratio {ivrv_ratio:.2f}x, between {_soglie.VRP_SCONTO:.2f}x and {_soglie.VRP_CARA:.2f}x — normal volatility risk premium.'))
 
     # 5. Posizionamento OI
     pc = front.get("pc_oi_ratio")

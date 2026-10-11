@@ -20,7 +20,8 @@ import { usaFocusPannello } from '@/lib/usaFocusPannello';
 export type Diagnosi =
   | { ticker: string; stato: 'attesa' }
   | { ticker: string; stato: 'errore'; motivo: string }
-  | { ticker: string; stato: 'ok'; score: number; verdetto: string; nota: string; nSegnali: number | null; alle: string | null };
+  | { ticker: string; stato: 'ok'; score: number; verdetto: string; nota: string; nSegnali: number | null; alle: string | null;
+      soglie?: { limite: number; piena: number } | null };
 
 export interface RigaSegnale { s: Segnale; k: string }
 
@@ -397,7 +398,11 @@ function BoxDiagnosi({ s, d, a, p }: { s: Segnale; d: DatiRicerca; a: AzioniRice
   // conteggio non dichiarato) il punteggio 0 non distingue «niente da segnalare» da «fonti
   // mute» — il verdetto si mostra com'è, ma senza la scala che lo farebbe sembrare una misura
   const zero = g.nSegnali == null || g.nSegnali === 0;
-  const tono = zero ? 'is-caution' : g.score > 0.6 ? 'is-bullish' : g.score < -0.6 ? 'is-bearish' : 'is-neutral';
+  // soglie dal payload del Doctor (core/soglie_score.DOCTOR_LIMITE): nessuna copia qui
+  const soglie = g.soglie ?? null;
+  const tono = zero ? 'is-caution' : !soglie ? 'is-neutral'
+    : g.score > soglie.piena ? 'is-bullish' : g.score < -soglie.piena ? 'is-bearish' : 'is-neutral';
+  const fmt = (v: number) => v.toLocaleString(localeDi(p.lingua), { minimumFractionDigits: 1, maximumFractionDigits: 2 });
   const { pos, ampiezza } = scalaDiagnosi(g.score);
   const num = (v: number) => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toLocaleString(localeDi(p.lingua), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return (
@@ -413,11 +418,11 @@ function BoxDiagnosi({ s, d, a, p }: { s: Segnale; d: DatiRicerca; a: AzioniRice
             <span>{g.nSegnali === 0 ? p.t('edge.diagZero') : p.t('edge.diagCountNd')}</span></p>
         : <div>
             <div className="ro-gauge" role="img" aria-label={`${p.t('edge.diagScore')} ${num(g.score)}`}>
-              <span className="ro-gz" style={{ left: `${50 - (0.6 / ampiezza) * 50}%`, right: `${50 - (0.6 / ampiezza) * 50}%` }} />
+              {soglie && <span className="ro-gz" data-soglia={soglie.piena} style={{ left: `${50 - (soglie.piena / ampiezza) * 50}%`, right: `${50 - (soglie.piena / ampiezza) * 50}%` }} />}
               <span className="ro-gp" style={{ left: `${pos}%` }} />
               <span className="ro-gl" style={{ left: `${pos}%` }}>{num(g.score)}</span>
             </div>
-            <div className="ro-gauge-l"><span>−{ampiezza}</span><span>{p.t('edge.diagBand')}</span><span>+{ampiezza}</span></div>
+            <div className="ro-gauge-l"><span>−{ampiezza}</span><span>{soglie ? p.t('edge.diagBand', { a: fmt(soglie.limite), b: fmt(soglie.piena) }) : p.t('edge.diagBandNd')}</span><span>+{ampiezza}</span></div>
           </div>}
       {g.nota && <span className="bbn-card-note">{g.nota}</span>}
     </div>

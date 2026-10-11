@@ -348,14 +348,16 @@ COPERTINA_H1_25 = ("1 2 Disclaimer This document contains forward-looking statem
                    "Directors' Report ... Half-year Financial Statements ... 45")
 
 
-def _pdf(nome, pagina=None):
-    return classifica_pdf({"url": BASE + nome, "testo": nome}, prima_pagina=pagina)
+def _pdf(nome, pagina=None, chiusura=None):
+    return classifica_pdf({"url": BASE + nome, "testo": nome}, prima_pagina=pagina, chiusura_esercizio=chiusura)
 
 
 @pytest.mark.parametrize("nome,pagina,periodo", [(H1_26, None, "2026-06-30"), (H1_26, COPERTINA_H1_26, "2026-06-30"),
                                                   (H1_25, None, "2025-06-30"), (H1_25, COPERTINA_H1_25, "2025-06-30")])
 def test_relazione_finanziaria_30_giugno_e_semestrale(nome, pagina, periodo):
-    e = _pdf(nome, pagina)
+    # GENERALITA' UE (Opus 5.5): la data nel nome decide solo con l'esercizio dell'emittente noto (qui al 31/12,
+    # dai depositi ESEF); con l'esercizio ignoto la sola data resta da confermare (test_generalita_esef_ue)
+    e = _pdf(nome, pagina, chiusura="12-31")
     assert e["ammesso"] and e["tipo"] == "semestrale" and e["periodo"] == periodo and e["periodo_stato"] == "certo"
     assert "semestrale" in e["tipo_base"]
 
@@ -363,7 +365,7 @@ def test_relazione_finanziaria_30_giugno_e_semestrale(nome, pagina, periodo):
 @pytest.mark.parametrize("nome", ["ING_Relazione_Finanziaria_31_dicembre_2025.pdf",
                                   "Relazione_finanziaria_annuale_2025.pdf", "Annual_Report_2025.pdf"])
 def test_annuale_resta_annuale(nome):
-    e = _pdf(nome)
+    e = _pdf(nome, chiusura="12-31")
     assert e["ammesso"] and e["tipo"] == "annuale" and e["periodo"] == "2025-12-31"
 
 
@@ -375,14 +377,17 @@ def test_relazione_finanziaria_ambigua_da_confermare_mai_annuale():
     assert not e["ammesso"] and e["tipo"] == "da_confermare"
     e = _pdf("Relazione_Finanziaria_2025.pdf", "ZZ Fonti Annual Report 2025")
     assert e["ammesso"] and e["tipo"] == "annuale"
-    # nome a fine giugno, copertina da annuale: discordi -> da confermare, non annuale
-    e = _pdf(H1_26, "ZZ FONTI ANNUAL REPORT 2025")
-    assert not e["ammesso"] and e["tipo"] == "da_confermare" and not e["serve_prima_pagina"]
+    # nome a fine giugno, copertina da annuale. GENERALITA' UE (Opus 5.5): il titolo esplicito vince sulla data,
+    # ma il periodo resta da confermare con le due date viste (prima: tipo da confermare)
+    for chiusura in (None, "12-31"):
+        e = _pdf(H1_26, "ZZ FONTI ANNUAL REPORT 2025", chiusura=chiusura)
+        assert e["ammesso"] and e["tipo"] == "annuale" and e["periodo_stato"] == "da_confermare"
+        assert e["periodi_visti"] == ["2025-12-31", "2026-06-30"] and "presunta" in e["base_periodo"]
 
 
 def test_scegli_pdf_coppia_semestrale():
     s = scegli_pdf([{"url": BASE + n, "testo": n} for n in (H1_26, H1_25, "ING_Relazione_Finanziaria_31_dicembre_2025.pdf")],
-                   oggi=date(2026, 10, 10))
+                   oggi=date(2026, 10, 10), chiusura_esercizio="12-31")
     assert s["tipo"] == "semestrale"
     assert s["ultimo"]["url"].endswith(H1_26) and s["precedente"]["url"].endswith(H1_25)
 

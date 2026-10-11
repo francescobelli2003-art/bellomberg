@@ -796,6 +796,15 @@ def scopri(ticker, *, lei=None, oggi=None, forza=False, cache_dir=None, sito_fn=
     esito = {"ticker": ticker, "at": datetime.now().isoformat(timespec="seconds"), "giorno": oggi.isoformat(),
              "sito": sito,
              "pagine": [], "pacchetti": [], "pdf": [], "motivi": []}
+    # GENERALITA' UE (Opus 5.5): prima data in cui ogni pacchetto e' stato visto sul sito (dalle esplorazioni
+    # precedenti, anche fallite; voci senza la data: il giorno di quell'esplorazione)
+    gia_visti = {u: g for u, g in ((voce or {}).get("pacchetti_visti") or {}).items() if g}
+    for p in (voce or {}).get("pacchetti") or []:
+        if isinstance(p, dict) and p.get("url"):
+            prima = p.get("visto_il") or (voce.get("giorno") or str(voce.get("at") or "")[:10] or None)
+            if prima:
+                gia_visti[p["url"]] = min(x for x in (gia_visti.get(p["url"]), prima) if x)
+    esito["pacchetti_visti"] = dict(gia_visti)
     if not sito:
         esito["motivi"].append("sito della societa' non noto (yfinance)")
         esito["accesso"] = {"stato": "sito_ignoto", "motivo": "sito della societa' non noto (yfinance)"}
@@ -837,7 +846,9 @@ def scopri(ticker, *, lei=None, oggi=None, forza=False, cache_dir=None, sito_fn=
         leggi_piattaforme(visita.get("piattaforme") or [])
         # sito IR vero (seguito main 06/10): su un altro host o dominio, scoperto e dichiarato
         pdf_home = [v for v in visita["link"] if urlsplit(v["url"]).path.lower().endswith(".pdf")] + da_piattaforme
-        con_documenti = bool(scegli_pdf(pdf_home, oggi=oggi, dominio=dominio))
+        lei_noto = lei or lei_dal_negozio(ticker)
+        chiusura_home = chiusura_esercizio_emittente(lei_noto, pacchetti(visita["link"]))["chiusura"]
+        con_documenti = bool(scegli_pdf(pdf_home, oggi=oggi, dominio=dominio, chiusura_esercizio=chiusura_home))
         try:
             dichiarato = sito_ir_fn(ticker)
         except Exception as exc:
@@ -866,6 +877,18 @@ def scopri(ticker, *, lei=None, oggi=None, forza=False, cache_dir=None, sito_fn=
             riga.pop("_url", None)
         # solo pacchetti dal dominio esplorato (il LEI si riverifica comunque sui fatti)
         esito["pacchetti"] = [p for p in pacchetti(visita["link"]) if stesso_dominio(p["url"], domini)]
+        # GENERALITA' UE (Opus 5.5): giorno in cui il pacchetto e' stato visto sul sito la PRIMA volta (limite
+        # superiore della pubblicazione: serve al cutoff dello storico, niente look-ahead). Voci precedenti senza
+        # la data: il giorno di quell'esplorazione
+        for p in esito["pacchetti"]:
+            p["visto_il"] = min(x for x in (gia_visti.get(p["url"]), oggi.isoformat()) if x)
+            gia_visti[p["url"]] = p["visto_il"]
+        # v2: la prima data resta anche se un'esplorazione successiva fallisce o non rivede il pacchetto
+        esito["pacchetti_visti"] = {u: g for u, g in gia_visti.items() if g}
+        # chiusura dell'esercizio dell'emittente (pacchetti e repository ESEF in cache): decide le relazioni senza
+        # aggettivo con la data nel nome (esercizio non solare), dichiarata nella voce
+        esito["chiusura_esercizio"] = chiusura_esercizio_emittente(lei_noto, esito["pacchetti"])
+        chiusura = esito["chiusura_esercizio"]["chiusura"]
         esito["fallita"] = not esito["pagine"]
         noti_pdf = {v["url"] for v in da_piattaforme}
         esito["pdf"] = (da_piattaforme + [v for v in visita["link"] if urlsplit(v["url"]).scheme == "https"
@@ -888,7 +911,7 @@ def scopri(ticker, *, lei=None, oggi=None, forza=False, cache_dir=None, sito_fn=
                     navi[d] = budget.entro((navigatore_fn or (lambda x: Navigatore(x)))(d))
                 return navi[d].prima_pagina_pdf(url)
             pronto = prima_pagina_fn is not None or hasattr(nav, "prima_pagina_pdf")
-            for url in (da_leggere_prima_pagina(esito["pdf"], domini) if pronto else []):
+            for url in (da_leggere_prima_pagina(esito["pdf"], domini, chiusura_esercizio=chiusura) if pronto else []):
                 fermo = budget.esaurito()
                 if fermo:
                     prime[url] = {"errore": f"{fermo}: prima pagina non letta"}
@@ -906,14 +929,15 @@ def scopri(ticker, *, lei=None, oggi=None, forza=False, cache_dir=None, sito_fn=
         if lei and not any(p["lei"] == str(lei).upper() for p in esito["pacchetti"]):
             esito["motivi"].append(f"nessun pacchetto ESEF col LEI {str(lei).upper()} nelle pagine visitate")
         # PDF delle relazioni (decisione PM 05/10): esito in testa ai motivi, origine dichiarata
-        scelta = scegli_pdf(esito["pdf"], oggi=oggi, prime_pagine=prime, dominio=domini)
+        scelta = scegli_pdf(esito["pdf"], oggi=oggi, prime_pagine=prime, dominio=domini, chiusura_esercizio=chiusura)
         if scelta:
             per_tipo = ", ".join(f"{n} {t}" for t, n in sorted(scelta["ammessi_per_tipo"].items()))
             frase = (f"{nome_documento(scelta['ultimo'])} al {scelta['ultimo']['periodo']} in PDF dal "
                      f"{scelta['etichetta']} (periodo {scelta['periodo_stato'].replace('_', ' ')}; "
                      f"{scelta['candidati']} PDF ammessi: {per_tipo}; {scelta['scartati_totale']} scartati col motivo)")
         elif esito["pdf"]:
-            frase = riepilogo_scarti(esito["pdf"], oggi=oggi, prime_pagine=prime, dominio=domini)
+            frase = riepilogo_scarti(esito["pdf"], oggi=oggi, prime_pagine=prime, dominio=domini,
+                                     chiusura_esercizio=chiusura)
         else:
             frase = None
         if frase:
@@ -938,10 +962,44 @@ def _accesso(visita):
     return {"stato": "ok", "motivo": None}
 
 
-def righe_da_cache(lei, *, cache_dir=None, preferita="en"):
+def entro_il_cutoff(quando, fino_al, oggi=None):
+    """True se un documento noto dal giorno `quando` (ISO) era noto alla run con cutoff `fino_al` (ISO).
+
+    Stessa regola dello storico SEC (sec_xbrl.depositato_entro): con un cutoff storico lo stesso giorno puo'
+    essere successivo all'ora della decisione ed e' escluso; con fino_al = oggi vale <=. Data ignota: no."""
+    if not fino_al:
+        return True
+    if not quando:
+        return False
+    quando, fino_al = str(quando)[:10], str(fino_al)[:10]
+    if len(quando) != 10:  # v2: data troncata o malformata («2025») = ignota, come sec_xbrl.depositato_entro
+        return False
+    oggi = str(oggi or date.today().isoformat())[:10]
+    return quando < fino_al or (quando == fino_al and fino_al >= oggi)
+
+
+def _visto_il(p, voce):
+    """(giorno, base) in cui il pacchetto risulta sul sito: `visto_il` registrato dall'esplorazione (prima volta
+    in cui e' stato visto) o, per le voci di cache precedenti, il giorno dell'esplorazione che lo ha trovato.
+    E' un limite superiore della pubblicazione (il pacchetto era online quel giorno); None se ignoto."""
+    registrata = p.get("visto_il") or (voce.get("pacchetti_visti") or {}).get(p.get("url"))
+    if registrata:
+        return str(registrata)[:10], "prima esplorazione del sito che lo ha trovato"
+    giorno = voce.get("giorno") or str(voce.get("at") or "")[:10] or None
+    if giorno:
+        return str(giorno)[:10], "esplorazione del sito che lo ha trovato (voce di cache senza la prima data)"
+    return None, None
+
+
+def righe_da_cache(lei, *, cache_dir=None, preferita="en", fino_al=None, esclusi=None):
     """Righe di catalogo dai pacchetti trovati sul sito (sola cache, nessuna rete): una per
     esercizio, lingua preferita se c'e', poi la versione piu' alta. Forma delle righe del
-    repository con `origine: "sito"` e `json_url` = URL del pacchetto."""
+    repository con `origine: "sito"` e `json_url` = URL del pacchetto.
+
+    GENERALITA' UE (Opus 5.5), niente look-ahead: con `fino_al` (cutoff ISO della run) restano solo i pacchetti
+    visti sul sito entro il cutoff (la data registrata nella cache e' un limite superiore della pubblicazione);
+    gli altri - data dopo il cutoff o ignota - si aggiungono a `esclusi` (lista) col motivo, mai zitti. Senza
+    `fino_al` il risultato e' quello di sempre."""
     lei = str(lei or "").upper()
     cartella = _cache_dir(cache_dir)
     trovati = []
@@ -953,17 +1011,158 @@ def righe_da_cache(lei, *, cache_dir=None, preferita="en"):
         voce = _leggi_json(path) or {}
         for p in voce.get("pacchetti") or []:
             if isinstance(p, dict) and p.get("lei") == lei and p.get("period_end") and p.get("url"):
-                trovati.append(p)
+                trovati.append((p, voce))
+    if fino_al:
+        visti = {}
+        for p, voce in trovati:  # lo stesso pacchetto in piu' voci: vale la data piu' antica
+            quando, base = _visto_il(p, voce)
+            prima = visti.get(p["url"])
+            if prima is None or (quando and (prima[0] is None or quando < prima[0])):
+                visti[p["url"]] = (quando, base)
+        tenuti = []
+        for p, voce in trovati:
+            quando, base = visti[p["url"]]
+            if entro_il_cutoff(quando, fino_al):
+                tenuti.append((p, voce))
+            elif esclusi is not None and not any(p["url"] in e for e in esclusi):
+                esclusi.append(
+                    f"pacchetto dal sito FY{str(p['period_end'])[:4]} ({p['url']}) escluso dal cutoff {str(fino_al)[:10]}: "
+                    + (f"visto sul sito il {quando} ({base}), pubblicazione entro il cutoff non dimostrata" if quando
+                       else "data di pubblicazione ignota (nessuna data nella cache dell'esplorazione)"))
+        trovati = tenuti
     per_periodo = {}
-    for p in trovati:
+    for p, voce in trovati:
         chiave = (p.get("lingua") == preferita, p.get("lingua") is None, int(p.get("versione") or 0))
         attuale = per_periodo.get(p["period_end"])
         if attuale is None or chiave > attuale[0]:
-            per_periodo[p["period_end"]] = (chiave, p)
-    return [{"id": p["url"], "period_end": p["period_end"], "json_url": p["url"], "report_url": p["url"],
-             "language": None, "date_added": None, "origine": "sito", "lingua_nome": p.get("lingua")}
-            for _, (_, p) in sorted(per_periodo.items(), reverse=True)]
+            per_periodo[p["period_end"]] = (chiave, p, voce)
+    righe = []
+    for _, (_, p, voce) in sorted(per_periodo.items(), reverse=True):
+        riga = {"id": p["url"], "period_end": p["period_end"], "json_url": p["url"], "report_url": p["url"],
+                "language": None, "date_added": None, "origine": "sito", "lingua_nome": p.get("lingua")}
+        if fino_al:
+            riga["visto_il"], riga["visto_base"] = visti[p["url"]]
+        righe.append(riga)
+    return righe
 
+
+def mese_esercizio(giorno):
+    """Mese di chiusura (1-12) di una data ISO; con le chiusure a 52/53 settimane i primi 7 giorni del mese contano
+    per il mese prima («2025-10-03» -> settembre). None se la data non si legge."""
+    try:
+        d = date.fromisoformat(str(giorno or "")[:10])
+    except ValueError:
+        return None
+    return d.month if d.day > 7 else (d.month - 2) % 12 + 1
+
+
+GIORNI_SEMESTRE = (150, 215)  # due depositi a ~6 mesi: uno dei due e' una relazione infrannuale
+
+
+def _a_sei_mesi(a, b):
+    giorni = abs((date.fromisoformat(b) - date.fromisoformat(a)).days)
+    return GIORNI_SEMESTRE[0] <= giorni <= GIORNI_SEMESTRE[1]
+
+
+def chiusura_esercizio_emittente(lei=None, pacchetti=None, *, repository_fn=None):
+    """{"chiusura": "MM-DD" | None, "base", "periodi"}: chiusura dell'esercizio dell'emittente dai depositi ESEF.
+
+    GENERALITA' UE (Opus 5.5, v3 dopo due review):
+    1. depositi ANNUALI verificati in cache (repository filings.xbrl.org = relazioni finanziarie annuali, e
+       pacchetti del sito con la chiusura verificata sui fatti di durata annuale): vale il PIU' RECENTE; un mese
+       diverso nei precedenti e' un cambio d'esercizio, dichiarato. I pacchetti del sito non verificati non
+       decidono e, se cadono in altri mesi, sono dichiarati;
+    2. solo pacchetti del sito NON verificati (possono essere semestrali): decidono solo se nessuno sta a ~6 mesi
+       da un altro e se cadono tutti nello stesso mese; altrimenti chiusura None, col motivo (mai «il piu'
+       recente» per difetto: un semestrale dopo l'annuale invertirebbe annuale e semestrale).
+    Senza LEI dell'emittente nessuna chiusura; pacchetti del sito tutti di un altro LEI: dichiarato. Chiusure a
+    52/53 settimane: mese_esercizio."""
+    lei = str(lei or "").upper() or None
+    pk = [p for p in pacchetti or [] if isinstance(p, dict) and p.get("period_end")]
+    if not lei:
+        return {"chiusura": None, "periodi": [],
+                "base": "LEI dell'emittente non noto: la chiusura dei pacchetti ESEF sul sito non e' attribuibile "
+                        "all'emittente, esercizio ignoto"}
+    avvisi = []
+    altri = sorted({str(p.get("lei") or "").upper() for p in pk} - {lei})
+    propri = [p for p in pk if str(p.get("lei") or "").upper() == lei]
+    if altri and not propri:
+        avvisi.append(f"pacchetti ESEF sul sito di un altro LEI ({', '.join(altri)}) e nessuno del LEI {lei}: "
+                      "LEI dell'emittente da verificare")
+    try:
+        annuali = sorted({str(x)[:10] for x in (repository_fn or _periodi_repository)(lei) if mese_esercizio(x)})
+    except Exception as exc:  # cache illeggibile: si dichiara, i pacchetti del sito restano
+        annuali = []
+        avvisi.append(f"depositi annuali in cache illeggibili ({type(exc).__name__})")
+    sito = sorted({str(p["period_end"])[:10] for p in propri if mese_esercizio(p["period_end"])})
+    tutti = sorted(set(annuali + sito))
+    coda = ("; " + "; ".join(avvisi)) if avvisi else ""
+
+    def chiusura_di(mese):
+        return f"{mese:02d}-{calendar.monthrange(2001, mese)[1]:02d}"
+    if annuali:
+        ultimo = annuali[-1]
+        m = mese_esercizio(ultimo)
+        base = f"chiusura dal deposito annuale ESEF verificato piu' recente ({ultimo})"
+        prima = sorted({mese_esercizio(d) for d in annuali[:-1]} - {m})
+        if prima:
+            base += (f"; cambio d'esercizio: depositi annuali precedenti con chiusura a fine mese "
+                     f"{', '.join(f'{x:02d}' for x in prima)}")
+        non_verificati = [d for d in sito if d not in annuali and mese_esercizio(d) != m]
+        if non_verificati:
+            base += (f"; pacchetti del sito non verificati in altri mesi ({', '.join(non_verificati)}): non "
+                     "considerati, probabili relazioni infrannuali")
+        return {"chiusura": chiusura_di(m), "base": base + coda, "periodi": tutti}
+    if not sito:
+        return {"chiusura": None, "periodi": [],
+                "base": "nessun deposito ESEF con la chiusura dell'esercizio (sito e repository in cache)" + coda}
+    vicini = sorted({d for a in sito for b in sito if a < b and _a_sei_mesi(a, b) for d in (a, b)})
+    if vicini:
+        return {"chiusura": None, "periodi": tutti,
+                "base": ("pacchetti ESEF del sito non verificati a ~6 mesi l'uno dall'altro (" + ", ".join(vicini)
+                         + "): uno e' una relazione infrannuale, esercizio non determinabile senza un deposito "
+                         "annuale verificato") + coda}
+    mesi = {mese_esercizio(d) for d in sito}
+    if len(mesi) > 1:
+        return {"chiusura": None, "periodi": tutti,
+                "base": ("pacchetti ESEF del sito non verificati con chiusure in mesi diversi (" + ", ".join(sito)
+                         + "): esercizio non determinabile, mai il piu' recente per difetto") + coda}
+    return {"chiusura": chiusura_di(mesi.pop()), "periodi": tutti,
+            "base": f"chiusura dai pacchetti ESEF del sito ({', '.join(sito)}), non verificati, tutti nello stesso mese"
+                    + coda}
+
+
+def _periodi_repository(lei):
+    """Chiusure ANNUALI verificate in cache per `lei` (nessuna rete): depositi del repository filings.xbrl.org
+    (relazioni finanziarie annuali) e pacchetti del sito con la chiusura verificata sui fatti di durata annuale."""
+    from bellomberg.market_data import esef
+    cache = esef._load_cache(lei) or {}
+    filings = cache.get("filings") or {}
+    out = [f.get("period_end") for f in filings.values() if isinstance(f, dict) and f.get("period_end")]
+    out += [v.get("chiusura_verificata") for v in (cache.get("sito") or {}).values()
+            if isinstance(v, dict) and v.get("chiusura_verificata")]
+    return out
+
+
+def lei_dal_negozio(ticker):
+    """LEI del titolo dal negozio privato dei LEI (file locale, nessuna rete), None se assente o illeggibile."""
+    try:
+        from bellomberg.storage.negozi_privati import carica_lei
+        return (carica_lei().get("lei") or {}).get(str(ticker or "").upper().strip()) or None
+    except Exception:
+        return None
+
+
+def chiusura_voce(voce):
+    """«MM-DD» della chiusura d'esercizio di una voce di esplorazione (scopri), None se ignota. Le voci scritte
+    prima della registrazione si ricalcolano dai loro pacchetti e dal repository in cache (LEI dal negozio)."""
+    if not isinstance(voce, dict):
+        return None
+    registrata = voce.get("chiusura_esercizio")
+    if isinstance(registrata, dict) and "chiusura" in registrata:
+        return registrata.get("chiusura")
+    lei = voce.get("lei") or lei_dal_negozio(voce.get("ticker"))
+    return chiusura_esercizio_emittente(lei, voce.get("pacchetti"))["chiusura"]
 
 INDICE_SITO = "esef_sito_indice.json"
 # Revisione 04/10 (R8): pacchetti invalidi (zip/XHTML rotti) ricordati per URL, sha256 e data:
@@ -1329,16 +1528,24 @@ _ANNUALE_ESPLICITO = re.compile(
     r"|registration[\s_-]*document|document[\s_-]*d.enregistrement|integrated[\s_-]*report"
     r"|informe[\s_-]*anual|cuentas[\s_-]*anuales|jaarverslag"
     r"|konzernabschluss|[aå]rsredovisning|vuosikertomus", re.I)
+# GENERALITA' UE (Opus 5.5): titoli delle relazioni anche in tedesco, francese, spagnolo e olandese (prima solo
+# EN/IT: «Geschäftsbericht 2025 … Vergütungsbericht 120» finiva da confermare perche' il titolo finanziario non
+# veniva riconosciuto). Titoli di DOCUMENTO, non parole sciolte: «Annual Remuneration Report» non e' annuale.
 _TITOLO_TIPO = (
     ("semestrale", re.compile(r"half[\s_-]*year(?:ly)?[\s_-]+(?:condensed[\s_-]+)?(?:consolidated[\s_-]+)?"
                               r"(?:financial[\s_-]+)?(?:report|statements)|relazione[\s_-]+finanziaria[\s_-]+semestrale"
-                              r"|semi[\s_-]*annual[\s_-]+(?:financial[\s_-]+)?report|bilancio[\s_-]+semestrale", re.I)),
+                              r"|semi[\s_-]*annual[\s_-]+(?:financial[\s_-]+)?report|bilancio[\s_-]+semestrale"
+                              r"|halbjahres(?:finanz)?bericht|rapport[\s_-]+financier[\s_-]+semestriel"
+                              r"|informe[\s_-]+financiero[\s_-]+semestral|halfjaar(?:bericht|verslag)", re.I)),
     ("annuale", re.compile(r"annual[\s_-]+(?:financial[\s_-]+)?report|relazione[\s_-]+finanziaria[\s_-]+annuale"
-                           r"|bilancio[\s_-]+(?:consolidato[\s_-]+)?(?:d['’]esercizio|annuale)", re.I)),
+                           r"|bilancio[\s_-]+(?:consolidato[\s_-]+)?(?:d['’]esercizio|annuale)"
+                           r"|gesch(?:ä|ae|a)ftsbericht|jahresfinanzbericht|konzernabschluss"
+                           r"|document[\s_-]+d['’]enregistrement[\s_-]+universel|rapport[\s_-]+financier[\s_-]+annuel"
+                           r"|informe[\s_-]+anual(?![\s_-]+(?:sobre|de[\s_-]+gobierno|de[\s_-]+remuneraciones))"
+                           r"|cuentas[\s_-]+anuales|jaarverslag", re.I)),
     ("trimestrale", re.compile(r"quarterly[\s_-]+(?:financial[\s_-]+)?report|resoconto[\s_-]+intermedio"
                                r"|relazione[\s_-]+finanziaria[\s_-]+trimestrale", re.I)),
 )
-_TIPO_DA_CHIUSURA = {"06-30": "semestrale", "12-31": "annuale"}
 # BASSI v2: un nome da annuale («Annual_Report_2025.pdf») con la prima pagina di un'altra relazione (remunerazione,
 # governo societario, sostenibilita') non e' la relazione finanziaria: tipo da confermare, non ammesso. Conta solo
 # se il titolo NON finanziario viene prima di qualunque titolo da relazione finanziaria nella prima pagina.
@@ -1348,15 +1555,109 @@ _TITOLO_NON_FINANZIARIO = re.compile(
     r"|relazione[\s_-]+sul(?:la)?[\s_-]+(?:governo[\s_-]+societario|politica[\s_-]+(?:in[\s_-]+materia[\s_-]+)?di"
     r"[\s_-]+remunerazione)|corporate[\s_-]+governance[\s_-]+report|sustainability[\s_-]+report"
     r"|verg(?:ü|ue)tungsbericht|rapport[\s_-]+sur[\s_-]+la[\s_-]+r(?:é|e)mun(?:é|e)ration"
-    r"|informe[\s_-]+(?:anual[\s_-]+)?(?:sobre[\s_-]+)?(?:las[\s_-]+)?remuneraciones", re.I)
+    r"|informe[\s_-]+(?:anual[\s_-]+)?(?:sobre[\s_-]+)?(?:las[\s_-]+)?remuneraciones"
+    r"|informe[\s_-]+anual[\s_-]+de[\s_-]+gobierno[\s_-]+corporativo|nachhaltigkeitsbericht"
+    r"|rapport[\s_-]+sur[\s_-]+le[\s_-]+gouvernement[\s_-]+d['’]entreprise|remuneratie[\s_-]*(?:rapport|verslag)"
+    r"|duurzaamheidsverslag", re.I)
+# GENERALITA' UE v3 (Opus 5.5): un titolo da relazione seguito da un tema non finanziario e' non finanziario solo se
+# il tema e' il SOGGETTO del titolo («Rapport financier annuel – rémunération des dirigeants», «Geschäftsbericht
+# Nachhaltigkeit 2025»), non un sottotitolo («Geschäftsbericht – Nachhaltigkeit als Strategie», «Relazione
+# finanziaria annuale – sostenibilità integrata») ne' un titolo che nomina anche i conti («… and Financial
+# Statements», «… et états financiers»)
+_TEMA_NON_FINANZIARIO = re.compile(
+    r"(?:annual[\s_-]+report|rapport[\s_-]+financier[\s_-]+annuel|gesch(?:ä|ae|a)ftsbericht|jahresfinanzbericht"
+    r"|relazione[\s_-]+finanziaria[\s_-]+annuale|informe[\s_-]+anual|jaarverslag)[\s_:–—-]+"
+    r"(?:r(?:é|e)mun(?:é|e)ration|verg(?:ü|ue)tung|nachhaltigkeit|sustainability|gouvernance|governance"
+    r"|remuneraciones|remunerazione|sostenibilit|duurzaamheid|bezoldiging)\w*", re.I)
+_TEMA_SOGGETTO = re.compile(r"\s*(?:$|[,;:|(]|(?:19|20)\d\d|(?:des|de|du|der|of|del|della|dei|degli|van|von)\b)", re.I)
+_CONTI_NEL_TITOLO = re.compile(r"financial[\s_-]+statements|(?:é|e)tats[\s_-]+financiers|konzernabschluss"
+                               r"|jahresabschluss|bilancio|cuentas|jaarrekening|accounts|comptes", re.I)
+# ...e la prima pagina di un comunicato che CITA la relazione («Pressemitteilung: … veröffentlicht
+# Jahresfinanzbericht 2025») non e' la relazione: conta solo per i PDF col nome da relazione (i comunicati dei
+# risultati col nome da comunicato restano ammessi come tali)
+_COMUNICATO_PAGINA = re.compile(
+    r"press[\s_-]+release(?!s)|pressemitteilung|presseinformation(?!en)|ad[\s_-]*hoc[\s_-]*mitteilung"
+    r"|communiqu[ée][\s_-]+de[\s_-]+presse|comunicato[\s_-]+stampa|nota[\s_-]+de[\s_-]+prensa|persbericht", re.I)
+# Riga d'indice (v2 dopo la review): il titolo seguito, entro poche parole (o un anno) o dopo puntini di guida, da un
+# numero di pagina di 1-3 cifre. Non lo e' un giorno seguito dal nome di un mese («31 December 2025», «31.
+# Dezember», «31 décembre») ne' un rimando normativo («art. 123-ter», «§ 162», «Article 89»). Senza puntini di
+# guida serve una prova d'indice: un'intestazione («Contents», «Inhalt», «Sommaire»…) prima del titolo oppure almeno
+# due coppie titolo-numero nella pagina. Nessuna soglia di posizione: un titolo non finanziario conta ovunque.
+_NUMERO_PAGINA = r"(?P<num>\d{1,3})(?![\w]|\s*[-–/%°]|[.,]\d)"
+_RIGA_INDICE = re.compile(r"(?P<tra>(?:\s+(?:[^\W\d_]+(?:['’][^\W\d_]+)?|(?:19|20)\d\d)){0,6}?)(?P<guida>(?:\s*[.·…]){2,}\s*|\s+)"
+                          + _NUMERO_PAGINA)
+_COPPIA_INDICE = re.compile(r"[^\W\d_]{3,}(?:(?:\s*[.·…]){2,}\s*|\s+)" + _NUMERO_PAGINA)
+_INTESTAZIONE_INDICE = re.compile(r"\b(?:contents|inhalt(?:sverzeichnis)?|sommaire|sommario|indice|índice|inhoud"
+                                  r"|inhoudsopgave)\b", re.I)
+_RIMANDO_NORMATIVO = re.compile(r"(?:\b(?:art|artt|n|nr|no|comma|section|par|article|articles|artikel|art[ií]culo"
+                                r"|articolo|articoli)\.?|§)\s*$", re.I)
+_CONGIUNZIONE = re.compile(r"\s*(?:and|und|et|e|y|en|&|\+)\s+", re.I)
 
 
-def _prima_pagina_non_finanziaria(testa):
-    """Il titolo non finanziario della prima pagina se viene PRIMA di ogni titolo da relazione, altrimenti None."""
-    m = _TITOLO_NON_FINANZIARIO.search(testa or "")
-    if not m:
+def _numero_di_pagina(testa, prima, numero):
+    """Il numero (gruppo «num» del match) e' un numero di pagina: non un giorno seguito dal mese, non un rimando."""
+    dopo = _senza_accenti(testa[numero.end("num"):numero.end("num") + 16])
+    if re.match(r"\s*\.?\s*(?:" + _ALTERNATIVA_MESI + r")\b", dopo):
+        return False
+    return not _RIMANDO_NORMATIVO.search(testa[prima:numero.start("num")])
+
+
+def _riga_indice(testa, inizio, fine):
+    """True se il titolo [inizio, fine) e' una riga d'indice (vedi _RIGA_INDICE).
+
+    v3: salvo i puntini di guida, un titolo a inizio pagina o prima dell'intestazione d'indice e' il titolo del
+    documento, mai una riga d'indice («Remuneration Report 2025 Contents Introduction 2 …»); un anno fra titolo e numero vale solo coi
+    puntini di guida («Inhalt Vergütungsbericht 2025 1 Einleitung 3» non e' un indice)."""
+    m = _RIGA_INDICE.match(testa, fine)
+    if not m or not _numero_di_pagina(testa, fine, m):
+        return False
+    if "." in m.group("guida") or "·" in m.group("guida") or "…" in m.group("guida"):
+        return True  # puntini di guida: indice in ogni posizione
+    if not testa[:inizio].strip():
+        return False
+    intestazione_prima = _INTESTAZIONE_INDICE.search(testa[:inizio])
+    if not intestazione_prima and _INTESTAZIONE_INDICE.search(testa, fine):
+        return False
+    if re.search(r"\d", m.group("tra")):
+        return False
+    if intestazione_prima:
+        return True
+    coppie = sum(1 for c in _COPPIA_INDICE.finditer(testa) if _numero_di_pagina(testa, c.start(), c))
+    return coppie >= 2
+
+
+def _prima_pagina_non_finanziaria(testa, comunicato=False):
+    """Il titolo non finanziario della prima pagina se viene PRIMA di ogni titolo da relazione, altrimenti None.
+
+    Non contano i titoli non finanziari su una riga d'indice ne' quelli congiunti a un titolo da relazione
+    («Sustainability Report and Annual Report»); un titolo da relazione dentro un titolo non finanziario
+    («Rapport financier annuel – rémunération») non conta. `comunicato`: anche l'intestazione di un comunicato
+    stampa vale come titolo non finanziario (PDF col nome da relazione)."""
+    testa = testa or ""
+    non_fin = list(_TITOLO_NON_FINANZIARIO.finditer(testa)) + [
+        t for t in _TEMA_NON_FINANZIARIO.finditer(testa)
+        if _TEMA_SOGGETTO.match(testa, t.end()) and not _CONTI_NEL_TITOLO.search(testa, t.end(), t.end() + 120)]
+
+    def dentro(x):
+        return any(n.start() <= x.start() < n.end() for n in non_fin)
+    finanziari = sorted((x.start(), x) for _, rx in _TITOLO_TIPO for x in rx.finditer(testa) if not dentro(x))
+
+    def congiunto(m):
+        c = _CONGIUNZIONE.match(testa, m.end())
+        return bool(c) and any(x.start() == c.end() for _, x in finanziari)
+    validi = [m for m in non_fin if not _riga_indice(testa, m.start(), m.end()) and not congiunto(m)]
+    if comunicato:
+        # v3: solo come PRIMA intestazione della pagina (nelle prime battute, non una voce di menu «… | Press
+        # releases | …») e se il titolo da relazione non apre una frase a se' dopo il comunicato
+        c = _COMUNICATO_PAGINA.search(testa, 0, 30)
+        primo_fin = finanziari[0][0] if finanziari else len(testa)
+        if (c and "|" not in testa[max(0, c.start() - 3):c.end() + 3]
+                and not re.search(r"[^\W\d]\.\s+[A-ZÀ-Ý]", testa[c.end():primo_fin + 1])):
+            validi.append(c)
+    if not validi:
         return None
-    primo = min((x.start() for _, rx in _TITOLO_TIPO for x in [rx.search(testa)] if x), default=None)
+    m = min(validi, key=lambda x: x.start())
+    primo = finanziari[0][0] if finanziari else None
     return m.group(0) if primo is None or m.start() < primo else None
 
 
@@ -1366,25 +1667,58 @@ def _tipo_dal_titolo(testa):
     return min(trovati)[1] if trovati else None
 
 
-def _tipo_relazione_generica(periodo, base, testa):
+def mese_chiusura(chiusura):
+    """Mese (1-12) della chiusura d'esercizio «MM-DD» o «AAAA-MM-GG»; None se assente o illeggibile."""
+    try:
+        mese = int(str(chiusura or "")[-5:-3])
+    except ValueError:
+        return None
+    return mese if 1 <= mese <= 12 else None
+
+
+def _tipo_dalla_chiusura(periodo, chiusura):
+    """(tipo, frase) di una data di chiusura nel nome rispetto all'esercizio dell'emittente: annuale se cade nel mese
+    di chiusura, semestrale se sei mesi prima/dopo, (None, motivo) se incoerente o con l'esercizio ignoto."""
+    gg_mm = f"{periodo[8:10]}/{periodo[5:7]}"
+    fy = mese_chiusura(chiusura)
+    if fy is None:
+        return None, (f"chiusura {gg_mm} nel nome ma esercizio dell'emittente ignoto (nessun deposito ESEF con la "
+                      "chiusura): la sola data non decide fra annuale e semestrale")
+    mese = mese_esercizio(periodo)  # 52/53 settimane: «2025-10-03» cade a settembre
+    if mese == fy:
+        return "annuale", f"chiusura {gg_mm} nel nome = chiusura dell'esercizio dell'emittente ({chiusura})"
+    if mese == (fy + 5) % 12 + 1:
+        return "semestrale", (f"chiusura {gg_mm} nel nome = fine del primo semestre dell'esercizio dell'emittente "
+                              f"(chiusura {chiusura})")
+    return None, (f"chiusura {gg_mm} nel nome incoerente con l'esercizio dell'emittente (chiusura {chiusura}): ne' "
+                  "fine esercizio ne' fine semestre")
+
+
+def _tipo_relazione_generica(periodo, base, testa, chiusura=None):
     """(tipo, base) di una «relazione finanziaria» senza aggettivo, (None, motivo) se resta da confermare.
 
-    Decidono il titolo della prima pagina (se letta) e la chiusura scritta nel nome del file (30/06 ->
-    semestrale, 31/12 -> annuale); discordi o entrambi assenti: da confermare."""
-    da_data = (_TIPO_DA_CHIUSURA.get(str(periodo)[5:]) if periodo and base == "data di chiusura nel nome del file"
-               else None)
+    GENERALITA' UE (Opus 5.5): prima la data nel nome decideva da sola (30/06 -> semestrale, 31/12 -> annuale) e
+    un emittente con l'esercizio al 30/06 vedeva l'annuale come semestrale. Ora: il titolo esplicito della prima
+    pagina vince; la data nel nome decide solo se coerente con la chiusura dell'esercizio dell'emittente
+    (`chiusura`, «MM-DD» dai depositi ESEF); con l'esercizio ignoto la sola data lascia il tipo da confermare."""
+    da_data, perche_data = (None, None)
+    if periodo and base == "data di chiusura nel nome del file":
+        da_data, perche_data = _tipo_dalla_chiusura(str(periodo), chiusura)
     da_titolo = _tipo_dal_titolo(testa) if testa else None
-    if da_data and da_titolo and da_data != da_titolo:
-        return None, (f"tipo da confermare: «relazione finanziaria» con chiusura {periodo} nel nome ({da_data}) "
-                      f"e titolo della prima pagina da relazione {da_titolo}")
     if da_titolo:
-        return da_titolo, (f"tipo {da_titolo} dal titolo della prima pagina"
-                           + (" e dalla chiusura nel nome del file" if da_data else ""))
+        nota = ""
+        if da_data and da_data != da_titolo:
+            nota = f" (prevale sulla data nel nome: {perche_data}, da relazione {da_data})"
+        elif da_data:
+            nota = " e dalla chiusura nel nome del file"
+        return da_titolo, f"tipo {da_titolo} dal titolo della prima pagina{nota}"
     if da_data:
-        return da_data, (f"tipo {da_data} dalla chiusura {periodo[8:10]}/{periodo[5:7]} nel nome di una "
-                         "«relazione finanziaria» senza aggettivo")
-    return None, ("tipo da confermare: «relazione finanziaria» senza aggettivo, senza chiusura al 30/06 o al "
-                  "31/12 nel nome" + (" e senza titolo da relazione nella prima pagina" if testa is not None else ""))
+        return da_data, f"tipo {da_data} da una «relazione finanziaria» senza aggettivo: {perche_data}"
+    if perche_data:
+        return None, (f"tipo da confermare: «relazione finanziaria» senza aggettivo, {perche_data}"
+                      + ("; prima pagina senza titolo da relazione" if testa is not None else ""))
+    return None, ("tipo da confermare: «relazione finanziaria» senza aggettivo, senza data di chiusura nel nome"
+                  + (" e senza titolo da relazione nella prima pagina" if testa is not None else ""))
 
 
 # Parola da documento: senza, il nome e' generico («First Half 2026 results») e serve la prima pagina
@@ -1454,8 +1788,9 @@ def _date_nel_testo(testo):
     return out
 
 
-def _periodo_dal_nome(nome, testo, tipo):
+def _periodo_dal_nome(nome, testo, tipo, chiusura_esercizio=None):
     """(periodo, base, tipo) dal nome del file e dal testo del link; periodo None se non si capisce.
+    `chiusura_esercizio` («MM-DD», None = ignota): chiusura presunta dell'annuale col solo anno nel nome.
 
     Una data a fine TRIMESTRE e' la chiusura del periodo, purche' il suo anno non superi gli altri anni
     del nome; ogni altra data e' la pubblicazione (prova reale: «2026-07-02-…-Q2-…», «…_23.05.2025.pdf»
@@ -1497,6 +1832,16 @@ def _periodo_dal_nome(nome, testo, tipo):
                 "trimestre e anno nel nome o nel titolo (trimestre solare presunto: esercizio non noto)", tipo)
     if tipo == "trimestrale":
         return None, None, tipo  # trimestre ignoto: l'anno da solo non basta
+    fy = mese_chiusura(chiusura_esercizio)
+    if fy not in (None, 12):
+        # GENERALITA' UE (Opus 5.5): esercizio non solare noto. L'annuale chiude nel mese dell'esercizio
+        # (presunta, dichiarata); la semestrale col solo anno resta senza periodo (l'anno del semestre e'
+        # ambiguo), lo decide la prima pagina
+        if tipo == "semestrale":
+            return None, None, tipo
+        fine = f"{fy:02d}-{calendar.monthrange(anno, fy)[1]:02d}"
+        return (f"{anno}-{fine}", f"anno nel nome o nel titolo (chiusura dell'esercizio dell'emittente al "
+                f"{fine[3:]}/{fine[:2]} presunta)" + nota, tipo)
     if tipo == "semestrale":
         return f"{anno}-06-30", "anno nel nome o nel titolo (chiusura del semestre al 30/06 presunta)" + nota, tipo
     return f"{anno}-12-31", "anno nel nome o nel titolo (chiusura dell'esercizio al 31/12 presunta)" + nota, tipo
@@ -1547,10 +1892,13 @@ def _pagina_vietata(prima_pagina):
     return None
 
 
-def classifica_pdf(voce, *, prima_pagina=None, dominio=None):
+def classifica_pdf(voce, *, prima_pagina=None, dominio=None, chiusura_esercizio=None):
     """Esito DICHIARATO di un link a PDF del sito: {"url", "testo", "ammesso", "tipo", "periodo",
     "base_periodo", "motivo", "nota", "serve_prima_pagina", "origine", "etichetta", "etichetta_en",
     "via_host", "tipo_documento", "periodo_stato", "periodi_visti"}.
+
+    `chiusura_esercizio`: «MM-DD» della chiusura d'esercizio dell'emittente (chiusura_esercizio_emittente), None
+    se ignota: decide se una data di chiusura nel nome di una relazione senza aggettivo e' annuale o semestrale.
 
     Riconoscimento su nome del file, testo del link e (se letta) prima pagina: `prima_pagina` =
     testo, oppure la voce di cache {"testo"} / {"errore", "vietato"}. Decisione PM 06/10 sera: si
@@ -1633,6 +1981,7 @@ def classifica_pdf(voce, *, prima_pagina=None, dominio=None):
     errore = prima_pagina.get("errore") if isinstance(prima_pagina, dict) else None
     testa = " ".join(str(pagina).split())[:2000] if pagina is not None else None
     note = []
+    visti_titolo = None
     if tipo is None:
         # «Consolidated Financial Report 2026» (prova reale): documento, ma di che periodo? lo dice la copertina
         perche = "nome da documento ma senza il tipo di relazione"
@@ -1650,7 +1999,7 @@ def classifica_pdf(voce, *, prima_pagina=None, dominio=None):
             note.append("periodo di riferimento non dichiarato nel nome, nel titolo ne' nella prima pagina")
         generico = False  # tipo (e periodo) dalla copertina
     else:
-        periodo, base, tipo = _periodo_dal_nome(nome, testo, tipo)
+        periodo, base, tipo = _periodo_dal_nome(nome, testo, tipo, chiusura_esercizio)
         fiscale = _FISCALE.search(testo)
         if fiscale and tipo == "trimestrale":
             q, anno = fiscale.group(1) or fiscale.group(4), fiscale.group(2) or fiscale.group(3)
@@ -1658,11 +2007,14 @@ def classifica_pdf(voce, *, prima_pagina=None, dominio=None):
             periodo, base = None, None
             note.append(f"trimestre fiscale {out['periodo_fiscale']}: chiusura non deducibile dal nome "
                         "(esercizio non solare)")
+        fy = mese_chiusura(chiusura_esercizio)
+        fuori_esercizio = base == "data di chiusura nel nome del file" and (
+            str(periodo or "")[5:] == "06-30" if fy is None else mese_esercizio(periodo) != fy)
         if tipo == "annuale" and not _ANNUALE_ESPLICITO.search(testo) and (
-                _RELAZIONE_GENERICA.search(testo) or (str(periodo or "")[5:] == "06-30"
-                                                      and base == "data di chiusura nel nome del file")):
-            # BASSI v2: mai annuale con chiusura al 30/06 nel nome se nessuna parola dice «annuale»
-            deciso, perche = _tipo_relazione_generica(periodo, base, testa)
+                _RELAZIONE_GENERICA.search(testo) or fuori_esercizio):
+            # BASSI v2: mai annuale con chiusura al 30/06 nel nome se nessuna parola dice «annuale»; GENERALITA' UE
+            # (Opus 5.5): con l'esercizio noto, mai annuale con una chiusura nel nome fuori dal mese dell'esercizio
+            deciso, perche = _tipo_relazione_generica(periodo, base, testa, chiusura_esercizio)
             if deciso is None:
                 da_leggere = testa is None and not errore
                 return scarto(perche + ("; prima pagina non letta" + (f" ({errore})" if errore else "")
@@ -1671,15 +2023,28 @@ def classifica_pdf(voce, *, prima_pagina=None, dominio=None):
             out["tipo_base"] = perche
             note.append(perche)
             if deciso != tipo and "presunt" in str(base):  # chiusura presunta dal solo anno: quella del tipo deciso
-                periodo, base, deciso = _periodo_dal_nome(nome, testo, deciso)
+                periodo, base, deciso = _periodo_dal_nome(nome, testo, deciso, chiusura_esercizio)
+            if (base == "data di chiusura nel nome del file" and testa
+                    and _tipo_dalla_chiusura(str(periodo), chiusura_esercizio)[0] != deciso):
+                # GENERALITA' UE (Opus 5.5): il tipo l'ha deciso il titolo, ma la data nel nome non e' verificata
+                # sull'esercizio (ignoto o discorde): il periodo e' certo solo se la prima pagina porta la stessa
+                # data di chiusura, altrimenti presunto e con le date viste (da confermare)
+                sulla_pagina, base_pagina = _periodo_dalla_pagina(testa, deciso)
+                if sulla_pagina == periodo and "presunt" not in str(base_pagina):
+                    base += "; data di chiusura confermata dalla prima pagina"
+                else:
+                    base += "; chiusura nel nome non verificata sull'esercizio dell'emittente: presunta"
+                    if sulla_pagina:
+                        visti_titolo = sulla_pagina
             tipo = deciso
     out["tipo"] = tipo
     if testa is not None and tipo in ("annuale", "semestrale"):
-        altra = _prima_pagina_non_finanziaria(testa)
+        # v2: la copertina di un comunicato conta solo per i PDF col nome da relazione (non da comunicato)
+        altra = _prima_pagina_non_finanziaria(testa, comunicato=not doc_tipo and not generico)
         if altra:
             return scarto(f"tipo da confermare: nome da relazione {tipo} ma la prima pagina e' «{altra}» (non la "
                           "relazione finanziaria)", tipo="da_confermare")
-    visti = set()
+    visti = {visti_titolo} if visti_titolo else set()
     if generico or periodo is None:
         perche = ("nome generico, senza una parola da relazione" if generico
                   else "periodo di riferimento non dichiarato nel nome ne' nel titolo")
@@ -1721,8 +2086,12 @@ def classifica_pdf(voce, *, prima_pagina=None, dominio=None):
         except ValueError:
             note.append(f"periodo di riferimento non valido ({periodo})")
             periodo, base = None, None
+    fy_doc = mese_chiusura(chiusura_esercizio)
     if (periodo and tipo == "semestrale" and periodo[5:7] in ("03", "09")
-            and not re.search(r"half|semestr|halbjahr|\bh1\b|\b1h\b", testo, re.I)):
+            and not re.search(r"half|semestr|halbjahr|\bh1\b|\b1h\b", testo, re.I)
+            # v2: con l'esercizio noto vale la regola dei sei mesi (esercizi al 31/03 e al 30/09: il semestre chiude
+            # a settembre o a marzo); il trimestre si presume solo fuori da fine esercizio e fine semestre
+            and (fy_doc is None or mese_esercizio(periodo) not in (fy_doc, (fy_doc + 5) % 12 + 1))):
         tipo = "trimestrale"  # «interim report at 31 March»: un trimestre (prova reale)
     if periodo:
         visti.add(periodo)
@@ -1751,17 +2120,19 @@ def _in_inglese(url):
     return bool(_INGLESE.search(nome) or _TITOLO_INGLESE.search(nome.replace("_", " ")))
 
 
-def scegli_pdf(pdf, *, oggi=None, prime_pagine=None, dominio=None, dopo=None):
+def scegli_pdf(pdf, *, oggi=None, prime_pagine=None, dominio=None, dopo=None, chiusura_esercizio=None):
     """Dai link a PDF trovati: il documento periodico piu' recente e l'omologo dell'anno prima
     (stesso tipo, periodo un anno prima ±20 giorni). None se nessuno e' una relazione ammessa.
     `dominio`: solo PDF del sito dell'emittente (gli altri scartati col motivo); `dopo`: solo
     relazioni con periodo successivo a quella data come «ultimo» (None se non ce ne sono).
 
     Ogni documento e la scelta portano l'origine dichiarata (ETICHETTA_SITO); `scartati` dice
-    perche' gli altri PDF non sono stati ammessi (presentazioni, periodo ignoto, ...)."""
+    perche' gli altri PDF non sono stati ammessi (presentazioni, periodo ignoto, ...).
+    `chiusura_esercizio`: «MM-DD» dell'esercizio dell'emittente (chiusura_voce), None se ignota."""
     oggi = oggi or date.today()
     prime_pagine = prime_pagine if isinstance(prime_pagine, dict) else {}
-    esiti = [classifica_pdf(v, prima_pagina=prime_pagine.get(v["url"]), dominio=dominio)
+    esiti = [classifica_pdf(v, prima_pagina=prime_pagine.get(v["url"]), dominio=dominio,
+                            chiusura_esercizio=chiusura_esercizio)
              for v in pdf or [] if isinstance(v, dict) and v.get("url")]
     docs, scartati = [], []
     for e in esiti:
@@ -1828,11 +2199,12 @@ def _compatto(d):
                                   "etichetta", "nota")}
 
 
-def riepilogo_scarti(pdf, *, oggi=None, prime_pagine=None, dominio=None):
+def riepilogo_scarti(pdf, *, oggi=None, prime_pagine=None, dominio=None, chiusura_esercizio=None):
     """Frase dichiarata sui PDF del sito quando nessun documento si colloca: quanti e perche' (motivi
     raggruppati); i documenti ammessi senza un periodo collocabile sono contati a parte."""
     prime_pagine = prime_pagine if isinstance(prime_pagine, dict) else {}
-    esiti = [classifica_pdf(v, prima_pagina=prime_pagine.get(v["url"]), dominio=dominio)
+    esiti = [classifica_pdf(v, prima_pagina=prime_pagine.get(v["url"]), dominio=dominio,
+                            chiusura_esercizio=chiusura_esercizio)
              for v in pdf or [] if isinstance(v, dict) and v.get("url")]
     conta = {}
     for e in esiti:
@@ -1867,7 +2239,7 @@ def piattaforma_documenti(host):
     return d.split(".")[0] in PIATTAFORME_DOCUMENTI
 
 
-def da_leggere_prima_pagina(pdf, dominio, *, limite=MAX_PRIME_PAGINE):
+def da_leggere_prima_pagina(pdf, dominio, *, limite=MAX_PRIME_PAGINE, chiusura_esercizio=None):
     """URL dei PDF (del dominio o linkati da una sua pagina IR) a cui manca la prima pagina per
     decidere tipo o periodo: i piu' recenti per anno nel nome, al massimo `limite` (gli altri restano
     col periodo da confermare o scartati col motivo)."""
@@ -1875,7 +2247,7 @@ def da_leggere_prima_pagina(pdf, dominio, *, limite=MAX_PRIME_PAGINE):
     for v in pdf or []:
         if not isinstance(v, dict) or not v.get("url") or not _linkato_dal_sito(v, dominio):
             continue
-        if classifica_pdf(v, dominio=dominio)["serve_prima_pagina"]:
+        if classifica_pdf(v, dominio=dominio, chiusura_esercizio=chiusura_esercizio)["serve_prima_pagina"]:
             anni = [int(a) for a in _ANNO.findall(unquote(v["url"]) + " " + str(v.get("testo") or ""))]
             candidati.append((max(anni, default=0), v["url"]))
     candidati.sort(key=lambda x: -x[0])
@@ -1894,7 +2266,7 @@ def pdf_trovati(ticker, *, cache_dir=None, oggi=None):
     if not voce:
         return None
     scelta = scegli_pdf(voce.get("pdf"), oggi=oggi, prime_pagine=voce.get("prime_pagine"),
-                        dominio=domini_voce(voce))
+                        dominio=domini_voce(voce), chiusura_esercizio=chiusura_voce(voce))
     return ({**scelta, "at": voce.get("at"), "sito": voce.get("sito"), "accesso": voce.get("accesso"),
              "sito_ir": voce.get("sito_ir"), "sito_ir_origine": voce.get("sito_ir_origine")}
             if scelta else None)
@@ -1967,7 +2339,7 @@ def scopri_senza_fonte(tickers, *, oggi=None, consigliere_fn=None, scopri_fn=Non
         try:
             trovato = (scopri_fn or scopri)(t, oggi=oggi)
             scelta = scegli_pdf(trovato.get("pdf"), oggi=oggi, prime_pagine=trovato.get("prime_pagine"),
-                                dominio=domini_voce(trovato))
+                                dominio=domini_voce(trovato), chiusura_esercizio=chiusura_voce(trovato))
             esito = {"ticker": t, "pdf": bool(scelta), "motivi": (trovato.get("motivi") or [])[:5]}
             if trovato.get("accesso"):
                 esito["accesso"] = trovato["accesso"]

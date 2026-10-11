@@ -301,14 +301,15 @@ def test_scorers_keep_real_zero_and_disclose_an_invalid_partial_metric():
     assert result["max_score"] == 3 and result["score"] == 0
     # fix 09/10 (Opus 5.5): crypto legge i MAJOR pesati per OI da top_10_perps_by_oi, non i
     # top-5 funding dell'intero universo. Lo zero reale resta zero, il NaN (SOL) si scarta;
-    # funding 0 = 10,95 punti SOTTO il tasso base: 1 punto di pressione short, non 0.
+    # funding 0 = 10,95 punti SOTTO il tasso base: pressione short, non 0 (10/10: ancore
+    # calibrate, 1,43 punti continui fra p50 e p80, banda NORMALE).
     result = ss.crypto_score({"top_10_perps_by_oi": [
         {"asset": "BTC", "funding_annualized_pct": 0, "oi_usd_m": 100},
         {"asset": "ETH", "funding_annualized_pct": 0, "oi_usd_m": 50},
         {"asset": "SOL", "funding_annualized_pct": float("nan"), "oi_usd_m": 10}]})
     assert result["metrics"]["funding_ann_pct"] == 0
     assert result["metrics"]["major_usati"] == ["BTC", "ETH"]
-    assert result["score"] == 1 and result["metrics"]["direzione"] == "short"
+    assert result["score"] == pytest.approx(1.43, abs=0.01) and result["metrics"]["direzione"] == "short"
 
 
 def test_politics_reads_the_actual_polymarket_tool_contract(monkeypatch):

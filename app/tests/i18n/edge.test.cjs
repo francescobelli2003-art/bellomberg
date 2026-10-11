@@ -227,3 +227,68 @@ test('a selection missing from the latest scan is declared, not silently swapped
     assert.doesNotMatch(vista(lang).html, /data-avviso="scelta-persa"/, `${lang}: no warning when the selection exists`);
   }
 });
+
+// ── soglie v3 (10/10, Opus 5.5): VRP come rapporto e soglie del Doctor dal payload ──
+
+test('the VRP signal written as an IV/RV ratio is recognised as VRP, not merged with realized vol', () => {
+  const load = creaCaricatore(), calcoli = load('pages/ricerca/calcoli.ts');
+  const vol = value => calcoli.rilevatoreDi({ category: 'volatility', value, direction: 'neutral' });
+  assert.equal(vol('1.85x'), 'vrp');
+  assert.equal(vol('0.93x'), 'vrp');
+  assert.equal(vol('+4.2pt'), 'vrp');          // payload vecchi
+  assert.equal(vol('85° pct'), 'rvol');
+  assert.equal(vol('±14.0%'), 'em');
+});
+
+test('position-check thresholds come from the payload; absent thresholds are declared, never a local copy', () => {
+  const load = creaCaricatore(), language = load('i18n/lingua.ts'), calcoli = load('pages/ricerca/calcoli.ts');
+  language.impostaLinguaCorrente('it');
+  const ok = calcoli.leggiDiagnosi({ net_score: -0.6, verdict: 'HOLD (al limite)', n_signals: 1,
+    thresholds: { hold_borderline_abs: 0.5, full_recommendation_abs: 0.7 } }, 'SYNTH.X');
+  assert.deepEqual(ok.soglie, { limite: 0.5, piena: 0.7 });
+  assert.equal(calcoli.leggiDiagnosi({ net_score: 1, verdict: 'X', n_signals: 1 }, 'SYNTH.X').soglie, null);
+  assert.equal(calcoli.leggiSoglieDiagnosi({ hold_borderline_abs: 0.9, full_recommendation_abs: 0.7 }), null);
+  assert.equal(calcoli.leggiSoglieDiagnosi({ hold_borderline_abs: 'x', full_recommendation_abs: 0.7 }), null);
+  for (const lang of ['it', 'en']) {
+    const base = { ticker: 'SYNTH.X', stato: 'ok', score: -0.65, verdetto: 'HOLD — synthetic', nota: '', nSegnali: 2, alle: '10:00' };
+    const con = vista(lang, { diagnosi: { ...base, soglie: { limite: 0.5, piena: 0.7 } } }).html;
+    // -0,65 sta nella fascia al limite: tono neutro (prima rosso oltre il vecchio ±0,6)
+    assert.match(con, /ro-dir is-large is-neutral/, `${lang}: borderline score is neutral`);
+    assert.match(con, /data-soglia="0.7"/, `${lang}: HOLD zone drawn from the payload threshold`);
+    assert.match(con, lang === 'it' ? /al limite fino a ±0,7/ : /borderline up to ±0.7/, `${lang}: band text from the payload`);
+    const oltre = vista(lang, { diagnosi: { ...base, score: -0.75, soglie: { limite: 0.5, piena: 0.7 } } }).html;
+    assert.match(oltre, /ro-dir is-large is-bearish/, `${lang}: beyond the full threshold`);
+    const senza = vista(lang, { diagnosi: { ...base, soglie: null } }).html;
+    assert.doesNotMatch(senza, /ro-gz/, `${lang}: no HOLD zone without declared thresholds`);
+    assert.match(senza, lang === 'it' ? /soglie del verdetto non dichiarate/ : /verdict thresholds not declared/);
+  }
+});
+
+test('detector texts carry no copy of the backend VRP or Doctor thresholds', () => {
+  const fs = require('node:fs'), path = require('node:path');
+  for (const lang of ['it', 'en']) {
+    const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'i18n', lang, 'edge.ts'), 'utf8');
+    const riga = k => (src.match(new RegExp(`"${k}": "([^"]*)"`)) || [])[1] || '';
+    assert.doesNotMatch(riga('det_vrp') + riga('det_vrp_f'), /[+−-]3\b|× ?4/, `${lang}: VRP text`);
+    assert.doesNotMatch(riga('diagBand'), /0[.,]6/, `${lang}: Doctor band text`);
+  }
+});
+
+test('v4: the quadrant tone and HOLD zone follow the payload thresholds and bite at the edges', () => {
+  const load = creaCaricatore(), calcoli = load('pages/ricerca/calcoli.ts');
+  assert.equal(calcoli.leggiSoglieDiagnosi({ hold_borderline_abs: 0, full_recommendation_abs: 0.7 }), null, 'zero borderline rejected');
+  assert.equal(calcoli.leggiSoglieDiagnosi({ hold_borderline_abs: -0.5, full_recommendation_abs: 0.7 }), null);
+  for (const lang of ['it', 'en']) {
+    const base = { ticker: 'SYNTH.X', stato: 'ok', verdetto: 'HOLD — synthetic', nota: '', nSegnali: 2, alle: '10:00',
+      soglie: { limite: 0.5, piena: 0.7 } };
+    const tono = html => (html.match(/ro-dir is-large (is-[a-z]+)/) || [])[1];
+    assert.equal(tono(vista(lang, { diagnosi: { ...base, score: 0.65 } }).html), 'is-neutral', `${lang}: +0.65 borderline`);
+    assert.equal(tono(vista(lang, { diagnosi: { ...base, score: 0.75 } }).html), 'is-bullish', `${lang}: +0.75 full`);
+    assert.equal(tono(vista(lang, { diagnosi: { ...base, score: 0.55 } }).html), 'is-neutral', `${lang}: +0.55 above the borderline only`);
+    assert.equal(tono(vista(lang, { diagnosi: { ...base, score: 1.2, soglie: null } }).html), 'is-neutral', `${lang}: no thresholds, no colour`);
+    assert.equal(tono(vista(lang, { diagnosi: { ...base, score: -0.65, soglie: null } }).html), 'is-neutral', `${lang}: no local ±0.6 copy`);
+    // ampiezza 2 (|score| <= 2): la zona HOLD va da 50 - 0,7/2 x 50 = 32,5% per lato
+    const html = vista(lang, { diagnosi: { ...base, score: 0.65 } }).html;
+    assert.match(html, /class="ro-gz"[^>]*style="left:32.5%;right:32.5%"/, `${lang}: HOLD zone from the full threshold`);
+  }
+});

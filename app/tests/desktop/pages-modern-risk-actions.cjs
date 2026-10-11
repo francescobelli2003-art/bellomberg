@@ -434,22 +434,11 @@ async function run(q) {
     }
     await q.scrollTo(plotSelector);
     const volPlotSvgSelector = 'main [data-page="vol"] [data-vol-3d] svg';
-    const strikeProjectorSvgSelector = 'main [data-page="vol"] [data-vol-projector] svg.vsxsvg';
-    const strikeLabels = await q.js(selector => {
-      const svg = document.querySelector(selector);
-      return [...(svg?.querySelectorAll('text') || [])].map(node => (node.textContent || '').trim().replace(/\s+/g, ' '))
-        .filter(text => text.includes('· +') || text.includes('· −'));
-    }, strikeProjectorSvgSelector);
-    const upperStrikeLabel = strikeLabels.find(text => text.includes('· +'));
-    const lowerStrikeLabel = strikeLabels.find(text => text.includes('· −'));
-    assert.ok(upperStrikeLabel && lowerStrikeLabel,
-      `both final expiry strike labels must render before clipping bounds are measured: ${JSON.stringify(strikeLabels)}`);
+    // 10/10 (Opus 5.5): il proiettore di strike sullo spot e' stato tolto (decisione PM): resta solo l'SVG del 3D
     const meshCaptures = await q.capture('vol-populated-surface-mesh-camera-modern', { scrollSelector: plotSelector,
-      svgTextBoundsSelectors: [volPlotSvgSelector, strikeProjectorSvgSelector],
+      svgTextBoundsSelectors: [volPlotSvgSelector],
       captureBeforeSvgBoundsFailure: true, deferSvgBoundsFailure: true,
-      verifyVolAxisTitle: true, deferVolAxisTitleFailure: true,
-      requiredSvgTexts: [{ selector: strikeProjectorSvgSelector, text: upperStrikeLabel },
-        { selector: strikeProjectorSvgSelector, text: lowerStrikeLabel }] });
+      verifyVolAxisTitle: true, deferVolAxisTitleFailure: true });
     assert.deepEqual(meshCaptures.map(capture => `${capture.viewport.innerWidth}x${capture.viewport.innerHeight}`),
       ['1920x1080', '2560x1440', '3440x1440', '5120x1440', '1440x1000', '1280x900', '900x700'],
       'Vol mesh verification must inspect every required viewport');

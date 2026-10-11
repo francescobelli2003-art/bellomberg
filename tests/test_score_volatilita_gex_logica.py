@@ -44,7 +44,7 @@ def test_crash_e_placido_danno_verdetti_opposti():
     crash = _score(_vix(45.0, 39.0), _superficie(0.60, 0.45, -0.08))
     # placido: IV 12, realizzata 9,5, contango 0,85, skew -3,5 pt
     placido = _score(_vix(12.0, 14.1), _superficie(0.12, 0.095, -0.035))
-    assert _idx(crash) >= 72 and "STRESS" in crash["verdict"], crash
+    assert _idx(crash) >= 75 and "STRESS" in crash["verdict"], crash
     assert _idx(placido) < 25 and "CALMA" in placido["verdict"], placido
 
 
@@ -98,20 +98,27 @@ def test_superficie_parziale_rr_e_ivrv_nd_fuori_dal_massimo():
 # ------------------------------------------------ seconda versione (riserve review 10/10)
 
 def test_iv_meno_rv_e_il_prezzo_della_protezione_non_sposta_il_regime():
-    # riserva 5: IV-RV e' un sotto-verdetto informativo, mai punti di stress
+    # riserva 5: il prezzo della protezione e' un sotto-verdetto informativo, mai punti di
+    # stress. 10/10: misura = RAPPORTO IV/RV con le soglie calibrate (a sconto < 1,08x, cara
+    # >= 1,77x).
     base = _score(_vix(18.0, 20.0), _superficie(0.18, 0.18, -0.05))
-    for iv in (0.12, 0.15, 0.21, 0.25, 0.30):
+    for iv in (0.12, 0.15, 0.21, 0.25, 0.30, 0.40):
         s = _score(_vix(18.0, 20.0), _superficie(iv, 0.18, -0.05))
-        assert s["score"] == base["score"] and s["max_score"] == 9, (iv, s)
-    cara = _score(_vix(18.0, 20.0), _superficie(0.26, 0.18, -0.05))
+        assert s["score"] == pytest.approx(base["score"]) and s["max_score"] == 9, (iv, s)
+    cara = _score(_vix(18.0, 20.0), _superficie(0.33, 0.18, -0.05))        # 1,83x
     assert cara["metrics"]["protection_price"] == "EXPENSIVE"
-    assert any(r[0].startswith("Prezzo della protezione") and r[1].endswith(": cara") for r in cara["info"])
+    assert cara["metrics"]["iv_rv_ratio_30d"] == pytest.approx(0.33 / 0.18)
+    assert any(r[0].startswith("Prezzo della protezione") and ": cara [" in r[1] for r in cara["info"])
+    norma = _score(_vix(18.0, 20.0), _superficie(0.26, 0.18, -0.05))       # 1,44x: prima «cara» (+8 pt)
+    assert norma["metrics"]["protection_price"] == "NORMAL"
+    sconto = _score(_vix(18.0, 20.0), _superficie(0.19, 0.18, -0.05))      # 1,06x con IV SOPRA la RV
+    assert sconto["metrics"]["protection_price"] == "DISCOUNT"
 
 
 def test_crash_con_iv_sotto_la_realizzata_e_stress():
     # nel picco la realizzata corre piu' dell'implicita: IV 42 < RV 55 usciva «VOL TESA»
     s = _score(_vix(40.0, 33.0), _superficie(0.42, 0.55, -0.08))
-    assert s["verdict"] == "VOL IN STRESS" and _idx(s) >= 72, s
+    assert s["verdict"] == "VOL IN STRESS" and _idx(s) >= 75, s
     assert s["metrics"]["protection_price"] == "DISCOUNT"
 
 
@@ -119,7 +126,8 @@ def test_pavimento_stress_con_backwardation_profonda_anche_a_skew_piatto():
     s = _score(_vix(21.4, 20.0), _superficie(0.20, 0.15, -0.03))
     assert s["verdict"] == "VOL IN STRESS" and "TS_BACKWARDATION" in s["metrics"]["floors"], s
     assert any("Pavimento" in r[0] for r in s["info"])
-    sotto = _score(_vix(21.0, 20.0), _superficie(0.20, 0.15, -0.03))      # 1,05 < 1,06
+    # 10/10: pavimento = ancora piena calibrata (p97 CBOE, 1,046)
+    sotto = _score(_vix(20.9, 20.0), _superficie(0.20, 0.15, -0.03))      # 1,045 < 1,046
     assert sotto["metrics"]["floors"] == [] and sotto["verdict"] != "VOL IN STRESS"
 
 
@@ -141,16 +149,49 @@ def test_skew_call_positivo_non_e_domanda_di_copertura():
 
 
 def test_skew_normalizzato_solo_informativo():
-    # riserva 11: RR25/ATM e' piu' ripido nel placido che nel crash: si mostra, non punteggia
+    # riserva 11 (v3 10/10, revisione): RR25/ATM e' piu' ripido nel placido che nel crash: si
+    # mostra come riga informativa, il punteggio usa i punti vol assoluti
     placido = _score(_vix(15.0, 17.5), _superficie(0.14, 0.11, -0.045))
     crash = _score(_vix(40.0, 33.0), _superficie(0.42, 0.55, -0.08))
     assert abs(placido["metrics"]["rr25_atm_ratio"]) > abs(crash["metrics"]["rr25_atm_ratio"])
-    assert crash["score"] > placido["score"]
+    assert crash["score"] > placido["score"] and crash["verdict"] == "VOL IN STRESS"
+    riga = [r for r in placido["lines"] if "RR25" in r[0]][0]
+    assert riga[2] == pytest.approx(0.75), riga                      # 4,5 pt fra 3 (0) e 5 (1)
+    assert any(r[0].startswith("Skew normalizzato") for r in placido["info"])
+
+
+def test_crash_del_revisore_resta_in_banda_critica():
+    # revisione 10/10: VIX/VIX3M = 1,00, IV 42, RR25 -8. Con lo skew normalizzato nel punteggio
+    # l'indice cadeva da 0,777 a 0,543 e usciva dalla banda critica
+    s = _score(_vix(33.0, 33.0), _superficie(0.42, 0.55, -0.08))
+    assert _idx(s) >= 75 and s["verdict"] == "VOL IN STRESS", s
+    assert _idx(s) == pytest.approx(100 * (4 + 2 * (1.0 - 0.985) / (1.046 - 0.985) + 2.5) / 9, abs=0.2)
+
+
+def test_skew_in_punti_assoluti_non_dipende_dall_iv():
+    # -5 punti vol = 1 punto con IV 12 e con IV 36 (convenzione SPX 1 mese, ancore 3/5/7/9)
+    a = _score(_vix(15.0, 17.5), _superficie(0.12, 0.10, -0.05))
+    b = _score(_vix(15.0, 17.5), _superficie(0.36, 0.30, -0.05))
+    pa = [r for r in a["lines"] if "RR25" in r[0]][0][2]
+    pb = [r for r in b["lines"] if "RR25" in r[0]][0][2]
+    assert pa == pb == pytest.approx(1.0)
+
+
+def test_skew_senza_iv_atm_punteggia_e_dichiara_il_normalizzato_nd():
+    surf = _superficie(0.16, 0.13, -0.05)
+    for r in surf["term_structure"]:
+        r["atm_iv"] = None
+    s = _score(_vix(15.0, 17.5), surf)
+    riga = [r for r in s["lines"] if "RR25" in r[0]][0]
+    assert riga[2] == pytest.approx(1.0), riga
+    info = [r for r in s["info"] if r[0].startswith("Skew normalizzato")][0]
+    assert info[1].startswith("n.d.: IV ATM della scadenza mancante"), info
 
 
 def test_fascia_della_riga_sul_suo_massimo():
     # riserva 2: struttura VIX 2,98 su 6 era stampata «critico» a meta' scala
-    s = _score(_vix(19.0, 19.6), _superficie(0.16, 0.13, -0.05))
+    # 10/10: con le ancore calibrate 0,959 vale ~2,98 su 6
+    s = _score(_vix(19.0, 19.81), _superficie(0.16, 0.13, -0.05))
     with language_context("it"):
         blocco = S.format_score_block(s)
     riga = [l for l in blocco.splitlines() if "VIX/VIX3M" in l][0]
@@ -305,12 +346,14 @@ def test_niente_0dte_e_mensile_inclusa(monkeypatch):
 
 # ------------------------------------------------------------- signal_engine
 
-@pytest.mark.parametrize("spread", [0.15, -0.15])
-def test_opzioni_care_o_a_sconto_non_spingono_trim_hedge(monkeypatch, spread):
+# 10/10: il segnale legge il RAPPORTO IV/RV della superficie (soglie dello score)
+@pytest.mark.parametrize("ratio,spread", [(1.95, 0.15), (0.85, -0.03)])
+def test_opzioni_care_o_a_sconto_non_spingono_trim_hedge(monkeypatch, ratio, spread):
     import bellomberg.portfolio.vol_surface as vs
     import bellomberg.portfolio.signal_engine as se
     monkeypatch.setattr(vs, "build_vol_surface", lambda t, max_expiries=6: {
-        "iv_rv_spread_front": spread, "rv_percentile_1y": 50, "expected_move_pct": 5, "expected_move_days": 30})
+        "iv_rv_spread_front": spread, "iv_rv_ratio_30d": ratio, "rv_percentile_1y": 50,
+        "expected_move_pct": 5, "expected_move_days": 30})
     with language_context("it"):
         sigs = se.sig_vol_risk_premium("ZZSYN")
         monkeypatch.setattr(se, "scan_ticker", lambda t, **k: sigs)

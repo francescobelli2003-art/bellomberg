@@ -33,6 +33,8 @@ from datetime import datetime
 from typing import Dict, Any, List
 from bellomberg.core.language import scoped_language
 from bellomberg.core.presentation import error_text, join_messages, message, render_payload
+# 10/10 (Opus 5.5): soglie condivise con options_score e vol_surface (fonte unica)
+from bellomberg.core import soglie_score as _soglie
 
 try:
     import numpy as np
@@ -133,31 +135,40 @@ def sig_vol_risk_premium(ticker: str, esiti=None) -> List[Dict[str, Any]]:
         _dico(_DetectorOutcome("queried"))
         out = []
         ivrv = vs.get("iv_rv_spread_30d", vs.get("iv_rv_spread_front"))  # 09/10 (M8): IV 30g - RV 21 sedute; il vecchio nome e' alias dello stesso valore
+        # 10/10 (Opus 5.5): la lettura usa il RAPPORTO IV/RV della superficie con le soglie dello
+        # score (core/soglie_score.VRP_*); la differenza resta solo come numero mostrato
+        ratio = vs.get("iv_rv_ratio_30d")
         rvp = vs.get("rv_percentile_1y")
         em = vs.get("expected_move_pct")
         emd = vs.get("expected_move_days")
-        if ivrv is not None:
+        if ratio is not None and ivrv is not None:
             sp = ivrv * 100
             # fix 09/10 (Opus 5.5, audit SCORE-VOL-QUANT §3.3): il PREZZO della volatilita' non
             # ha una direzione sul titolo. Prima «care» = bearish e «a sconto» = caution: entrambe
             # spingevano position_doctor verso TRIM/HEDGE, cioe' a COPRIRSI proprio quando il
             # testo diceva di non comprare protezione. Ora neutral (fuori dal netto direzionale):
             # la lettura resta, l'azione la decide l'analista sul payoff.
-            if sp > 3:
-                out.append(_sig(ticker, "volatility", message("Premio volatilità", "Vol Risk Premium"), f"{sp:+.1f}pt",
-                    message("IV 30g > realizzata 21 sedute", "30d IV > 21-session realized"), "neutral", min(100, 40 + sp * 4),
-                    message("Le opzioni di {ticker} sono CARE: IV {spread:.1f} punti sopra la realizzata. Contesto da vendita di premio coperta (covered call), non da acquisto di protezione. Prezzo della volatilita', non una direzione sul titolo.",
-                            "Options on {ticker} are EXPENSIVE: IV is {spread:.1f} points above realized volatility. Context for covered premium selling (covered call), not buying protection. Price of volatility, not a direction on the stock.", ticker=ticker, spread=sp),
+            # 10/10: forza = 45 sulla soglia (il minimo dell'Edge Scan: ogni lettura oltre soglia
+            # si vede, come prima con +-3 punti -> 52) + 10 per ogni 0,1 di rapporto oltre la
+            # soglia, massimo 100. Prima 40 + 4 x punti: a parita' di eccesso relativo un titolo
+            # con IV alta prendeva forza piu' alta di uno con IV bassa.
+            if ratio >= _soglie.VRP_CARA:
+                out.append(_sig(ticker, "volatility", message("Premio volatilità", "Vol Risk Premium"), f"{ratio:.2f}x",
+                    message("IV 30g / realizzata 21 sedute >= {s:.2f}x", "30d IV / 21-session realized >= {s:.2f}x", s=_soglie.VRP_CARA),
+                    "neutral", int(round(min(100, 45 + 100 * (ratio - _soglie.VRP_CARA)))),
+                    message("Le opzioni di {ticker} sono CARE: IV {ratio:.2f} volte la realizzata ({spread:+.1f} punti). Contesto da vendita di premio coperta (covered call), non da acquisto di protezione. Prezzo della volatilita', non una direzione sul titolo.",
+                            "Options on {ticker} are EXPENSIVE: IV is {ratio:.2f} times realized volatility ({spread:+.1f} points). Context for covered premium selling (covered call), not buying protection. Price of volatility, not a direction on the stock.", ticker=ticker, ratio=ratio, spread=sp),
                     "vol_surface IV-RV"))
-            elif sp < -3:
-                out.append(_sig(ticker, "volatility", message("Premio volatilità", "Vol Risk Premium"), f"{sp:+.1f}pt",
-                    message("IV 30g < realizzata 21 sedute", "30d IV < 21-session realized"), "neutral", min(100, 40 + abs(sp) * 4),
-                    message("Le opzioni di {ticker} sono A SCONTO: IV {spread:.1f} punti sotto la realizzata. L'hedge in put costa poco; vendere premio qui e' mal pagato. Prezzo della volatilita', non una direzione sul titolo.",
-                            "Options on {ticker} are DISCOUNTED: IV is {spread:.1f} points below realized volatility. Put hedges are inexpensive; premium selling is poorly rewarded here. Price of volatility, not a direction on the stock.", ticker=ticker, spread=abs(sp)),
+            elif ratio < _soglie.VRP_SCONTO:
+                out.append(_sig(ticker, "volatility", message("Premio volatilità", "Vol Risk Premium"), f"{ratio:.2f}x",
+                    message("IV 30g / realizzata 21 sedute < {s:.2f}x", "30d IV / 21-session realized < {s:.2f}x", s=_soglie.VRP_SCONTO),
+                    "neutral", int(round(min(100, 45 + 100 * (_soglie.VRP_SCONTO - ratio)))),
+                    message("Le opzioni di {ticker} sono A SCONTO: IV {ratio:.2f} volte la realizzata ({spread:+.1f} punti). L'hedge in put costa poco; vendere premio qui e' mal pagato. Prezzo della volatilita', non una direzione sul titolo.",
+                            "Options on {ticker} are DISCOUNTED: IV is {ratio:.2f} times realized volatility ({spread:+.1f} points). Put hedges are inexpensive; premium selling is poorly rewarded here. Price of volatility, not a direction on the stock.", ticker=ticker, ratio=ratio, spread=sp),
                     "vol_surface IV-RV"))
-        if rvp is not None and (rvp >= 80 or rvp <= 20):
-            d = "caution" if rvp >= 80 else "neutral"
-            regime = message("regime compresso, possibile espansione", "compressed regime, possible expansion") if rvp <= 20 else message("regime elevato, tende a rientrare (mean reversion)", "elevated regime, tends to revert (mean reversion)")
+        if rvp is not None and (rvp >= _soglie.RV_PCT_ALTO or rvp <= _soglie.RV_PCT_BASSO):
+            d = "caution" if rvp >= _soglie.RV_PCT_ALTO else "neutral"
+            regime = message("regime compresso, possibile espansione", "compressed regime, possible expansion") if rvp <= _soglie.RV_PCT_BASSO else message("regime elevato, tende a rientrare (mean reversion)", "elevated regime, tends to revert (mean reversion)")
             out.append(_sig(ticker, "volatility", message("Regime volatilità realizzata", "Realized Vol Regime"), message("{pct:.0f}° pct", "{pct:.0f}th pct", pct=rvp),
                 message("percentile 1 anno", "1-year percentile"), d, abs(rvp - 50) * 2,
                 message("La volatilita' realizzata di {ticker} e' al {pct:.0f}° percentile dell'ultimo anno: {regime}.",
@@ -709,13 +720,27 @@ def position_doctor(ticker: str) -> Dict[str, Any]:
             score -= w
         elif s["direction"] == "caution":
             score -= w * 0.5
-    verdict = (message("ADD/HOLD — segnali costruttivi", "ADD/HOLD — constructive signals") if score > 0.6 else
-               message("TRIM/HEDGE — segnali di cautela prevalenti", "TRIM/HEDGE — caution signals dominate") if score < -0.6 else
-               message("HOLD — segnali misti, nessun edge netto", "HOLD — mixed signals, no clear edge"))
+    # 10/10 (Opus 5.5): niente scoglio a +-0,6 (z-score 2,0 -> HOLD, 2,1 -> TRIM/HEDGE). Fascia
+    # dichiarata: |netto| < 0,5 HOLD; fra 0,5 e 0,7 «HOLD (al limite)» con la tendenza scritta;
+    # oltre 0,7 la raccomandazione piena (core/soglie_score.DOCTOR_LIMITE).
+    basso, alto = _soglie.DOCTOR_LIMITE
+    if score > alto:
+        verdict = message("ADD/HOLD — segnali costruttivi", "ADD/HOLD — constructive signals")
+    elif score < -alto:
+        verdict = message("TRIM/HEDGE — segnali di cautela prevalenti", "TRIM/HEDGE — caution signals dominate")
+    elif abs(score) >= basso:
+        verdict = message("HOLD (al limite, tendenza {t}) — netto {n:+.2f} fra {b:.1f} e {a:.1f}: nessuna raccomandazione piena",
+                          "HOLD (borderline, leaning {t}) — net {n:+.2f} between {b:.1f} and {a:.1f}: no full recommendation",
+                          t="ADD/HOLD" if score > 0 else "TRIM/HEDGE", n=score, b=basso, a=alto)
+    else:
+        verdict = message("HOLD — segnali misti, nessun edge netto", "HOLD — mixed signals, no clear edge")
     return {
         "ticker": ticker.upper(),
         "net_score": round(score, 2),
         "verdict": verdict,
+        # v3 10/10: soglie del verdetto (core/soglie_score.DOCTOR_LIMITE) per il frontend, che
+        # colora quadrante e fascia HOLD da qui e non da una sua copia
+        "thresholds": {"hold_borderline_abs": basso, "full_recommendation_abs": alto},
         # dottrina bilaterale PM 16/07: il verdetto rule-based su segnali correnti e' un
         # INPUT per l'analista, non un ordine — su un titolo in drawdown va pesato coi
         # forward (fair value, livelli, tesi PM) prima di tradurlo in azione.

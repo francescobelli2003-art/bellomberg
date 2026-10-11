@@ -233,4 +233,7 @@ def test_noto_al_cutoff_regola_dichiarata():
     # cutoff = oggi (run corrente): cio' che companyfacts riporta adesso e' gia' pubblicato
     assert sec_xbrl.depositato_entro("2026-10-10", "2026-10-10", oggi="2026-10-10")
     assert not sec_xbrl.depositato_entro(None, "2025-04-16", oggi="2026-10-10")
-    assert sec_xbrl.depositato_entro("2099-01-01", None, oggi="2026-10-10")
+    # v5 (ri-verifica di d487ac7): col solo giorno della run dichiarato vale filed <= oggi; senza nessuno dei due
+    # nessun filtro
+    assert not sec_xbrl.depositato_entro("2099-01-01", None, oggi="2026-10-10")
+    assert sec_xbrl.depositato_entro("2099-01-01", None)

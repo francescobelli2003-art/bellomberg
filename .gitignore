@@ -62,3 +62,6 @@ outputs/
 # /docs/superpowers/ NON si ignora: nel repo privato e' una cartella tracciata
 # (piani e spec, 63 file al 04/10/2026): ignorarla nasconderebbe i file nuovi.
 /.claude/
+
+# 10/10 (Opus 5.5): dati pubblici scaricati da tools/ops/calibra_soglie.py (mai committati)
+/.cache/

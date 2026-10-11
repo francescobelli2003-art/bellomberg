@@ -22,6 +22,8 @@ errori ritornati come {"error": ...}, mai eccezioni propagate.
 from bellomberg.core.paths import PROJECT_ROOT
 from bellomberg.core.language import scoped_language
 from bellomberg.core.presentation import error_text, message
+# 10/10 (Opus 5.5): soglie del rapporto VIX/VIX3M dalla fonte unica (le stesse dello score)
+from bellomberg.core import soglie_score as _soglie
 import math
 import os
 from datetime import datetime, date, timedelta, timezone
@@ -574,12 +576,19 @@ def get_vix_term_structure() -> Dict[str, Any]:
             return {"error": message("VIX non scaricabile", "VIX download unavailable"), "_source": src}
         v, v3 = out.get("vix_30d"), out.get("vix_3m")
         ratio = round(v / v3, 3) if (v and v3) else None
-        state = (None if ratio is None else
-                 (message("CONTANGO (normale): curva ascendente, carry positivo per vol seller", "CONTANGO (normal): upward curve, positive carry for volatility sellers")
-                  if ratio < 0.97 else
-                  message("BACKWARDATION (stress): domanda di protezione immediata, regime risk-off", "BACKWARDATION (stress): demand for immediate protection, risk-off regime")
-                  if ratio > 1.03 else message("FLAT: transizione di regime, attenzione", "FLAT: regime transition, caution")))
-        return {**out, "vix_vix3m_ratio": ratio, "term_structure": state, "vix_asof": asof,
+        # 10/10 (Opus 5.5): UNA taratura sola con options_score. Prima qui 0,97/1,03 e nello
+        # score 0,88-1,06: con 0,99 lo strumento diceva FLAT e lo score 3,7/6. Ora il codice
+        # viene da core/soglie_score.struttura_vix: CONTANGO sotto il p75 storico (ancora del 2
+        # dello score), FLAT fra il p75 e 1,00, BACKWARDATION da 1,00 (inversione).
+        codice = _soglie.struttura_vix(ratio)
+        state = {"CONTANGO": message("CONTANGO (normale): curva ascendente, carry positivo per vol seller", "CONTANGO (normal): upward curve, positive carry for volatility sellers"),
+                 "FLAT": message("FLAT: contango sotto la norma (rapporto sopra il 75° percentile storico), curva verso l'inversione", "FLAT: below-normal contango (ratio above its historical 75th percentile), curve moving toward inversion"),
+                 "BACKWARDATION": message("BACKWARDATION (stress): domanda di protezione immediata, regime risk-off", "BACKWARDATION (stress): demand for immediate protection, risk-off regime"),
+                 }.get(codice)
+        return {**out, "vix_vix3m_ratio": ratio, "term_structure": state, "term_structure_code": codice,
+                "term_structure_thresholds": {"contango_below": _soglie.VIX3M_ANCORE[1],
+                                               "backwardation_from": _soglie.VIX3M_INVERSIONE},
+                "vix_asof": asof,
                 "_source": src, "_timestamp": datetime.now().isoformat()}
     except Exception as e:
         return {"error": error_text(e), "_source": src}

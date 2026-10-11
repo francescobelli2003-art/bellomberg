@@ -66,6 +66,32 @@ def create_options_router(require_session):
     def downloaded_surface(job_id: str):
         return download_call("surface", job_id)
 
+    # 10/10 (Opus 5.5): istantanee archiviate su file a ogni download completato
+    # (bellomberg.portfolio.options_snapshots): il confronto ΔIV non dipende piu' dal browser.
+    @router.get("/snapshots")
+    def list_snapshots(ticker: str | None = Query(None, max_length=25)):
+        from bellomberg.portfolio import options_snapshots as archive
+        from bellomberg.portfolio.options_download import downloads
+        try:
+            return archive.list_snapshots(ticker, downloads.archive_root)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @router.get("/snapshots/{snapshot_id}")
+    def load_snapshot(snapshot_id: str):
+        from bellomberg.portfolio import options_snapshots as archive
+        from bellomberg.portfolio.options_download import downloads
+        try:
+            return archive.load(snapshot_id, downloads.archive_root)
+        except KeyError as exc:
+            raise HTTPException(404, exc.args[0]) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except archive.SnapshotBusy as exc:
+            raise HTTPException(503, _ui_text(f'istantanea in uso o in rimozione ({exc}): riprova fra poco', f'Snapshot in use or being removed ({exc}): retry shortly')) from exc
+        except archive.SnapshotUnreadable as exc:
+            raise HTTPException(500, _ui_text(f'istantanea illeggibile su disco ({exc})', f'Snapshot unreadable on disk ({exc})')) from exc
+
     @router.get("/strategy/rate")
     def strategy_rate():
         """09/10 (Opus 5.5, audit M4): short USD rate for the laboratory, with its source and date.

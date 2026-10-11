@@ -1706,7 +1706,9 @@ def dispatch(tool_name: str, tool_input: Dict[str, Any], caller: str = None, *,
             else:
                 try:
                     from bellomberg.market_data.esef import get_esef_history
-                    r2 = get_esef_history(tool_input["ticker"], years=int(tool_input.get("years", 10)))
+                    # GENERALITA' UE (Opus 5.5): anche il ripiego ESEF rispetta il cutoff della run (niente look-ahead)
+                    r2 = get_esef_history(tool_input["ticker"], years=int(tool_input.get("years", 10)),
+                                          **({"fino_al": str(as_of)[:10]} if as_of else {}))
                     if not r2.get("error"):
                         r2["sec_note"] = "SEC non copre il ticker (%s): fonte ESEF" % r["error"]
                         r2 = _con_ultimo_periodo(r2, tool_input["ticker"], as_of, caller)

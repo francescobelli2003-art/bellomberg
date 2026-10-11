@@ -81,13 +81,13 @@ def test_senza_mercato_pertinente_il_tema_e_nd_dichiarato_non_un_numero(monkeypa
 
 
 def test_fra_piu_mercati_pertinenti_vince_il_piu_scambiato_non_il_piu_alto(monkeypatch):
-    q = ss._POLI_TOPICS["Cina-Taiwan/dazi"]
+    q = ss._POLI_TOPICS["Cina-Taiwan"]
     _risposte(monkeypatch, {q: [
         _ev("China x Taiwan?", [("Will China invade Taiwan by end of 2099?", 0.60, "2099-12-31T00:00:00Z", 50.0)]),
         _ev("China x Taiwan 2?", [("Will China blockade Taiwan by end of 2099?", 0.12, "2099-12-31T00:00:00Z", 900_000.0)]),
     ]})
     s = ss.politics_score()
-    assert s["metrics"]["topics"]["Cina-Taiwan/dazi"] == pytest.approx(0.12)
+    assert s["metrics"]["topics"]["Cina-Taiwan"] == pytest.approx(0.12)
 
 
 def test_i_mercati_di_menzione_verbale_non_sono_rischio_di_coda(monkeypatch):

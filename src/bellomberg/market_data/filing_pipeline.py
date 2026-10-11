@@ -724,7 +724,45 @@ def esegui_profilo(profilo, *, archivio, oggi=None, max_documenti=20, numeri_fn=
                 if numeri.get("stato") == "ok":
                     out["numeri"] = {**numeri, "variante": alt_tipo}
                     break
+    _numeri_semestrale_pdf(profilo, out, oggi)
     return out
+
+
+def _numeri_semestrale_pdf(profilo, out, oggi):
+    """PRY-H1 (10/10, Opus 5.5): coppia di semestrali in PDF (sito dell'emittente, nessun XBRL) -> numeri letti
+    dalle tabelle del PDF (`semestrale_pdf`), stessa forma dei numeri annuali. Se riescono diventano i numeri
+    della scheda e i numeri annuali di un'altra variante (ESEF) restano accanto in `numeri_annuali`; se non
+    riescono i numeri gia' presenti restano e il motivo si dichiara in `numeri_semestrale` (o in `numeri`
+    se mancavano). Numeri gia' calcolati sulla STESSA coppia (XBRL) non si toccano."""
+    coppia = out.get("coppia") or {}
+    dopo = coppia.get("dopo") or {}
+    if (dopo.get("metadati") or {}).get("tipo") != "semestrale" or not dopo.get("path"):
+        return
+    try:
+        with open(dopo["path"], "rb") as fh:
+            if fh.read(5) != b"%PDF-":
+                return
+    except OSError:
+        return
+    attuali = out.get("numeri")
+    if isinstance(attuali, dict) and attuali.get("stato") == "ok" and attuali.get("variante") in (None, "semestrale"):
+        return
+    from bellomberg.market_data.semestrale_pdf import numeri_semestrale
+    from bellomberg.storage.filing_store import unisci_variante
+    profilo_h1 = profilo
+    if isinstance(profilo, dict) and profilo.get("varianti"):
+        variante = next((v for v in profilo["varianti"] if isinstance(v, dict) and v.get("tipo") == "semestrale"), None)
+        profilo_h1 = unisci_variante(profilo, variante) if variante else profilo
+    fino_al = (oggi.isoformat() if hasattr(oggi, "isoformat") else str(oggi) if oggi else date.today().isoformat())[:10]
+    numeri = _numeri(lambda _id, c: numeri_semestrale(c, profilo=profilo_h1, fino_al=fino_al), None, coppia)
+    if numeri.get("stato") == "ok":
+        if isinstance(attuali, dict) and attuali:
+            out["numeri_annuali"] = attuali
+        out["numeri"] = numeri
+    elif not attuali:
+        out["numeri"] = numeri
+    else:
+        out["numeri_semestrale"] = numeri
 
 
 def _numeri(numeri_fn, cik, coppia):
@@ -741,7 +779,8 @@ def _numeri(numeri_fn, cik, coppia):
                      for lato in ("prima", "dopo")}
         voci = []
         for voce in numeri.get("voci") or []:
-            modo = modi.get(voce.get("voce"))
+            # PRY-H1: le voci fuori da VOCI (EBITDA, free cash flow dal PDF della semestrale) portano il loro tipo
+            modo = modi.get(voce.get("voce")) or voce.get("tipo_periodo")
             periodi = None
             if modo:
                 periodi = {}

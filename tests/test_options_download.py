@@ -32,9 +32,15 @@ def offline(monkeypatch):
     # 09/10 (B3): i giorni a scadenza si contano sul calendario di New York; i test
     # costruiscono le date con date.today() locale, quindi l'orologio NY si fissa
     # a mezzogiorno della stessa data (altrimenti fra 00 e 06 italiane +1 giorno).
-    from datetime import datetime as _dt, time as _time
+    from datetime import datetime as _dt, time as _time, timezone
     from zoneinfo import ZoneInfo
     monkeypatch.setattr(vol, "_ny_now", lambda: _dt.combine(date.today(), _time(12), ZoneInfo("America/New_York")))
+    # 11/10 (Opus 5.5): la superficie di un job conta i giorni da `snapshot_at`, scritto
+    # dall'orologio del manager: lo si fissa allo STESSO istante, altrimenti fra 00 e 06
+    # italiane la data di New York dell'istantanea e' il giorno prima di date.today().
+    from bellomberg.portfolio import options_download as _od
+    monkeypatch.setattr(_od, "_now", lambda: _dt.combine(date.today(), _time(12), ZoneInfo("America/New_York"))
+                        .astimezone(timezone.utc).isoformat())
     vol._CHAIN_CACHE.clear()
 
 

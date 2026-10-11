@@ -545,7 +545,9 @@ def default_sector_providers(*, fetch_info=None, vehicle_registry=None):
 
     def filings(ticker, *, as_of):
         from bellomberg.valuation.dcf_engine import _fetch_history
-        return envelope(_fetch_history(ticker, cache.get("info") or {}), "financial_history SEC/ESEF", as_of)
+        # GENERALITA' UE (Opus 5.5): il cutoff dell'analisi arriva a SEC ed ESEF (niente look-ahead)
+        return envelope(_fetch_history(ticker, cache.get("info") or {}, as_of=as_of), "financial_history SEC/ESEF",
+                        as_of)
 
     def guidance(ticker, *, as_of):
         from bellomberg.valuation.dcf_engine import _fetch_guidance

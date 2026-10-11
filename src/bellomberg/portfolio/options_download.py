@@ -3,11 +3,14 @@ from bellomberg.core.presentation import message as _ui_text, render_payload
 from bellomberg.core.language import capture_language, scoped_language
 from copy import deepcopy
 from datetime import datetime, timezone
+import logging
 from threading import RLock, Semaphore, Thread
 from time import monotonic
 from uuid import uuid4
 
 from bellomberg.portfolio import vol_surface as vol
+
+vol_log = logging.getLogger(__name__)
 
 
 def _now():
@@ -20,10 +23,17 @@ class OptionsDownloadManager:
     Pause takes effect after the current provider request; its response is kept.
     Failed pages keep their cursor and require an explicit resume (also on 429).
     Snapshots are fresh for 120s and retained for one hour of inactivity. They
-    live only in this backend process; a restart requires a new download.
+    live only in this backend process; a restart requires a new download. Since
+    10/10 (Opus 5.5) every COMPLETED download is also archived to file
+    (`options_snapshots`, under the data dir) before the job reads «complete»;
+    the outcome (saved/duplicate/skipped/error) is the job's `archive` field.
+    Paused or failed downloads are not archived.
     """
 
-    def __init__(self, max_concurrent=3, max_jobs=32):
+    def __init__(self, max_concurrent=3, max_jobs=32, archive_root=None):
+        # 10/10 (Opus 5.5): archivio su file delle istantanee complete (options_snapshots);
+        # None = <data dir>/options_snapshots risolta a ogni salvataggio.
+        self.archive_root = archive_root
         self._lock = RLock()
         self._slots = Semaphore(max_concurrent)
         self._jobs = {}
@@ -104,6 +114,7 @@ class OptionsDownloadManager:
                    "spot": None, "spot_source": None, "spot_error": None, "spot_timestamp": None,
                    "spot_timeframe": None, "spot_timestamp_ns": None,
                    "spot_qualified": False, "spot_fallback": False, "spot_alignment": None,
+                   "archive": None,
                    "_rows": {}, "_catalog_after": None, "_key": key, "_worker": False,
                    "_pause": False, "_restart": False, "_created": now, "_access": now, "_spot_attempted": False}
             for expiry in expiries or []:
@@ -194,8 +205,13 @@ class OptionsDownloadManager:
                     with self._lock:
                         if job["_pause"]:
                             return
-                        job.update(state="complete", phase="done", current_expiry=None,
-                                   download_complete=True, snapshot_at=_now(), updated_at=_now(), error=None)
+                        job.update(phase="archive", current_expiry=None, download_complete=True,
+                                   snapshot_at=_now(), updated_at=_now(), error=None)
+                    # 10/10 (Opus 5.5): l'istantanea completa va su file PRIMA di dichiarare
+                    # «complete», cosi' chi legge lo stato trova gia' l'esito dell'archivio.
+                    outcome = self._archive(job)
+                    with self._lock:
+                        job.update(state="complete", phase="done", archive=outcome, updated_at=_now())
                     return
                 page = vol.get_chain_detail(job["ticker"], expiry, cursor)
                 with self._lock:
@@ -272,6 +288,32 @@ class OptionsDownloadManager:
             row["complete"] = bool(page.get("complete"))
             row["cursor"] = nxt
         job["updated_at"] = _now()
+
+    def _archive(self, job):
+        """Salva su file l'istantanea completa. Un errore NON rompe il download: torna come
+        esito dichiarato (`status: error`) nello stato, nella superficie e nel log."""
+        from bellomberg.portfolio import options_snapshots as archive
+        try:
+            with self._lock:
+                view = {key: deepcopy(job.get(key)) for key in (
+                    "ticker", "scope", "snapshot_at", "download_complete", "output_language", "spot",
+                    "spot_source", "spot_timestamp", "spot_timeframe", "spot_qualified", "spot_fallback",
+                    "spot_alignment")}
+                view["download_id"] = job["id"]
+                view["rows"] = {expiry: {"contracts": deepcopy(list(row["data"].values())),
+                                         "complete": row["complete"], "error": row["error"]}
+                                for expiry, row in job["_rows"].items()}
+            if not any(row["contracts"] for row in view["rows"].values()):
+                return {"status": "skipped", "id": None, "error": None,
+                        "note": _ui_text('nessun contratto scaricato: niente da archiviare', 'No contract downloaded: nothing to archive')}
+            surface = self.surface(job["id"])
+            return archive.save(archive.build_record(view, surface), self.archive_root)
+        except Exception as exc:
+            vol_log.warning("options_download: istantanea %s %s NON archiviata: %s: %s",
+                            job.get("ticker"), job.get("id"), type(exc).__name__, exc)
+            return {"status": "error", "id": None,
+                    "error": _ui_text(f'istantanea non archiviata su file ({type(exc).__name__}): il download resta valido in memoria, ma il confronto storico non la vedrà',
+                                      f'Snapshot not archived to file ({type(exc).__name__}): the download stays valid in memory, but historical comparison will not see it')}
 
     def _observe_spot(self, job, *, on_demand=False):
         with self._lock:
@@ -352,8 +394,11 @@ class OptionsDownloadManager:
                                      "continuation_error": row["error"]}
                             for expiry, row in job["_rows"].items()}}
             ticker, expiries, stamp = job["ticker"], list(job["expirations"]), job["snapshot_at"] or job["updated_at"]
+            # 10/10 (revisore, Opus 5.5): t_years/giorni relativi all'istantanea, non all'ora della chiamata
+            snapshot["snapshot_at"] = stamp
+            archived = deepcopy(job.get("archive"))
         out = vol.build_vol_surface(ticker, expiries=expiries, include_context=include_context, _snapshot=snapshot)
-        out.update(download_id=job_id, snapshot_at=stamp, _timestamp=stamp)
+        out.update(download_id=job_id, snapshot_at=stamp, _timestamp=stamp, archive=archived)
         return out
 
     def context(self, job_id):

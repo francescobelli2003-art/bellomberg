@@ -306,7 +306,9 @@ def test_conversione_fallita_ricordata_per_accession_e_sha(storico):
     r1 = sec_xbrl.get_financial_history("ZZFONTI")
     assert r1["ripiego_ixbrl"]["stato"] == "errore" and "0009990042" in r1["ripiego_ixbrl"]["motivo"]
     r2 = sec_xbrl.get_financial_history("ZZFONTI")
-    assert conta == {"submissions": 1, "download": 1}  # niente secondo download da 80 MB
+    # niente secondo download da 80 MB; v4 (audit di generalita' punto 5): la PRIMA lettura prova anche l'istanza
+    # XBRL del deposito (un tentativo), la seconda non scarica nulla
+    assert conta == {"submissions": 1, "download": 2}
     assert "gia' fallito" in r2["ripiego_ixbrl"]["motivo"] and "sha256" in r2["ripiego_ixbrl"]["motivo"]
 
 
@@ -436,8 +438,10 @@ B = "https://www.zzfonti.example/files/investors/"
 
 
 @pytest.mark.parametrize("nome,pagina,tipo,ammesso", [
-    ("Relazione_Finanziaria_Bilancio_30_giugno_2026.pdf", None, "semestrale", True),
-    ("ZZ_Bilancio_30_giugno_2026.pdf", None, "semestrale", True),
+    # GENERALITA' UE (Opus 5.5): con l'esercizio dell'emittente ignoto la sola data nel nome non decide
+    # (sotto, con l'esercizio al 31/12: semestrale come prima)
+    ("Relazione_Finanziaria_Bilancio_30_giugno_2026.pdf", None, "da_confermare", False),
+    ("ZZ_Bilancio_30_giugno_2026.pdf", None, "da_confermare", False),
     ("Relazione_finanziaria_annuale_30_giugno_2025.pdf", None, "annuale", True),  # esercizio a giugno, esplicito
     ("ZZ_1H_2026_Report.pdf", None, "semestrale", True),
     ("ZZ_1H_2026.pdf", None, "semestrale", False),  # nome generico: decide la prima pagina
@@ -451,6 +455,12 @@ def test_classifica_pdf_riserve_v2(nome, pagina, tipo, ammesso):
     assert (e["tipo"], e["ammesso"]) == (tipo, ammesso), e
     if tipo == "semestrale" and ammesso:
         assert e["periodo"] == "2026-06-30"
+
+
+@pytest.mark.parametrize("nome", ["Relazione_Finanziaria_Bilancio_30_giugno_2026.pdf", "ZZ_Bilancio_30_giugno_2026.pdf"])
+def test_classifica_pdf_riserve_v2_esercizio_solare_noto(nome):
+    e = classifica_pdf({"url": B + nome, "testo": nome}, chiusura_esercizio="12-31")
+    assert (e["tipo"], e["ammesso"], e["periodo"]) == ("semestrale", True, "2026-06-30"), e
 
 
 def test_tripwire_rete_ripiego_non_inghiottito():

@@ -406,7 +406,35 @@ def _cifre(n):
     return text(f"{n:,}".replace(",", "."), f"{n:,}")
 
 
-def _riga_numeri(numeri):
+def _riga_numeri(numeri, annuali=None, semestrale=None):
+    """Riga dei numeri per gli agenti. PRY-H1 v3: `annuali` (numeri di un'altra variante tenuti accanto ai
+    numeri della semestrale da PDF) e `semestrale` (semestrale da PDF senza numeri: il motivo) si dichiarano."""
+    from bellomberg.core.language import text
+    riga = _riga_numeri_base(numeri)
+    if isinstance(annuali, dict) and annuali.get("stato") == "ok":
+        riga += text(" · numeri annuali disponibili", " · annual figures available") + (
+            text(f" (variante {_una(annuali['variante'], 20)})", f" ({_una(annuali['variante'], 20)} variant)")
+            if annuali.get("variante") else "") + ": " + (_una(annuali.get("fonte"), 80) or text("fonte non dichiarata",
+                                                                                             "source not stated"))
+    if isinstance(semestrale, dict) and semestrale.get("stato") != "ok":
+        riga += text(" · semestrale PDF: n.d. (", " · half-year PDF: n/a (") + _una(
+            semestrale.get("motivo") or semestrale.get("stato"), 120) + ")"
+    return riga
+
+
+def _qualifica(v):
+    """Misura, definizione, perimetro e segno di una voce (PRY-H1 v3): mai un numero senza la sua natura."""
+    from bellomberg.core.language import text
+    parti = []
+    if v.get("misura") and v["misura"] != "riportato":
+        parti.append(_una(v["misura"], 30))
+    for k in ("definizione", "perimetro", "segno"):
+        if v.get(k):
+            parti.append(_una(v[k], 60))
+    return ("; " + "; ".join(parti)) if parti else ""
+
+
+def _riga_numeri_base(numeri):
     from bellomberg.core.language import text
     if not numeri:
         return text("numeri non disponibili: non calcolati per questo confronto",
@@ -426,7 +454,7 @@ def _riga_numeri(numeri):
     voci = " · ".join(
         f"{_una(str(v.get('voce')).replace('_', ' '), 40)} {_pct(v['delta_pct'])}"
         + f" [{periodo(v, 'dopo')} vs {periodo(v, 'prima')}; "
-        + (_una(v.get("valuta"), 20) or text("unita non dichiarata", "unit not stated")) + "]"
+        + (_una(v.get("valuta"), 20) or text("unita non dichiarata", "unit not stated")) + _qualifica(v) + "]"
         for v in numeri.get("voci") or [] if v.get("delta_pct") is not None)
     if not voci:
         return text("numeri non disponibili: nessuna voce confrontabile",
@@ -441,7 +469,13 @@ def _riga_numeri(numeri):
     # Revisione 04/10 (R7): voci non confrontabili (valute diverse, periodo mancante) dichiarate.
     # R-FONTI v2 (riserva MEDIO-2): comparativi rideterminati dal deposito piu' recente, dichiarati nella riga
     rideterminati = [r for r in numeri.get("rideterminazioni") or [] if isinstance(r, dict) and r.get("voce")]
-    if rideterminati:
+    if rideterminati and numeri.get("origine") == "pdf_semestrale":
+        coda += text(" · comparativi rideterminati nella semestrale corrente (vale la semestrale corrente, la "
+                     "semestrale precedente stampava altro): ",
+                     " · comparatives restated in the current half-year report (current report used, the previous "
+                     "half-year report printed otherwise): ") + _una(
+            ", ".join(str(r["voce"]).replace("_", " ")[:40] for r in rideterminati))
+    elif rideterminati:
         coda += text(" · rideterminati nel deposito piu' recente (vale il deposito, companyfacts diverso): ",
                      " · restated in the latest filing (filing value used, companyfacts differs): ") + _una(
             ", ".join(str(r["voce"]).replace("_", " ")[:40] for r in rideterminati))  # al piu' le 6 VOCI
@@ -673,7 +707,8 @@ def scheda_da_run(ticker, *, profilo, run, ultimo, escluso=False, freschezza, no
                      + text(f"{_cifre(quanti)} cambiamenti", f"{_cifre(quanti)} changes")
                      + f' → get_filing_changes({ticker}, {_arg_run(run)}variante="{tipo}")')
     return {"ticker": ticker, "gruppo": (0 if nuovo else 1) if cambiamenti else 2,
-            "stato": " · ".join(parti), "numeri": _riga_numeri(result.get("numeri")),
+            "stato": " · ".join(parti), "numeri": _riga_numeri(result.get("numeri"), result.get("numeri_annuali"),
+                                                               result.get("numeri_semestrale")),
             "cambiamenti": cambiamenti, "totale_cambiamenti": len(cambiamenti),
             "limite": 4 if nuovo else 2, "peso": round(sum(c["punteggio"] for c in cambiamenti), 4),
             "altra_variante": "\n".join(altre) or None, "fonte": fonte, "fresco": fresco,

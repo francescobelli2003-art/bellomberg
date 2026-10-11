@@ -94,9 +94,10 @@ def test_il_peso_decide_il_verdetto_book_caro_contro_book_a_sconto(isolato):
     sconto = ss.fundamentals_score(_port(("ZZBIG", 60), ("ZZS1", 2), ("ZZS2", 2), ("ZZS3", 2)),
                                    _val(ZZBIG=(160, 100), ZZS1=(60, 100), ZZS2=(60, 100), ZZS3=(60, 100)))
     # (60*-40 + 6*+50 troncato) / 66 = -31.8 ; (60*+50 troncato + 6*-40) / 66 = +41.8
-    assert caro["metrics"]["mos_book_pct"] == -31.8 and caro["score"] == 3
-    assert "MOLTO CARO" in caro["verdict"]
-    assert sconto["metrics"]["mos_book_pct"] == 41.8 and sconto["score"] == 0
+    # 10/10: punti continui (45 - MOS) / 40 -> (45 + 31.8) / 40 = 1.92: CARO (MOLTO CARO sotto -45)
+    assert caro["metrics"]["mos_book_pct"] == -31.8 and caro["score"] == pytest.approx(1.92)
+    assert "BOOK CARO" in caro["verdict"] and "MOLTO CARO" not in caro["verdict"]
+    assert sconto["metrics"]["mos_book_pct"] == 41.8 and sconto["score"] == pytest.approx(0.08)
     assert "A SCONTO" in sconto["verdict"]
     assert caro["metrics"]["quota_cara_pct"] == pytest.approx(90.9, abs=0.05)
 
@@ -106,8 +107,10 @@ def test_il_quinto_nome_grosso_entra_nella_media(isolato):
         _port(("ZZA", 31), ("ZZB", 31), ("ZZC", 31), ("ZZD", 31), ("ZZE", 30)),
         _val(ZZA=(130, 100), ZZB=(130, 100), ZZC=(130, 100), ZZD=(130, 100), ZZE=(20, 100)))
     assert r["metrics"]["n_valued"] == 5 and r["metrics"]["copertura_book_pct"] == 100.0
-    # (124*30 + 30*-50) / 154 = 14.4: dentro la zona neutra, non piu' "a sconto"
-    assert r["metrics"]["mos_book_pct"] == 14.4 and r["score"] == 1
+    # (124*30 + 30*-50) / 154 = 14.4: dentro la zona neutra +-15 -> EQUA; 10/10 punti continui
+    # (45 - 14.4) / 40 = 0.765
+    assert r["metrics"]["mos_book_pct"] == 14.4 and r["score"] == pytest.approx(0.765, abs=0.01)
+    assert "VALUTAZIONE EQUA" in r["verdict"]
     assert "5/5 nomi valutati, 100% del peso valutabile" in r["verdict"]
 
 
@@ -116,29 +119,43 @@ def test_un_outlier_vale_al_massimo_quanto_un_nome_troncato(isolato):
     outlier = ss.fundamentals_score(port, _val(ZZA=(1000, 100), ZZB=(80, 100), ZZC=(80, 100), ZZD=(80, 100)))
     al_tetto = ss.fundamentals_score(port, _val(ZZA=(150, 100), ZZB=(80, 100), ZZC=(80, 100), ZZD=(80, 100)))
     assert outlier["metrics"]["mos_book_pct"] == al_tetto["metrics"]["mos_book_pct"] == -2.5
-    assert outlier["score"] == al_tetto["score"] == 1
+    assert outlier["score"] == al_tetto["score"] == pytest.approx(1.19, abs=0.01)   # (45 + 2.5) / 40
     assert outlier["metrics"]["n_troncati"] == 1
     assert any("+900.0%" in str(r[1]) for r in outlier["lines"] if "troncati" in str(r[0]))
 
 
-def test_un_solo_asse_e_zona_neutra(isolato):
+def test_un_solo_asse_punti_continui(isolato):
+    # 10/10: punti continui; -6% vale (45 + 6) / 40 = 1.275, +4% vale 1.025: entrambi EQUA
     port = _port(("ZZA", 50), ("ZZB", 50))
     meno6 = ss.fundamentals_score(port, _val(ZZA=(94, 100), ZZB=(94, 100)))
     piu4 = ss.fundamentals_score(port, _val(ZZA=(104, 100), ZZB=(104, 100)))
-    assert meno6["score"] == piu4["score"] == 1 and meno6["max_score"] == 3
+    assert meno6["score"] == pytest.approx(1.275, abs=0.01) and piu4["score"] == pytest.approx(1.025, abs=0.01)
+    assert "VALUTAZIONE EQUA" in meno6["verdict"] and "VALUTAZIONE EQUA" in piu4["verdict"]
+    assert meno6["max_score"] == 3
     assert len(_punteggiate(meno6)) == 1, "un solo asse: nessun secondo conteggio dei cari"
 
 
-@pytest.mark.parametrize("fv,atteso", [(115, 0), (114.9, 1), (85.1, 1), (85, 2), (70.1, 2), (70, 3), (40, 3)])
-def test_bande_ai_confini(isolato, fv, atteso):
+# 10/10: MOS +45% -> 0 punti ... -75% -> 3 punti, lineare (core/soglie_score); MOS per nome
+# troncato a +-50%, quindi oltre -50 il punteggio resta 2.375
+@pytest.mark.parametrize("fv,atteso", [(150, 0), (145, 0), (115, 0.75), (105, 1.0), (85, 1.5),
+                                       (75, 1.75), (55, 2.25), (40, 2.375)])
+def test_punti_continui_fra_le_ancore(isolato, fv, atteso):
     r = ss.fundamentals_score(_port(("ZZA", 100)), _val(ZZA=(fv, 100)))
-    assert r["score"] == atteso, (fv, r["metrics"])
+    assert r["score"] == pytest.approx(atteso), (fv, r["metrics"])
+
+
+@pytest.mark.parametrize("fv", [115, 85, 70])
+def test_niente_scoglio_ai_vecchi_confini(isolato, fv):
+    # prima 14,9% e 15,1% (e -15/-30) davano un punto intero di differenza
+    a = ss.fundamentals_score(_port(("ZZA", 100)), _val(ZZA=(fv - 0.1, 100)))["score"]
+    b = ss.fundamentals_score(_port(("ZZA", 100)), _val(ZZA=(fv + 0.1, 100)))["score"]
+    assert abs(a - b) <= 0.03, (fv, a, b)   # 0,2 punti di MOS = 0,01 punti (+ arrotondamenti)
 
 
 def test_margine_sul_prezzo_corrente_non_su_quello_del_modello(isolato):
     # FV 120, prezzo del modello 100 (+20%), oggi 125: il margine vero e' -4%
     r = ss.fundamentals_score(_port(("ZZA", 100)), _val(ZZA=(120, 100, 125)))
-    assert r["metrics"]["mos_book_pct"] == -4.0 and r["score"] == 1
+    assert r["metrics"]["mos_book_pct"] == -4.0 and r["score"] == pytest.approx(1.225, abs=0.01)
     riga = next(v for l, v, p in r["lines"] if str(l).strip().startswith("ZZA"))
     assert "-4.0% corrente" in riga and "+20.0% al prezzo del modello" in riga
 
@@ -567,7 +584,7 @@ def test_payload_bank_senza_fair_value_base_usa_il_prezzo_osservato(isolato):
                          "observed_local_date": date.today().isoformat(), "price": 104.0,
                          "upside_base_pct": None}
     r = ss.fundamentals_score(_port(("ZZBNK", 100)), {"ZZBNK": v})
-    assert r["metrics"]["mos_book_pct"] == 25.0 and r["score"] == 0   # 130/104 - 1
+    assert r["metrics"]["mos_book_pct"] == 25.0 and r["score"] == pytest.approx(0.5)   # 130/104 - 1
 
 
 def _pos(t, prezzo, valuta="USD", stale=False, eta=30, peso=100):
@@ -581,7 +598,7 @@ def test_quota_vecchia_usa_il_prezzo_del_book_dichiarato(isolato):
     vecchio = (date.today() - timedelta(days=10)).isoformat()
     v = quota_fresca(_payload("ZZA"), 20.0, vecchio)
     r = ss.fundamentals_score({"positions": [_pos("ZZA", 150.0)]}, {"ZZA": v})
-    assert r["metrics"]["mos_book_pct"] == -20.0 and r["score"] == 2   # 120/150 - 1
+    assert r["metrics"]["mos_book_pct"] == -20.0 and r["score"] == pytest.approx(1.625, abs=0.01)   # 120/150 - 1
     riga = next(v for l, v, p in r["lines"] if str(l).strip().startswith("ZZA"))
     assert "prezzo DB position_prices, eta' 30 min" in riga, riga
     assert "[MOS su prezzo DB: ZZA]" in r["verdict"]
@@ -697,7 +714,9 @@ def test_etf_dal_file_e_un_veicolo(isolato, monkeypatch, tmp_path):
 def test_verdetto_cita_la_quota_cara_o_troncata(isolato):
     """BASSA: EQUA in media con il 30% del valutato molto caro -> il verdetto lo dice."""
     r = ss.fundamentals_score(_port(("ZZA", 30), ("ZZB", 70)), _val(ZZA=(60, 100), ZZB=(110, 100)))
-    assert r["score"] == 1 and "[cari/troncati 30% del valutato]" in r["verdict"], r["verdict"]
+    # 10/10: MOS book -5% -> (45 + 5) / 40 = 1.25 punti, EQUA
+    assert r["score"] == pytest.approx(1.25) and "VALUTAZIONE EQUA" in r["verdict"]
+    assert "[cari/troncati 30% del valutato]" in r["verdict"], r["verdict"]
     r = ss.fundamentals_score(_port(("ZZA", 20), ("ZZB", 80)), _val(ZZA=(60, 100), ZZB=(110, 100)))
     assert "cari/troncati" not in r["verdict"]
 

@@ -14,8 +14,24 @@ import {
    e' la griglia interpolata del builder, i punti sono quote MISURATE (IV del fornitore).
    ========================================================================== */
 
-export type AxisMode = 'moneyness' | 'strike';
-const H = 300, M = { l: 54, r: 18, t: 18, b: 42 };
+export type AxisMode = 'moneyness' | 'strike' | 'delta';
+
+/** Sovrapposizioni della fetta smile (v. overlays.ts): posizioni in K/S della griglia, testi gia' pronti. */
+export interface SmileMarks {
+  forward?: { m: number; text: string } | null;
+  cone?: { lo: number | null; hi: number | null; text: string } | null;
+  /** colonne toccate da un flag di arbitraggio, con le righe di lettura */
+  flags?: Map<number, string[]>;
+  /** livello piu' forte per colonna: eseguibile (forte) o indicativo (tenue) */
+  flagLevels?: Map<number, 'executable' | 'indicative'>;
+}
+/** Sovrapposizioni della fetta term: vol forward fra scadenze consecutive e utili. */
+export interface TermMarks {
+  fwd?: { from: string; to: string; d1: number; d2: number; v: number | null; arb: boolean; text: string }[];
+  earnings?: { days: number; text: string } | null;
+}
+/** altezza predefinita delle fette; le sotto-pagine la riducono per stare in una schermata */
+const H0 = 300, M = { l: 54, r: 18, t: 18, b: 42 };
 
 function useWidth<T extends HTMLElement>() {
   const ref = useRef<T>(null);
@@ -42,11 +58,14 @@ function Tooltip({ x, y, width, children }: { x: number; y: number; width: numbe
 }
 
 /* ── SMILE ───────────────────────────────────────────────────────────── */
-export function SmileChart({ model, expiry, column, onColumn, onExpiryStep, quotes, axis }: {
+export function SmileChart({ model, expiry, column, onColumn, onExpiryStep, quotes, axis, heads, marks, height }: {
   model: SurfaceModel; expiry: string | null; column: number | null;
   onColumn: (index: number) => void; onExpiryStep: (step: -1 | 1) => void;
   quotes: ObservedQuote[] | null; axis: AxisMode;
+  /** asse delta: etichette delle colonne (10ΔP … 10ΔC) */
+  heads?: string[]; marks?: SmileMarks | null; height?: number;
 }) {
+  const H = height ?? H0;
   const [box, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<{ index: number; y: number } | null>(null);
   const points = smileSeries(model, expiry);
@@ -66,7 +85,9 @@ export function SmileChart({ model, expiry, column, onColumn, onExpiryStep, quot
   const X = (m: number) => M.l + plotW * (m - lo) / ((hi - lo) || 1);
   const Y = (v: number) => M.t + plotH * (1 - (v - y0) / ((y1 - y0) || 1));
   const spot = model.spot;
-  const xLabel = (m: number) => axis === 'strike' && spot != null ? priceText(m * spot, nd()) : numText(m, 2);
+  const deltaAxis = axis === 'delta' && !!heads;
+  const xLabel = (m: number) => deltaAxis ? heads![grid.indexOf(m)] ?? '' : axis === 'strike' && spot != null ? priceText(m * spot, nd()) : numText(m, 2);
+  const atmCol = deltaAxis ? heads!.indexOf('ATMF') : -1;
   const lines = segments(points, p => p.iv).map(seg => seg.map((p, i) => `${i ? 'L' : 'M'}${X(p.m).toFixed(1)},${Y(p.iv as number).toFixed(1)}`).join(''));
   // bande dei buchi: tratti di griglia senza dato, larghi mezza cella per lato
   const step = plotW / Math.max(1, grid.length - 1);
@@ -77,7 +98,8 @@ export function SmileChart({ model, expiry, column, onColumn, onExpiryStep, quot
     const last = holes[holes.length - 1];
     if (last && Math.abs(last.x1 - x0) < 0.5) last.x1 = x1; else holes.push({ x0, x1 });
   });
-  const xTicks = grid.filter((_, i) => i % 4 === 0 || i === grid.length - 1);
+  const xTicks = deltaAxis ? grid : grid.filter((_, i) => i % 4 === 0 || i === grid.length - 1);
+  const inX = (m: number | null | undefined): m is number => finite(m) && m >= lo - 1e-9 && m <= hi + 1e-9;
   const yTicks = niceTicks(y0, y1, 5);
   const pick = (clientX: number, clientY: number) => {
     const r = box.current?.getBoundingClientRect(); if (!r) return null;
@@ -95,7 +117,7 @@ export function SmileChart({ model, expiry, column, onColumn, onExpiryStep, quot
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); onExpiryStep(e.key === 'ArrowUp' ? 1 : -1); }
   };
   return (
-    <div className="vdn-chart" ref={box} data-vol-smile tabIndex={0} role="group" aria-roledescription={tr('voldeck.n_interactive_chart')} onKeyDown={onKey}
+    <div className="vdn-chart" ref={box} data-vol-smile style={{ minHeight: H }} tabIndex={0} role="group" aria-roledescription={tr('voldeck.n_interactive_chart')} onKeyDown={onKey}
       aria-label={tr('voldeck.n_smile_aria', { e: row.expiry })}
       onPointerMove={(e: PointerEvent) => setHover(pick(e.clientX, e.clientY))} onPointerLeave={() => setHover(null)}
       onPointerDown={(e: PointerEvent) => { const p = pick(e.clientX, e.clientY); if (p) onColumn(p.index); }}>
@@ -107,13 +129,21 @@ export function SmileChart({ model, expiry, column, onColumn, onExpiryStep, quot
           <line x1={M.l} x2={W - M.r} y1={Y(v)} y2={Y(v)} className="vdn-gridline" />
           <text x={M.l - 8} y={Y(v) + 4} textAnchor="end" className="vdn-tick">{pctTick(v)}</text></g>)}
         {xTicks.map(m => <text key={m} x={X(m)} y={H - M.b + 18} textAnchor="middle" className="vdn-tick">{xLabel(m)}</text>)}
-        <text x={W - M.r} y={H - 6} textAnchor="end" className="vdn-axis-title">{axis === 'strike' ? 'Strike' : 'K/S'}</text>
-        {1 >= lo && 1 <= hi && <g>
+        <text x={W - M.r} y={H - 6} textAnchor="end" className="vdn-axis-title">{deltaAxis ? tr('voldeck.q_axis_delta_title') : axis === 'strike' ? 'Strike' : 'K/S'}</text>
+        {deltaAxis && atmCol >= 0 && <line x1={X(grid[atmCol])} x2={X(grid[atmCol])} y1={M.t} y2={M.t + plotH} className="vdn-spotline" />}
+        {!deltaAxis && 1 >= lo && 1 <= hi && <g>
           <line x1={X(1)} x2={X(1)} y1={M.t} y2={M.t + plotH} className="vdn-spotline" />
           <text x={X(1) + 4} y={M.t + 11} className="vdn-tick">{spot != null ? `Spot ${priceText(spot, nd())}` : 'K/S 1'}</text></g>}
         {column != null && grid[column] != null && <line x1={X(grid[column])} x2={X(grid[column])} y1={M.t} y2={M.t + plotH} className="vdn-sel-col" />}
+        {marks?.cone && <g data-vol-smile-cone>{[marks.cone.lo, marks.cone.hi].map((m, i) => inX(m)
+          ? <line key={i} x1={X(m)} x2={X(m)} y1={M.t} y2={M.t + plotH} className="vdn-ov-cone"><title>{marks.cone!.text}</title></line> : null)}</g>}
+        {marks?.forward && inX(marks.forward.m) && <g data-vol-smile-forward>
+          <line x1={X(marks.forward.m)} x2={X(marks.forward.m)} y1={M.t} y2={M.t + plotH} className="vdn-ov-forward"><title>{marks.forward.text}</title></line>
+          <text x={X(marks.forward.m) + 4} y={M.t + plotH - 6} className="vdn-tick vdn-ov-forward-text">F</text></g>}
         {lines.map((d, i) => <path key={i} d={d} className="vdn-line-grid" />)}
         {points.map((p, i) => p.iv != null && <circle key={i} cx={X(p.m)} cy={Y(p.iv)} r={2.6} className="vdn-node-grid" />)}
+        {marks?.flags && points.map((p, i) => p.iv != null && marks.flags!.has(i)
+          ? <circle key={'f' + i} cx={X(p.m)} cy={Y(p.iv)} r={7} className={'vdn-ov-arb ' + (marks.flagLevels?.get(i) === 'executable' ? 'is-exec' : 'is-ind')} data-vol-smile-flag={i} /> : null)}
         {drawn.map((q, i) => q.flagged
           ? <path key={'q' + i} d={`M${X(q.m).toFixed(1)},${(Y(q.iv) - 4.5).toFixed(1)}l4.5,4.5l-4.5,4.5l-4.5,-4.5Z`} className="vdn-dot-flag" />
           : <circle key={'q' + i} cx={X(q.m)} cy={Y(q.iv)} r={3.4} className={q.liquid ? 'vdn-dot-obs' : 'vdn-dot-illiquid'} />)}
@@ -123,10 +153,13 @@ export function SmileChart({ model, expiry, column, onColumn, onExpiryStep, quot
         </g>}
       </svg>}
       {hover && sel && <Tooltip x={X(sel.m)} y={hover.y} width={W}>
-        <b>K/S {numText(sel.m, 3)}{sel.strike != null ? ` · ${tr('voldeck.n_strike_eq_short')} ${priceText(sel.strike, nd())}` : ''}</b>
+        <b>{deltaAxis ? xLabel(sel.m) : <>K/S {numText(sel.m, 3)}{sel.strike != null ? ` · ${tr('voldeck.n_strike_eq_short')} ${priceText(sel.strike, nd())}` : ''}</>}</b>
         <span>{row.expiry} · {row.days}{daysUnit()}</span>
         <span>{tr('voldeck.n_iv_grid')}: <b>{sel.iv == null ? tr('voldeck.n_hole_word') : ivText(sel.iv, nd(), 2)}</b></span>
-        <QuoteLines near={near} quotes={quotes} />
+        {!deltaAxis && <QuoteLines near={near} quotes={quotes} />}
+        {marks?.flags?.get(hi2!.index)?.map((line, i) => <span key={'fl' + i} className={marks.flagLevels?.get(hi2!.index) === 'executable' ? 'vdn-tip-bad' : 'vdn-tip-muted'}>⚠ {line}</span>)}
+        {marks?.forward && <span className="vdn-tip-muted">{marks.forward.text}</span>}
+        {marks?.cone && <span className="vdn-tip-muted">{marks.cone.text}</span>}
       </Tooltip>}
       {clipped.length > 0 && <p className="vdn-legend vdn-clip-note" data-vol-smile-clipped={clipped.length}>
         {tr('voldeck.n_smile_clipped', { n: clipped.length, max: ivText(Math.max(...clipped.map(q => q.iv)), nd()) })}</p>}
@@ -144,14 +177,18 @@ export function QuoteLines({ near, quotes }: { near: ReturnType<typeof nearestQu
 }
 
 /* ── TERM STRUCTURE ──────────────────────────────────────────────────── */
-export function TermChart({ model, column, expiry, onExpiry }: {
+export function TermChart({ model, column, expiry, onExpiry, colHead, marks, height }: {
   model: SurfaceModel; column: number | null; expiry: string | null; onExpiry: (expiry: string) => void;
+  /** asse delta: nome della colonna scelta al posto di «K/S x» */
+  colHead?: string | null; marks?: TermMarks | null; height?: number;
 }) {
+  const H = height ?? H0;
   const [box, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<{ index: number; y: number } | null>(null);
   const pts = termSeries(model, column);
   if (!pts.length) return <p className="bbn-empty vdn-empty-line">{tr('voldeck.ui_n_a_at_least_2_expiries_required_16')}</p>;
-  const values = pts.flatMap(p => [p.atm, p.col]).filter(finite);
+  const fwd = marks?.fwd || [];
+  const values = [...pts.flatMap(p => [p.atm, p.col]), ...fwd.map(f => f.v)].filter(finite);
   // v2 (10/10): la larghezza misurata comanda (a 390 px il minimo fisso di 320 sbordava); 320 solo se non misurata
   const W = width > 0 ? Math.max(width, 200) : 320, plotW = W - M.l - M.r, plotH = H - M.t - M.b;
   const maxD = Math.max(...pts.map(p => p.days));
@@ -160,7 +197,7 @@ export function TermChart({ model, column, expiry, onExpiry }: {
   const pad = Math.max(0.005, (yHi - yLo) * 0.15), y0 = yLo - pad, y1 = yHi + pad;
   const Y = (v: number) => M.t + plotH * (1 - (v - y0) / ((y1 - y0) || 1));
   const path = (key: 'atm' | 'col') => segments(pts, p => p[key]).map(seg => seg.map((p, i) => `${i ? 'L' : 'M'}${X(p.days).toFixed(1)},${Y(p[key] as number).toFixed(1)}`).join(''));
-  const colLabel = column != null && model.grid[column] != null ? numText(model.grid[column], 3) : null;
+  const colLabel = colHead != null ? colHead : column != null && model.grid[column] != null ? numText(model.grid[column], 3) : null;
   const yTicks = niceTicks(y0, y1, 5);
   let lastX = -999;
   const pick = (clientX: number, clientY: number) => {
@@ -177,7 +214,7 @@ export function TermChart({ model, column, expiry, onExpiry }: {
   };
   const h = hover ? pts[hover.index] : null;
   return (
-    <div className="vdn-chart" ref={box} data-vol-term tabIndex={0} role="group" aria-roledescription={tr('voldeck.n_interactive_chart')} onKeyDown={onKey}
+    <div className="vdn-chart" ref={box} data-vol-term style={{ minHeight: H }} tabIndex={0} role="group" aria-roledescription={tr('voldeck.n_interactive_chart')} onKeyDown={onKey}
       aria-label={tr('voldeck.n_term_aria')}
       onPointerMove={(e: PointerEvent) => setHover(pick(e.clientX, e.clientY))} onPointerLeave={() => setHover(null)}
       onPointerDown={(e: PointerEvent) => { const p = pick(e.clientX, e.clientY); if (p) onExpiry(pts[p.index].expiry); }}>
@@ -195,6 +232,12 @@ export function TermChart({ model, column, expiry, onExpiry }: {
         })}
         <text x={W - M.r} y={H - 6} textAnchor="end" className="vdn-axis-title">{tr('voldeck.ui_days_to_expiry_53')} (√t)</text>
         {selIndex >= 0 && <line x1={X(pts[selIndex].days)} x2={X(pts[selIndex].days)} y1={M.t} y2={M.t + plotH} className="vdn-sel-expiry" />}
+        {fwd.map(f => f.v != null
+          ? <line key={'fw' + f.from} x1={X(f.d1)} x2={X(f.d2)} y1={Y(f.v)} y2={Y(f.v)} className="vdn-ov-fwdvol" data-vol-term-fwd={f.to}><title>{f.text}</title></line>
+          : f.arb ? <g key={'fw' + f.from} data-vol-term-fwd-arb={f.to}><line x1={X(f.d1)} x2={X(f.d2)} y1={M.t + plotH - 3} y2={M.t + plotH - 3} className="vdn-ov-arb-line" /><title>{f.text}</title></g> : null)}
+        {marks?.earnings && marks.earnings.days >= 0 && marks.earnings.days <= maxD && <g data-vol-term-earnings>
+          <line x1={X(marks.earnings.days)} x2={X(marks.earnings.days)} y1={M.t} y2={M.t + plotH} className="vdn-ov-earn"><title>{marks.earnings.text}</title></line>
+          <text x={X(marks.earnings.days) + 4} y={M.t + 11} className="vdn-tick vdn-ov-earn-text">E</text></g>}
         {path('col').map((d, i) => <path key={'c' + i} d={d} className="vdn-line-col" />)}
         {path('atm').map((d, i) => <path key={'a' + i} d={d} className="vdn-line-atm" />)}
         {pts.map(p => <g key={'n' + p.expiry}>
@@ -207,12 +250,16 @@ export function TermChart({ model, column, expiry, onExpiry }: {
       {hover && h && <Tooltip x={X(h.days)} y={hover.y} width={W}>
         <b>{h.expiry} · {h.days}{daysUnit()}</b>
         <span><i className="vdn-key is-atm" />{tr('voldeck.n_term_atm_short')}: <b>{ivText(h.atm, nd(), 2)}</b></span>
-        {colLabel && <span><i className="vdn-key is-col" />{tr('voldeck.n_term_col', { m: colLabel })}: <b>{h.col == null ? tr('voldeck.n_hole_word') : ivText(h.col, nd(), 2)}</b></span>}
+        {colLabel && <span><i className="vdn-key is-col" />{tr(colHead != null ? 'voldeck.q_term_col_delta' : 'voldeck.n_term_col', { m: colLabel })}: <b>{h.col == null ? tr('voldeck.n_hole_word') : ivText(h.col, nd(), 2)}</b></span>}
         {h.partial && <span className="vdn-tip-warn">{tr('voldeck.n_partial_badge')}</span>}
+        {fwd.filter(f => f.to === h.expiry).map(f => <span key={'tf'} className={f.arb ? 'vdn-tip-warn' : undefined}><i className="vdn-key is-fwd" />{f.text}</span>)}
+        {marks?.earnings && <span className="vdn-tip-muted">{marks.earnings.text}</span>}
       </Tooltip>}
       <div className="vdn-chart-key">
         <span><i className="vdn-key is-atm" />{tr('voldeck.n_term_atm')}</span>
-        {colLabel && <span><i className="vdn-key is-col" />{tr('voldeck.n_term_col', { m: colLabel })}</span>}
+        {colLabel && <span><i className="vdn-key is-col" />{tr(colHead != null ? 'voldeck.q_term_col_delta' : 'voldeck.n_term_col', { m: colLabel })}</span>}
+        {fwd.length > 0 && <span><i className="vdn-key is-fwd" />{tr('voldeck.q_key_fwdvol')}</span>}
+        {marks?.earnings && <span><i className="vdn-key is-earn" />{tr('voldeck.q_ov_earnings')}</span>}
       </div>
     </div>
   );

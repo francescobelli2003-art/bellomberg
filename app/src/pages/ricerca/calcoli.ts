@@ -34,7 +34,8 @@ export function rilevatoreDi(s: Segnale): Rilevatore | null {
     case 'positioning': return 'gex';
     case 'insider': return s.direction === 'bullish' ? 'cbuy' : s.direction === 'bearish' ? 'csell' : null;
     case 'factor': return v.startsWith('β') ? 'beta' : /^t\s/.test(v) ? 'alpha' : null;
-    case 'volatility': return v.endsWith('pt') ? 'vrp' : v.startsWith('±') ? 'em' : /\d/.test(v) ? 'rvol' : null;
+    // VRP: dal 10/10 il backend scrive il RAPPORTO IV/RV («1.85x»); «pt» resta per i payload vecchi
+    case 'volatility': return v.endsWith('pt') || /\dx$/.test(v) ? 'vrp' : v.startsWith('±') ? 'em' : /\d/.test(v) ? 'rvol' : null;
     default: return null;
   }
 }
@@ -104,6 +105,16 @@ function numeroFinito(x: unknown): x is number {
   return typeof x === 'number' && Number.isFinite(x);
 }
 
+/** Le soglie del verdetto dichiarate dal backend (position_doctor.thresholds, fonte unica
+ *  core/soglie_score.DOCTOR_LIMITE). Assenti o incoerenti = null: la pagina lo dice, non ne
+ *  inventa una copia. */
+export function leggiSoglieDiagnosi(x: unknown): { limite: number; piena: number } | null {
+  const o = x && typeof x === 'object' && !Array.isArray(x) ? x as Record<string, unknown> : null;
+  if (!o || !numeroFinito(o.hold_borderline_abs) || !numeroFinito(o.full_recommendation_abs)) return null;
+  const limite = o.hold_borderline_abs, piena = o.full_recommendation_abs;
+  return limite > 0 && piena >= limite ? { limite, piena } : null;
+}
+
 /** La risposta di GET /signals/position_doctor/{ticker} → lo stato del box diagnosi.
  *  Niente valori di ripiego zitti: un `{"error"}` è un guasto col SUO motivo, un verdetto
  *  mancante si dichiara n.d., un conteggio non numerico resta null (non 0). */
@@ -117,6 +128,7 @@ export function leggiDiagnosi(p: unknown, ticker: string): Diagnosi {
     verdetto: typeof o.verdict === 'string' && o.verdict.trim() ? o.verdict : t('edge.diagVerdictNd'),
     nota: typeof o.verdict_nota === 'string' ? o.verdict_nota : '',
     nSegnali: numeroFinito(o.n_signals) ? o.n_signals : null,
+    soglie: leggiSoglieDiagnosi(o.thresholds),
     alle: oraIt(typeof o._timestamp === 'string' ? o._timestamp : ''),
   };
 }

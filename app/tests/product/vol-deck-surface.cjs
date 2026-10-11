@@ -119,7 +119,7 @@ const SRC = require('node:path').join(__dirname, '../../src');
 const internals = (() => {
   const fs = require('node:fs'), path = require('node:path'), ts = require('typescript');
   const filename = path.join(SRC, 'pages/VolSurfacePage.tsx');
-  const code = fs.readFileSync(filename, 'utf8') + '\nexport const __internals = { SkewTable, IvAltimeter, GexProfile };\n';
+  const code = fs.readFileSync(filename, 'utf8') + '\nexport const __internals = { IvAltimeter, GexProfile };\n';
   const js = ts.transpileModule(code, { fileName: filename, compilerOptions: { module: ts.ModuleKind.CommonJS,
     target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
   const resolve = base => ['', '.ts', '.tsx', '/index.ts', '/index.tsx'].map(e => base + e).find(f => fs.existsSync(f) && fs.statSync(f).isFile());
@@ -130,15 +130,10 @@ const internals = (() => {
   return holder.exports.__internals;
 })();
 
-test('term/skew table: a missing ATM IV is n/a with no bar, never «0.0%»', () => {
-  languages.impostaLinguaCorrente('en');
-  const html = renderToStaticMarkup(React.createElement(internals.SkewTable, { term: [
-    { expiry: '2035-01-10', days: 10, atm_iv: null, rr25: null, bf25: null, pc_oi_ratio: null },
-    { expiry: '2035-02-10', days: 40, atm_iv: 0.25, rr25: -0.02, bf25: 0.004, pc_oi_ratio: 1.2 }] }));
-  assert.ok(!html.includes('0.0%'), html);
-  assert.ok(html.includes('25.0%'));
-  assert.equal(html.split('n/a').length - 1, 4, 'ATM, RR, BF and P/C of the first row are n/a: ' + html);
-  assert.equal(html.split('vdn-hole-chip').length - 1, 1, 'the missing ATM draws a hole, not a zero bar');
+// 10/10 (review): la tabella RR/BF del builder e' stata tolta (un solo RR25 in pagina, quello della libreria)
+test('the builder RR/BF table is gone: one RR25 on the page', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(SRC, 'pages/VolSurfacePage.tsx'), 'utf8');
+  assert.ok(!src.includes('function SkewTable') && !src.includes("'n_m_rr25'"), 'no builder RR25 table nor its method line');
 });
 
 test('IV rank: a null percentile is declared, not drawn as 0; GEX put OI missing is n/a', () => {
@@ -146,7 +141,7 @@ test('IV rank: a null percentile is declared, not drawn as 0; GEX put OI missing
   const rank = renderToStaticMarkup(React.createElement(internals.IvAltimeter, { ctx: { iv_percentile: null, error: null } }));
   assert.ok(rank.includes('IV percentile n/a'), rank); assert.ok(!rank.includes('>0<'), rank);
   const ok = renderToStaticMarkup(React.createElement(internals.IvAltimeter, { ctx: { iv_percentile: 42, iv_front_current: null, iv_min: 0.18, iv_max: 0.4, n_obs: 90, history_from: '2026-05-01' } }));
-  assert.ok(ok.includes('Secondary: front ATM n/a'), 'a missing stored front ATM is n/a and secondary: ' + ok);
+  assert.ok(!ok.includes('front ATM'), 'no backend front ATM next to the rank: the page has one ATM, the library ATMF (review 2): ' + ok);
   assert.ok(ok.includes('30-day IV n/a'), 'the rank is read next to its 30-day IV, n/a when absent: ' + ok);
   const full = renderToStaticMarkup(React.createElement(internals.IvAltimeter, { ctx: { iv_percentile: 42, iv_30d_current: 0.215, iv_min: 0.18, iv_max: 0.4, n_obs: 20, young: true, history_from: '2026-05-01' } }));
   assert.ok(full.includes('30-day IV 21.5%'), full);
@@ -603,4 +598,360 @@ test('ALTA-1: context comes from the job snapshot route; without a download it i
   assert.equal(fresh.resets, 1, 'quotes of another snapshot are cleared');
   const words = translate.t('voldeck.n_ctx_from_new', { a: vd.nyTime('2026-10-09T20:15:00+00:00', true).text, b: vd.nyTime('2026-10-09T18:00:00+00:00', true).text });
   assert.equal(words, 'New surface of 16:15 New York, download quotes of 14:00 New York: different snapshots, measured quotes cleared.');
+});
+
+/* ===========================================================================
+   Vol Deck «quant» (10/10/2026, Opus 5.5): CABLAGGIO payload → lib/vol-quant → numero mostrato.
+   Oracoli scritti qui: il forward della chain sintetica e' costruito per parita' esatta (F letterale),
+   la vista confronta il numero a schermo con la libreria chiamata DIRETTAMENTE sugli stessi input.
+   =========================================================================== */
+const VQ = load('lib/vol-quant.ts');
+const QUANT = load('pages/voldeck/quant.ts');
+const QTEXT = load('pages/voldeck/quantText.ts');
+const OVER = load('pages/voldeck/overlays.ts');
+const SNAPS = load('lib/vol-snapshots.ts');
+const QGRID = load('pages/voldeck/IvGrid.tsx').default;
+const SKEWV = load('pages/voldeck/SkewView.tsx');
+const QUALV = load('pages/voldeck/QualityView.tsx');
+const TERMV = load('pages/voldeck/TermView.tsx').default;
+const S3Q = load('pages/voldeck/Surface3D.tsx');
+const quiet = render => { const prev = console.error; console.error = () => {}; try { return render(); } finally { console.error = prev; } };
+
+const QGRID_M = [0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1, 1.15, 1.2];
+const QEXP = [{ e: '2035-02-01', d: 30, atm: 0.2, F: 100.3 }, { e: '2035-03-03', d: 60, atm: 0.21, F: 100.7 }, { e: '2035-04-02', d: 90, atm: 0.22, F: 101.0 }];
+const QR = 0.04;
+const smileIv = (m, atm) => atm - 0.1 * Math.log(m) + 0.3 * Math.log(m) ** 2;
+/** t_years del builder (fino alla chiusura di New York) DIVERSO da days/365: l'oracolo usa T, mai i giorni (review N2) */
+const TY = x => (x.d + 0.3) / 365;
+/** con una data utili, le scadenze DOPO portano la varianza d'evento di una mossa del 4% (griglia E chain) */
+const evOf = (x, earnings, premium) => (v, T) => earnings && premium && x.e > earnings ? Math.sqrt(v * v + 0.04 ** 2 / T) : v;
+/** payload del builder; `bend` abbassa l'ala destra della 60 g (calendario voluto); una fetta a 1 giorno che il modello
+ *  esclude (0-1 DTE) e che non deve entrare in nessun calcolo (review N11) */
+const qPayload = ({ bend = 1, earnings = null, premium = true } = {}) => ({ ticker: 'SYNQ', spot_est: 100, snapshot_at: '2035-01-02T21:00:00Z', moneyness_grid: QGRID_M,
+  next_earnings: earnings,
+  slices: [{ expiry: '2035-01-03', days: 1, t_years: 1.3 / 365, atm_iv: 0.5, iv_grid: QGRID_M.map(m => 0.9 - 0.4 * m) },
+    ...QEXP.map(x => { const ev = evOf(x, earnings, premium); return { expiry: x.e, days: x.d, t_years: TY(x), atm_iv: ev(x.atm, TY(x)),
+    iv_grid: QGRID_M.map(m => Number((ev(smileIv(m, x.atm), TY(x)) * (x.d === 60 && m >= 1.1 ? bend : 1)).toFixed(6))) }; })] });
+/** Black-76 scritto qui (Abramowitz-Stegun 7.1.26 per N, errore < 2e-7): prezzi senza arbitraggio */
+const qN = x => { const t = 1 / (1 + 0.3275911 * Math.abs(x) / Math.SQRT2), y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x / 2);
+  return x >= 0 ? (1 + y) / 2 : (1 - y) / 2; };
+const qPut = (F, K, T, v) => { const s = v * Math.sqrt(T), d1 = (Math.log(F / K) + s * s / 2) / s; return Math.exp(-QR * T) * (K * qN(-(d1 - s)) - F * qN(-d1)); };
+/** chain a parita' ESATTA: C − P = e^{−rT}(F − K) sui mid → il forward della parita' grezza e' F (oracolo letterale) */
+const qChain = (x, { earnings = null, premium = true } = {}) => {
+  const T = TY(x), out = [], ev = evOf(x, earnings, premium);
+  for (let K = 80; K <= 120; K += 5) {
+    const iv = ev(smileIv(K / 100, x.atm), T);
+    const put = qPut(x.F, K, T, iv), call = put + Math.exp(-QR * T) * (x.F - K);
+    for (const [type, mid] of [['put', put], ['call', call]]) out.push({ type, strike: K, expiry: x.e, bid: mid - 0.02, ask: mid + 0.02, mid,
+      iv, oi: 50, volume: 5, multiplier: 100, adjusted: false, quality: [], contract: null, quote_timestamp: null });
+  }
+  return out;
+};
+const qChains = (opts = {}) => Object.fromEntries(QEXP.map(x => [x.e, { status: 'ok', chain: qChain(x, opts) }]));
+const qPrev = () => ({ ticker: 'SYNQ', at: '2035-01-01T21:00:00Z', downloadId: 'prev', kind: 'download_snapshot', snapshot_at: '2035-01-01T21:00:00Z',
+  spot_est: 99.5, moneyness_grid: QGRID_M, slices: QEXP.map(x => ({ expiry: x.e, days: x.d + 1, t_years: TY(x) + 1 / 365, atm_iv: x.atm - 0.01,
+    iv_grid: QGRID_M.map(m => smileIv(m, x.atm) - 0.01 - 0.004 * (m - 1)) })) });
+// DGS3MO e' in percento bond-equivalent: il percento che da' esattamente r = QR continuo
+const QPCT = 200 * (Math.exp(QR / 2) - 1);
+const qBuild = (opts = {}, { previous = null, rate = { value: QPCT / 100, percent: QPCT, status: 'solid', date: '2035-01-01', source: 'FRED DGS3MO', error: null }, chains = qChains(opts) } = {}) => {
+  const data = qPayload(opts), model = vd.surfaceModel(data);
+  return { data, model, q: QUANT.volQuant({ data, model, chains, rate, previous }) };
+};
+/** solo le fette che il modello disegna (>= 2 giorni) */
+const qVisible = data => ({ ...data, slices: data.slices.filter(x => x.days >= 2) });
+/** la libreria chiamata DIRETTAMENTE sugli stessi input (non attraverso quant.ts) */
+const libDirect = (data, opts = {}) => {
+  const vis = qVisible(data);
+  const surface = VQ.surfaceFromBuilder(vis);
+  const fwd = VQ.impliedForward(QEXP.map(x => ({ expiry: x.e, T: TY(x), r: QR, contracts: qChain(x, opts), spot: 100 })));
+  const observed = VQ.surfaceFromChains(QEXP.map(x => ({ expiry: x.e, T: TY(x), contracts: qChain(x, opts) })), fwd, { asOf: data.snapshot_at, spot: 100, r: QR });
+  const grid = VQ.deltaGrid(observed, fwd);
+  // un solo ATM: l'ATMF della griglia delta (termine, vol forward, utili, cono)
+  const term = QEXP.map(x => ({ expiry: x.e, T: TY(x), iv: grid.rows.find(r => r.expiry === x.e).cells.ATMF.iv }));
+  return { vis, surface, fwd, observed, grid, term };
+};
+
+test('quant wiring: forward from parity, delta grid and OVDV table show exactly the library numbers', () => {
+  languages.impostaLinguaCorrente('en');
+  const { data, model, q } = qBuild();
+  assert.ok(Math.abs(q.r - QR) < 1e-12, 'DGS3MO percent bond-equivalent → continuous decimal r');
+  const lib = libDirect(data), skew = VQ.skewMetrics(lib.grid);
+  QEXP.forEach(x => {
+    assert.ok(Math.abs(q.forwards[x.e].rawForward - x.F) < 1e-9, `raw parity forward ${x.e}: ${q.forwards[x.e].rawForward} vs ${x.F} (oracle)`);
+    assert.equal(q.forwardOf(x.e).F, lib.fwd[x.e].forward, 'de-americanised forward = library');
+  });
+  assert.deepEqual(plain(q.deltaHeads), ['10ΔP', '25ΔP', 'ATMF', '25ΔC', '10ΔC']);
+  q.deltaModel.rows.forEach((row, j) => row.iv.forEach((v, i) => assert.equal(v, lib.grid.rows[j].cells[lib.grid.columns[i]].iv, `delta cell ${j},${i}`)));
+  // griglia in delta: intestazioni e celle a schermo
+  const grid = renderToStaticMarkup(React.createElement(QGRID, { model: q.deltaModel, axis: 'delta', expiry: QEXP[1].e, column: 2, onPick() {}, onExpiry() {}, onColumn() {},
+    extras: { heads: q.deltaHeads, cellLabel: SKEWV.deltaCellLabel(q, model) } }));
+  for (const h of q.deltaHeads) assert.ok(grid.includes(`>${h}</button>`), 'delta header ' + h);
+  const atm60 = lib.grid.rows[1].cells.ATMF.iv;
+  assert.ok(grid.includes(`>${vd.numText(atm60 * 100, 1)}</td>`), 'ATMF 60d cell shows the library value ' + atm60);
+  // tabella OVDV: ATM, RR25, BF25, RR10, BF10, skew normalizzato della riga 60 g
+  const table = renderToStaticMarkup(React.createElement(SKEWV.OvdvTable, { q, model, expiry: null, onExpiry() {} }));
+  const row60 = table.split('data-vol-skew-row="2035-03-03"')[1].split('</tr>')[0];
+  for (const v of [vd.ivText(skew[1].atmf, '', 1), QTEXT.ptText(skew[1].rr25), QTEXT.ptText(skew[1].bf25), QTEXT.ptText(skew[1].rr10),
+    QTEXT.ptText(skew[1].bf10), QTEXT.ratioText(skew[1].skewNorm25)]) assert.ok(row60.includes(`>${v}</td>`), `OVDV shows ${v}: ${row60}`);
+  // il forward con la sua qualita' (coppie e dispersione dei candidati della parita')
+  const fr = q.forwards['2035-03-03'];
+  assert.ok(row60.includes(`>${vd.priceText(fr.forward, '')}<small> ±${vd.numText(fr.dispersionRel * 100, 3)}%</small>`), 'forward and its dispersion: ' + row60);
+  assert.ok(row60.includes('de-americanised (raw F ' + vd.numText(fr.rawForward, 2)), 'raw forward and de-americanisation residual declared: ' + row60);
+  assert.ok(row60.includes(`${fr.pairs.length} call/put pairs`), 'pairs used are declared');
+  assert.ok(skew[1].rr25 < 0, 'synthetic put skew: RR25 negative');
+});
+
+test('quant wiring: delta axis in the 3D uses the delta model, delta ticks and the library strike in the hover', () => {
+  languages.impostaLinguaCorrente('en');
+  const { model, q } = qBuild();
+  const palette = { text: '#000', muted: '#555', line: '#ddd', accent: '#00f', violet: '#70f', warn: '#a50', card: '#fff', scale: S3Q.SCALE_VOL };
+  const label = SKEWV.deltaCellLabel(q, model);
+  const fig = S3Q.surfaceFigure(q.deltaModel, { axis: 'delta', expiry: QEXP[0].e, column: 2, palette, labels: { na: 'n/a', d: 'd', ivGrid: 'IV grid', strikeEq: 'K', hole: 'hole', partial: 'p' },
+    xAxis: { title: 'Delta (forward)', ticktext: q.deltaHeads, cellLabel: label } });
+  assert.deepEqual(plain(fig.layout.scene.xaxis.ticktext), q.deltaHeads);
+  assert.deepEqual(plain(fig.layout.scene.xaxis.tickvals), [0, 1, 2, 3, 4]);
+  const mesh = fig.traces[0];
+  assert.ok(mesh.x.every(x => [0, 1, 2, 3, 4].includes(x)), 'delta model columns on x');
+  const strike25c = q.delta.rows[0].cells['25C'].strike;
+  assert.ok(mesh.text.some(t => t.includes('25ΔC · K ' + vd.priceText(strike25c, 'n/a'))), 'hover carries the library strike at 25ΔC');
+  // sullo stesso modello K/S l'asse resta quello di prima (nessun xAxis = nessuna tacca forzata)
+  const ks = S3Q.surfaceFigure(model, { axis: 'moneyness', expiry: null, column: null, palette, labels: { na: 'n/a', d: 'd' } });
+  assert.equal(ks.layout.scene.xaxis.ticktext, undefined);
+});
+
+test('quant wiring: ΔIV with a previous download shows the library diff; without one it is declared n/a, never a fallback', () => {
+  languages.impostaLinguaCorrente('it');
+  const previous = qPrev();
+  const { data, model, q } = qBuild({}, { previous });
+  const vis = qVisible(data), T = vis.slices.map(s => s.t_years * 365);
+  const lib = VQ.surfaceDiff(VQ.moneynessSurfaceFromBuilder(vis), VQ.moneynessSurfaceFromBuilder(previous), { tenorsDays: T });
+  assert.equal(q.diffRange, Math.max(...lib.rows.flatMap(r => r.diff).filter(v => v != null).map(Math.abs)), 'scale = the largest |ΔIV| (review N10)');
+  model.rows.forEach((row, j) => row.iv.forEach((_, i) => assert.equal(q.diffCells[j][i], lib.rows[j].diff[i], `diff ${j},${i}`)));
+  assert.ok(q.diffCells.flat().some(v => v != null), 'some cells are comparable');
+  assert.equal(q.diff.axis, 'K/S', 'previous without forwards: spot K/S, declared');
+  // anche col precedente che porta i forward il ΔIV resta sulle colonne K/S disegnate (review: mai un K/F su colonne K/S)
+  const prevF = { ...previous, forwards: Object.fromEntries(QEXP.map(x => [x.e, x.F - 0.4])) };
+  const kf = qBuild({}, { previous: prevF });
+  const libKF = VQ.surfaceDiff(VQ.moneynessSurfaceFromBuilder(vis), VQ.moneynessSurfaceFromBuilder(prevF), { tenorsDays: T });
+  assert.equal(kf.q.diff.axis, 'K/S');
+  model.rows.forEach((row, j) => row.iv.forEach((_, i) => {
+    assert.equal(kf.q.diffCells[j][i], libKF.rows[j].diff[i], `K/S diff ${j},${i}`);
+    assert.equal(kf.q.diffSlide[j][i], libKF.rows[j].skewSlide[i], `skew slide ${j},${i}`);
+  }));
+  const line = QUALV.diffLineOf(kf.q)(1, 4);
+  assert.ok(/skew|scivolamento/.test(line) || line.includes('n.d.'), 'the cell reading names the skew slide: ' + line);
+  const grid = renderToStaticMarkup(React.createElement(QGRID, { model, axis: 'moneyness', expiry: null, column: null, onPick() {}, onExpiry() {}, onColumn() {},
+    extras: { diff: { cells: q.diffCells, range: q.diffRange, line: QUALV.diffLineOf(q) } } }));
+  const shown = [...grid.matchAll(/data-vol-grid-diff="([^"]+)"/g)].map(m => m[1]);
+  assert.equal(shown.length, model.filledCells);
+  assert.deepEqual(shown.filter(v => v !== 'na').map(Number), q.diffCells.flat().filter((v, n) => model.rows.flatMap(r => r.iv)[n] != null && v != null));
+  // senza download precedente: nessun diff, la vista lo dice, il 3D resta grigio senza scala
+  const none = qBuild().q;
+  assert.equal(none.diff, null); assert.equal(none.diffCells, null);
+  const view = renderToStaticMarkup(React.createElement(QUALV.default, { q: none, model, expiry: null, column: null, onPick() {}, onExpiry() {}, onColumn() {},
+    diff: { nowText: 'ora', prevText: null, persisted: true }, onShowDiff() {} }));
+  assert.ok(view.includes('n.d.: nessun download precedente'), view);
+  const palette = { text: '#000', muted: '#555', line: '#ddd', accent: '#00f', violet: '#70f', warn: '#a50', card: '#fff', scale: S3Q.SCALE_VOL };
+  const fig = S3Q.surfaceFigure(model, { axis: 'moneyness', expiry: null, column: null, palette, labels: { na: 'n.d.', d: 'g' },
+    color: { kind: 'diff', cells: model.rows.map(r => r.iv.map(() => null)), range: null, title: 'ΔIV', line: QUALV.diffLineOf(none) } });
+  assert.ok(fig.traces[0].vertexcolor.every(c => c === S3Q.DIFF_NA), 'no previous: every vertex grey');
+  assert.ok(!fig.traces.some(t => t.meta === 'diff-scale'), 'no previous: no diverging scale');
+  assert.equal(fig.traces[0].intensity, undefined, 'the IV level is not used as a silent stand-in');
+});
+
+test('snapshot store: latest strictly earlier save of ANOTHER download; versioned schema; corrupt data never crashes; limit and clear', () => {
+  const store = new Map();
+  globalThis.localStorage = { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
+  try {
+    SNAPS.__resetSnapshotMemory();
+    const at = (d, id, extra = {}) => ({ ...qPayload(), snapshot_at: `2035-01-0${d}T21:00:00Z`, download_id: id, ...extra });
+    const a = at(1, 'a'), b = at(2, 'b'), c = at(3, 'c');
+    assert.equal(SNAPS.previousSnapshot('SYNQ', b.snapshot_at), null, 'nothing saved yet');
+    assert.deepEqual(plain(SNAPS.saveSnapshot(a, 'SYNQ')), { saved: true, persisted: true });
+    SNAPS.saveSnapshot(c, 'SYNQ'); SNAPS.saveSnapshot(b, 'SYNQ');
+    assert.equal(SNAPS.previousSnapshot('SYNQ', c.snapshot_at).at, b.snapshot_at, 'the LATEST earlier one, not the oldest (review N7)');
+    assert.equal(SNAPS.previousSnapshot('SYNQ', a.snapshot_at), null, 'a snapshot is never its own previous');
+    assert.equal(SNAPS.previousSnapshot('OTHER', b.snapshot_at), null, 'another underlying never counts');
+    // lo stesso download riletto piu' tardi non e' un precedente
+    SNAPS.saveSnapshot(at(4, 'c'), 'SYNQ');
+    assert.equal(SNAPS.previousSnapshot('SYNQ', '2035-01-05T21:00:00Z', 'c').at, b.snapshot_at, 'the same download id is excluded (review 5)');
+    assert.equal(SNAPS.saveSnapshot({ ...b, snapshot_at: null, _timestamp: null }, 'SYNQ').saved, false, 'no time, no save');
+    assert.equal(SNAPS.saveSnapshot({ ...b, snapshot_at: '2035-01-02T21:00:00' }, 'SYNQ').saved, false, 'a time without zone is not an instant');
+    assert.equal(SNAPS.previousSnapshot('SYNQ', c.snapshot_at).slices.find(x => x.expiry === '2035-03-03').t_years, TY(QEXP[1]), 'the saved copy keeps t_years');
+    // forward salvati: un nuovo salvataggio senza forward non li cancella (review N14)
+    SNAPS.saveSnapshot(b, 'SYNQ', { '2035-03-03': 100.7 });
+    SNAPS.saveSnapshot(b, 'SYNQ');
+    assert.deepEqual(plain(SNAPS.previousSnapshot('SYNQ', c.snapshot_at).forwards), { '2035-03-03': 100.7 });
+    // stesso contenuto = istantanea identica
+    assert.equal(SNAPS.identicalContent(c, SNAPS.previousSnapshot('SYNQ', c.snapshot_at)), true, 'same grid and spot: identical');
+    assert.equal(SNAPS.identicalContent({ ...c, spot_est: 101 }, SNAPS.previousSnapshot('SYNQ', c.snapshot_at)), false);
+    // schema dentro i dati
+    assert.equal(JSON.parse(store.get(SNAPS.SNAPSHOT_KEY)).v, SNAPS.SCHEMA_VERSION);
+    // dati corrotti: nessun crash, voci scartate e contate (review 2)
+    for (const bad of ['{not json', JSON.stringify([1, 2]), JSON.stringify({ v: 1, tickers: {} }),
+      JSON.stringify({ v: 2, tickers: { SYNQ: [{ ticker: 'SYNQ', at: 'ieri' }, null, 7] , X: 'boh' } })]) {
+      store.set(SNAPS.SNAPSHOT_KEY, bad); SNAPS.__resetSnapshotMemory();
+      assert.equal(SNAPS.previousSnapshot('SYNQ', c.snapshot_at), null, 'corrupt archive: no previous, no crash: ' + bad);
+      assert.ok(SNAPS.snapshotStoreStatus().discarded >= 1, 'discarded entries are counted: ' + bad);
+      assert.equal(SNAPS.saveSnapshot(c, 'SYNQ').saved, true, 'saving over a corrupt archive works');
+    }
+    // limite globale: i sottostanti visti da piu' tempo escono per primi
+    SNAPS.clearSnapshots();
+    for (let i = 0; i < 12; i++) for (let d = 1; d <= 4; d++) SNAPS.saveSnapshot({ ...at(d, 'x' + i + d), ticker: 'T' + String(i).padStart(2, '0'),
+      snapshot_at: `2035-0${1 + Math.floor(i / 4)}-0${d}T${String(10 + (i % 4)).padStart(2, '0')}:00:00Z` }, 'T' + i);
+    const st = SNAPS.snapshotStoreStatus();
+    assert.ok(st.total <= SNAPS.MAX_TOTAL && st.total > 0, 'global limit: ' + st.total);
+    assert.equal(SNAPS.previousSnapshot('T00', '2036-01-01T00:00:00Z'), null, 'the oldest underlying was evicted first');
+    assert.ok(SNAPS.previousSnapshot('T11', '2036-01-01T00:00:00Z'), 'the newest stays');
+    assert.equal(SNAPS.clearSnapshots(), true);
+    assert.equal(SNAPS.snapshotStoreStatus().total, 0, 'clear empties the archive');
+  } finally { delete globalThis.localStorage; SNAPS.__resetSnapshotMemory(); }
+});
+
+test('quant wiring: arbitrage flags reach the grid, the 3D ring and the quality table in two levels, executable and indicative', () => {
+  languages.impostaLinguaCorrente('en');
+  // chain con le quote a 60 g, K = 110, gonfiate di 1: butterfly ESEGUIBILE sulle quote osservate, sulle stesse
+  // celle dell'ala destra segnata dal calendario indicativo (una cella con due livelli: vince l'eseguibile)
+  const bumped = qChains();
+  bumped['2035-03-03'].chain = bumped['2035-03-03'].chain.map(c => c.strike === 110 ? { ...c, bid: c.bid + 1, ask: c.ask + 1, mid: c.mid + 1 } : c);
+  const { data, model, q } = qBuild({ bend: 0.5 }, { chains: bumped });
+  const lib = VQ.arbitrageChecks(VQ.surfaceFromBuilder(qVisible(data)), libDirect(data).fwd);
+  assert.equal(q.flags.filter(f => f.set === 'grid').length, lib.flags.length);
+  // la fetta a 1 giorno (esclusa dal modello) non entra nei controlli, nemmeno come «saltata» (review N11)
+  assert.ok([...q.arb.checked.expiries, ...q.arb.skipped.map(x => x.expiry)].every(e => model.rows.some(r => r.expiry === e)), JSON.stringify(q.arb.skipped));
+  const cal = q.flags.find(f => f.flag.kind === 'calendar');
+  assert.ok(cal, 'the bent wing is a calendar flag: ' + JSON.stringify(lib.flags.map(f => f.kind)));
+  assert.ok(cal.cells.length > 0 && cal.cells.every(c => model.grid[c.col] >= 1.05), 'the calendar mark sits on the right wing');
+  // livelli: il calendario e' di modello = indicativo; la quota gonfiata e' un arbitraggio eseguibile
+  assert.equal(cal.level, 'indicative');
+  const exec = q.flags.filter(f => f.level === 'executable');
+  assert.ok(exec.length >= 1 && exec.every(f => f.flag.test === 'executable' && f.set === 'observed'), 'executable flags come from bid/ask: ' + JSON.stringify(q.flags.map(f => [f.level, f.flag.kind, f.flag.test])));
+  assert.equal(q.flags[0].level, 'executable', 'executable flags are listed first');
+  assert.equal(q.nExecutable, exec.length); assert.equal(q.nIndicative, q.flags.length - exec.length);
+  // libreria v3: `indicative` marca i segnali di modello su nodi quotati; il livello eseguibile resta solo del test su bid/ask
+  assert.equal(QUANT.levelOf({ ...exec[0].flag, indicative: true }), 'indicative', 'caution wins');
+  assert.equal(QUANT.levelOf({ ...cal.flag, indicative: false }), 'indicative', 'a model calendar is never executable');
+  assert.ok(q.flags.filter(f => f.flag.indicative).every(f => f.level === 'indicative' && QTEXT.flagLine(f).includes('quotes exist')));
+  const flagMap = new Map([...q.cellFlags].map(([k, ids]) => [k, ids.map(i => QTEXT.flagLine(q.flags[i]))]));
+  const grid = renderToStaticMarkup(React.createElement(QGRID, { model, axis: 'moneyness', expiry: null, column: null, onPick() {}, onExpiry() {}, onColumn() {},
+    extras: { flags: flagMap, flagLevel: q.cellLevel } }));
+  const shownCells = [...q.cellFlags.keys()].filter(k => { const [e, c] = k.split('|'); return model.rows.find(r => r.expiry === e).iv[+c] != null; });
+  assert.equal((grid.match(/data-vol-grid-flag=/g) || []).length, shownCells.length);
+  assert.equal((grid.match(/data-vol-grid-flag-level="executable"/g) || []).length, shownCells.filter(k => q.cellLevel.get(k) === 'executable').length);
+  const nExecCells = shownCells.filter(k => q.cellLevel.get(k) === 'executable').length;
+  assert.ok(nExecCells >= 1 && nExecCells < shownCells.length, 'both levels on the grid');
+  assert.equal((grid.match(/is-flag-exec/g) || []).length, nExecCells, 'strong mark = executable cells');
+  assert.equal((grid.match(/is-flag-ind/g) || []).length, shownCells.length - nExecCells, 'faint mark = indicative cells');
+  for (const [k, ids] of q.cellFlags) assert.equal(q.cellLevel.get(k), ids.some(i => q.flags[i].level === 'executable') ? 'executable' : 'indicative', 'executable wins in ' + k);
+  assert.equal([...q.cellFlags.values()].reduce((a, ids) => a + ids.length, 0), q.flags.reduce((a, f) => a + f.cells.length, 0));
+  assert.ok(q.flags.every(f => f.cells.length <= f.flag.expiries.length), 'one mark per flag and expiry, never a row of rings');
+  // alla giunzione put/call anche un test su bid/ask resta indicativo
+  assert.equal(QUANT.levelOf({ ...exec[0].flag, origin: 'junction' }), 'indicative');
+  assert.ok(grid.includes('Calendar'), 'the cell title names the type');
+  // in ogni lettura «arbitraggio» porta il livello accanto
+  for (const f of q.flags) assert.ok(QTEXT.flagLine(f).startsWith(f.level === 'executable' ? 'Executable arbitrage (bid/ask)' : 'Indicative: not executable within the spread'), QTEXT.flagLine(f));
+  const traces = OVER.overlayTraces(model, q, { forward: false, cone: false, earnings: false, arb: true }, { forward: '#a', cone: '#b', earnings: '#c', arb: '#d', arbInd: '#f', muted: '#e' }, null, false)(
+    { xs: model.grid, ys: model.rows.map(r => Math.sqrt(r.days)), floor: 10, zTop: 30, strikeAxis: false });
+  const ringE = traces.find(t => t.meta === 'ov-arb-exec'), ringI = traces.find(t => t.meta === 'ov-arb-ind');
+  assert.ok(ringE && ringI, '3D: two ring traces');
+  assert.equal(ringE.x.length + ringI.x.length, shownCells.length, '3D: one ring per flagged cell');
+  assert.equal(ringE.x.length, shownCells.filter(k => q.cellLevel.get(k) === 'executable').length);
+  assert.ok(ringE.marker.size > ringI.marker.size && ringI.marker.opacity < 1 && ringE.marker.color === '#d' && ringI.marker.color === '#f', 'executable strong, indicative faint');
+  const view = renderToStaticMarkup(React.createElement(QUALV.default, { q, model, expiry: null, column: null, onPick() {}, onExpiry() {}, onColumn() {},
+    diff: { nowText: 'now', prevText: null, persisted: true }, onShowDiff() {} }));
+  assert.equal((view.match(/data-vol-flag-row=/g) || []).length, q.flags.length);
+  assert.equal((view.match(/data-vol-flag-level="executable"/g) || []).length, q.nExecutable);
+  assert.ok(view.includes(`data-vol-flags-exec="true">${q.nExecutable}<`) && view.includes(`data-vol-flags-ind="true">${q.nIndicative}<`), 'the two levels are counted apart');
+  assert.equal((view.match(/class="fat-pill is-(bad|ind)"/g) || []).length, q.flags.length, 'every row carries its level');
+  assert.ok(view.includes(QTEXT.magnitudeText(cal.flag, cal.level)) && view.includes(QTEXT.originText(cal.flag.origin)), 'size and origin shown');
+  for (const f of q.flags) if (f.level === 'indicative') assert.ok(!QTEXT.flagLine(f).includes('executable arbitrage of') && !QTEXT.flagLine(f).includes('certain on the quotes'), 'an indicative flag never reads as executable: ' + QTEXT.flagLine(f));
+  assert.ok(Math.abs(cal.ratio - cal.flag.magnitude / cal.flag.tolerance) < 1e-12, 'severity = size over the tolerance in the same unit (library v2)');
+  const chip = renderToStaticMarkup(React.createElement(QUALV.QualitySummary, { q, onOpen() {} }));
+  assert.ok(chip.includes(`${q.nExecutable} executable arbitrages · ${q.nIndicative} indicative`) && chip.includes('is-bad'), chip);
+  // superficie pulita: nessun flag, la vista lo dice
+  const cleanQ = qBuild().q; assert.equal(cleanQ.flags.length, 0, "the clean synthetic surface raises no flag: " + JSON.stringify(cleanQ.flags.map(f => [f.set, f.flag.kind, f.flag.test, f.flag.origin, f.flag.expiries])));
+});
+
+test('quant wiring: forward line and ±1σ cone on the 3D sit at the library forward and cone, the term chart at the library forward vol', () => {
+  languages.impostaLinguaCorrente('en');
+  const { model, q } = qBuild();
+  const traces = OVER.overlayTraces(model, q, { forward: true, cone: true, earnings: false, arb: false }, { forward: '#a', cone: '#b', earnings: '#c', arb: '#d', muted: '#e' }, null, false)(
+    { xs: model.grid, ys: model.rows.map(r => Math.sqrt(r.days)), floor: 10, zTop: 30, strikeAxis: false });
+  const fwd = traces.find(t => t.meta === 'ov-forward');
+  assert.ok(fwd, 'forward trace present');
+  const libF = libDirect(qPayload()).fwd;
+  QEXP.forEach((x, j) => assert.ok(Math.abs(fwd.x[j] - libF[x.e].forward / 100) < 1e-12, `F/S ${x.e}`));
+  assert.ok(fwd.text[1].includes('F ' + vd.priceText(libF[QEXP[1].e].forward, '')) && fwd.text[1].includes('de-americanised'), fwd.text[1]);
+  // oracolo indipendente da quant.ts: termine = ATM del payload sul suo t_years
+  const L = libDirect(qPayload()), libTerm = L.term;
+  const cone = VQ.expectedMoveCone(L.fwd, libTerm);
+  const low = traces.find(t => t.meta === 'ov-cone-low'), high = traces.find(t => t.meta === 'ov-cone-high');
+  assert.ok(low && high, 'cone traces present');
+  cone.forEach((r, j) => { if (low.x[j] != null) assert.ok(Math.abs(low.x[j] - r.low / 100) < 1e-12 && Math.abs(high.x[j] - r.high / 100) < 1e-12, 'cone ' + r.expiry); });
+  assert.ok(low.z.every(z => z == null || z === 10), 'the cone lies on the floor');
+  // strike axis: same points in price
+  const s = OVER.overlayTraces(model, q, { forward: true, cone: false, earnings: false, arb: false }, { forward: '#a', cone: '#b', earnings: '#c', arb: '#d', muted: '#e' }, null, false)(
+    { xs: model.strikes, ys: model.rows.map(r => Math.sqrt(r.days)), floor: 10, zTop: 30, strikeAxis: true });
+  assert.ok(Math.abs(s[0].x[0] - libF[QEXP[0].e].forward) < 1e-9, 'strike axis: the forward in price');
+  const fv = VQ.forwardVol(libTerm);
+  const marks = OVER.termMarks(model, q, null, { fwd: true, earnings: true });
+  assert.deepEqual(plain(marks.fwd.map(m => m.v)), plain(fv.map(p => p.forwardVol)));
+  assert.equal(marks.earnings, null, 'no earnings date, no earnings mark');
+  // nessuna chain: forward n.d. col motivo, nessun punto inventato dallo spot
+  const nochain = qBuild({}, { chains: {} }).q;
+  assert.equal(nochain.forwardOf(QEXP[0].e).F, null); assert.equal(nochain.forwardOf(QEXP[0].e).why, 'no_download');
+  const none = OVER.overlayTraces(model, nochain, { forward: true, cone: true, earnings: false, arb: false }, { forward: '#a', cone: '#b', earnings: '#c', arb: '#d', muted: '#e' }, null, false)(
+    { xs: model.grid, ys: model.rows.map(r => Math.sqrt(r.days)), floor: 10, zTop: 30, strikeAxis: false });
+  assert.deepEqual(none, [], 'without a forward neither line nor cone is drawn');
+});
+
+test('quant wiring: earnings n/a when the date is missing; with a date the event vol is the library one', () => {
+  languages.impostaLinguaCorrente('it');
+  const { model, q } = qBuild();
+  assert.equal(q.event, null, 'no date in the payload: no event computed');
+  assert.equal(OVER.eventLine(q, null), 'Utili: n.d. — nessuna data nel payload (arriva col contesto)');
+  const view = quiet(() => renderToStaticMarkup(React.createElement(TERMV, { q, model, column: 4, expiry: null, onExpiry() {}, earnings: null })));
+  assert.ok(view.includes('data-vol-event-na') && view.includes('nessuna data nel payload'), 'the event box declares n/a');
+  const noTrace = OVER.overlayTraces(model, q, { forward: false, cone: false, earnings: true, arb: false }, { forward: '#a', cone: '#b', earnings: '#c', arb: '#d', muted: '#e' }, null, false)(
+    { xs: model.grid, ys: model.rows.map(r => Math.sqrt(r.days)), floor: 10, zTop: 30, strikeAxis: false });
+  assert.equal(noTrace.length, 0, 'no date, no earnings line on the 3D');
+  const withDate = qBuild({ earnings: '2035-02-15' });
+  const ev = VQ.eventVol(libDirect(withDate.data, { earnings: '2035-02-15' }).term, '2035-02-15', '2035-01-02');
+  assert.deepEqual(plain(withDate.q.event), plain(ev));
+  const v2 = quiet(() => renderToStaticMarkup(React.createElement(TERMV, { q: withDate.q, model: withDate.model, column: 4, expiry: null, onExpiry() {}, earnings: '2035-02-15' })));
+  assert.ok(ev.eventMove != null, 'the synthetic event premium is measurable: ' + ev.reason);
+  assert.ok(v2.includes('data-vol-event-move="true">±' + vd.numText(ev.eventMove * 100, 2) + '%<'), 'day move shown in its cell');
+  assert.ok(v2.includes('data-vol-event-vol="true">' + vd.ivText(ev.eventVolAnnualized, '', 1) + '<'), 'annualised event vol shown in its cell');
+  // l'evento senza premio resta n.d. col suo motivo
+  const flat = qBuild({ earnings: '2035-02-15', premium: false });
+  const v3 = quiet(() => renderToStaticMarkup(React.createElement(TERMV, { q: flat.q, model: flat.model, column: 4, expiry: null, onExpiry() {}, earnings: '2035-02-15' })));
+  assert.ok(flat.q.event.eventMove == null && v3.includes(QTEXT.whyText(flat.q.event.reason).replace(/'/g, '&#x27;')), 'event n/a reason shown: ' + flat.q.event.reason);
+});
+
+test('sub-pages: one per question, state in the URL (vista=…), unknown or missing = Surface, other params kept', () => {
+  const SP = load('pages/voldeck/subpages.ts');
+  assert.deepEqual(plain(SP.SUBPAGES), ['superficie', 'griglia', 'skew', 'termine', 'coerenza', 'variazioni', 'contesto', 'realizzata']);
+  assert.equal(SP.parseSubpage(null), 'superficie'); assert.equal(SP.parseSubpage('boh'), 'superficie');
+  for (const p of SP.SUBPAGES) assert.equal(SP.parseSubpage(p), p);
+  const next = SP.withSubpage(new URLSearchParams('t=SYNQ&vista=skew'), 'termine');
+  assert.equal(next.get('vista'), 'termine'); assert.equal(next.get('t'), 'SYNQ');
+  const src = require('node:fs').readFileSync(require('node:path').join(SRC, 'pages/voldeck/subpages.ts'), 'utf8');
+  assert.ok(!/replace:\s*true/.test(src), 'a sub-page change is a history entry (back works), never a replace');
+});
+
+test('Termine: the curve and its tooltip read the library ATMF, never the builder spot ATM labelled as ATMF (review R12)', async () => {
+  languages.impostaLinguaCorrente('en');
+  const { model, q } = qBuild();
+  const last = model.rows[model.rows.length - 1];
+  const atmf = vd.ivText(q.atmf[last.expiry], '', 2), spot = vd.ivText(last.atm, '', 2);
+  assert.notEqual(atmf, spot, 'the fixture tells the two ATMs apart');
+  assert.deepEqual(plain(load('pages/voldeck/TermView.tsx').termModelOf(model, q).rows.map(r => r.atm)), plain(model.rows.map(r => q.atmf[r.expiry])));
+  const view = await mount(React.createElement(TERMV, { q, model, column: 4, expiry: null, onExpiry() {}, earnings: null }));
+  try {
+    const chart = view.container.byAttr('data-vol-term')[0];
+    await React.act(async () => { dispatch(view.container, chart, 'pointermove', { clientX: 54 + 728 - 1, clientY: 80 }); });
+    const lines = chart.byClass('vdn-tip')[0].childNodes.map(n => n.textContent);
+    const atmLine = lines.find(l => l.startsWith('ATMF'));
+    assert.ok(atmLine && atmLine.includes(atmf) && !atmLine.includes(spot), 'tooltip ATMF line: ' + lines.join(' | '));
+  } finally { await view.unmount(); }
 });

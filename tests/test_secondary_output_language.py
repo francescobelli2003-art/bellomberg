@@ -229,7 +229,10 @@ def test_cot_stale_keeps_nets_but_has_no_percentile_or_reading_in_both_languages
         assert english[key] == italian[key], key
 
 
-@pytest.mark.parametrize("vix,expected", [(18., "CONTANGO (normal)"), (22., "BACKWARDATION (stress)"), (20., "FLAT: regime transition")])
+# 10/10: etichette dalle ancore condivise (core/soglie_score): CONTANGO sotto la mediana storica
+# 0,884, FLAT fino a 1,00, BACKWARDATION da 1,00
+@pytest.mark.parametrize("vix,expected", [(17., "CONTANGO (normal)"), (22., "BACKWARDATION (stress)"),
+                                          (20., "BACKWARDATION (stress)"), (19., "FLAT: below-normal contango")])
 def test_vix_term_structure_regime_math_same_both_languages(monkeypatch, vix, expected):
     import pandas as pd
     import yfinance
@@ -256,7 +259,8 @@ def test_signal_cache_uses_same_detectors_and_scores_when_language_changes(monke
     calls = {"vol": 0, "gex": 0, "factors": 0}
     def vol(*args, **kw):
         calls["vol"] += 1
-        return {"iv_rv_spread_front": .1, "rv_percentile_1y": 90, "expected_move_pct": 14, "expected_move_days": 30}
+        return {"iv_rv_spread_front": .1, "iv_rv_ratio_30d": 1.9, "rv_percentile_1y": 90,
+                "expected_move_pct": 14, "expected_move_days": 30}
     def gex(*args, **kw):
         calls["gex"] += 1
         return {"gamma_flip_strike": 100, "spot_est": 90, "net_gex_usd_per_1pct": -10000}
@@ -295,7 +299,8 @@ def test_signal_cache_uses_same_detectors_and_scores_when_language_changes(monke
         # R02-b (09/10, Opus 5.5): lo stub GEX non etichetta lo spot come
         # qualificato -> il gamma dichiara "confronto col flip non valutato"
         # (forza 0) invece del "caution 70" su uno spot che e' uno strike.
-        assert sorted(s["strength"] for s in english["signals"]) == [0, 30, 36, 80, 80, 90]
+        # 10/10: forza VRP = 45 + 100 x (1,9 - 1,77) = 58 (rapporto IV/RV, soglie condivise)
+        assert sorted(s["strength"] for s in english["signals"]) == [0, 30, 36, 58, 80, 90]
         assert "EXPENSIVE" in next(s for s in english["signals"] if s["source"] == "vol_surface IV-RV")["reading"]
         assert "dear" not in str(english["signals"])
         assert se._SCAN_CACHE == cache

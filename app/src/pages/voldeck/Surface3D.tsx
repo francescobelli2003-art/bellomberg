@@ -108,6 +108,18 @@ export function colorRange(model: SurfaceModel): { cmin: number; cmax: number } 
   return cmin == null || cmax == null ? null : { cmin, cmax: cmax > cmin ? cmax : cmin + 0.01 };
 }
 
+/** Scala divergente del confronto «ΔIV vs data»: blu = vol scesa, bianco = 0, rosso = vol salita. */
+export const SCALE_DIFF: [number, string][] = [[0, '#1e3a8a'], [0.25, '#3b82f6'], [0.5, '#f4f4f5'], [0.75, '#f87171'], [1, '#b91c1c']];
+/** Colore di una cella senza confronto (n.d.): grigio neutro, distinto dal bianco dello 0. */
+export const DIFF_NA = '#a1a1aa';
+
+/** Asse x diverso da K/S e strike (asse delta): tacche, titolo e riga di lettura di ogni cella. */
+export interface XAxisSpec { title: string; ticktext: string[]; cellLabel: (row: number, col: number) => string }
+/** Modalita' colore: livello IV (default) o ΔIV rispetto a un'istantanea precedente (punti vol). */
+export type ColorSpec = { kind: 'level' } | { kind: 'diff'; cells: (number | null)[][]; range: number | null; title: string; line: (row: number, col: number) => string };
+/** Contesto per le sovrapposizioni: coordinate gia' calcolate della figura. */
+export interface OverlayCtx { xs: number[]; ys: number[]; floor: number; zTop: number; strikeAxis: boolean }
+
 export interface Palette { text: string; muted: string; line: string; accent: string; violet: string; warn: string; card: string; scale: [number, string][]; wall?: string; wire?: string }
 
 /** Tacche dell'asse √t: una per scadenza, diradate perche' le etichette non si sovrappongano. */
@@ -124,7 +136,8 @@ export function sqrtDayTicks(days: number[], minGap = 0.07): number[] {
   return keep;
 }
 
-type Opts = { axis: AxisMode; expiry: string | null; column: number | null; palette: Palette; labels: Record<string, string>; camera?: Camera };
+type Opts = { axis: AxisMode; expiry: string | null; column: number | null; palette: Palette; labels: Record<string, string>; camera?: Camera;
+  xAxis?: XAxisSpec | null; color?: ColorSpec | null; overlays?: ((ctx: OverlayCtx) => any[]) | null; height?: number };
 
 /** Le tre tracce di selezione (scadenza, K/S, punto), sempre presenti e in coda: il componente le
  *  aggiorna con restyle senza ridisegnare la superficie. Una cella buco resta null (linea spezzata). */
@@ -162,16 +175,27 @@ export function surfaceFigure(model: SurfaceModel, opts: Opts) {
   const floor = flat.length ? zmin - Math.max(0.6, (zmax - zmin) * 0.08) : 0;
   const nd = L.na;
   const ks = (m: number) => numText(m, 3, nd);
+  const xAxis = opts.xAxis || null, diff = opts.color?.kind === 'diff' ? opts.color : null;
+  const rowIndex = new Map(model.rows.map((r, j) => [r.expiry, j]));
   const cellText = (r: SurfaceModel['rows'][number], i: number) => `<b>${r.expiry}</b> · ${r.days}${L.d}${r.partial ? ` · ${L.partial}` : ''}`
-    + `<br>K/S ${ks(model.grid[i])} · ${L.strikeEq} ${model.strikes[i] == null ? nd : priceText(model.strikes[i], nd)}`
-    + `<br>${L.ivGrid} <b>${ivText(r.iv[i], nd, 2)}</b>`;
+    + (xAxis ? `<br>${xAxis.cellLabel(rowIndex.get(r.expiry) as number, i)}`
+      : `<br>K/S ${ks(model.grid[i])} · ${L.strikeEq} ${model.strikes[i] == null ? nd : priceText(model.strikes[i], nd)}`)
+    + `<br>${L.ivGrid} <b>${ivText(r.iv[i], nd, 2)}</b>`
+    + (diff ? `<br>${diff.line(rowIndex.get(r.expiry) as number, i)}` : '');
+  // ΔIV: colore per vertice dalla scala divergente simmetrica (±range); una cella senza confronto e' grigia
+  const diffRgb = (j: number, i: number): string => {
+    const v = diff?.cells[j]?.[i];
+    if (!diff || !finite(v) || !finite(diff.range) || !(diff.range > 0)) return DIFF_NA;
+    const [r, g, b] = scaleColor(0.5 + v / (2 * diff.range), SCALE_DIFF);
+    return `rgb(${r},${g},${b})`;
+  };
   // vertici = sole celle con un valore; facce = soli quadrilateri coi 4 vertici con un valore (2 triangoli)
-  const vx: number[] = [], vy: number[] = [], vz: number[] = [], vc: [string, number][] = [], vt: string[] = [];
+  const vx: number[] = [], vy: number[] = [], vz: number[] = [], vc: [string, number][] = [], vt: string[] = [], vcol: string[] = [];
   const at = new Map<string, number>();
   model.rows.forEach((r, j) => r.iv.forEach((v, i) => {
     if (v == null) return;
     at.set(j + ':' + i, vx.length);
-    vx.push(xs[i]); vy.push(ys[j]); vz.push(v * 100); vc.push([r.expiry, i]); vt.push(cellText(r, i));
+    vx.push(xs[i]); vy.push(ys[j]); vz.push(v * 100); vc.push([r.expiry, i]); vt.push(cellText(r, i)); vcol.push(diffRgb(j, i));
   }));
   const fi: number[] = [], fj: number[] = [], fk: number[] = [];
   const touched = new Set<number>();
@@ -184,13 +208,13 @@ export function surfaceFigure(model: SurfaceModel, opts: Opts) {
   const font = 'Manrope Variable, Manrope, sans-serif';
   const traces: any[] = [{
     type: 'mesh3d', name: L.surface, meta: 'surface', x: vx, y: vy, z: vz, i: fi, j: fj, k: fk,
-    intensity: vz, intensitymode: 'vertex', colorscale: p.scale, cmin: range?.cmin, cmax: range?.cmax,
+    ...(diff ? { vertexcolor: vcol, showscale: false }
+      : { intensity: vz, intensitymode: 'vertex', colorscale: p.scale, cmin: range?.cmin, cmax: range?.cmax, showscale: true,
+        colorbar: { thickness: 12, len: 0.78, outlinewidth: 0, x: 1.0, xpad: 4, ticksuffix: '%', nticks: 7,
+          tickfont: { color: p.muted, size: 12, family: font },
+          title: { text: L.ivScale || 'IV %', side: 'top', font: { color: p.muted, size: 12, family: font } } } }),
     customdata: vc, text: vt, hoverinfo: 'text', flatshading: false, opacity: 1,
     lighting: { ambient: 0.85, diffuse: 0.32, specular: 0.04, roughness: 0.95, fresnel: 0.02 },
-    showscale: true,
-    colorbar: { thickness: 12, len: 0.78, outlinewidth: 0, x: 1.0, xpad: 4, ticksuffix: '%', nticks: 7,
-      tickfont: { color: p.muted, size: 12, family: font },
-      title: { text: L.ivScale || 'IV %', side: 'top', font: { color: p.muted, size: 12, family: font } } },
   }];
   // wireframe: righe (scadenze) e colonne (K/S), spezzato a ogni buco; sollevato dello 0,8% dell'escursione
   // solo per non affondare nel mesh (z-fighting): e' disegno, la lettura esatta resta sul mesh
@@ -210,17 +234,25 @@ export function surfaceFigure(model: SurfaceModel, opts: Opts) {
   if (orphans.length) traces.push({ type: 'scatter3d', mode: 'markers', name: L.ivGrid, meta: 'orphans',
     x: orphans.map(n => vx[n]), y: orphans.map(n => vy[n]), z: orphans.map(n => vz[n]), customdata: orphans.map(n => vc[n]),
     text: orphans.map(n => vt[n]), hoverinfo: 'text',
-    marker: { symbol: 'square', size: 4.5, color: orphans.map(n => vz[n]), colorscale: p.scale, cmin: range?.cmin, cmax: range?.cmax,
+    marker: { symbol: 'square', size: 4.5, ...(diff ? { color: orphans.map(n => vcol[n]) } : { color: orphans.map(n => vz[n]), colorscale: p.scale, cmin: range?.cmin, cmax: range?.cmax }),
       line: { color: p.line, width: 0.5 } } });
+  // ΔIV: la scala divergente (in punti vol) la porta una traccia senza punti visibili, solo per la colorbar
+  if (diff && finite(diff.range) && diff.range > 0) traces.push({ type: 'scatter3d', mode: 'markers', name: 'diff-scale', meta: 'diff-scale',
+    x: [xs[0]], y: [ys[0]], z: [zmin], hoverinfo: 'skip', showlegend: false,
+    marker: { size: 0.1, opacity: 0, color: [0], colorscale: SCALE_DIFF, cmin: -diff.range * 100, cmax: diff.range * 100, showscale: true,
+      colorbar: { thickness: 12, len: 0.78, outlinewidth: 0, x: 1.0, xpad: 4, ticksuffix: ' pt', nticks: 7,
+        tickfont: { color: p.muted, size: 12, family: font }, title: { text: diff.title, side: 'top', font: { color: p.muted, size: 12, family: font } } } } });
   // buchi: una croce sul pavimento per ogni cella null (dichiarata, mai riempita)
   const hx: number[] = [], hy: number[] = [], hz: number[] = [], hc: [string, number][] = [], ht: string[] = [];
   model.rows.forEach((r, j) => r.iv.forEach((v, i) => {
     if (v != null) return;
     hx.push(xs[i]); hy.push(ys[j]); hz.push(floor); hc.push([r.expiry, i]);
-    ht.push(`<b>${r.expiry}</b> · ${r.days}${L.d}<br>K/S ${ks(model.grid[i])}<br>${L.hole}`);
+    ht.push(`<b>${r.expiry}</b> · ${r.days}${L.d}<br>${xAxis ? xAxis.cellLabel(j, i) : 'K/S ' + ks(model.grid[i])}<br>${L.hole}`);
   }));
   if (hx.length) traces.push({ type: 'scatter3d', mode: 'markers', name: L.hole, meta: 'holes', x: hx, y: hy, z: hz, customdata: hc,
     text: ht, hoverinfo: 'text', marker: { symbol: 'x', size: 2.6, color: p.muted, opacity: 0.6 } });
+  // sovrapposizioni (forward, cono, utili, arbitraggi): prima della selezione, che resta in coda per il restyle
+  if (opts.overlays) traces.push(...opts.overlays({ xs, ys, floor, zTop: flat.length ? zmax : 1, strikeAxis }));
   const sel = selectionTraces(model, opts);
   const selIndex = sel.map((_, n) => traces.length + n);
   traces.push(...sel);
@@ -236,13 +268,14 @@ export function surfaceFigure(model: SurfaceModel, opts: Opts) {
     ...extra,
   });
   const layout = {
-    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', height: 560, showlegend: false,
+    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', height: opts.height ?? 560, showlegend: false,
     margin: { l: 0, r: 0, t: 0, b: 0 }, uirevision: 'bellomberg-vol-surface',
     separators: linguaCorrente() === 'it' ? ',.' : '.,',
     font: { family: font, color: p.text },
     hoverlabel: { bgcolor: p.card, bordercolor: p.line, font: { family: font, size: 12, color: p.text } },
     scene: {
-      xaxis: axisStyle(strikeAxis ? 'Strike' : 'K/S', { tickformat: strikeAxis ? ',.0f' : '.2f', nticks: 6 }),
+      xaxis: xAxis ? axisStyle(xAxis.title, { tickmode: 'array', tickvals: xs, ticktext: xAxis.ticktext })
+        : axisStyle(strikeAxis ? 'Strike' : 'K/S', { tickformat: strikeAxis ? ',.0f' : '.2f', nticks: 6 }),
       // ALTA-3: Plotly tagliava il titolo nativo dell'asse dei giorni; l'etichetta e' l'HTML #vol-surface-expiry-axis-label
       yaxis: axisStyle('', { tickmode: 'array', tickvals: tickIdx.map(n => ys[n]), ticktext: tickIdx.map(n => `${model.rows[n].days}${L.d}`) }),
       zaxis: axisStyle('IV', { ticksuffix: '%', nticks: 6, range: flat.length ? [floor, zmax + (zmax - zmin) * 0.04 + 0.1] : undefined }),
@@ -266,8 +299,15 @@ export const DRAG_PX = 4;
 type PlotNode = HTMLDivElement & { _fullLayout?: any; on?: Function; __vdnBound?: boolean };
 const mark = (node: PlotNode, key: string, value: string) => { try { node.setAttribute(key, value); } catch { /* DOM minimo */ } };
 
-export default function Surface3D({ model, axis, expiry, column, dark, onPick, onError, resetKey, preset, onUserRotate }: {
-  model: SurfaceModel; axis: AxisMode; expiry: string | null; column: number | null; dark: boolean;
+/** Parte della figura oltre al modello (asse delta, colore ΔIV, sovrapposizioni): un oggetto NUOVO
+ *  = ridisegno completo (react), lo stesso oggetto = solo restyle della selezione. */
+export interface FigureExtras { xAxis?: XAxisSpec | null; color?: ColorSpec | null; overlays?: ((ctx: OverlayCtx) => any[]) | null }
+const NO_EXTRAS: FigureExtras = {};
+
+export default function Surface3D({ model, axis, expiry, column, dark, onPick, onError, resetKey, preset, onUserRotate, extras = NO_EXTRAS, height = 560 }: {
+  model: SurfaceModel; axis: AxisMode; expiry: string | null; column: number | null; dark: boolean; extras?: FigureExtras;
+  /** altezza del grafico in px (la sotto-pagina Superficie la sceglie per stare in una schermata) */
+  height?: number;
   onPick: (expiry: string, column: number) => void; onError: (message: string) => void; resetKey: number;
   /** vista preimpostata chiesta dall'utente (n cresce a ogni clic, anche sulla stessa vista) */
   preset?: { name: CameraPreset | null; n: number };
@@ -281,7 +321,7 @@ export default function Surface3D({ model, axis, expiry, column, dark, onPick, o
   const modelRef = useRef(model); modelRef.current = model;
   const axisRef = useRef(axis); axisRef.current = axis;
   const camera = useRef<Camera>(plainCamera(DEFAULT_CAMERA));
-  const drawn = useRef<{ model: SurfaceModel; axis: AxisMode; dark: boolean; selIndex: number[] } | null>(null);
+  const drawn = useRef<{ model: SurfaceModel; axis: AxisMode; dark: boolean; extras: FigureExtras; selIndex: number[] } | null>(null);
   const press = useRef<{ x: number; y: number; moved: number } | null>(null);
   const pending = useRef<{ expiry: string; column: number } | null>(null);
 
@@ -308,7 +348,7 @@ export default function Surface3D({ model, axis, expiry, column, dark, onPick, o
         if (!active || !ref.current) return;
         const t0 = performance.now();
         const last = drawn.current;
-        if (node._fullLayout && last && last.model === model && last.axis === axis && last.dark === dark) {
+        if (node._fullLayout && last && last.model === model && last.axis === axis && last.dark === dark && last.extras === extras) {
           // solo la selezione e' cambiata: restyle delle tre tracce di selezione, la superficie non si tocca
           await syncCamera(Plotly, node);
           const sel = selectionTraces(model, { axis, expiry, column, palette });
@@ -316,9 +356,9 @@ export default function Surface3D({ model, axis, expiry, column, dark, onPick, o
           mark(node, 'data-vdn-draw', 'restyle');
         } else {
           if (node._fullLayout) await syncCamera(Plotly, node);
-          const fig = surfaceFigure(model, { axis, expiry, column, palette, labels, camera: camera.current });
+          const fig = surfaceFigure(model, { axis, expiry, column, palette, labels, camera: camera.current, height, ...extras });
           await (node._fullLayout ? Plotly.react(node, fig.traces, fig.layout, fig.config) : Plotly.newPlot(node, fig.traces, fig.layout, fig.config));
-          drawn.current = { model, axis, dark, selIndex: fig.selIndex };
+          drawn.current = { model, axis, dark, extras, selIndex: fig.selIndex };
           mark(node, 'data-vdn-draw', 'react');
         }
         mark(node, 'data-vdn-draw-ms', String(Math.round(performance.now() - t0)));
@@ -343,7 +383,7 @@ export default function Surface3D({ model, axis, expiry, column, dark, onPick, o
       }
     }).catch(e => { if (active) onError(e instanceof Error ? e.message : String(e)); });
     return () => { active = false; };
-  }, [model, axis, expiry, column, dark]);
+  }, [model, axis, expiry, column, dark, extras]);
 
   // rilascio del drag OVUNQUE (anche fuori dal canvas, sul pannello accanto): la vista viva va nel layout
   useEffect(() => {
@@ -410,6 +450,6 @@ export default function Surface3D({ model, axis, expiry, column, dark, onPick, o
     return () => { if (node && window.Plotly) { try { window.Plotly.purge(node); } catch { /* gia' rimosso */ } } };
   }, []);
 
-  return <div ref={ref} className="vdn-plot" data-vol-3d role="group" aria-roledescription={tr('voldeck.n_interactive_chart')}
+  return <div ref={ref} className="vdn-plot" data-vol-3d role="group" aria-roledescription={tr('voldeck.n_interactive_chart')} style={{ minHeight: height }}
     aria-label={tr('voldeck.mesh_label')} aria-describedby="vol-surface-expiry-axis-label" />;
 }

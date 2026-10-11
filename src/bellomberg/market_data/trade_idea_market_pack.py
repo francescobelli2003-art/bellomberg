@@ -35,6 +35,7 @@ imprevisto diventa {"status": "unavailable", "reason": ...}.
 """
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import math
@@ -132,14 +133,23 @@ def _yf_info(symbol: str) -> Dict[str, Any]:
     return yf.Ticker(symbol).info or {}
 
 
-def _default_history(ticker: str, name: Optional[str]) -> Dict[str, Any]:
-    """SEC XBRL, poi ESEF (catena di agents/chat_tools): il ripiego e' DICHIARATO."""
+def _cutoff_iso(today: Any) -> Optional[str]:
+    """Data del cutoff della run in ISO (date, datetime o "YYYY-MM-DD..."); None se assente."""
+    if isinstance(today, (date, datetime)):
+        return today.isoformat()[:10]
+    return str(today)[:10] if today else None
+
+
+def _default_history(ticker: str, name: Optional[str], fino_al: Optional[str] = None) -> Dict[str, Any]:
+    """SEC XBRL, poi ESEF (catena di agents/chat_tools): il ripiego e' DICHIARATO. `fino_al` = cutoff della run
+    (GENERALITA' UE, Opus 5.5): nessun deposito successivo, ne' SEC ne' ESEF."""
     from bellomberg.market_data.sec_xbrl import get_financial_history
-    h = get_financial_history(ticker, years=10)
+    cutoff = {"fino_al": str(fino_al)[:10]} if fino_al else {}
+    h = get_financial_history(ticker, years=10, **cutoff)
     if not h.get("error"):
         return h
     from bellomberg.market_data.esef import get_esef_history
-    e = get_esef_history(ticker, years=10, company_name=name)
+    e = get_esef_history(ticker, years=10, company_name=name, **cutoff)
     if e.get("error"):
         return {"error": "SEC: %s | ESEF: %s" % (h["error"], e["error"])}
     e = dict(e)
@@ -493,7 +503,8 @@ def build_market_pack(*, candidate, peers, today, window_years: int = 5,
     try:
         return _build(candidate, peers, today, window_years, fetch or _yf_fetch,
                       fx_fetch or _yf_fetch, info_fetch or _yf_info,
-                      history_loader or _default_history, peer_selector or _default_selector,
+                      history_loader or functools.partial(_default_history, fino_al=_cutoff_iso(today)),
+                      peer_selector or _default_selector,
                       resolve_symbols or _default_resolve, stamp)
     except Exception as exc:  # noqa: BLE001 — il lavoro della run non cade per i dati di mercato
         return {"version": PACK_VERSION, "status": "unavailable", "base_currency": BASE_CURRENCY,

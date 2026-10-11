@@ -74,6 +74,11 @@ Object.assign(NEUTRE_PER_CHIAVE, {
   'memoarchive.nSearchKbd': 'Ctrl ⇧ F', 'memoarchive.nDist': 'dist. {d}', 'memoarchive.nKeyArrows': '↑↓', 'memoarchive.nKeyEsc': 'Esc',
   'memoarchive.nKicker': 'Memo {id} · {d}', 'memoarchive.nPdf': 'Memo PDF', 'memoarchive.nRedTeam': 'Red team',
   'memoarchive.nKitNote': 'memo {id}', 'memoarchive.nTokensSub': '{a} in · {b} out',
+  // Vol Deck «quant» (10/10, Opus 5.5): termini da desk e formule identici nelle due lingue
+  'voldeck.q_view_skew': 'Skew', 'voldeck.q_axis_delta_title': 'Delta (forward)', 'voldeck.q_color_diff': 'ΔIV vs {d}',
+  'voldeck.q_ov_forward': 'Forward', 'voldeck.q_ov_cone': '±1σ', 'voldeck.q_diff_scale': 'ΔIV pt', 'voldeck.q_diff_cell': 'ΔIV {v} pt',
+  'voldeck.q_fwd_short': 'Forward F {f} (F/S {m})', 'voldeck.q_delta_smile_title': 'Smile in delta',
+  'voldeck.q_cone_count': 'F · σ_ATM · √T', 'voldeck.q_kind_butterfly': 'Butterfly', 'voldeck.n_term_atm_short': 'ATMF',
 });
 
 const NEUTRE = /^(OK|ESC|CTRL\+K|F\d{1,2}|N\.D\.|n\.d\.|n\/a|API|PING|LIVE|DOWN|ONLINE|OFFLINE|RUN LIVE|CONFIG|BELLOMBERG.*|PRIVATE INTELLIGENCE TERMINAL|V0\.9 OBSIDIAN|PIN AUTHENTICATION|◈ ACCESS GRANTED|◌ AUTHENTICATING…|◌ AUTHORIZE ACCESS|SAT-07|BLM-1 ASCENT|MEMORIA SQLITE|FEED NEWS \/ FRED|QUANT GARCH \/ MC|ALT|VEL|ORBIT|LINK|KM 0|Engine|Agents|SESSION|Command Center|Performance|Watchlist|Global Markets|News Desk|Fundamentals|Factor Lab|Monte Carlo|Vol Deck|Edge Scanner|Agent Chat|Agents Live|Memo Archive|Trade Entry|MKT \{ticker\}|NEWS \{ticker\}|REFRESH NEWS FEED|BACKUP DATABASE|pull \+ classify \(~60s\)|polygon -> yfinance.*|force refresh performance|weekly research note|snapshot data\/consigliere\.db|blotter \+ trade entry|\{tasto\} · \{label\} · \{gruppo\}|\{key\} \/\/ \{label\}|\{dd\}\/\{mm\}\/\{aa\}.*|\{n\} \{unita\}|\{n\}|\{testo\}|1 \{valuta\}|FX 60s|FX STALE \{minuti\}M|IMPATTO 2026-OB · 4\.2 KT|T\+\{mm\}:\{ss\}  ALT \{alt\} KM)$/;

@@ -357,7 +357,7 @@ export function surfaceQuoteScale(model: SurfaceModel, observed: Record<string, 
 
 /** Clic sulla superficie 3D: customdata[0] = scadenza, customdata[1] = indice di colonna (se il punto
  *  lo porta); altrimenti la colonna piu' vicina all'x cliccata sull'asse mostrato. */
-export function pickFromPoint(point: any, model: SurfaceModel, axis: 'moneyness' | 'strike', ySqrt = false): { expiry: string; column: number } | null {
+export function pickFromPoint(point: any, model: SurfaceModel, axis: 'moneyness' | 'strike' | 'delta', ySqrt = false): { expiry: string; column: number } | null {
   if (!point) return null;
   const cd = point.customdata;
   // v3 (10/10, Opus 5.5): il 3D disegna le scadenze in √t; senza customdata la y si confronta con √giorni,

@@ -65,7 +65,8 @@ test('empty actual page renders four workspaces in IT and EN without starting re
   global.fetch = () => { requests++; throw new Error('SSR must not request data'); };
   try { for (const language of ['it', 'en', 'it']) {
     languages.impostaLinguaCorrente(language);
-    const html = renderToStaticMarkup(React.createElement(Page));
+    // dal 10/10 le sotto-pagine degli Strumenti vivono nell'URL: la pagina si monta dentro un router, come nell'app
+    const html = renderToStaticMarkup(React.createElement(require('react-router-dom').MemoryRouter, null, React.createElement(Page)));
     for (const mode of ['acquisition', 'tools', 'chain', 'laboratory']) assert.ok(html.includes('data-vol-workspace="' + mode + '"'));
     assert.ok(html.includes(language === 'it' ? 'Atlante della volatilità' : 'Volatility atlas'));
     assert.ok(html.includes(language === 'it' ? 'Scadenza chain' : 'Chain expiry'));
@@ -561,19 +562,20 @@ const quietLayoutEffect = render => {
 
 test('day units on the numeric grid, forward ladder and cone follow the language', () => {
   // v3 10/10 (Opus 5.5): la vista dall'alto e' diventata la griglia numerica IvGrid
-  const { FwdVolLadder } = withInternals('pages/VolSurfacePage.tsx', ['FwdVolLadder']);
+  // «quant» 10/10: la scala forward vol e' la tabella della vista Termine (numeri di lib/vol-quant forwardVol)
+  const TermView = load('pages/voldeck/TermView.tsx').default;
+  const { volQuant } = load('pages/voldeck/quant.ts');
   const IvGrid = load('pages/voldeck/IvGrid.tsx').default;
   const grid = [.9, 1, 1.1];
-  const slices = [{ expiry: '2035-02-10', days: 34, iv_grid: [.25, .22, .24] }, { expiry: '2035-03-10', days: 62, iv_grid: [.26, .23, .25] }];
-  const term = slices.map(s => ({ expiry: s.expiry, days: s.days, atm_iv: s.iv_grid[1] }));
+  const slices = [{ expiry: '2035-02-10', days: 34, t_years: 34 / 365, atm_iv: .22, iv_grid: [.25, .22, .24] }, { expiry: '2035-03-10', days: 62, t_years: 62 / 365, atm_iv: .23, iv_grid: [.26, .23, .25] }];
   const band = (days, current, young) => ({ window: days, current, min: current - .05, p25: current - .02, p50: current,
     p75: current + .02, max: current + .05, n_obs: young ? 40 : 250, young });
   const cone = { realized: { windows: [band(5, .3), band(21, .28), band(63, .25, true)] }, implied: {},
     confronto: [{ expiry: '2035-02-10', days: 34, window: 21, atm_iv: .251, pct_realized_leq_iv: 62 }] };
   const words = {
-    it: { heat: '<b>10/02/35</b><span>34g</span>', ladder: '34g→62g', tick: '>21g</text>', young: '>63g*</text>',
+    it: { heat: '<b>10/02/35</b><span>34g</span>', ladder: '34g → 62g', tick: '>21g</text>', young: '>63g*</text>',
       reading: 'pct realized 21g' },
-    en: { heat: '<b>10/02/35</b><span>34d</span>', ladder: '34d→62d', tick: '>21d</text>', young: '>63d*</text>',
+    en: { heat: '<b>10/02/35</b><span>34d</span>', ladder: '34d → 62d', tick: '>21d</text>', young: '>63d*</text>',
       reading: 'realised percentile 21d' },
   };
   const render = conePanel();
@@ -583,7 +585,8 @@ test('day units on the numeric grid, forward ladder and cone follow the language
     const heatModel = numbers.surfaceModel({ spot_est: 100, moneyness_grid: grid, slices });
     const heat = renderToStaticMarkup(React.createElement(IvGrid, { model: heatModel, axis: 'moneyness', expiry: null, column: null, onPick() {}, onExpiry() {}, onColumn() {} }));
     assert.ok(heat.includes(w.heat), `${language}: heat row ${w.heat}: ${heat}`);
-    const ladder = renderToStaticMarkup(React.createElement(FwdVolLadder, { term }));
+    const q = volQuant({ data: { spot_est: 100, moneyness_grid: grid, slices }, model: heatModel, chains: {}, rate: null, previous: null });
+    const ladder = quietLayoutEffect(() => renderToStaticMarkup(React.createElement(TermView, { q, model: heatModel, column: 1, expiry: null, onExpiry() {}, earnings: null })));
     assert.ok(ladder.includes(w.ladder), `${language}: forward ladder ${w.ladder}: ${ladder}`);
     const drawn = render('loaded', cone);
     for (const key of ['tick', 'young', 'reading']) assert.ok(drawn.includes(w[key]), `${language}: cone ${key} ${w[key]}`);
@@ -595,8 +598,6 @@ test('earnings, expiry header and E legend of the tools view are written in the 
   const { Tile } = withInternals('pages/VolSurfacePage.tsx', ['Tile']);
   const page = 'pages/VolSurfacePage.tsx';
   const earnings = fragment(page, 'Tile', '<Tile', 'rawData.next_earnings ||');
-  const projector = fragment(page, 'p', 'className="vdn-legend"', 'ui_band_spot_atm_iv_t_solid_1_dashed_2_horizontal_axis_in_76');
-  const header = fragment(page, 'thead', '<thead', 'ui_days_97');
   const words = {
     it: { label: '<span>Risultati</span>', legend: 'E = risultati</span>', expiry: '>Scadenza</th>', foreign: ['Earnings', 'earnings', 'Expiry'] },
     en: { label: '<span>Earnings</span>', legend: 'E = earnings</span>', expiry: '>Expiry</th>', foreign: ['Risultati', 'risultati', 'Scadenza'] },
@@ -606,11 +607,9 @@ test('earnings, expiry header and E legend of the tools view are written in the 
     const w = words[language];
     const stat = earnings({ Tile, t: translate.t, na: 'n/a', rawData: { next_earnings: '2035-02-20' }, contextState: 'loaded' });
     assert.ok(stat.includes(w.label) && stat.includes('2035-02-20'), `${language}: earnings label: ${stat}`);
-    const legend = projector({ tr: translate.t });
-    assert.ok(legend.includes('vdn-warn-text"> ' + w.legend), `${language}: projector E legend: ${legend}`);
-    const head = header({ tr: translate.t });
-    assert.ok(head.includes(w.expiry), `${language}: expiry header: ${head}`);
-    for (const html of [stat, legend, head]) {
+    // 10/10: il proiettore di strike (cono sullo spot) e' stato tolto; la pagina non lo disegna piu'
+    assert.ok(!require('node:fs').readFileSync(require('node:path').join(SRC, page), 'utf8').includes('<StrikeProjector'), 'no spot-centred projector');
+    for (const html of [stat]) {
       for (const word of w.foreign) assert.ok(!html.includes(word), `${language}: ${word} leaked into ${html}`);
       assert.ok(!html.includes('⟦'), 'no missing translation marker');
     }

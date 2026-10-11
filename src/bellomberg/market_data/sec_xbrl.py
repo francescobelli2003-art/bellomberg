@@ -269,39 +269,59 @@ def _osservazioni(facts: Dict[str, Any], tags_gaap: List[str], tags_ifrs: List[s
             yield f"{taxo}:{tag}", unit, units[unit]
 
 
-def depositato_entro(filed, fino_al: Optional[str], oggi: Optional[str] = None) -> bool:
+def giorno_di_riferimento(oggi: Any = None) -> str:
+    """Data ISO del giorno di riferimento della run (`oggi`: str ISO, date o datetime). Assente: l'orologio di
+    sistema, letto UNA volta da chi chiama (v4, Opus 5.5: riproducibilita' del look-ahead)."""
+    if oggi is None or oggi == "":
+        return datetime.now().date().isoformat()
+    return (oggi.isoformat() if hasattr(oggi, "isoformat") else str(oggi))[:10]
+
+
+def depositato_entro(filed, fino_al: Optional[str], oggi: Optional[str] = None,
+                     limita_a_oggi: Optional[bool] = None) -> bool:
     """True se un deposito con data `filed` era noto alla run con cutoff `fino_al` (ISO).
 
     R-FONTI 10/10 v3 (Opus 5.5): le date di deposito SEC dei companyfacts e delle submissions non hanno l'ora.
     Con un cutoff STORICO (fino_al anteriore a oggi) un deposito dello STESSO giorno puo' essere successivo
     all'ora della decisione: per prudenza e' escluso (filed < fino_al). Con fino_al = oggi (run corrente)
-    vale filed <= fino_al: cio' che la fonte riporta adesso e' gia' pubblicato. Data mancante: non noto."""
-    if not fino_al:
+    vale filed <= fino_al: cio' che la fonte riporta adesso e' gia' pubblicato. Data mancante: non noto.
+    v4 (Opus 5.5, riserva D della terza revisione): `oggi` e' il giorno di riferimento della run (ISO, date o
+    datetime); senza, l'orologio di sistema, e allora lo stesso cutoff puo' dare esiti diversi rieseguito un altro
+    giorno: per una run riproducibile chi chiama passa il giorno in cui la run e' stata eseguita.
+    v5 (ri-verifica di d487ac7): con `fino_al` E `oggi` DICHIARATO il cutoff effettivo e' min(fino_al, oggi) (un
+    cutoff nel futuro non fa entrare depositi successivi al giorno della run); con il solo `oggi` dichiarato vale
+    filed <= oggi. `limita_a_oggi` (default: `oggi` passato) lo dice esplicitamente a chi ha gia' fissato il giorno
+    della chiamata dall'orologio: senza un giorno dichiarato il cutoff resta `fino_al` (com'era)."""
+    if limita_a_oggi is None:
+        limita_a_oggi = oggi is not None
+    if not fino_al and not limita_a_oggi:
         return True
     filed = str(filed or "")[:10]
     if len(filed) != 10:
         return False
-    oggi = str(oggi or datetime.now().date().isoformat())[:10]
-    return filed < fino_al or (filed == fino_al and fino_al >= oggi)
+    oggi = giorno_di_riferimento(oggi)
+    cutoff = (min(str(fino_al)[:10], oggi) if limita_a_oggi else str(fino_al)[:10]) if fino_al else oggi
+    return filed < cutoff or (filed == cutoff and cutoff >= oggi)
 
 
-def _facts_fino_al(facts: Dict[str, Any], fino_al: Optional[str]) -> Dict[str, Any]:
+def _facts_fino_al(facts: Dict[str, Any], fino_al: Optional[str], oggi: Any = None) -> Dict[str, Any]:
     """Copia di companyfacts con le sole osservazioni depositate entro il cutoff (`depositato_entro`).
 
     R-FONTI 10/10 v3 (Opus 5.5, riserva MEDIO della revisione v2): le serie annuali e l'ultimo esercizio del
     ripiego leggevano companyfacts INTERO anche con fino_al (FY2024 da un 20-F depositato dopo il cutoff
     compariva nello storico mentre latest_period diceva FY2023). Ora storico, ripiego e trimestri vedono lo
-    stesso insieme di depositi."""
+    stesso insieme di depositi. `oggi`: giorno di riferimento della run (`depositato_entro`)."""
     if not fino_al:
         return facts
-    oggi = datetime.now().date().isoformat()
+    esplicito, oggi = oggi is not None, giorno_di_riferimento(oggi)
     out: Dict[str, Any] = {}
     for taxo, nodo in (facts or {}).items():
         if not isinstance(nodo, dict):
             continue
         tags = {}
         for tag, item in nodo.items():
-            units = {u: [ob for ob in obs if isinstance(ob, dict) and depositato_entro(ob.get("filed"), fino_al, oggi)]
+            units = {u: [ob for ob in obs if isinstance(ob, dict) and depositato_entro(ob.get("filed"), fino_al, oggi,
+                                                                                            esplicito)]
                      for u, obs in ((item or {}).get("units") or {}).items()}
             units = {u: obs for u, obs in units.items() if obs}
             if units:
@@ -329,7 +349,8 @@ REGOLA_Q4 = ("Q4 = esercizio (10-K) meno i tre trimestri dei 10-Q dello stesso e
 Q4_DERIVABILI = ("revenue", "operating_income", "net_income")   # l'EPS non si somma: Q4 dichiarato mancante
 
 
-def quarterly_history(facts: Dict[str, Any], quarters: int = 8, fino_al: Optional[str] = None) -> Dict[str, Any]:
+def quarterly_history(facts: Dict[str, Any], quarters: int = 8, fino_al: Optional[str] = None,
+                      oggi: Any = None) -> Dict[str, Any]:
     """Trimestri dai 10-Q (fp Q1-Q3) piu' il Q4 derivato, e ultimo periodo depositato (10-Q o annuale).
 
     Si usano solo i fatti del periodo del deposito (mai i comparativi). `quarters`: {voce: {period_end:
@@ -337,7 +358,9 @@ def quarterly_history(facts: Dict[str, Any], quarters: int = 8, fino_al: Optiona
     dichiara `q4` (derivati e non derivabili), mai una somma su trimestri incompleti.
     `latest_period`: il periodo piu' recente con period_end, filing_date, form, accession e i valori
     di quel periodo; le voci di cassa dei 10-Q sono cumulate da inizio esercizio e lo dicono.
-    `fino_al` (ISO): solo depositi con filed <= fino_al (cutoff della Trade Idea, mai il futuro)."""
+    `fino_al` (ISO): solo depositi con filed <= fino_al (cutoff della Trade Idea, mai il futuro); `oggi`: giorno
+    di riferimento della run per il deposito dello stesso giorno del cutoff (`depositato_entro`)."""
+    esplicito, oggi = oggi is not None, giorno_di_riferimento(oggi)
     fine_accn = _fine_per_accession(facts, fino_al)
     per_end: Dict[str, Dict[str, Any]] = {}
     serie: Dict[str, Dict[str, Any]] = {}
@@ -352,7 +375,7 @@ def quarterly_history(facts: Dict[str, Any], quarters: int = 8, fino_al: Optiona
                 annuale = form in ANNUAL_FORMS and ob.get("fp") in ("FY", None, "")
                 if not (trimestrale or annuale) or len(end) != 10:
                     continue
-                if fino_al and (end > fino_al or not depositato_entro(ob.get("filed"), fino_al)):
+                if fino_al and (end > fino_al or not depositato_entro(ob.get("filed"), fino_al, oggi, esplicito)):
                     continue
                 if fine_accn.get(ob.get("accn"), end) != end:
                     continue                      # comparativo di un altro periodo
@@ -475,18 +498,31 @@ def e_ixbrl(path, testa: int = 512 * 1024) -> bool:
         return False
 
 
+_MESI_ABBREVIATI = {m[:3]: m for m in ("january", "february", "march", "april", "may", "june", "july", "august",
+                                          "september", "october", "november", "december")}
+_MESI_ABBREVIATI["sept"] = "september"
+
+
 def _data_iso(valore) -> str:
-    """Data ISO da un fatto dei (il convertitore lascia il testo visualizzato: «December 31, 2025»)."""
+    """Data ISO da un fatto dei (il convertitore lascia il testo visualizzato: «December 31, 2025»).
+
+    v4 (Opus 5.5, audit di generalita' punto 6): anche «Dec. 31, 2025», «31 Dec 2025», «December 31st, 2025»,
+    «31.12.2025» (giorno.mese.anno). La barra («12/31/2025») resta testo: l'ordine giorno/mese non e' nel
+    valore; chi legge il fatto usa allora la fine del periodo del contesto (`fatti_ixbrl`)."""
     testo = " ".join(str(valore or "").split())
     try:
         return datetime.fromisoformat(testo).date().isoformat()
     except ValueError:
         pass
-    try:
-        from bellomberg.market_data.filing_verifica import _data
-        return _data(testo).isoformat()
-    except (ValueError, TypeError):
-        return testo
+    from bellomberg.market_data.filing_verifica import _data
+    esteso = re.sub(r"\b(sept|[a-z]{3})\.?(?=\s|$)",
+                    lambda m: _MESI_ABBREVIATI.get(m[1].lower(), m[0]), testo, flags=re.I)
+    for t in (testo, esteso):
+        try:
+            return _data(t).isoformat()
+        except (ValueError, TypeError):
+            continue
+    return testo
 
 
 def fatti_ixbrl(raw: Dict[str, Any], cik, *, meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -510,7 +546,7 @@ def fatti_ixbrl(raw: Dict[str, Any], cik, *, meta: Optional[Dict[str, Any]] = No
         return None
     cik_n = int(str(cik))
     righe: Dict[Any, set] = {}
-    altre, periodo_doc = 0, set()
+    altre, periodo_doc, periodo_contesto = 0, set(), set()
     for f in ((raw or {}).get("facts") or {}).values():
         dims = (f or {}).get("dimensions") or {}
         schema, _, ident = str(dims.get("entity") or "").partition(":")
@@ -522,7 +558,16 @@ def fatti_ixbrl(raw: Dict[str, Any], cik, *, meta: Optional[Dict[str, Any]] = No
         if set(dims) - _DIM_BASE:
             continue  # scomposizione per assi: non il totale dell'emittente
         if tax == "dei" and nome == "DocumentPeriodEndDate":
-            periodo_doc.add(_data_iso(f.get("value")))
+            # v4 (audit di generalita' punto 6): valore in un formato non convertibile -> fine del periodo del
+            # CONTESTO del fatto dei (dichiarato come tale), mai il testo grezzo confrontato con la reportDate
+            data = _data_iso(f.get("value"))
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", data):
+                periodo = str(dims.get("period") or "")
+                fine = (_periodo(periodo) if "/" in periodo else (None, _istante(periodo)))[1] if periodo else None
+                data = fine or data
+                if fine:
+                    periodo_contesto.add(fine)
+            periodo_doc.add(data)
             continue
         if tax not in ("us-gaap", "ifrs-full") or not dims.get("unit"):
             continue
@@ -554,7 +599,8 @@ def fatti_ixbrl(raw: Dict[str, Any], cik, *, meta: Optional[Dict[str, Any]] = No
             riga["start"] = inizio
         facts.setdefault(tax, {}).setdefault(nome, {"units": {}})["units"].setdefault(unita, []).append(riga)
     return {"facts": facts, "altre_entita": altre, "incoerenti": incoerenti,
-            "coerenti_per_arrotondamento": arrotondati, "periodo_documento": sorted(periodo_doc)}
+            "coerenti_per_arrotondamento": arrotondati, "periodo_documento": sorted(periodo_doc),
+            **({"periodo_documento_dal_contesto": sorted(periodo_contesto)} if periodo_contesto else {})}
 
 
 def tolleranza(decimali) -> float:
@@ -576,10 +622,59 @@ def valore_coerente(valori):
     return migliore
 
 
+def converti_istanza_xbrl(path) -> Dict[str, Any]:
+    """xBRL-JSON (dict, stessa forma di ixbrl_oim.converti_xhtml) da un'ISTANZA XBRL (.xml) di un deposito EDGAR.
+
+    v4 (Opus 5.5, audit di generalita' punto 5): per i depositi inline EDGAR pubblica anche l'istanza estratta
+    («<documento>_htm.xml»), che riunisce i fatti di TUTTI i documenti dell'insieme inline (prospetti in un altro
+    file del deposito, contesti dichiarati in un altro documento). Stesse regole del convertitore del progetto
+    (contesti, unita', periodo OIM a fine esclusiva); nessuna rete, niente DTD ne' entita' esterne."""
+    from lxml import etree
+    from bellomberg.market_data import ixbrl_oim as oim
+    import html as _html
+    conv = oim._Convertitore()
+    try:
+        radice = etree.parse(str(path), etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False,
+                                                        huge_tree=True, remove_comments=True,
+                                                        remove_pis=True)).getroot()
+    except etree.XMLSyntaxError as exc:
+        raise oim.PacchettoNonValido(f"istanza XBRL non ben formata: {exc}") from exc
+    for el in radice:
+        if not isinstance(el.tag, str):
+            continue
+        chiave = (oim._ns(el.tag), oim._locale(el.tag))
+        if chiave == (oim.XBRLI, "context"):
+            conv.contesto(el)
+        elif chiave == (oim.XBRLI, "unit"):
+            conv.unita_xbrl(el)
+        elif chiave == (oim.LINK, "schemaRef"):
+            conv.tassonomia.append(el.get(f"{{{oim.XLINK}}}href"))
+        elif el.get("contextRef"):
+            testo = (el.text or "").strip()
+            segno = "-" if el.get("unitRef") and testo.startswith("-") else None
+            conv.grezzi.append({
+                "tipo": "nonFraction" if el.get("unitRef") else "nonNumeric", "id": el.get("id"),
+                "concept": f"{conv.prefissi.prefisso(chiave[0], el.prefix)}:{chiave[1]}",
+                "contesto": el.get("contextRef"), "unita": el.get("unitRef"),
+                "markup": _html.escape(testo.lstrip("-") if segno else testo, quote=False), "lingua": None,
+                "nil": el.get(f"{{{oim.XSI}}}nil") in ("true", "1"), "escape": False, "segue": None,
+                "formato": None, "scala": None, "segno": segno, "decimali": el.get("decimals"),
+                "precisione": el.get("precision")})
+    out = conv.risultato()
+    out["conversione"]["origine"] = "istanza XBRL del deposito convertita localmente"
+    return out
+
+
+def url_istanza_xbrl(url_documento) -> Optional[str]:
+    """«.../nvo-20251231.htm» -> «.../nvo-20251231_htm.xml» (istanza estratta da EDGAR), None se non .htm."""
+    m = re.match(r"(.+/[^/]+)\.htm$", str(url_documento or ""), re.I)
+    return f"{m[1]}_htm.xml" if m else None
+
+
 def fatti_ixbrl_documento(path, cik, *, meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """fatti_ixbrl del documento convertito in locale; ValueError se nessun fatto e' dell'emittente."""
     from bellomberg.market_data import ixbrl_oim
-    raw = ixbrl_oim.converti_xhtml(path)
+    raw = converti_istanza_xbrl(path) if str(path).lower().endswith(".xml") else ixbrl_oim.converti_xhtml(path)
     out = fatti_ixbrl(raw, cik, meta=meta)
     if not out["facts"]:
         raise ValueError(f"iXBRL senza fatti numerici dell'emittente CIK {str(cik).zfill(10)} "
@@ -700,11 +795,13 @@ def _annuali_ixbrl_dopo(submissions: Dict[str, Any], cik: str, dopo: Optional[st
     return _filtra_depositi(out, dopo, fino_al)
 
 
-def _filtra_depositi(elenco, dopo: Optional[str], fino_al: Optional[str]):
+def _filtra_depositi(elenco, dopo: Optional[str], fino_al: Optional[str], oggi: Any = None):
     """Solo reportDate > `dopo` (esercizi che companyfacts non ha) e depositati entro `fino_al` (cutoff, regola
-    di `depositato_entro`: lo stesso giorno di un cutoff storico e' escluso)."""
+    di `depositato_entro`: lo stesso giorno di un cutoff storico e' escluso; `oggi` = giorno di riferimento)."""
+    esplicito = oggi is not None and bool(fino_al)  # senza cutoff l'elenco resta intero (cache)
+    oggi = giorno_di_riferimento(oggi)
     out = [d for d in elenco if isinstance(d, dict) and (not dopo or str(d.get("report_date") or "") > dopo)
-           and depositato_entro(d.get("filed"), fino_al)]
+           and depositato_entro(d.get("filed"), fino_al, oggi, esplicito)]
     return sorted(out, key=lambda d: (d["report_date"], d["filed"]), reverse=True)
 
 
@@ -737,7 +834,7 @@ def _fresco(quando, ttl_s) -> bool:
 
 
 def ripiego_ixbrl_annuale(cik: str, facts: Dict[str, Any], fino_al: Optional[str] = None,
-                          oggi: Optional[datetime] = None) -> Dict[str, Any]:
+                          oggi: Any = None) -> Dict[str, Any]:
     """Esercizi annuali depositati ma assenti da companyfacts, letti dall'iXBRL del deposito.
 
     {"stato": "non_necessario" | "nessun_deposito" | "ok" | "parziale" | "errore", "motivo", "depositi":
@@ -745,8 +842,14 @@ def ripiego_ixbrl_annuale(cik: str, facts: Dict[str, Any], fino_al: Optional[str
     companyfacts e' fermo da oltre GIORNI_ESERCIZIO_ATTESO dalla chiusura dell'ultimo esercizio. Cache per
     emittente: elenco COMPLETO dei depositi annuali (letto al piu' ogni RIPIEGO_TTL_S, filtrato per `fino_al`
     a ogni chiamata: una run storica non vede depositi successivi al suo cutoff), conversioni per accession
-    (deposito immutabile), fallimenti per accession + sha256 ed errore dell'elenco (riserva MEDIO-3 v2)."""
+    (deposito immutabile), fallimenti per accession + sha256 ed errore dell'elenco (riserva MEDIO-3 v2).
+    `oggi` (datetime, date o ISO): giorno di riferimento della run, anche per il filtro del cutoff (v4)."""
     ultima = _ultima_fine_annuale(facts)
+    if isinstance(oggi, str) and oggi:
+        oggi = datetime.fromisoformat(oggi[:10])
+    elif oggi is not None and not isinstance(oggi, datetime):
+        oggi = datetime(oggi.year, oggi.month, oggi.day)
+    oggi_dichiarato, giorno = oggi is not None, giorno_di_riferimento(oggi)
     rif = datetime.fromisoformat(fino_al) if fino_al else (oggi or datetime.now())
     if not ultima:
         return {"stato": "non_necessario", "motivo": "companyfacts senza esercizi annuali", "depositi": []}
@@ -786,7 +889,7 @@ def ripiego_ixbrl_annuale(cik: str, facts: Dict[str, Any], fino_al: Optional[str
                               f"il {ultima} non verificati" + (f"; {motivi[0]}" if motivi else "")}
         cache.update(elenco=tutti, elenco_letto_at=time.time())
         cache.pop("errore_elenco", None)
-    elenco = _filtra_depositi(tutti, ultima, fino_al)
+    elenco = _filtra_depositi(tutti, ultima, fino_al, giorno if oggi_dichiarato else None)
     if not elenco:
         scrivi()
         return {"stato": "nessun_deposito", "depositi": [],
@@ -817,16 +920,43 @@ def ripiego_ixbrl_annuale(cik: str, facts: Dict[str, Any], fino_al: Optional[str
         cartella = tempfile.mkdtemp(dir=CACHE_DIR, prefix="ixbrl_")
         sha = None
         try:
-            snap = _scarica_documento_sec(d["url"], cartella)
-            if snap.get("stato") != "ok":
-                raise ValueError(snap.get("motivo") or "documento non scaricato")
-            sha = snap.get("sha256")
             meta = {"accn": d["accn"], "form": d["form"], "fp": "FY", "filed": d["filed"]}
-            letto = fatti_ixbrl_documento(snap["path"], cik, meta=meta)
-            if d["report_date"] not in letto["periodo_documento"]:
-                raise ValueError(f"periodo del documento {letto['periodo_documento'] or 'non dichiarato'} "
-                                 f"diverso dalla reportDate SEC {d['report_date']}")
-            voce = {**d, "sha256": sha, "fonte": fonte_ixbrl(d["accn"]),
+
+            scaricati = {}
+
+            def leggi(url):
+                snap = _scarica_documento_sec(url, cartella)
+                if snap.get("stato") != "ok":
+                    raise ValueError(snap.get("motivo") or "documento non scaricato")
+                scaricati[url] = snap.get("sha256")
+                letto = fatti_ixbrl_documento(snap["path"], cik, meta=meta)
+                if d["report_date"] not in letto["periodo_documento"]:
+                    raise ValueError(f"periodo del documento {letto['periodo_documento'] or 'non dichiarato'} "
+                                     f"diverso dalla reportDate SEC {d['report_date']}")
+                return snap.get("sha256"), letto
+            # v4 (audit di generalita' punto 5): prospetti in un altro file del deposito o contesti in un altro
+            # documento dell'insieme inline -> il documento primario non basta; si legge l'istanza estratta da
+            # EDGAR, dichiarata. Fallisce anche quella: fallimento dichiarato con ENTRAMBI i motivi e ricordato con
+            # lo sha256 del documento primario (deposito immutabile: niente nuovo download per
+            # GIORNI_DEPOSITO_INVALIDO). Primario non scaricato (rete): nessun tentativo sull'istanza.
+            documento = d["url"]
+            try:
+                sha, letto = leggi(documento)
+            except ValueError as primo:
+                sha = scaricati.get(documento)
+                istanza = url_istanza_xbrl(d["url"])
+                if not istanza or sha is None:
+                    raise
+                try:
+                    sha_istanza, letto = leggi(istanza)
+                except Exception as secondo:
+                    raise ValueError(f"documento primario: {primo}; istanza XBRL: "
+                                     f"{type(secondo).__name__ + ': ' if not isinstance(secondo, ValueError) else ''}"
+                                     f"{secondo}") from secondo
+                sha, documento = sha_istanza, istanza
+            voce = {**d, "sha256": sha, "fonte": fonte_ixbrl(d["accn"]) + (
+                        " (istanza XBRL estratta da EDGAR: il documento primario non bastava)"
+                        if documento != d["url"] else ""), "documento_letto": documento,
                     "convertito_il": datetime.now().isoformat(timespec="seconds"),
                     "conversione": letto["conversione"], "altre_entita": letto["altre_entita"],
                     "coerenti_per_arrotondamento": letto.get("coerenti_per_arrotondamento", 0),
@@ -848,8 +978,15 @@ def ripiego_ixbrl_annuale(cik: str, facts: Dict[str, Any], fino_al: Optional[str
     return {"stato": stato, "depositi": depositi, "motivo": "; ".join(motivi) or None}
 
 
-def get_financial_history(ticker: str, years: int = 10, fino_al: Optional[str] = None) -> Dict[str, Any]:
-    """Storico annuale riga-per-riga dai filing SEC (10-K/20-F). ~30 voci canoniche + derivate."""
+def get_financial_history(ticker: str, years: int = 10, fino_al: Optional[str] = None,
+                          oggi: Any = None) -> Dict[str, Any]:
+    """Storico annuale riga-per-riga dai filing SEC (10-K/20-F). ~30 voci canoniche + derivate.
+
+    `oggi` (v4, Opus 5.5): giorno di riferimento della run (ISO, date o datetime), UNO per tutta la chiamata
+    (filtro di companyfacts, ripiego iXBRL e trimestri: `depositato_entro`, cutoff effettivo min(fino_al, oggi));
+    assente = orologio di sistema solo per il deposito dello stesso giorno del cutoff (v5: nessun limite al giorno
+    della run senza un giorno dichiarato). Serve a rieseguire una run storica con lo stesso esito."""
+    oggi = giorno_di_riferimento(oggi) if oggi is not None else None
     try:
         from bellomberg.market_data.sec_edgar import lookup_cik, ticker_ambiguo_per_cik
         # Revisione G1 (04/10/2026): con un suffisso di listino senza alias verificato il CIK non si
@@ -870,9 +1007,9 @@ def get_financial_history(ticker: str, years: int = 10, fino_al: Optional[str] =
         return {"error": f"companyfacts non disponibile per CIK {cik}"}
     # v3: con un cutoff, companyfacts senza i depositi successivi (serie annuali, ultimo esercizio del ripiego e
     # trimestri sullo stesso insieme: nessun look-ahead)
-    facts = facts_cf = _facts_fino_al(data.get("facts") or {}, fino_al)
+    facts = facts_cf = _facts_fino_al(data.get("facts") or {}, fino_al, oggi)
     # RIPIEGO iXBRL (R-FONTI 10/10): esercizi depositati ma non ancora in companyfacts, dal documento
-    ripiego = ripiego_ixbrl_annuale(cik, facts_cf, fino_al=fino_al)
+    ripiego = ripiego_ixbrl_annuale(cik, facts_cf, fino_al=fino_al, oggi=oggi)
     rideterminati: List[Dict[str, Any]] = []
     # dal deposito MENO recente al piu' recente: sullo stesso periodo vale l'ultimo deposito (comparativo
     # rideterminato), come nello storico ESEF; ogni sostituzione si dichiara (riserva MEDIO-2 v2)
@@ -926,7 +1063,7 @@ def get_financial_history(ticker: str, years: int = 10, fino_al: Optional[str] =
             derived["fcf"][y] = cfo - abs(capex)
     derived = {k: v for k, v in derived.items() if v}
     # FRESCHEZZA: trimestri dei 10-Q e ultimo periodo depositato con period_end/filing_date (ricevuta attestabile)
-    trimestri = quarterly_history(facts, fino_al=fino_al)   # cutoff della run: mai un deposito successivo
+    trimestri = quarterly_history(facts, fino_al=fino_al, oggi=oggi)   # cutoff della run: mai un deposito successivo
 
     fonte_testa = etichetta_ripiego(da_ixbrl, rideterminazioni, ripiego)
     out = {"ticker": ticker.upper(), "cik": cik,
@@ -945,7 +1082,7 @@ def get_financial_history(ticker: str, years: int = 10, fino_al: Optional[str] =
                               "depositi": [{k: d.get(k) for k in ("accn", "form", "filed", "report_date", "url",
                                                                   "sha256", "fonte", "convertito_il", "conversione",
                                                                   "altre_entita", "incoerenti",
-                                                                  "coerenti_per_arrotondamento")}
+                                                                  "coerenti_per_arrotondamento", "documento_letto")}
                                            for d in ripiego["depositi"]],
                               "anni_per_voce": da_ixbrl, "rideterminazioni": rideterminazioni},
             "_timestamp": datetime.now().isoformat(timespec="seconds"),

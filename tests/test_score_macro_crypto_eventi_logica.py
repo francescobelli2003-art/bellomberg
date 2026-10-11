@@ -208,7 +208,8 @@ def test_macro_massimo_raggiungibile_uguale_al_dichiarato():
 
 
 @pytest.mark.parametrize("metrica,sotto,punti", [
-    ("vix", 19.99, 0), ("vix", 20, 1), ("vix", 25, 2), ("vix", 30, 3),
+    # 10/10: VIX calibrato sui percentili 60/80/95 di FRED VIXCLS dal 1997 (core/soglie_score)
+    ("vix", 20.49, 0), ("vix", 20.5, 1), ("vix", 24.99, 1), ("vix", 25, 2), ("vix", 34.09, 2), ("vix", 34.1, 3),
     ("hy", 3.99, 0), ("hy", 4, 1), ("hy", 5.5, 2), ("hy", 7, 3),
     ("ig", 1.29, 0), ("ig", 1.3, 1), ("ig", 1.7, 2), ("ig", 2.5, 3),
     ("curve", 75, 0), ("curve", 74, 1), ("curve", 24, 2), ("curve", -1, 3),
@@ -421,7 +422,8 @@ def test_macro_parita_esatta_governa_lo_stress():
 
 def test_macro_tutto_in_banda_bassa_l_etichetta_e_quella_del_ciclo():
     # stress 1/12 (frazione piu' alta) e ciclo 0/12: entrambi banda bassa -> «ESPANSIVO»
-    s = ss.macro_score(_dash(vix=20, hy=3, ig=1, delta10=0, curve=140, tips=-0.9, cpi=2.0, unemp=0.0),
+    # (10/10: VIX 21 sopra la prima soglia calibrata 20,5)
+    s = ss.macro_score(_dash(vix=21, hy=3, ig=1, delta10=0, curve=140, tips=-0.9, cpi=2.0, unemp=0.0),
                        oggi=OGGI)
     assert s["metrics"]["sottoindici"]["stress"]["score"] == 1
     assert s["metrics"]["governa"] == "ciclo" and s["verdict"].startswith("REGIME ESPANSIVO")
@@ -614,13 +616,16 @@ def test_crypto_la_microcap_estrema_non_decide_il_verdetto():
 def test_crypto_il_premio_e_informativo_niente_doppio_conteggio():
     # premio medio +10 bp -> funding 54,75%/anno (scarto +43,8): v1 = 3 + 1 punti di premio
     s = ss.crypto_score(_intel([_fis("BTC", 10, 3000), _fis("ETH", 10, 1500)]), adesso=ADESSO)
-    assert (s["score"], s["max_score"]) == (3, 3) and s["verdict"] == "CRYPTO EUFORICO"
+    # 10/10: scarto 43,8 fra p95 e p99 -> 2,73 punti, banda EUFORICO (>= 2,25)
+    assert s["score"] == pytest.approx(2.73, abs=0.01) and s["max_score"] == 3
+    assert s["verdict"] == "CRYPTO EUFORICO"
     lab, val, pt = _riga(s, "Premio")
     assert pt is None and lab in s["excluded"] and lab not in s["unscored"]
 
 
 def test_crypto_premio_negativo_e_short_non_surriscaldato():
-    # premio medio -6 bp -> funding -10,95%/anno (scarto -21,9) -> 2 punti, lato short
+    # premio medio -6 bp -> funding -10,95%/anno (scarto -21,9) -> 2 punti, lato short (10/10:
+    # fra i percentili 80 e 95 del calibrato, banda «sotto pressione»)
     s = ss.crypto_score(_intel([_fis(a, -6, oi) for a, oi in (("BTC", 3000), ("ETH", 1500), ("SOL", 400))]),
                         adesso=ADESSO)
     assert s["metrics"]["direzione"] == "short"
@@ -658,7 +663,8 @@ def test_crypto_funding_negativo_di_un_major_emerge():
     s = ss.crypto_score(_intel(major), adesso=ADESSO)
     atteso = (10.95 * 3000 - 9.84 * 1500 + 10.95 * 400) / 4900
     assert s["metrics"]["funding_ann_pct"] == pytest.approx(atteso)
-    assert _riga(s, "Funding")[2] == 1 and s["metrics"]["direzione"] == "short"
+    # scarto -6,36: fra il p50 (3,35 -> 0,75) e il p80 (11,7 -> 1,5) -> 1,02 punti, continuo
+    assert _riga(s, "Funding")[2] == pytest.approx(1.02, abs=0.01) and s["metrics"]["direzione"] == "short"
 
 
 def test_crypto_capitolazione_dei_major():
@@ -667,11 +673,25 @@ def test_crypto_capitolazione_dei_major():
     assert (s["score"], s["max_score"]) == (3, 3) and s["verdict"] == "CRYPTO CAPITOLAZIONE"
 
 
-@pytest.mark.parametrize("scarto,punti", [(4.99, 0), (5, 1), (14.99, 1), (15, 2), (30, 3), (-5, 1), (-30, 3)])
+# 10/10: ancore CALIBRATE (percentili 50/80/95/99 di |scarto| sugli ultimi 2 anni Hyperliquid)
+# ai confini delle etichette (0,75 / 1,5 / 2,25 punti), saturazione a 3 al p99; punti CONTINUI
+@pytest.mark.parametrize("scarto,punti", [(0, 0), (3.35, 0.75), (11.7, 1.5), (27, 2.25), (53.45, 3),
+                                          (80, 3), (-3.35, 0.75), (-27, 2.25),
+                                          ((3.35 + 11.7) / 2, 1.125)])
 def test_crypto_confini_funding_relativi_al_tasso_base(scarto, punti):
     f = 10.95 + scarto
     s = ss.crypto_score(_intel([_r("BTC", f, 0, 1000), _r("ETH", f, 0, 500)]), adesso=ADESSO)
-    assert _riga(s, "Funding")[2] == punti
+    assert _riga(s, "Funding")[2] == pytest.approx(punti, abs=0.01)
+
+
+def test_crypto_niente_scoglio_un_centesimo_di_scarto_sposta_una_frazione():
+    # il vecchio gradino a 15: 14,99 -> 1 punto, 15 -> 2 punti. Ora la differenza e' minima
+    def p(scarto):
+        f = 10.95 + scarto
+        return _riga(ss.crypto_score(_intel([_r("BTC", f, 0, 1000), _r("ETH", f, 0, 500)]),
+                                     adesso=ADESSO), "Funding")[2]
+    for x in (4.99, 11.69, 14.99, 26.99):
+        assert abs(p(x + 0.01) - p(x)) <= 0.02, x
 
 
 def test_crypto_senza_eth_il_funding_e_nd_e_niente_verdetto():
@@ -758,7 +778,7 @@ def test_politics_i_mercati_di_pace_non_sono_coda(domanda):
 
 
 @pytest.mark.parametrize("domanda,tema", [
-    ("Will China invade Taiwan by end of 2099?", "Cina-Taiwan/dazi"),
+    ("Will China invade Taiwan by end of 2099?", "Cina-Taiwan"),
     ("US recession by end of 2099?", "recessione USA"),
     ("Will Israel strike Iran before year-end?", "Iran-Israele"),
 ])
@@ -804,7 +824,8 @@ def test_politics_i_25_titoli_della_revisione(domanda, pace):
 @pytest.mark.parametrize("domanda,tema", [
     ("Will peace talks collapse and war resume by December 31, 2026?", "conflitto/guerra"),
     ("Ceasefire violated: will Russia attack Kyiv again by end of 2026?", "conflitto/guerra"),
-    ("Will the US-China trade deal fail and China tariffs rise above 60%?", "Cina-Taiwan/dazi"),
+    # v6 (10/10): per i dazi «fail\w*» e' guardia di allentamento: falso negativo accettato,
+    # la frase non e' piu' fra quelle che contano (v. test_soglie_score_fonte_unica)
     ("Will Iran attack Israel before talks?", "Iran-Israele"),
     ("Will Israel resume strikes on Iran by November 30?", "Iran-Israele"),
     ("Will the US withdraw from the Iran deal and strike Iran?", "Iran-Israele"),

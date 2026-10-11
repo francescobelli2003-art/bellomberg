@@ -92,6 +92,13 @@ def _data(value):
         return date.fromisoformat(value)
     except ValueError:
         pass
+    # v4 (Opus 5.5, audit di generalita' punto 7): giorno ordinale («31st March 2026», «March 31st, 2026») e
+    # data europea col punto («31.03.2026», giorno.mese.anno). La barra («12/31/2025») resta rifiutata: l'ordine
+    # giorno/mese non e' dichiarato dal testo.
+    value = re.sub(r"\b(\d{1,2})(?:st|nd|rd|th)\b", r"\1", value)
+    numerica = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.(\d{4})", value)
+    if numerica:
+        return date(int(numerica[3]), int(numerica[2]), int(numerica[1]))
     for numero, nomi in enumerate(_MESI, 1):
         for nome in nomi:
             patterns = (rf"(\d{{1,2}})\.?\s+{nome}\s+(\d{{4}})",
@@ -147,7 +154,9 @@ def _periodo_testuale(match, tipo, fine_libera=False):
               # durata dichiarata dal titolo della relazione («Half-Year … as of», «semestrale al»)
               "half": 6, "semestrale": 6,
               # APERTO-TI 06/10: regola standard 6-K FPI («second quarter ended June 30, 2026»)
-              "quarter": 3}
+              "quarter": 3,
+              # v4 (audit di generalita' punto 7): «semester ended June 30, 2025»
+              "semester": 6}
     mesi = counts.get(_norm(groups["mesi"]).lower())
     expected = {"annuale": 12, "semestrale": 6, "trimestrale": 3, "nove_mesi": 9}[tipo]
     if mesi != expected:
@@ -509,8 +518,13 @@ def _verifica_documento(path, *, url, profilo, catalogo=None):
 # scrivono «second quarter ended June 30, 2026» o «period ended ...»: il trimestrale restava fuori.
 # Vale per OGNI profilo con variante 6-K (anche quelli gia' salvati), SOLO dopo che la verifica col
 # profilo e' fallita su tipo o periodo; identita', lingua e perimetro restano quelli del profilo.
-_DATA_STD = r"(?P<fine>[A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+[A-Za-z]+\s+\d{4})"
-TIPO_6K_STANDARD = r"(?:months?|quarter|half[-\s]year|half|periods?)\s+ended|half[-\s]year"
+# v4 (Opus 5.5, audit di generalita' punto 7): «ending» come «ended», «semester ended», «first half of 2025» (tipo:
+# il periodo senza data finale resta da confermare, dichiarato), giorno ordinale («31st March 2026») e data europea
+# col punto («31.03.2026»)
+_DATA_STD = (r"(?P<fine>[A-Za-z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}|\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+\s+\d{4}"
+             r"|\d{1,2}\.\d{1,2}\.\d{4})")
+TIPO_6K_STANDARD = (r"(?:months?|quarter|half[-\s]year|half|periods?|semester)\s+end(?:ed|ing)|half[-\s]year"
+                    r"|first\s+half\s+(?:of\s+)?(?:fiscal\s+(?:year\s+)?)?\d{4}")
 # R-FONTI 10/10 (Opus 5.5): «three-month period ended», «three-months period ended», «three month period
 # ended», «quarter ended» (prova reale: 6-K Q1 2026 di un emittente del book). Trattini tipografici ammessi (U+2010-U+2013) e
 # nessuna cifra/parola attaccata davanti: «13-month» o «twenty-three months» non sono un trimestre.
@@ -520,8 +534,10 @@ PERIODO_6K_STANDARD = {
                     r"(?P<mesi>three|3|quarter)"
                     rf"(?:(?:\s+and\s+(?:six|nine))?[{_TRATTINO_STD}]+months?(?:\s+periods?)?)?\s+ended(?:\s+on)?\s+"
                     + _DATA_STD),
-    "semestrale": (rf"(?<![\w{_TRATTINO_STD[2:]}])(?:first\s+)?(?P<mesi>six|6|half)"
+    "semestrale": (rf"(?<![\w{_TRATTINO_STD[2:]}])(?:first\s+)?(?P<mesi>six|6|half|semester)"
                    rf"(?:[{_TRATTINO_STD}]+(?:months?|year)(?:\s+periods?)?)?\s+ended(?:\s+on)?\s+" + _DATA_STD)}
+# v5: «ending» vale per il TIPO e per la scelta delle frasi, MAI per il periodo: «for the quarter ending June 30,
+# 2026» e' di solito una previsione (guidance); un periodo scritto cosi' resta da confermare, dichiarato
 REGOLA_6K_STANDARD = "standard_6k_fpi (regola del codice, non del profilo)"
 _DATE_VISTE = re.compile(r"(?:ended(?:\s+on)?|as\s+of)\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+[A-Za-z]+\s+\d{4})", re.I)
 _REGISTRANTE_COPERTINA = re.compile(r"([^\n]{2,160})\n[\s\xa0]*\(Exact name of registrant", re.I)
@@ -542,13 +558,18 @@ def _corpo_6k(testo):
     return testo[fine:]
 
 
-_PERIODO_FRASE = re.compile(r"\b(?:quarter|months?|half[-\s]?year|six[-\s]month|period|semester)s?\s+ended\b", re.I)
+_PERIODO_FRASE = re.compile(r"\b(?:quarter|months?|half[-\s]?year|six[-\s]month|period|semester)s?\s+end(?:ed|ing)\b",
+                            re.I)
 _ABBREVIAZIONI = {"ltd", "inc", "corp", "co", "no", "s.a", "n.v", "plc", "mr", "ms", "dr", "st", "s.p.a", "a.g", "n.a",
                   # v2 (prova reale: comunicato 6-K di un emittente del book, «reported U.S. GAAP financial results for
                   # the second quarter ended ...» spezzato dopo «U.S.» e «GAAP» preso per un'altra entita')
                   "u.s", "u.k", "u.s.a", "e.g", "i.e", "vs", "approx"}
+# v5: anche la data alla spagnola/portoghese/italiana/francese («Ciudad de México, 28 de abril de 2026 -»)
+# v6 (Opus 5.5): agenzia fra barre dopo la data («TOKYO, May 15, 2026 /PRNewswire/ --») e separatore «.-»
+# («MÉXICO, D.F., a 28 de abril de 2026.- »; la preposizione «a» sta gia' nel tratto del luogo)
 _DATELINE = re.compile(r"^\s*[A-ZÀ-Þ][A-ZÀ-Þa-zà-ÿ .,'’-]{0,60}?,?\s+(?:[A-Z][a-z]+\.?\s+\d{1,2},?\s+\d{4}"
-                       r"|\d{1,2}\s+[A-Z][a-z]+\s+\d{4})\s*(?:\([^)]{0,40}\)\s*)?[-–—/]+\s*")
+                       r"|\d{1,2}\s+[A-Z][a-z]+\s+\d{4}|\d{1,2}(?:º|°)?\s+(?:de\s+)?[a-zà-ÿ]+\s+(?:de\s+)?\d{4})"
+                       r"\s*(?:\([^)]{0,40}\)\s*|/[^/\n]{1,40}/\s*)?(?:\.-|[-–—/])+\s*")
 
 
 _TESTA_CORPO_6K = 6000  # battute del corpo in cui contano le frasi sul periodo (oltre: note al bilancio)
@@ -559,10 +580,28 @@ def _fine_frase(dopo):
     abbreviazioni («Corp.», «Ltd.») e le date («June 30, 2025.» chiude)."""
     for b in re.finditer(r"[.!?](?=\s+[A-ZÀ-Þ“\"(]|\s*$)", dopo):
         parola = re.findall(r"[\w.]+$", dopo[:b.start()])
-        if b.group(0) == "." and parola and parola[0].lower().rstrip(".") in _ABBREVIAZIONI:
+        if b.group(0) == "." and parola and _punto_non_chiude(parola[0], dopo[b.end():]):
             continue
         return b.end()
     return len(dopo)
+
+
+# v7 (Opus 5.5, ri-verifica della v6): dopo una FORMA giuridica il punto non chiude la frase SOLO se il testo che
+# segue continua il nome («S.A.B. DE C.V.», «Zetabras S.A., the ...», «Inc. (NYSE: ...)», parola minuscola); con
+# una parola maiuscola dopo, la frase finisce («furnished by Zetapark B.V. Zetapay reported ...»: due frasi).
+# Vale anche per le forme che erano in _ABBREVIAZIONI (prima «Zetabras S.A. Zetapay reported» restava una frase).
+_ABBREVIAZIONI_FORMA = frozenset({"ltd", "inc", "corp", "co", "s.a", "n.v", "plc", "s.p.a", "a.g"})
+_CONTINUA_IL_NOME = re.compile(r"\s*(?:(?i:de)\s+C\.?\s?V|[,(]|[a-z])")
+
+
+def _punto_non_chiude(parola, dopo):
+    """True se il punto dopo ``parola`` non chiude la frase: abbreviazione che non e' una forma giuridica
+    («U.S.», «Mr.»), oppure forma giuridica seguita da testo che continua il nome (vedi sopra)."""
+    p = parola.lower().rstrip(".")
+    forma = p in _ABBREVIAZIONI_FORMA or ("." in parola and bool(_FORME_ESTESE_6K.fullmatch(parola)))
+    if forma:
+        return bool(_CONTINUA_IL_NOME.match(dopo))
+    return p in _ABBREVIAZIONI
 
 
 def _frasi_del_periodo(corpo, limite=_TESTA_CORPO_6K):
@@ -576,7 +615,7 @@ def _frasi_del_periodo(corpo, limite=_TESTA_CORPO_6K):
         inizio = 0
         for b in re.finditer(r"\.\s+(?=[A-Z])", riga):
             parola = re.findall(r"[\w.]+$", riga[:b.start()])
-            if parola and parola[0].lower().rstrip(".") in _ABBREVIAZIONI:
+            if parola and _punto_non_chiude(parola[0], riga[b.start() + 1:]):
                 continue
             inizio = b.end()
         dopo = corpo[m.start():m.start() + 600].split("\n")[0]
@@ -617,8 +656,9 @@ _PAROLE_COMUNI_6K = frozenset((
 _PRONOME_6K = re.compile(r"(?:we|it|management|(?:the\s+)?(?:company|group|bank)(?!['’]))\b|(?P<poss>our|its|"
                          r"(?:the\s+)?(?:company|group|bank)['’]s?)(?=\s)", re.I)
 # Apertura avverbiale o sul periodo chiusa da una virgola («In the second quarter ended June 30, 2025, …»,
-# «Today, …»): la virgola dentro una data («June 30, 2025») non la chiude
-_APERTURA_6K = re.compile(r"(?:(?:in|for|during|as\s+(?:of|at)|over|through(?:out)?|at|on|since|compared\s+(?:to|with)"
+# «Today, …»): la virgola dentro una data («June 30, 2025») non la chiude. v5: SOLO in testa alla frase e a
+# parola intera (prima «on, » dentro «Grupo Zetavision, S.A.B.» veniva tolto a meta' nome)
+_APERTURA_6K = re.compile(r"^(?:(?:in|for|during|as\s+(?:of|at)|over|through(?:out)?|at|on|since|compared\s+(?:to|with)"
                           r"|following|after|today|yesterday|earlier\s+today|separately|additionally|also|meanwhile"
                           r"|recently|in\s+addition)\b(?:[^,]|,\s*\d{4}\b){0,160}?,(?!\s*\d{4}\b)\s*)+", re.I)
 _FORME_DOPO_6K = re.compile(r"(?:[\s,]*(?:ltd|limited|inc|incorporated|corp|corporation|plc|s\.?a|n\.?v|ag|se|"
@@ -641,6 +681,50 @@ _ETICHETTA_ALLEGATO_6K = re.compile(r"^(?:enclosures?|exhibits?(?:\s+no\.?)?(?:\
 def _comune_6k(parola):
     parti = [p for p in re.split(r"[-'’.]", parola.lower()) if p]
     return not parti or all(p in _PAROLE_COMUNI_6K or p.isdigit() for p in parti)
+
+
+# v4 (Opus 5.5, audit di generalita' punto 1): norm_alias lascia nell'alias i pezzi delle forme giuridiche estese
+# («Grupo X, S.A.B. de C.V.» -> «grupo x b de c», «PT X (Persero) Tbk» -> «pt x persero tbk», «X Partners L.P.» ->
+# «x partners l») e l'alias non si ritrova nel testo scritto con la forma intera: si aggiunge la RADICE senza quelle
+# code (mai sotto una parola).
+_CODA_ALIAS_6K = frozenset("b c de del cv saa sau sab sa tbk persero publ pty kk bhd berhad ltda lp l p s a v".split())
+
+
+def _radice_alias(nome):
+    """Radice dell'alias senza le code di forma (vedi sopra), None se coincide con l'alias."""
+    from bellomberg.market_data.filing_attivazione import norm_alias
+    parole = norm_alias(nome).split()
+    radice = list(parole)
+    while len(radice) > 1 and (radice[-1] in _CODA_ALIAS_6K or len(radice[-1]) <= 1):
+        radice.pop()
+    return " ".join(radice) if radice != parole else None
+
+
+def _regex_alias_6k(alias):
+    """Regex degli alias dell'emittente piu' le loro radici senza code di forma (vedi sopra), senza doppioni."""
+    from bellomberg.market_data.filing_attivazione import regex_alias
+    out = []
+    for a in alias:
+        for nome in (a["nome"], _radice_alias(a["nome"])):
+            rx = regex_alias(nome) if nome else None
+            if rx and rx not in out:
+                out.append(rx)
+    return out
+
+
+def _fine_forme(testo, pos):
+    """Fine delle forme giuridiche che seguono ``pos`` (anche estese: «, S.A.B. de C.V.», «(Persero) Tbk», «A/S»;
+    v5). Le forme estese contano solo con la maiuscola («as of» non e' la forma «a.s.»)."""
+    while True:
+        inizio = re.compile(r"[\s,(]*").match(testo, pos).end()
+        forma = _FORME_ESTESE_6K.match(testo, inizio) if testo[inizio:inizio + 1].isupper() else None
+        if forma and forma.end() > inizio:  # prima la forma estesa: «S.A.B. de C.V.» non e' «S.A.» + resto
+            pos = re.compile(r"\)?").match(testo, forma.end()).end()
+            continue
+        fine = _FORME_DOPO_6K.match(testo, pos).end()
+        if fine == pos:
+            return pos
+        pos = fine
 
 
 def _alias_in_testa(testo, rxs):
@@ -699,6 +783,18 @@ def _persona_che_dichiara(frase, nome):
     return bool(_CARICA_6K.search(frase) or _DICHIARA_6K.match(dopo.lstrip(" ,")))
 
 
+# v4 (Opus 5.5, riserva C della terza revisione): soggetto composto emittente + UNA controllata come gruppo
+# consolidato. Vale solo con la designazione del gruppo («(together, the Group)», «(collectively, the
+# "Company")») o col verbo seguito da «consolidated» («... Zzpay S.A. reported consolidated results»); senza,
+# il soggetto composto resta un altro soggetto (falso rifiuto dichiarato col nome).
+_GRUPPO_6K = re.compile(
+    rf"\s*,?\s*and\s+its\s+(?:(?:wholly[\s-]+owned|consolidated|operating|principal|main)\s+)?subsidiary\s+"
+    rf"(?:the\s+)?(?-i:{_MAIUSCOLA_6K}(?:\s+{_MAIUSCOLA_6K}){{0,5}})\s*,?\s*"
+    rf"(?:\(\s*(?:together|collectively)\b[^)]{{0,60}}?\b(?:group|company)\b[^)]{{0,20}}\)\s*,?"
+    rf"|(?=(?:reported|reports|announced|announces|released|releases|presented|presents)\s+(?:its\s+|their\s+)?"
+    rf"(?:unaudited\s+)?consolidated\b))", re.I)
+
+
 def _altro_soggetto(frase, alias):
     """Nome dell'altra entita' SOGGETTO della frase sul periodo; None se il soggetto e' il registrante (un suo
     alias, «we», «the Company», «the Group») o se la frase non nomina un'altra entita' come soggetto: allora
@@ -709,8 +805,7 @@ def _altro_soggetto(frase, alias):
       («Zztest Holdings and Zzpartner …»), possessivo («Zztest Holdings' payments partner Zzpartner …»,
       «Our payments partner Zzpartner …»), specificazione («The financial statements of Zzpartner …»);
     - passivo con un altro agente («… were released today by Zzpartner»)."""
-    from bellomberg.market_data.filing_attivazione import regex_alias
-    rxs = [rx for rx in (regex_alias(a["nome"]) for a in alias) if rx]
+    rxs = _regex_alias_6k(alias)
     testo = re.sub(r"^[\s\"“‘'(]*(?:the\s+)?", "", frase, flags=re.I)
     testo = re.sub(_ETICHETTA_ALLEGATO_6K, "", testo, count=1)  # «Enclosure: ...», «Exhibit 99.1 - ...»
     testo = re.sub(r"^[\s\"“‘'(]*(?:the\s+)?", "", _APERTURA_6K.sub("", testo, count=1), flags=re.I)
@@ -719,9 +814,14 @@ def _altro_soggetto(frase, alias):
     pronome = _PRONOME_6K.match(testo) if fine is None else None
     if fine is not None:
         dopo = testo[fine:]
-        dopo = dopo[_FORME_DOPO_6K.match(dopo).end():]
+        dopo = dopo[_fine_forme(dopo, 0):]
         if re.match(r"\s*(?:'s|’s|'|’)(?=\s)", dopo):
             altro = _nome_nel_sintagma(re.sub(r"^\s*(?:'s|’s|'|’)", "", dopo), rxs)
+        elif g := _GRUPPO_6K.match(dopo):
+            # v4 (Opus 5.5, riserva C): «<emittente> and its subsidiary Zzpay S.A. (together, the Group) reported
+            # consolidated results ...» e' il GRUPPO dell'emittente (come «and its subsidiaries»); il resto della
+            # frase si legge ancora (passivo, subordinate, risultati di un'altra entita')
+            frase = testo[:fine] + " " + dopo[g.end():]
         elif m := re.match(r"\s*,?\s*(?:and|&|together\s+with|jointly\s+with)\s+(?:the\s+)?", dopo, re.I):
             altro = _nome_proprio(dopo[m.end():], rxs)
         elif m := re.match(r"\s+(?=[A-ZÀ-Þ])", dopo):
@@ -751,7 +851,13 @@ def _altro_soggetto(frase, alias):
 _RELAZIONE_6K = re.compile(
     r"\b(?:partners?|subsidiary|affiliates?|affiliated|joint[\s-]+ventures?|investees?"
     r"|parent(?:\s+(?:company|entity))?\s+of|carve[\s-]?outs?|on\s+behalf\s+of"
-    r"|whose\s+(?:[\w-]+\s+){0,4}?(?:statements?|results|accounts)\s+(?:are|is|were)\s+(?:presented|included|attached))\b",
+    r"|whose\s+(?:[\w-]+\s+){0,4}?(?:statements?|results|accounts)\s+(?:are|is|were)\s+(?:presented|included|attached)"
+    # v4 (Opus 5.5, riserva B della terza revisione): partecipazione e controllo («99.9% owned by», «owns 99.9% of»,
+    # «wholly-owned», «the entity reported in these statements»); «internal controls», «controls and procedures»
+    # non sono una relazione con un'altra entita'
+    r"|owns|owned\s+by|(?:wholly|majority|jointly)[\s-]+owned|holds|held\s+by|controlled\s+by"
+    r"|(?<!internal\s)controls(?!\s+(?:and|over|procedures|environment))"
+    r"|the\s+entity\s+(?:reported|presented|covered)\s+(?:in|by)\s+(?:these|this|the))\b",
     re.I)
 _VERBO_RISULTATI_6K = re.compile(r"\b(?:released?|releases|reported|reports?|announced|announces?|published"
                                  r"|publish(?:es)?|presented|presents?|issued|issues?|posted|posts?|delivered"
@@ -763,8 +869,80 @@ def _spazi_alias(testo, rxs):
     out = []
     for rx in rxs:
         for m in re.finditer(rx, testo, re.I):
-            out.append((m.start(), m.end() + _FORME_DOPO_6K.match(testo, m.end()).end() - m.end()))
+            out.append((m.start(), _fine_forme(testo, m.end())))
     return out
+
+
+# v4 (Opus 5.5, riserva A della terza revisione): con l'emittente soggetto della frase, i risultati sono di
+# un'altra entita' NOMINATA anche senza parola di relazione: specificazione («the second quarter 2025 results of
+# Zzbank S.A.», «the unaudited financial statements of Zzbank S.A.»), possessivo («Zzbank S.A.'s consolidated
+# results») o relativa con un verbo di pubblicazione («the press release in which Zzbank S.A. reported ...»,
+# «where»/«whereby»). I nomi comuni («Statements of Income», «Results of Operations») non sono entita'.
+_PAROLA_RISULTATI_6K = r"(?:results|statements|figures|accounts|earnings)"
+_RISULTATI_DI_6K = re.compile(rf"\b{_PAROLA_RISULTATI_6K}\s+of\s+(?:the\s+)?", re.I)
+_DOPO_POSSESSIVO_6K = re.compile(rf"\s+(?:[\w-]+\s+){{0,4}}?{_PAROLA_RISULTATI_6K}\b", re.I)
+_RELATIVA_6K = re.compile(r"\b(?:in\s+which|wherein|whereby|where)\s+(?:the\s+)?", re.I)
+_VERBO_PUBBLICAZIONE_6K = re.compile(r"[\s.,]*(?:[\w-]+\s+){0,2}?(?:reported|released|announced|published|posted)\b",
+                                     re.I)
+
+
+def _nome_entita(testo, rxs):
+    """Nome proprio con cui comincia ``testo`` se NON e' l'emittente; anche l'alias ESTESO da un altro nome (la
+    controllata col nome simile al padre: «Zzalfa Energia Rinnovabili» con l'alias «Zzalfa Energia»)."""
+    nome = _nome_proprio(testo, rxs)
+    fine = None if nome else _alias_in_testa(testo, rxs)
+    if fine is None:
+        return nome
+    dopo = testo[fine:]
+    dopo = dopo[_fine_forme(dopo, 0):]
+    m = re.match(r"\s+(?=[A-ZÀ-Þ])", dopo)
+    altro = _nome_proprio(dopo[m.end():], rxs) if m else None
+    return " ".join((testo[:fine] + " " + altro).split()) if altro else None
+
+
+def _fine_nome(testo, nome):
+    """Fine in ``testo`` del nome (normalizzato negli spazi) con cui ``testo`` comincia."""
+    m = re.match(r"\s+".join(map(re.escape, nome.split())), testo)
+    return m.end() if m else len(nome)
+
+
+def _risultati_di_altra_entita(frase, rxs):
+    """Altra entita' a cui la frase attribuisce i risultati senza parola di relazione (vedi sopra); None altrimenti."""
+    for m in _RISULTATI_DI_6K.finditer(frase):
+        nome = _nome_entita(frase[m.end():], rxs)
+        if nome and not _persona_che_dichiara(frase, nome):
+            return f"{nome}, risultati attribuiti («{' '.join(m[0].split())}»)"
+    for m in _RELATIVA_6K.finditer(frase):
+        resto = frase[m.end():]
+        nome = _nome_entita(resto, rxs)
+        if (nome and _VERBO_PUBBLICAZIONE_6K.match(resto, _fine_nome(resto, nome))
+                and not _persona_che_dichiara(frase, nome)):
+            return f"{nome}, risultati attribuiti («{' '.join(m[0].split())} {nome} ...»)"
+    alias = _spazi_alias(frase, rxs)
+    for w in re.finditer(r"(?<![\w&'’.-])[A-ZÀ-Þ]", frase):
+        if any(a <= w.start() < b for a, b in alias) and not any(a == w.start() for a, _ in alias):
+            continue
+        nome = _nome_entita(frase[w.start():], rxs) or ""
+        poss = re.search(r"['’]s?(?=\s|$)", nome)
+        if poss and poss.start() and _DOPO_POSSESSIVO_6K.match(frase, w.start() + poss.end()):
+            return f"{nome[:poss.start()]}, risultati attribuiti (possessivo «{nome[:poss.end()]}»)"
+    return None
+
+
+# v5 (Opus 5.5, riserva ALTA della ri-verifica di d487ac7): nella nota «1. Operations» e nella riga del titolo
+# l'emittente e' il SOGGETTO; le forme attive («owns and operates 120 stores», «holds a banking license», «controls
+# the Zetabras group») descrivono la sua attivita', non una dipendenza da un'altra entita'. Li' contano solo le
+# forme passive o di dipendenza («owned by», «held by», «controlled by», «wholly-owned», «subsidiary of», ...).
+# Nel blocco di intestazione e nella frase del periodo resta la regola intera.
+_RELAZIONE_ATTIVA_6K = frozenset(("owns", "holds", "controls"))
+
+
+def _relazioni_fuori_alias(testo, rxs, attive=True):
+    """Parole di relazione di ``testo`` fuori dal nome dell'emittente (v4: «Zzfield Infrastructure Partners L.P.»
+    non e' la relazione «partners»); ``attive=False`` (nota 1, titolo): senza le forme attive (v5)."""
+    alias = _spazi_alias(testo, rxs)
+    return [r for r in _RELAZIONE_6K.finditer(testo) if not any(a <= r.start() < b for a, b in alias)
+            and (attive or r[0].lower() not in _RELAZIONE_ATTIVA_6K)]
 
 
 def _soggetto_subordinato(frase, rxs):
@@ -778,15 +956,61 @@ def _soggetto_subordinato(frase, rxs):
             nome = _nome_proprio(resto, rxs)
         if nome and _VERBO_RISULTATI_6K.search(resto[:240]) and not _persona_che_dichiara(frase, nome):
             return nome
-    relazione = _RELAZIONE_6K.search(frase)
-    if relazione:
-        alias = _spazi_alias(frase, rxs)
-        for w in re.finditer(r"(?<![\w&'’.-])[A-ZÀ-Þ]", frase):
-            if any(a <= w.start() < b for a, b in alias):
+    attribuiti = _risultati_di_altra_entita(frase, rxs)
+    if attribuiti:
+        return attribuiti
+    # v4 (Opus 5.5, audit di generalita' punto 2): la relazione conta solo con un nome in APPOSIZIONE STRETTA
+    # (entro 4 parole dopo la parola di relazione, o subito prima: «Zzbank S.A., its partner,») che porta un
+    # segnale di entita' (forma giuridica o verbo di risultati subito dopo il nome). Non contano i collettivi
+    # («and its affiliates», «partners»), «parent (company) of» con l'emittente soggetto (il gruppo
+    # dell'emittente) e le parole maiuscole qualsiasi («... in Brazil and Mexico», «Brazilian retailers»).
+    for relazione in _relazioni_fuori_alias(frase, rxs):
+        parola = " ".join(relazione[0].split()).lower()
+        if _RELAZIONE_COLLETTIVA_6K.fullmatch(parola) or parola.startswith("parent"):
+            continue
+        nome = _nome_in_apposizione(frase, relazione, rxs)
+        if nome and not _persona_che_dichiara(frase, nome):
+            return f"{nome}, relazione «{parola}»"
+    return None
+
+
+_RELAZIONE_COLLETTIVA_6K = re.compile(r"partners|affiliates|affiliated|joint[\s-]+ventures|investees|carve[\s-]?outs")
+_VERBO_DOPO_NOME_6K = re.compile(r"\s+(?:today\s+|also\s+|has\s+|have\s+)*(?:reported|released|announced|published"
+                                 r"|posted|presented|recorded|delivered|reports|releases|announces|publishes)\b", re.I)
+
+
+def _segnale_entita(testo, inizio, nome):
+    """True se ``nome`` (che comincia a ``inizio`` di ``testo``) porta una forma giuridica o e' il soggetto di un
+    verbo di risultati subito dopo il nome."""
+    from bellomberg.market_data.filing_attivazione import _FORME_ENTITA
+    if re.search(rf"(?<![\w]){_FORME_ENTITA}$", nome) or _forma_in_coda(nome):
+        return True
+    return bool(_VERBO_DOPO_NOME_6K.match(testo, inizio + _fine_nome(testo[inizio:], nome)))
+
+
+def _nome_in_apposizione(frase, relazione, rxs):
+    """Altra entita' in apposizione stretta alla parola di relazione (vedi ``_soggetto_subordinato``)."""
+    alias = _spazi_alias(frase, rxs)
+    for i, w in enumerate(re.finditer(r"\S+", frase[relazione.end():])):
+        if i > 4:
+            break
+        pos = relazione.end() + w.start()
+        if not re.match(r"[A-ZÀ-Þ]", frase[pos:]) or any(a < pos < b for a, b in alias):
+            continue
+        nome = _nome_entita(frase[pos:], rxs)
+        if nome and _segnale_entita(frase, pos, nome):
+            return nome
+    prima = re.search(rf"(?-i:{_MAIUSCOLA_6K}(?:\s+{_MAIUSCOLA_6K}){{0,6}})\s*,\s*(?:(?:its|their|our|a|an|the)\s+)?"
+                      rf"(?:[\w-]+\s+){{0,2}}$", frase[:relazione.start()])
+    if prima:
+        for w in re.finditer(r"(?<![\w&'’.-])[A-ZÀ-Þ]", prima[0]):
+            pos = prima.start() + w.start()
+            if any(a <= pos < b for a, b in alias):
                 continue
-            nome = _nome_proprio(frase[w.start():], rxs)
-            if nome and not _persona_che_dichiara(frase, nome):
-                return f"{nome}, relazione «{' '.join(relazione[0].split())}»"
+            nome = _nome_entita(frase[pos:], rxs)
+            if nome and _segnale_entita(frase, pos, nome):
+                return nome
+            break
     return None
 
 
@@ -814,15 +1038,69 @@ _TITOLO_PROSPETTO_6K = (r"(?:unaudited\s+)?(?:interim\s+)?(?:condensed\s+)?(?:co
 _PERIODO_PROSPETTO_6K = r"(?:for|as\s+(?:of|at)(?:\s+and\s+for)?)\s+the\s+[^\n]{0,60}?\bended\b"
 _NOTA_OPERAZIONI_6K = (r"(?:^|\n)[ \t\xa0]*1\s*[.)\-–]?[ \t\xa0]*(?:operations|general\s+information"
                        r"|corporate\s+information|reporting\s+entity|the\s+company)\b[^\n]{0,40}\n\s*")
-_SOCIETA_NOTA_6K = re.compile(r"([^(]{2,120}?)\s*\(\s*[\"“”'‘’]?(?:the\s+)?(?:company|group|parent)\b", re.I)
+# v4 (audit di generalita' punto 1): anche «(the "Company")» e la forma fra parentesi nel nome («PT X (Persero) Tbk»)
+_SOCIETA_NOTA_6K = re.compile(r"((?:[^(]|\([^()\n]{1,20}\)){2,120}?)\s*\(\s*(?:the\s+)?[\"“”'‘’]?(?:the\s+)?"
+                              r"(?:company|group|parent)\b", re.I)
 # parole ammesse nel blocco di intestazione oltre all'emittente (titoli, indice, pagine): mai nomi di entita'
 _PAROLE_INTESTAZIONE_6K = frozenset("contents page pages index table tables notes note to".split())
 _CONNETTIVI_NOME_6K = frozenset("of de di do da del della dos das the and & y e et und von van".split())
 _RIGA_TESTO_6K = 100  # oltre: riga di testo, non di intestazione
 
 
+# v4 (Opus 5.5, audit di generalita' punto 1): forme giuridiche estese e suffissi di gruppo dopo l'alias in una
+# riga di intestazione («BANCO X S.A. AND SUBSIDIARIES», «Grupo X, S.A.B. de C.V.», «PT X (Persero) Tbk», «X A/S»,
+# «X Partners L.P.»): tolti tutti, resto vuoto = emittente; resto con una parola maiuscola che non e' una forma ne'
+# una parola da documento = altra entita' (la controllata col nome del padre: «X Distribuidora S.A.»).
+_FORMA_ESTESA_6K = (r"(?:s\.?\s?a\.?\s?b\.?\s+de\s+c\.?\s?v|s\.?\s?a\.?\s+de\s+c\.?\s?v|s\.?\s?a\.?\s?[aub]|s\.?\s?p\.?\s?a"
+                    r"|s\.?\s?a|s\.?\s?r\.?\s?l|s\.?\s?c\.?\s?a|persero|tbk|a/s|asa|ab(?:\s*\(\s*publ\s*\))?|oyj|kgaa|kg"
+                    r"|l\.?\s?p|k\.?\s?k|pty(?:\.?\s+ltd)?|bhd|berhad|ltda|co\.?\s*,?\s*ltd|co|ltd|limited|inc|incorporated"
+                    r"|corp|corporation|plc|n\.?\s?v|b\.?\s?v|ag|se|gmbh|llc|sarl|nyrt|oao|pjsc|jsc|tas|a\.?\s?s)\.?(?![\w/])")
+_FORME_ESTESE_6K = re.compile(_FORMA_ESTESA_6K, re.I)
+_FORMA_IN_CODA_6K = re.compile(rf"(?:^|[\s,(])\(?({_FORMA_ESTESA_6K})\)?$", re.I)
+
+
+def _forma_in_coda(nome):
+    """True se ``nome`` finisce con una forma giuridica (anche estesa) scritta con la maiuscola («Zzbank S.A»,
+    «Zzfield Partners L.P», «Zzkom (Persero) Tbk»): «sa»/«co» minuscoli dentro una frase non contano."""
+    m = _FORMA_IN_CODA_6K.search(nome)
+    return bool(m and m[1][:1].isupper())
+_SUFFISSI_GRUPPO_6K = re.compile(
+    r"(?:and|&)\s+(?:its\s+|their\s+)?(?:consolidated\s+)?(?:subsidiaries|subsidiary\s+companies"
+    r"|controlled\s+(?:entities|companies))|y\s+(?:sus\s+)?(?:subsidiarias|filiales)|e\s+(?:suas\s+)?controladas"
+    r"|und\s+(?:ihre\s+)?tochtergesellschaften|et\s+(?:ses\s+)?filiales", re.I)
+
+
+def _classe_riga(riga, rxs):
+    """«emittente» se la riga e' alias + forme giuridiche e suffissi di gruppo soltanto; «altra» se dopo l'alias
+    resta una parola maiuscola che non e' una forma ne' una parola da documento; «neutra» se resta altro testo;
+    None se la riga non comincia con un alias dell'emittente."""
+    fini = sorted({m.end() for m in (re.match(rx, riga, re.I) for rx in rxs) if m}, reverse=True)
+    if not fini:
+        return None
+    classi = [_classe_dopo_alias(riga[fine:]) for fine in fini]  # ogni alias: il piu' lungo puo' mangiare la forma
+    return next((c for c in ("emittente", "neutra") if c in classi), "altra")
+
+
+def _classe_dopo_alias(resto):
+    from bellomberg.market_data.filing_attivazione import _PAROLE_DOCUMENTO
+    while True:
+        resto = resto.lstrip(" \t\xa0,.;:-–—()")
+        m = _FORME_ESTESE_6K.match(resto) or _SUFFISSI_GRUPPO_6K.match(resto)
+        if not m:
+            break
+        resto = resto[m.end():]
+    resto = resto.strip(" \t\xa0,.;:-–—()")
+    if not resto:
+        return "emittente"
+    if any(p[:1].isupper() and not _comune_6k(p) and p.lower() not in _PAROLE_DOCUMENTO
+           for p in re.findall(r"[^\W\d_][\w'’.&-]*", resto)):
+        return "altra"
+    return "neutra"
+
+
 def _riga_dell_emittente(riga, rxs):
-    return any(re.fullmatch(rf"(?:{rx}){_FORME_RIGA_6K}", riga, re.I) for rx in rxs)
+    return (any(re.fullmatch(rf"(?:{rx}){_FORME_RIGA_6K}", riga, re.I) for rx in rxs)
+            or _classe_riga(riga, rxs) == "emittente")
 
 
 def _blocco_intestazione(corpo, inizio, righe=5):
@@ -835,7 +1113,14 @@ def _blocco_intestazione(corpo, inizio, righe=5):
         r = " ".join(r.split())
         if not r:
             continue
-        if len(out) >= righe or not re.search(r"[^\W\d_]", r) or re.search(r"\d", r) or len(r) > _RIGA_TESTO_6K:
+        if len(out) >= righe or not re.search(r"[^\W\d_]", r) or len(r) > _RIGA_TESTO_6K:
+            break
+        # v4 (Opus 5.5, riserva B): la relazione si legge PRIMA di chiudere il blocco per le cifre («99.9% owned
+        # by» sopra la riga dell'emittente: il blocco prosegue fino alla ragione sociale della controllata)
+        if _RELAZIONE_6K.search(r):
+            out.append(r)
+            continue
+        if re.search(r"\d", r):
             break
         if re.search(r"[.:;!?]$", r) and not re.search(rf"(?<![\w]){_FORME_ENTITA}$", r):
             break
@@ -847,12 +1132,14 @@ def _riga_estranea(riga, rxs):
     """True se la riga del blocco di intestazione non e' dell'emittente ne' fatta di sole parole da documento:
     un'altra ragione sociale, un nome proprio o una relazione («A subsidiary of», «Zztest Pagamentos S.A.»)."""
     from bellomberg.market_data.filing_attivazione import _PAROLE_DOCUMENTO
-    if _RELAZIONE_6K.search(riga):
-        return True
     if _riga_dell_emittente(riga, rxs):
         return False
+    if _RELAZIONE_6K.search(riga):
+        return True
+    # v4 (audit di generalita'): conta solo una parola MAIUSCOLA (un nome); una riga tutta minuscola senza
+    # relazione e' testo, non una ragione sociale
     parole = re.findall(r"[^\W\d_]+", riga)
-    return not all(p.lower() in _PAROLE_COMUNI_6K or p.lower() in _PAROLE_DOCUMENTO
+    return not all(not p[:1].isupper() or p.lower() in _PAROLE_COMUNI_6K or p.lower() in _PAROLE_DOCUMENTO
                    or p.lower() in _PAROLE_INTESTAZIONE_6K for p in parole)
 
 
@@ -862,6 +1149,8 @@ def _riga_di_nome(riga, rxs):
     from bellomberg.market_data.filing_attivazione import _FORME_ENTITA
     if _riga_dell_emittente(riga, rxs) or len(riga) > 80:
         return False
+    if _alias_in_testa(riga, rxs) is not None:  # v4: con l'alias in testa decide cosa resta dopo l'alias
+        return _classe_riga(riga, rxs) == "altra"
     if re.search(rf"(?<![\w]){_FORME_ENTITA}$", riga) or _RELAZIONE_6K.search(riga):
         return True
     parole = riga.replace(",", " ").split()
@@ -883,7 +1172,7 @@ def _segnali_prospetto(corpo, rxs):
         riga, titolo = " ".join(m[1].split()), " ".join(m[2].split())
         if _riga_dell_emittente(riga, rxs):
             estranee = [r for r in _blocco_intestazione(corpo, m.start(1)) if _riga_estranea(r, rxs)]
-            relazione = _RELAZIONE_6K.search(titolo)
+            relazione = next(iter(_relazioni_fuori_alias(titolo, rxs, attive=False)), None)
             if estranee:
                 altra(f"prospetto intestato a «{' / '.join(reversed(estranee))} / {riga}»")
             elif relazione:
@@ -902,7 +1191,7 @@ def _segnali_prospetto(corpo, rxs):
         if not _riga_dell_emittente(nome, rxs):
             if re.search(rf"(?<![\w]){_FORME_ENTITA}$", nome) or _riga_di_nome(nome, rxs):
                 altra(f"nota «1. Operations» di «{nome}»")
-        elif relazione := _RELAZIONE_6K.search(frase):
+        elif relazione := next(iter(_relazioni_fuori_alias(frase, rxs, attive=False)), None):
             altra(f"nota «1. Operations» con l'emittente in relazione («{' '.join(relazione[0].split())}»)")
         else:
             out["N"] = True
@@ -936,8 +1225,14 @@ def identita_6k(path, *, url=None, profilo, catalogo=None, registrante=None):
             alias.append({"nome": " ".join(m[0].split()), "fonte": "regola emittente del profilo"})
     if not alias:
         return "corpo del 6-K: nome dell'emittente non noto", None
+    # v5 (ri-verifica di d487ac7): anche la copertina del corpo usa la radice dell'alias («Grupo Zetavision,
+    # S.A.B. de C.V.» -> «Grupo Zetavision»), come le intestazioni dei prospetti
+    for a in list(alias):
+        radice = _radice_alias(a["nome"])
+        if radice and all(radice != x["nome"] for x in alias):
+            alias.append({"nome": radice, "fonte": f"radice dell'alias «{a['nome']}»"})
     corpo = _corpo_6k(testo)
-    segnali = _segnali_prospetto(corpo, [rx for rx in (regex_alias(a["nome"]) for a in alias) if rx])
+    segnali = _segnali_prospetto(corpo, _regex_alias_6k(alias))
     if segnali["altre"]:
         return ("identita' nel corpo del 6-K non provata: prospetti o nota «1. Operations» di un'altra entita' ("
                 + "; ".join(segnali["altre"][:2]) + "): documento di altra entita'"), None

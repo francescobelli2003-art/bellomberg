@@ -573,21 +573,28 @@ ORIGINE_SITO = "pacchetto ESEF ufficiale dal sito dell'emittente, convertito in 
 
 
 def _depositi_dal_sito(lei: str, filings: Dict[str, Any], cache: Dict[str, Any], *, oggi=None,
-                       righe_fn=None, scarica_fn=None) -> Dict[str, Any]:
+                       righe_fn=None, scarica_fn=None, fino_al: Optional[str] = None) -> Dict[str, Any]:
     """{"stato": non_necessario | nessun_pacchetto | ok | parziale | errore, "motivo", "filings": {id: voce}}.
 
     Riserva MEDIO-4 v2: solo pacchetti dell'ESERCIZIO ANNUALE. La chiusura nel nome deve cadere a 12, 24 o 36
     mesi dall'ultimo esercizio del repository (+/- GIORNI_TOLLERANZA_CHIUSURA: un 30/06 dopo un 31/12 e' una
     semestrale, esclusa e dichiarata) e il pacchetto deve contenere almeno un fatto di DURATA annuale
-    dell'entita' che finisce a quella chiusura (nome 2025 ma fatti 2024: rifiutato e dichiarato)."""
+    dell'entita' che finisce a quella chiusura (nome 2025 ma fatti 2024: rifiutato e dichiarato).
+
+    GENERALITA' UE (Opus 5.5), niente look-ahead: con `fino_al` (cutoff ISO) restano solo i pacchetti visti sul
+    sito entro il cutoff (esef_sito.righe_da_cache); quelli dopo o con la data ignota sono esclusi e dichiarati in
+    "esclusi_fino_al". Il riferimento temporale e' il cutoff, non oggi."""
     from datetime import date
     from urllib.parse import urlsplit
     from bellomberg.market_data import esef_sito
-    oggi = oggi or date.today()
+    oggi = oggi or (date.fromisoformat(str(fino_al)[:10]) if fino_al else date.today())
     con_fatti = [str(f.get("period_end"))[:10] for f in filings.values() if f.get("facts")]
     ultimo = max(con_fatti, default=None)
+    esclusi_cutoff: List[str] = []
     try:
-        righe = (righe_fn or esef_sito.righe_da_cache)(lei)
+        # senza cutoff la chiamata resta quella di sempre (anche nelle prove che sostituiscono righe_fn)
+        righe = ((righe_fn or esef_sito.righe_da_cache)(lei, fino_al=fino_al, esclusi=esclusi_cutoff) if fino_al
+                 else (righe_fn or esef_sito.righe_da_cache)(lei))
     except Exception as e:
         righe, errore_righe = [], f"cache dei pacchetti del sito illeggibile ({type(e).__name__})"
     else:
@@ -602,12 +609,13 @@ def _depositi_dal_sito(lei: str, filings: Dict[str, Any], cache: Dict[str, Any],
         else:
             nuove.append(r)
     atteso = esef_sito.atteso_piu_recente(ultimo, oggi)
+    extra = {"esclusi_fino_al": esclusi_cutoff} if fino_al else {}
     if not nuove:
         if not atteso and not esclusi:
-            return {"stato": "non_necessario", "motivo": None, "filings": {}}
+            return {"stato": "non_necessario", "motivo": None, "filings": {}, **extra}
         if not atteso:
-            return {"stato": "non_necessario", "motivo": "; ".join(esclusi), "filings": {}}
-        return {"stato": "nessun_pacchetto", "filings": {},
+            return {"stato": "non_necessario", "motivo": "; ".join(esclusi), "filings": {}, **extra}
+        return {"stato": "nessun_pacchetto", "filings": {}, **extra,
                 "motivo": (f"repository fermo all'esercizio FY{str(ultimo)[:4]}" if ultimo else "repository senza esercizi")
                           + " e nessun pacchetto ESEF annuale piu' recente dal sito dell'emittente nella cache "
                           "dell'esplorazione"
@@ -646,7 +654,7 @@ def _depositi_dal_sito(lei: str, filings: Dict[str, Any], cache: Dict[str, Any],
         except Exception as e:
             motivi.append(f"FY{fine[:4]} dal sito ({host}): {type(e).__name__}: {str(e)[:240]}")
     stato = "ok" if out and not motivi else "parziale" if out else "errore"
-    return {"stato": stato, "motivo": "; ".join(motivi) or None, "filings": out}
+    return {"stato": stato, "motivo": "; ".join(motivi) or None, "filings": out, **extra}
 
 
 GIORNI_TOLLERANZA_CHIUSURA = 20  # chiusure a 52/53 settimane e fine mese spostata: +/- 20 giorni
@@ -732,21 +740,56 @@ def _refresh_entity_cache(lei: str) -> Dict[str, Any]:
     return cache
 
 
-def get_esef_history(ticker: str, years: int = 10, company_name: Optional[str] = None) -> Dict[str, Any]:
-    """Storico annuale riga-per-riga dai filing ESEF. Contratto = sec_xbrl."""
+def _filings_entro(filings: Dict[str, Any], fino_al: str) -> Tuple[Dict[str, Any], List[str], List[str]]:
+    """(depositi noti al cutoff, esclusi dopo il cutoff, esclusi con data ignota) del repository: conta la
+    `date_added` di filings.xbrl.org (stessa regola dello storico SEC: esef_sito.entro_il_cutoff)."""
+    from bellomberg.market_data.esef_sito import entro_il_cutoff
+    tenuti, dopo, ignoti = {}, [], []
+    for fid, f in filings.items():
+        aggiunto = str(f.get("date_added") or "")[:10] or None
+        fy = str(f.get("period_end") or "?")[:4]
+        if entro_il_cutoff(aggiunto, fino_al):
+            tenuti[fid] = f
+        elif aggiunto:
+            dopo.append(f"FY{fy} (filings.xbrl.org): depositato il {aggiunto}, dopo il cutoff {fino_al}")
+        else:
+            ignoti.append(f"FY{fy} (filings.xbrl.org): data di deposito ignota, escluso dal cutoff {fino_al}")
+    return tenuti, sorted(dopo), sorted(ignoti)
+
+
+def get_esef_history(ticker: str, years: int = 10, company_name: Optional[str] = None,
+                     fino_al: Optional[str] = None) -> Dict[str, Any]:
+    """Storico annuale riga-per-riga dai filing ESEF. Contratto = sec_xbrl.
+
+    `fino_al` (ISO, cutoff della run - GENERALITA' UE, Opus 5.5): niente look-ahead. Solo i depositi del
+    repository con `date_added` entro il cutoff e i pacchetti del sito visti entro il cutoff; quelli successivi
+    sono dichiarati in "esclusi_fino_al", quelli con la data ignota anche nei buchi ("gaps"). Senza `fino_al` il
+    risultato e' quello di sempre."""
     lei, lei_note = resolve_lei(ticker, company_name=company_name)
     if not lei:
         return {"error": f"{ticker}: {lei_note}"}
     cache = _refresh_entity_cache(lei)
     filings = cache.get("filings") or {}
+    esclusi_cutoff: List[str] = []
+    ignoti_cutoff: List[str] = []
+    if fino_al:
+        fino_al = str(fino_al)[:10]
+        filings, esclusi_cutoff, ignoti_cutoff = _filings_entro(filings, fino_al)
     # R-FONTI 10/10: esercizi mancanti dal pacchetto ufficiale sul sito dell'emittente (percorso della pipeline)
-    sito = _depositi_dal_sito(lei, filings, cache)
+    sito = (_depositi_dal_sito(lei, filings, cache, fino_al=fino_al) if fino_al
+            else _depositi_dal_sito(lei, filings, cache))
+    if fino_al:
+        for e in sito.get("esclusi_fino_al") or []:
+            (ignoti_cutoff if "data di pubblicazione ignota" in e else esclusi_cutoff).append(e)
     if sito["filings"]:
         _save_cache(lei, cache)
     if not filings and not sito["filings"]:
         return {"error": f"{ticker}: nessun filing ESEF per LEI {lei} "
-                         f"({cache.get('index_error') or 'repository vuoto per questa entita'''})"
-                         + (f"; sito dell'emittente: {sito['motivo']}" if sito.get("motivo") else "")}
+                         + (f"noto al {fino_al} " if fino_al else "")
+                         + f"({cache.get('index_error') or 'repository vuoto per questa entita'''})"
+                         + (f"; sito dell'emittente: {sito['motivo']}" if sito.get("motivo") else "")
+                         + (f"; esclusi dal cutoff: {'; '.join(esclusi_cutoff + ignoti_cutoff)}"
+                            if esclusi_cutoff or ignoti_cutoff else "")}
     # fusione per concetto: filing in ordine cronologico, il PIU' RECENTE sovrascrive
     # (restatement/comparativo aggiornato vince sul deposito originale) e, dal 10/10, lo DICHIARA
     ordered = sorted(list(filings.values()) + list(sito["filings"].values()),
@@ -762,6 +805,7 @@ def get_esef_history(ticker: str, years: int = 10, company_name: Optional[str] =
             gaps.append(f"FY{_fy}: estrazione fallita ({f['extract_error']})")
     if sito["stato"] in ("nessun_pacchetto", "errore", "parziale") and sito.get("motivo"):
         gaps.append(f"esercizi dopo il repository: {sito['motivo']}")
+    gaps += ignoti_cutoff  # data ignota con un cutoff: escluso, e' un buco dichiarato
     gaps = sorted(set(gaps))
     # review 17/07 F2: indice non aggiornabile = staleness DICHIARATA nel payload
     index_note = None
@@ -801,7 +845,10 @@ def get_esef_history(ticker: str, years: int = 10, company_name: Optional[str] =
                 uc[unit] = uc.get(unit, 0) + 1
     if not by_concept:
         errs = "; ".join(sorted({str(f.get("extract_error")) for f in ordered if f.get("extract_error")}))
-        return {"error": f"{ticker}: filing ESEF presenti ma nessun fact estraibile ({errs or 'tagging atipico'})"}
+        return {"error": f"{ticker}: filing ESEF presenti ma nessun fact estraibile ({errs or 'tagging atipico'})"
+                         + (f"; gap: {'; '.join(gaps)}" if fino_al and gaps else "")
+                         + (f"; esclusi dal cutoff {fino_al}: {'; '.join(esclusi_cutoff)}"
+                            if fino_al and esclusi_cutoff else "")}
 
     out_items: Dict[str, Dict[int, Any]] = {}
     tags_used: Dict[str, str] = {}
@@ -883,6 +930,9 @@ def get_esef_history(ticker: str, years: int = 10, company_name: Optional[str] =
            "_timestamp": datetime.now().isoformat(timespec="seconds")}
     if gaps:
         out["gaps"] = gaps
+    if fino_al:
+        out["fino_al"] = fino_al
+        out["esclusi_fino_al"] = sorted(set(esclusi_cutoff + ignoti_cutoff))
     if rideterminazioni:
         out["rideterminazioni"] = rideterminazioni  # anno sovrapposto: vale il deposito piu' recente, dichiarato
         # v2 (riserva MEDIO-2, stessa regola dello storico SEC): l'anno prima del primo rideterminato resta sulla

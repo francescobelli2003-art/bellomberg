@@ -1142,3 +1142,36 @@ def test_M6_download_polygon_sostituisce_il_ripiego_yfinance():
     mgr._accept_page(job, job["_rows"][e], None, page)
     assert job["spot"] == 101.0 and job["spot_source"] == "Polygon underlying snapshot"
     assert job["spot_qualified"] is True and job["spot_fallback"] is False and job["spot_alignment"] is None
+
+
+
+def test_prezzo_della_protezione_cablato_in_superficie_sintesi_e_tool(monkeypatch):
+    """v3 10/10 (revisione, mutazioni M3/M4/M5): build_vol_surface calcola il RAPPORTO IV/RV,
+    lo consegna a _interpret (non la differenza) e lo espone nel payload e nel tool compatto,
+    con la lettura dalle soglie condivise (core/soglie_score.prezzo_protezione)."""
+    from bellomberg.core import soglie_score as soglie
+    from bellomberg.core.language import language_context
+    closes = [100.0]
+    for i in range(80):
+        closes.append(closes[-1] * (1.01 if i % 3 else 0.985))
+    yf_spot(monkeypatch, 100.0, closes)
+    ivs = {dte(20): 0.20, dte(41): 0.25, dte(70): 0.27}
+    monkeypatch.setattr(vol, "get_chain_detail", lambda t, e, cursor=None: _flat_chain(e, ivs[e]))
+    with language_context("it"):
+        out = vol.build_vol_surface("XX01", expiries=list(ivs), include_context=True)
+    atteso_codice, atteso_rapporto = soglie.prezzo_protezione(out["iv_30d"], out["realized_vol_21d"])
+    assert out["iv_rv_ratio_30d"] == pytest.approx(round(atteso_rapporto, 4), abs=1e-3)
+    assert out["protection_price"] == atteso_codice is not None
+    # _interpret riceve il RAPPORTO: la frase cita lo stesso numero «x»
+    assert "rapporto {:.2f}x".format(out["iv_rv_ratio_30d"]) in str(out["interpretation"])
+    compatto = vol.tool_summary(out)
+    assert compatto["protection_price"] == out["protection_price"]
+    assert compatto["iv_rv_ratio_30d"] == out["iv_rv_ratio_30d"]
+    # mutare la soglia cambia codice e frase insieme
+    soglia = out["iv_rv_ratio_30d"] - 0.01
+    monkeypatch.setattr(soglie, "VRP_CARA", soglia)
+    monkeypatch.setattr(soglie, "VRP_SCONTO", min(soglie.VRP_SCONTO, soglia - 0.01))
+    vol._CHAIN_CACHE.clear()
+    with language_context("it"):
+        cara = vol.build_vol_surface("XX01", expiries=list(ivs), include_context=True)
+    assert cara["protection_price"] == "EXPENSIVE" and "CARE" in str(cara["interpretation"])

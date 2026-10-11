@@ -278,18 +278,21 @@ def _beta_u_da_profilo(profile, default):
     return default if v is None else v
 
 
-def _fetch_history(ticker, info):
+def _fetch_history(ticker, info, as_of=None):
     """Storico annuale: SEC XBRL -> fallback DICHIARATO ESEF con guardia STALENESS.
     V4 (§9-novies n.1): estratto dal corpo di generate_valuation cosi' lo consuma
     anche il ramo BANCA (prima il return del ramo banca stava PRIMA del fetch: il
     foglio Historical e la serie impairment IFRS9 non arrivavano mai al workbook).
     Logica INVARIATA rispetto al blocco inline (17/07): ritorna dict valido, oppure
     {'error': STALE...} (repository fermo, dati leggibili ma non calibranti), oppure
-    None (nessuno storico, dichiarato dal chiamante)."""
+    None (nessuno storico, dichiarato dal chiamante).
+    `as_of` (ISO, GENERALITA' UE - Opus 5.5): cutoff della valutazione, passato come `fino_al` a SEC ed ESEF
+    (nessun deposito successivo) e riferimento della guardia STALENESS; None = oggi, come prima."""
     history = None
+    cutoff = {"fino_al": str(as_of)[:10]} if as_of else {}
     try:
         from bellomberg.market_data.sec_xbrl import get_financial_history
-        history = get_financial_history(ticker, years=10)
+        history = get_financial_history(ticker, years=10, **cutoff)
         if history.get("error"):
             history = None
     except Exception:
@@ -300,7 +303,7 @@ def _fetch_history(ticker, info):
     if history is None:
         try:
             from bellomberg.market_data.esef import get_esef_history
-            _h2 = get_esef_history(ticker, years=10, company_name=info.get("longName"))
+            _h2 = get_esef_history(ticker, years=10, company_name=info.get("longName"), **cutoff)
             if not _h2.get("error"):
                 # guardia STALENESS (17/07, ok PM — caso ciclico: repository fermo a un esercizio obsoleto,
                 # il v3 prendeva la BASE ricavi dal 2022 e il FV crollava 4,7 -> 1,4):
@@ -308,7 +311,7 @@ def _fetch_history(ticker, info):
                 # NON guida base/driver/mid-cycle — STALE dichiarato (regola 14/07),
                 # dati comunque leggibili via tool get_financial_history.
                 _yrs2 = _h2.get("years") or []
-                _stale_cut = datetime.now().year - 2
+                _stale_cut = (int(str(as_of)[:4]) if as_of else datetime.now().year) - 2
                 if _yrs2 and max(_yrs2) < _stale_cut:
                     history = {"error": ("storico ESEF STALE: ultimo esercizio FY%d < FY%d "
                                          "(repository fermo) — NON usato per calibrazione e "

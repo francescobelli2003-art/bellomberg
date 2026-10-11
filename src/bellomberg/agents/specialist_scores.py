@@ -14,6 +14,9 @@ from bellomberg.reporting.i18n import label as _t
 
 import bellomberg.storage.classificazione as cl
 from bellomberg.core.paths import REPORT_DIR
+# 10/10 (Opus 5.5): UNA sola fonte per le soglie condivise e calibrate (bande del cruscotto,
+# VIX/VIX3M, prezzo della protezione, skew, freschezza, macro STRESS, funding, MOS, pavimenti)
+from bellomberg.core import soglie_score as _S
 import math
 from numbers import Real
 
@@ -373,10 +376,11 @@ def quant_score(portfolio_data=None, risk_data=None, beta_reconcile=None, *,
     # PAVIMENTI del verdetto (almeno ELEVATO): la media delle metriche non deve diluire un book
     # appeso a un nome o a un settore (mono-titolo 100% con vol bassa usciva «MEDIO», audit
     # §2.2e) ne' un book oltre il budget di stress (riserva 4: il PM a -34,2% contro il budget
-    # usciva «RISCHIO MEDIO»). Soglie ASSOLUTE, non multipli del cap: dicono quanta parte del
-    # patrimonio dipende da un solo evento, qualunque sia lo stile scelto nel mandato.
-    PAVIMENTO_NOME_PCT = 50.0
-    PAVIMENTO_CLUSTER_PCT = 70.0
+    # usciva «RISCHIO MEDIO»). 10/10 (Opus 5.5): soglie LEGATE AL BUDGET DI STRESS del mandato
+    # (non ai cap di sizing): nome singolo = budget / 0,60 (shock idiosincratico), cluster =
+    # budget / 0,50 (shock settoriale) -> con budget 30% sono 50% e 60% del NAV. Senza budget
+    # nel mandato 50/60 DICHIARATI (core/soglie_score.pavimenti_concentrazione). Il cluster
+    # prima stava al 70% fisso. Calcolate sotto, dopo la lettura del mandato.
     # replay/budget >= 1,00: al tetto la capacita' di aggiunta del sizing e' zero e appena
     # oltre lo marca SFORATO (sizing_engine: gfc_status)
     PAVIMENTO_STRESS_RATIO = 1.0
@@ -399,6 +403,7 @@ def quant_score(portfolio_data=None, risk_data=None, beta_reconcile=None, *,
             vol_target = None
         if stress_budget is not None and stress_budget <= 0:
             stress_budget = None
+    PAVIMENTO_NOME_PCT, PAVIMENTO_CLUSTER_PCT, _pav_dal_mandato = _S.pavimenti_concentrazione(stress_budget)
     # cap di concentrazione del mandato (sezione sizing, definiti «% dell'investito»; qui
     # applicati al peso sul NAV: rischio sul patrimonio, dichiarato nella riga)
     cap_single = cap_settore = None
@@ -567,12 +572,17 @@ def quant_score(portfolio_data=None, risk_data=None, beta_reconcile=None, *,
     max_score = len(pts) * 3
     # PAVIMENTI: verdetto almeno ELEVATO, ognuno DICHIARATO (codici stabili in metrics.floors)
     pavimenti = []   # (codice, testo localizzato)
+    # origine della soglia dichiarata nel testo del pavimento (mandato o valore di default)
+    _pav_fonte = (_message("budget di stress {b:g}%", "stress budget {b:g}%", b=stress_budget) if _pav_dal_mandato
+                  else _message("budget di stress n.d.: soglia di default", "stress budget n/a: default threshold"))
     if top_single_pct is not None and top_single_pct >= PAVIMENTO_NOME_PCT:
-        pavimenti.append(("SINGLE_NAME", _message("nome singolo al {v:.0f}% (>= {s:.0f}%)", "single name at {v:.0f}% (>= {s:.0f}%)",
-                                                  v=top_single_pct, s=PAVIMENTO_NOME_PCT)))
+        pavimenti.append(("SINGLE_NAME", _message("nome singolo al {v:.0f}% (>= {s:g}%, {f} / shock -60%)",
+                                                  "single name at {v:.0f}% (>= {s:g}%, {f} / -60% shock)",
+                                                  v=top_single_pct, s=PAVIMENTO_NOME_PCT, f=_pav_fonte)))
     if cluster_pct is not None and cluster_pct >= PAVIMENTO_CLUSTER_PCT:
-        pavimenti.append(("CLUSTER", _message("cluster {n} al {v:.0f}% (>= {s:.0f}%)", "cluster {n} at {v:.0f}% (>= {s:.0f}%)",
-                                              n=cluster_nome, v=cluster_pct, s=PAVIMENTO_CLUSTER_PCT)))
+        pavimenti.append(("CLUSTER", _message("cluster {n} al {v:.0f}% (>= {s:g}%, {f} / shock -50%)",
+                                              "cluster {n} at {v:.0f}% (>= {s:g}%, {f} / -50% shock)",
+                                              n=cluster_nome, v=cluster_pct, s=PAVIMENTO_CLUSTER_PCT, f=_pav_fonte)))
     if stress_ratio is not None and stress_ratio >= PAVIMENTO_STRESS_RATIO:
         pavimenti.append(("STRESS_BUDGET", _message("replay GFC {l:.1f}% contro budget -{b:.0f}% ({r:.2f}x >= {s:.2f}x: al tetto il sizing non aggiunge, oltre lo marca SFORATO)",
                                                     "GFC replay {l:.1f}% against budget -{b:.0f}% ({r:.2f}x >= {s:.2f}x: at the cap sizing adds nothing, beyond it flags BREACHED)",
@@ -587,14 +597,9 @@ def quant_score(portfolio_data=None, risk_data=None, beta_reconcile=None, *,
                               p="; ".join(t for _, t in pavimenti), a=_alzo, s=score),
                      _message("regola di concentrazione/stress", "concentration/stress rule")))
     frac = score / max_score if max_score else 0
-    if frac < 0.25:
-        verdict = _t("RISCHIO BASSO")
-    elif frac < 0.5:
-        verdict = _t("RISCHIO MEDIO")
-    elif frac < 0.72:
-        verdict = _t("RISCHIO ELEVATO")
-    else:
-        verdict = _t("RISCHIO CRITICO")
+    # bande comuni (core/soglie_score.BANDE_INDICE): prima una quarta copia di 25/50/72
+    verdict = (_t("RISCHIO BASSO"), _t("RISCHIO MEDIO"), _t("RISCHIO ELEVATO"),
+               _t("RISCHIO CRITICO"))[_S.banda(frac)]
 
     # INFORMATIVE (fuori punteggio, con il motivo): stesse cifre, nessun punto
     _ridondante = _message("stessa dispersione della vol: fuori punteggio", "same dispersion as vol: not scored")
@@ -630,6 +635,9 @@ def quant_score(portfolio_data=None, risk_data=None, beta_reconcile=None, *,
                     "top_position_pct": top_pct, "top_single_name_pct": top_single_pct, "hhi": hhi,
                     "top_cluster_pct": cluster_pct, "top_cluster": cluster_nome,
                     "concentration_floor": pavimento_codice,
+                    # 10/10: soglie dei pavimenti di concentrazione e la loro origine
+                    "floor_thresholds": {"single_name_pct": PAVIMENTO_NOME_PCT, "cluster_pct": PAVIMENTO_CLUSTER_PCT,
+                                         "from_mandate_stress_budget": _pav_dal_mandato},
                     # fix v2 10/10: tutti i pavimenti attivi, base dei pesi, vol sul NAV, Dimson
                     "floors": [c for c, _ in pavimenti], "stress_ratio": stress_ratio,
                     "weight_basis": "nav" if nav is not None else "invested",
@@ -649,7 +657,9 @@ def quant_score(portfolio_data=None, risk_data=None, beta_reconcile=None, *,
 # oltre il limite della sua frequenza esce DICHIARATA (n.d./STALE), senza punti e fuori dal
 # massimo; sotto la copertura minima il sotto-indice non emette verdetto.
 # Le soglie sono GIUDIZIO su ordini di grandezza storici, NON tarate su uno storico FRED
-# (residuo dichiarato nel rapporto 09/10): ognuna porta la sua motivazione.
+# (residuo dichiarato nel rapporto 09/10): ognuna porta la sua motivazione. 10/10 (Opus 5.5):
+# il VIX dello STRESS e' CALIBRATO sui percentili 60/80/95 di FRED VIXCLS dal 1997; gli
+# spread HY/IG restano di giudizio perche' FRED ne espone solo 3 anni (core/soglie_score).
 # v2 10/10 (Opus 5.5, revisione avversariale, decisione PM «correggi tutto»): dis-inversione
 # della curva, riga STRESS «decennale a 1 mese», regola di Sahm alimentata dalla dashboard,
 # CPI core nel punteggio (headline informativa), bande TIPS 0,5/1,5/2,5, eta' mensile 80 gg.
@@ -664,7 +674,7 @@ def quant_score(portfolio_data=None, risk_data=None, beta_reconcile=None, *,
 # vigore fino al primo venerdi' di M+2 (eta' massima ~68). Il vecchio 75 marcava STALE un
 # CPI regolarmente in vigore nei mesi con release al 15; 80 = 76 + 4 giorni di slittamento
 # del calendario. Oltre 80 una release e' stata saltata o ritardata davvero (shutdown 2025).
-_MACRO_ETA_GIORNALIERA = 6
+_MACRO_ETA_GIORNALIERA = _S.ETA_MAX_GIORNALIERA_GG   # 6, la stessa della volatilita'
 _MACRO_ETA_MENSILE = 80
 # Copertura minima: un sotto-indice parla solo se misura la MAGGIORANZA delle sue righe:
 # 3 su 4 per il ciclo e, dalla v2 (riga «variazione del decennale a 1 mese»), 3 su 4 anche
@@ -709,8 +719,8 @@ def _nd_copertura():
 
 
 def _banda(frac):
-    """Indice di banda 0..3 sulle soglie comuni dell'indice 0-100 (25/50/72)."""
-    return 0 if frac < 0.25 else 1 if frac < 0.5 else 2 if frac < 0.72 else 3
+    """Indice di banda 0..3 sulle soglie comuni dell'indice 0-100 (core/soglie_score)."""
+    return _S.banda(frac)
 
 
 def _eta_osservazione(data_oss, oggi):
@@ -1034,32 +1044,35 @@ def macro_score(macro_data=None, oggi=None):
                _motivo("us_unemployment", "UNRATE") + "; Sahm n.d.: " + str(nota_sahm))
 
     # ---------------- STRESS (coincidenti: quanto e' teso il mercato OGGI)
-    # VIX: media di lungo periodo ~19,5, mediana ~17,5. <20 = sotto la media = 0; 20-25 = 1;
-    # 25-30 = 2; >=30 = episodi di stress veri (2008, 2011, 2015, 2018, 2020, 2022) = 3.
+    # VIX (10/10, CALIBRATO): soglie per 1/2/3 punti = percentili 60/80/95 di FRED VIXCLS dal
+    # 1997 (core/soglie_score.MACRO_VIX_SOGLIE, oggi 20,5/25,0/34,1). Prima 20/25/30 di
+    # giudizio, che cadevano al 58°, 80° e 91° percentile della stessa serie: il 3 pieno ora
+    # resta al 5% piu' teso dei giorni (2008, 2011, 2015, 2018, 2020, 2022).
     vix = _finite_number(_ind("vix_close").get("value"))
     valuta("stress", _message("STRESS | VIX", "STRESS | VIX"), vix,
            "{:.1f}".format(vix) if vix is not None else "",
            _ind("vix_close").get("date"), _MACRO_ETA_GIORNALIERA,
-           lambda v: 0 if v < 20 else 1 if v < 25 else 2 if v < 30 else 3,
+           lambda v: _S.punti_gradino(v, _S.MACRO_VIX_SOGLIE),
            _motivo("vix_close", "VIX (VIXCLS)"))
-    # Spread HY (OAS ICE BofA, in %): mediana dal 1997 ~4,5-5%. <4% = credito compiacente =
-    # 0; 4-5,5% = intorno alla mediana = 1; 5,5-7% = stress (2011, 2016, 2022) = 2; >=7% =
-    # stress acuto (2001-02, 2008-09, 2016 picco, 2020) = 3. Prima 3 punti gia' al 5%: 2008
-    # al 16% e il 2022 al 5% prendevano lo stesso punteggio.
+    # Spread HY (OAS ICE BofA, in %), GIUDIZIO (calibrazione non eseguibile: FRED espone solo
+    # 3 anni ICE): mediana dal 1997 ~4,5-5%. <4% = credito compiacente = 0; 4-5,5% = intorno
+    # alla mediana = 1; 5,5-7% = stress (2011, 2016, 2022) = 2; >=7% = stress acuto (2001-02,
+    # 2008-09, 2016 picco, 2020) = 3. Prima 3 punti gia' al 5%: 2008 al 16% e il 2022 al 5%
+    # prendevano lo stesso punteggio.
     hy = _finite_number(_ind("high_yield_spread").get("value"))
     valuta("stress", _message("STRESS | Spread HY", "STRESS | HY spread"), hy,
            "{:.2f}%".format(hy) if hy is not None else "",
            _ind("high_yield_spread").get("date"), _MACRO_ETA_GIORNALIERA,
-           lambda h: 0 if h < 4 else 1 if h < 5.5 else 2 if h < 7 else 3,
+           lambda h: _S.punti_gradino(h, _S.MACRO_HY_SOGLIE),
            _motivo("high_yield_spread", "spread HY (BAMLH0A0HYM2)"))
-    # Spread IG (OAS investment grade, in %): mediana ~1,3-1,5%. <1,3% = 0; 1,3-1,7% = 1;
-    # 1,7-2,5% = 2; >=2,5% = stress sistemico (2008 ~6%, 2020 ~4%) = 3. Terza riga perche'
-    # due sole metriche correlate non bastano a una copertura minima robusta.
+    # Spread IG (OAS investment grade, in %), GIUDIZIO (stesso motivo): mediana ~1,3-1,5%.
+    # <1,3% = 0; 1,3-1,7% = 1; 1,7-2,5% = 2; >=2,5% = stress sistemico (2008 ~6%, 2020 ~4%)
+    # = 3. Terza riga perche' due sole metriche correlate non bastano a una copertura minima.
     ig = _finite_number(_ind("ig_credit_spread").get("value"))
     valuta("stress", _message("STRESS | Spread IG", "STRESS | IG spread"), ig,
            "{:.2f}%".format(ig) if ig is not None else "",
            _ind("ig_credit_spread").get("date"), _MACRO_ETA_GIORNALIERA,
-           lambda g: 0 if g < 1.3 else 1 if g < 1.7 else 2 if g < 2.5 else 3,
+           lambda g: _S.punti_gradino(g, _S.MACRO_IG_SOGLIE),
            _motivo("ig_credit_spread", "spread IG (BAMLC0A0CM)"))
     # Variazione del decennale a 1 mese (v2, decisione PM): |delta| >=25 bp = 1, >=40 = 2,
     # >=60 = 3. La deviazione standard storica della variazione mensile del 10 anni e' ~25
@@ -1139,11 +1152,7 @@ def _verdict_bands(score, max_score, labels):
     score, max_score = _finite_number(score), _finite_number(max_score)
     if score is None or max_score is None or max_score <= 0:
         return _nd_copertura()
-    frac = score / max_score
-    if frac < 0.25: return labels[0]
-    if frac < 0.5:  return labels[1]
-    if frac < 0.72: return labels[2]
-    return labels[3]
+    return labels[_S.banda(score / max_score)]
 
 
 # --- fundamentals: soglie (Opus 5.5 09/10, ordine PM "correggi tutto") -------------------
@@ -1153,12 +1162,14 @@ def _verdict_bands(score, max_score, labels):
 # Troncamento per nome a +/-50%: un DCF che dista piu' della meta' dal prezzo e' piu' spesso
 # un errore di modello che un vantaggio informativo; la sanity boccia solo i casi grossolani.
 _MOS_CAP_PCT = 50.0
-# Bande: zona neutra +/-15%, coerente con l'errore tipico di un DCF (+/-1 pt di WACC o
-# +/-0,5 pt di crescita terminale spostano il fair value del 15-25%): dentro la banda il
-# segno del MOS non e' informazione. "Molto caro" a -30% = due volte quell'errore.
+# Punteggio (10/10, Opus 5.5): CONTINUO, MOS +45% -> 0 punti ... -75% -> 3 punti, lineare
+# (core/soglie_score.punti_mos), con i confini delle bande comuni a +15/-15/-45: zona neutra
+# +-15% (errore tipico di un DCF). Prima tre gradini a +15/-15/-30: 14,9% e 15,1% davano due
+# etichette diverse. Quote per NOME (righe informative «quota cara / a sconto»): +/-15%,
+# lo stesso errore tipico (+/-1 pt di WACC o +/-0,5 pt di crescita terminale spostano il
+# fair value del 15-25%).
 _MOS_SCONTO_PCT = 15.0
 _MOS_CARO_PCT = -15.0
-_MOS_MOLTO_CARO_PCT = -30.0
 
 
 def _peso_posizione(p):
@@ -1564,9 +1575,8 @@ def fundamentals_score(portfolio_data=None, valuations=None, max_names=None):
     quota_cari_tronc = 100.0 * sum(_pesi[tk] for tk, u in detail
                                    if u <= _MOS_CARO_PCT or tk in troncati) / _w_val
     copertura = 100.0 * _w_val / _peso_eleggibile if _peso_eleggibile else None
-    # punteggio: piu' caro = piu' rischio (un solo asse)
-    p_mos = (0 if book_mos >= _MOS_SCONTO_PCT else 1 if book_mos > _MOS_CARO_PCT
-             else 2 if book_mos > _MOS_MOLTO_CARO_PCT else 3)
+    # punteggio: piu' caro = piu' rischio (un solo asse), continuo fra +15% e -45%
+    p_mos = _S.punti_mos(book_mos)
     lines = [(_message("Margine di sicurezza del book (ponderato, prezzo corrente)",
                        "Book margin of safety (weighted, current price)"),
               "{:+.1f}%".format(book_mos), p_mos),
@@ -1653,7 +1663,8 @@ def options_score(proxy_ticker=None, portfolio_data=None, options_data=None, *, 
     Seconda versione 10/10 (Opus 5.5, riserve della review): il regime lo danno SOLO struttura
     VIX/VIX3M (0..6) e RR25 (0..3); IV-RV e' il sotto-verdetto informativo «prezzo della
     protezione» (nel crash IV < RV toglieva punti allo stress); pavimento IN STRESS con
-    VIX/VIX3M >= 1,06; etichette di verdetto corte, dettaglio nelle righe.
+    VIX/VIX3M >= l'ancora piena; etichette di verdetto corte, dettaglio nelle righe. 10/10:
+    ancore, prezzo della protezione (IV/RV) e skew normalizzato da core/soglie_score.
     Percorso vivo (nessun dato passato): scarica VIX, superficie e opzioni di SPY. Se il
     chiamante passa SOLO options_data, VIX e superficie sono «non calcolati da questo percorso»."""
     from bellomberg.core.presentation import message as _message
@@ -1699,29 +1710,26 @@ def options_score(proxy_ticker=None, portfolio_data=None, options_data=None, *, 
                 "dato non fornito dal tool", "value not provided by the tool")), None))
             unscored.append(label)
 
-    # ---- ANCORE (fix score 09/10). Soglie da INDICE (SPY), non da singolo titolo. ----
-    # VIX/VIX3M: 0,88 -> 0 (contango tipico: mediana storica ~0,87-0,90), 0,94 -> 2,
-    # 1,00 -> 4 (curva piatta/inversione: la protezione a 30g costa quanto quella a 3 mesi),
-    # 1,06 -> 6 (backwardation profonda: agosto 2015, febbraio 2018, marzo 2020, agosto 2024
-    # hanno superato 1,1). Peso DOPPIO: e' la metrica principale.
-    _TS = (0.88, 0.94, 1.00, 1.06)
-    # IV 30g - RV 21 sedute (fix v2 10/10, riserva 5; 21 = finestra B2 della superficie v2): NON e' piu' una metrica di regime ma un
-    # sotto-verdetto INFORMATIVO «prezzo della protezione». Nel crash la realizzata corre piu'
-    # dell'implicita (IV 42 < RV 55): come punteggio di stress lo scenario peggiore toglieva
-    # punti. Fasce: <= 0 a sconto sulla realizzata; fino a +6 nella norma (premio al rischio di
-    # volatilita' tipico di SPY ~3-4 punti); >= +6 cara (circa il doppio del premio tipico).
-    _IVRV_FASCE = (0.0, 6.0)
-    # -RR25 a 30-45g, in punti vol (put 25Δ sopra call 25Δ): 3 -> 0 (skew piatto, nessuna
-    # domanda di copertura), 5 -> 1 (skew equity tipico di SPY a 1 mese, -4/-6), 7 -> 2, 9 -> 3.
-    # Segno: solo lo skew PUT (rr < 0) e' domanda di copertura; uno skew call (rr > 0) vale 0.
-    # Resta in punti vol ASSOLUTI, non normalizzato per l'IV ATM (riserva 11, valutato): il
-    # rapporto RR25/ATM e' piu' alto nei mercati calmi (placido -4,5/14 = 0,32) che nei crash
-    # (-8/42 = 0,19), perche' nello stress l'IV ATM sale piu' dello skew; come misura di stress
-    # andrebbe al contrario. Il rapporto si mostra come informativa.
-    _RR = (3.0, 5.0, 7.0, 9.0)
-    # PAVIMENTO STRESS: con VIX/VIX3M >= 1,06 (backwardation profonda, ancora piena della
-    # metrica principale) il verdetto e' almeno «IN STRESS», qualunque sia lo skew.
-    PAVIMENTO_TS_STRESS = 1.06
+    # ---- ANCORE (fix score 09/10; 10/10 una sola taratura in core/soglie_score). ----
+    # VIX/VIX3M: ancore 0 -> 2 -> 4 -> 6 = percentili 50/75/90/97 della storia CBOE dal 2009
+    # (oggi 0,884/0,934/0,985/1,046), interpolate. Peso DOPPIO: e' la metrica principale.
+    # get_vix_term_structure etichetta CONTANGO/FLAT/BACKWARDATION dalle STESSE costanti.
+    _TS = _S.VIX3M_ANCORE
+    # Prezzo della protezione (fix v2 10/10, riserva 5; 21 = finestra B2 della superficie v2):
+    # sotto-verdetto INFORMATIVO, non regime (nel crash la realizzata corre piu' dell'implicita
+    # e toglieva punti allo stress). 10/10 (Opus 5.5): misura INVARIANTE DI SCALA, rapporto
+    # IV ATM ~30g / realizzata 21 sedute, soglie calibrate (a sconto < p20, cara >= p80 di
+    # VIX / realizzata S&P 500, core/soglie_score.VRP_*). Prima differenza in punti con «cara»
+    # a +6 qui e a +3 nella superficie e nel segnale.
+    # Skew (v3 10/10): -RR25 a 30-45g in PUNTI VOL ASSOLUTI, ancore 3/5/7/9 -> 0..3
+    # (core/soglie_score.SKEW_RR25_ANCORE_PT, convenzione SPX 1 mese, non calibrate). Uno skew
+    # call (RR25 > 0) vale 0. NON normalizzato per l'IV ATM: il rapporto RR25/ATM scende nei
+    # crash (calmo -4,5/14 = 0,32, crash -8/42 = 0,19) e toglieva punti allo stress; resta
+    # come riga INFORMATIVA (e nella lettura della superficie).
+    _RR = _S.SKEW_RR25_ANCORE_PT
+    # PAVIMENTO STRESS: con VIX/VIX3M >= l'ancora piena (p97, backwardation profonda) il
+    # verdetto e' almeno «IN STRESS», qualunque sia lo skew.
+    PAVIMENTO_TS_STRESS = _S.VIX3M_PAVIMENTO_STRESS
 
     # 1) STRUTTURA A TERMINE VIX
     _ts_label = _message("Struttura VIX/VIX3M (peso 2)", "VIX/VIX3M term structure (weight 2)")
@@ -1743,26 +1751,31 @@ def options_score(proxy_ticker=None, portfolio_data=None, options_data=None, *, 
             # due chiusure di giorni diversi non fanno una curva: buco dichiarato, mai un rapporto misto
             add(_ts_label, None, None, _message("VIX e VIX3M di date diverse ({d})", "VIX and VIX3M from different dates ({d})", d=", ".join(_date)))
             ts_ratio = None
-        elif _date and _vix_eta_giorni(_date[0]) is not None and _vix_eta_giorni(_date[0]) > 5:
-            # chiusura piu' vecchia di 5 giorni di calendario (oltre un weekend lungo): STALE
+        elif (_date and _vix_eta_giorni(_date[0]) is not None
+              and _vix_eta_giorni(_date[0]) > _S.ETA_MAX_GIORNALIERA_GG):
+            # chiusura piu' vecchia del limite delle serie giornaliere (6 giorni, lo stesso della
+            # macro sullo stesso VIX): STALE
             add(_ts_label, None, None, _message("STALE: ultima chiusura VIX {d}", "STALE: last VIX close {d}", d=_date[0]))
             ts_ratio = None
         else:
-            stato = (_message("backwardation", "backwardation") if ts_ratio > 1.0 else _message("contango", "contango"))
+            # stessa classificazione dello strumento (core/soglie_score.struttura_vix)
+            stato = {"CONTANGO": _message("contango", "contango"),
+                     "FLAT": _message("contango sotto la norma", "below-normal contango"),
+                     "BACKWARDATION": _message("backwardation", "backwardation")}.get(_S.struttura_vix(ts_ratio), "n.d.")
             add(_ts_label, "{:.3f} {}{}".format(ts_ratio, stato, (" (" + _date[0] + ")") if _date else
                                                _message(" (data osservazione n.d.)", " (observation date n/a)")),
-                _interp(ts_ratio, _TS, (0.0, 2.0, 4.0, 6.0)))
+                _interp(ts_ratio, _TS, _S.VIX3M_PUNTI))
 
     # 2-3) SUPERFICIE: RR25 30-45g (punteggio), IV 30g vs RV (prezzo della protezione, informativo)
-    _ivrv_label = _message("Prezzo della protezione: IV ATM ~30g - realizzata 21 sedute",
-                           "Protection price: ATM IV ~30d - 21-session realized")
+    _ivrv_label = _message("Prezzo della protezione: IV ATM ~30g / realizzata 21 sedute",
+                           "Protection price: ATM IV ~30d / 21-session realized")
     _ivrv_motivo = _message("prezzo, non regime: fuori punteggio (nel crash la realizzata supera l'implicita)",
                             "price, not regime: not scored (in a crash realized vol exceeds implied)")
 
     def _gg(n):
         return _message("{n}g", "{n}d", n=n)
     _rr_label = _message("Skew RR25 30-45g (put-call 25Δ)", "RR25 skew 30-45d (25Δ put-call)")
-    ivrv = rr = rr_norm = None
+    ivrv = ivrv_ratio = rr = rr_norm = None
     prezzo_protezione = None   # codice stabile: DISCOUNT / NORMAL / EXPENSIVE
     if vol_surface is None:
         _m = _non_calcolato(_message("superficie di volatilita'", "volatility surface"))
@@ -1797,14 +1810,18 @@ def options_score(proxy_ticker=None, portfolio_data=None, options_data=None, *, 
             _ivrv_nd = _message("IV o realizzata mancante", "IV or realized vol missing")
         else:
             ivrv = (s30["atm_iv"] - rv) * 100.0
-            if ivrv <= _IVRV_FASCE[0]:
-                prezzo_protezione, _pp = "DISCOUNT", _message("a sconto sulla realizzata", "at a discount to realized")
-            elif ivrv < _IVRV_FASCE[1]:
-                prezzo_protezione, _pp = "NORMAL", _message("nella norma", "normal")
+            prezzo_protezione, ivrv_ratio = _S.prezzo_protezione(s30["atm_iv"], rv)
+            _pp = {"DISCOUNT": _message("a sconto sulla realizzata", "at a discount to realized"),
+                   "NORMAL": _message("nella norma", "normal"),
+                   "EXPENSIVE": _message("cara", "expensive")}.get(prezzo_protezione)
+            if _pp is None:
+                _ivrv_nd = _message("IV o realizzata non positive", "IV or realized vol not positive")
             else:
-                prezzo_protezione, _pp = "EXPENSIVE", _message("cara", "expensive")
-            info.append((_ivrv_label, "{:.1f} - {:.1f} = {:+.1f} pt ({}, {}): {}".format(
-                s30["atm_iv"] * 100, rv * 100, ivrv, s30.get("expiry"), _gg(int(s30["days"])), _pp), _ivrv_motivo))
+                info.append((_ivrv_label, _message(
+                    "{iv:.1f} / {rv:.1f} = {r:.2f}x ({e}, {g}): {pp} [a sconto < {a:.2f}x, cara >= {c:.2f}x]",
+                    "{iv:.1f} / {rv:.1f} = {r:.2f}x ({e}, {g}): {pp} [discount < {a:.2f}x, expensive >= {c:.2f}x]",
+                    iv=s30["atm_iv"] * 100, rv=rv * 100, r=ivrv_ratio, e=s30.get("expiry"), g=_gg(int(s30["days"])),
+                    pp=_pp, a=_S.VRP_SCONTO, c=_S.VRP_CARA), _ivrv_motivo))
         if _ivrv_nd is not None:
             info.append((_ivrv_label, _message("n.d.: {m}", "n/a: {m}", m=_ivrv_nd), _ivrv_motivo))
         s37 = _vicina(30, 45, 37)
@@ -1817,13 +1834,14 @@ def options_score(proxy_ticker=None, portfolio_data=None, options_data=None, *, 
         else:
             rr = s37["rr25"] * 100.0
             add(_rr_label, "{:+.1f} pt ({}, {})".format(rr, s37.get("expiry"), _gg(int(s37["days"]))), _interp(-rr, _RR))
-            _atm37 = _finite_number(s37.get("atm_iv"))
-            if _atm37 is not None and _atm37 > 0:
-                rr_norm = s37["rr25"] / _atm37
-                info.append((_message("Skew normalizzato RR25/IV ATM", "Normalized skew RR25/ATM IV"),
-                             "{:+.2f} ({}, {})".format(rr_norm, s37.get("expiry"), _gg(int(s37["days"]))),
-                             _message("piu' ripido nei mercati calmi che nei crash: fuori punteggio",
-                                      "steeper in calm markets than in crashes: not scored")))
+            # skew normalizzato: INFORMATIVO (n.d. dichiarato se manca l'IV ATM della scadenza)
+            rr_norm = _S.skew_normalizzato(s37["rr25"], s37.get("atm_iv"))
+            info.append((_message("Skew normalizzato RR25/IV ATM", "Normalized skew RR25/ATM IV"),
+                         ("{:+.2f} ({}, {})".format(rr_norm, s37.get("expiry"), _gg(int(s37["days"])))
+                          if rr_norm is not None else
+                          _message("n.d.: IV ATM della scadenza mancante", "n/a: expiry ATM IV missing")),
+                         _message("scende nei crash (l'IV ATM sale piu' dello skew): fuori punteggio",
+                                  "falls in crashes (ATM IV rises faster than skew): not scored")))
         # P/C aggregato sulle scadenze >= 2 giorni: INFORMATIVO
         _ok = [r for r in _ts_rows if not _parziale(r)
                and _finite_number(r.get("put_oi")) is not None and _finite_number(r.get("call_oi")) is not None]
@@ -1898,6 +1916,7 @@ def options_score(proxy_ticker=None, portfolio_data=None, options_data=None, *, 
         info.append((_pc_label, "n.d.: " + str(options_data.get("error"))[:120], _pc_motivo))
 
     metrics = {"atm_iv": atm_single, "vix_vix3m_ratio": ts_ratio, "iv_rv_30d_pts": ivrv, "rr25_30_45d_pts": rr,
+               "iv_rv_ratio_30d": ivrv_ratio, "vix_term_structure": _S.struttura_vix(ts_ratio),
                "rr25_atm_ratio": rr_norm, "protection_price": prezzo_protezione,
                "put_call_oi": (_finite_number(options_data.get("put_call_oi_ratio"))
                                if isinstance(options_data, dict) and expiry_reason is None else None)}
@@ -1916,8 +1935,10 @@ def options_score(proxy_ticker=None, portfolio_data=None, options_data=None, *, 
     floors = []
     if ts_ratio is not None and ts_ratio >= PAVIMENTO_TS_STRESS:
         floors.append("TS_BACKWARDATION")
-        _soglia = round(0.72 * max_score, 2)
-        if _soglia / max_score < 0.72:
+        # «almeno IN STRESS» = il bordo della banda critica comune (core/soglie_score)
+        _bordo = _S.BANDE_INDICE[2]
+        _soglia = round(_bordo * max_score, 2)
+        if _soglia / max_score < _bordo:
             _soglia = round(_soglia + 0.01, 2)
         if score < _soglia:
             info.append((_message("Pavimento del verdetto", "Verdict floor"),
@@ -2054,10 +2075,13 @@ def crypto_score(intel=None, has_crypto=True, adesso=None):
 
     lab_f = _message("Funding major pesato OI", "Major funding, OI-weighted")
     lab_p = _message("Premio perp major pesato OI (informativo)", "Major perp premium, OI-weighted (informational)")
-    # Funding: scarto dal tasso base. <5 punti = carry normale = 0; 5-15 = 1; 15-30 = leva
-    # affollata (rally di inizio 2024) = 2; >=30 (funding >~41%/anno) = euforia o, sul lato
-    # negativo (funding <~-19%), capitolazione (giugno e novembre 2022) = 3. DIREZIONE = segno
-    # del funding: e' chi PAGA davvero (long che pagano gli short o viceversa).
+    # Funding: |scarto dal tasso base|, punti CONTINUI fra ancore calibrate (10/10, Opus 5.5)
+    # sullo stesso scarto negli ultimi 2 anni orari di Hyperliquid: le etichette NORMALE /
+    # SURRISCALDATO / EUFORICO partono ai percentili 50/80/95, il p99 satura a 3 punti
+    # (core/soglie_score.CRYPTO_FUNDING_ANCORE/PUNTI, oggi 3,35/11,7/27/53,45).
+    # Prima 5/15/30 a gradino, di giudizio: con massimo 3 ogni gradino era un'etichetta intera.
+    # DIREZIONE = segno del funding (chi PAGA davvero: long che pagano gli short o viceversa),
+    # dichiarata solo fuori dalla banda calma.
     scarto_f = None if fund is None else fund - _HL_TASSO_BASE_ANN
     direzione = 0
     if fund is None:
@@ -2074,9 +2098,8 @@ def crypto_score(intel=None, has_crypto=True, adesso=None):
                                           v=fmt_f, m=stale_motivo), None))
             unscored.append(lab_f)
         else:
-            m = abs(scarto_f)
-            p = 0 if m < 5 else 1 if m < 15 else 2 if m < 30 else 3
-            direzione = 0 if p == 0 else (1 if scarto_f > 0 else -1)
+            p = _interp(abs(scarto_f), _S.CRYPTO_FUNDING_ANCORE, _S.CRYPTO_FUNDING_PUNTI)
+            direzione = 0 if _S.banda(p / 3.0) == 0 else (1 if scarto_f > 0 else -1)
             lines.append((lab_f, fmt_f, p)); pts.append(p)
     # Premio con SEGNO, come scarto fuori dalla zona neutra -4/+6 bp: positivo = perp sopra
     # l'oracolo (long che spingono), negativo = sotto (short dominanti). Informativo.
@@ -2450,8 +2473,13 @@ def news_score(portfolio_data=None, news_items=None, max_names=6):
 # primi 8 risultati (solo mercati risolti e partite); queste trovano mercati veri e aperti
 # ("Will the US officially declare war on Iran by December 31, 2026?", "Will China invade
 # Taiwan by end of 2026?").
+# 10/10 (Opus 5.5): il vecchio tema misto «Cina-Taiwan/dazi» e' diviso in due temi con soglie
+# distinte. La query «tariffs 2026» dei dazi NON e' stata rimisurata dal vivo (la sessione del
+# 10/10 non interroga Polymarket): se non trova un mercato aperto pertinente il tema esce n.d.
+# DICHIARATO, mai un numero preso a caso (v. _poli_scegli_mercato).
 _POLI_TOPICS = {"recessione USA": "us recession 2026", "conflitto/guerra": "war 2026",
-                "Iran-Israele": "iran war 2026", "Cina-Taiwan/dazi": "china taiwan 2026"}
+                "Iran-Israele": "iran war 2026", "Cina-Taiwan": "china taiwan 2026",
+                "dazi": "tariffs 2026"}
 
 # Audit run 10/09 (Fable 5.1, memo #54): il tool espande la query coi sinonimi e aggiunge i
 # mercati piu' scambiati del giorno; qui si prendeva il massimo "Yes" fra TUTTI i risultati.
@@ -2472,8 +2500,14 @@ _POLI_TERMINI = {
     # niente coppia nuda (iran, israel): "Will Israel reopen its embassy in Iran" non e' rischio
     "Iran-Israele": (("iran", "war"), ("iran", "strike"), ("iran", "attack"),
                      ("israel", "strike"), ("israel", "attack")),
-    "Cina-Taiwan/dazi": (("china", "taiwan"), ("china", "tariff"), ("taiwan", "invade"),
-                         ("taiwan", "invasion")),
+    "Cina-Taiwan": (("china", "taiwan"), ("taiwan", "invade"), ("taiwan", "invasion"),
+                    ("taiwan", "blockade")),
+    # dazi (v5 10/10, decisione del coordinatore): WHITELIST DI FORMA, non parole. Il tema
+    # conta solo con la forma di escalation esplicita (v. _poli_dazi_ok e _POLI_DAZI_FORME); le
+    # forme nominali («tariff hike», «new tariffs») da sole NON bastano perche' sono quelle che
+    # si invertono («will the tariff hike be reversed»). Questi termini servono solo come
+    # marcatore del tema per _poli_termini_ok, che delega a _poli_dazi_ok.
+    "dazi": (("tariff",), ("trade war",)),
 }
 _POLI_MENZIONE = ("say", "said", "mention", "mentions")
 # fix 09/10 (Opus 5.5, audit D-P3): soglie PER TEMA in punti percentuali di probabilita'
@@ -2485,11 +2519,13 @@ _POLI_MENZIONE = ("say", "said", "mention", "mentions")
 #    prezzato e' materiale -> 5/15/30;
 #  - Iran-Israele: attacchi ricorrenti (prezzi spesso 30-70%), impatto di mercato limitato
 #    (petrolio) -> 15/35/60;
-#  - Cina-Taiwan/dazi: tema MISTO (blocco/invasione gravissimi, dazi frequenti e meno
-#    gravi): soglie generiche, residuo dichiarato (andrebbe diviso in due temi) -> 10/25/45.
+#  - Cina-Taiwan (10/10, diviso dai dazi): blocco/invasione e' un evento di GUERRA, raro e
+#    gravissimo (catena dei semiconduttori) -> le soglie della guerra, 5/15/30;
+#  - dazi (10/10): frequenti, prezzati spesso fra 20 e 60%, impatto per lo piu' settoriale e
+#    di margine -> 20/40/60. Prima i due eventi condividevano 10/25/45 e pesavano uguale.
 _POLI_SOGLIE_DEFAULT = (10, 25, 45)
 _POLI_SOGLIE = {"recessione USA": (20, 35, 55), "conflitto/guerra": (5, 15, 30),
-                "Iran-Israele": (15, 35, 60), "Cina-Taiwan/dazi": (10, 25, 45)}
+                "Iran-Israele": (15, 35, 60), "Cina-Taiwan": (5, 15, 30), "dazi": (20, 40, 60)}
 # fix 09/10 (Opus 5.5, audit D-P1): mercati di RISOLUZIONE/PACE. Il loro «Yes» e' la
 # probabilita' che il rischio SPARISCA («Will the war end…», «…sign a tariff deal», «…avoid a
 # recession», «…lower tariffs»): letto come coda invertiva il segno. Si ESCLUDONO (contati
@@ -2502,7 +2538,78 @@ _POLI_RISOLUZIONE = ("end", "ends", "ended", "ending", "deal", "deals", "agreeme
                      "resumes", "withdraw", "withdraws", "withdrawal", "talks", "negotiate",
                      "negotiations", "normalize", "normalise",
                      # v2: cessazione esplicita («agree to stop attacks», «halt strikes»)
-                     "agree", "agrees", "stop", "stops", "halt", "halts", "cease", "ceases")
+                     "agree", "agrees", "stop", "stops", "halt", "halts", "cease", "ceases",
+                     # v3 10/10 (revisione, tema dazi): annullamento giudiziario, entrate e
+                     # rimborsi dei dazi: il loro Yes non e' un'escalation
+                     "unconstitutional", "strike down", "strikes down", "struck down",
+                     "refund", "refunds")
+# v4 10/10 (revisione, tema dazi): allentamento/risoluzione dei dazi in QUALUNQUE forma, anche al
+# passivo e con l'oggetto prima del verbo («tariffs on Canada be lifted»). Un mercato dazi con
+# una di queste forme e' scartato anche se contiene un verbo di escalation. «revenue» non e'
+# qui: «raise tariffs to boost revenue» e' un'escalation (senza verbo il tema non conta comunque).
+# «strike(s)/struck down» solo contigui: «raise tariffs before the court strikes them down» conta.
+# v5: seconda guardia, dopo la whitelist di forma (anche reverse, roll back, cancel, block,
+# overturn, scrap, drop, back down, waive, lower, invalidate, rescind, revoke).
+_POLI_DAZI_ALLENTAMENTO = (
+    r"\b(lift|lifts|lifted|lifting|remove|removes|removed|removal|repeal|repeals|repealed|reduce"
+    r"|reduces|reduced|reduction|illegal|unconstitutional|exempt|exempts|exempted|exemption"
+    r"|exemptions|delay|delays|delayed|postpone|postpones|postponed|pause|pauses|paused|suspend"
+    r"|suspends|suspended|uphold|upholds|upheld|refund|refunds|reverse|reverses|reversed"
+    r"|reversal|rollback|cancel|cancels|canceled|cancelled|cancellation|block|blocks|blocked"
+    r"|overturn|overturns|overturned|scrap|scraps|scrapped|drop|drops|dropped|waive|waives"
+    r"|waived|waiver|lower|lowers|lowered|lowering|invalidate|invalidates|invalidated|rescind"
+    r"|rescinds|rescinded|revoke|revokes|revoked|end|ends|ended|ending)\b",
+    r"\b(roll|rolls|rolled|rolling)\s+back\b",
+    # v6 (revisione): rifiuto/fallimento/esitazione e de-escalation. «fail» sta anche in
+    # _POLI_ESCALATION (forza _poli_risoluzione a False): per i dazi vince QUESTA guardia,
+    # applicata dopo e indipendentemente
+    r"\b(refuse\w*|declin\w*|fail\w*|unable|reluctan\w*|hesitat\w*)\b",
+    r"\bde-?escalat\w*",
+    r"\b(back|backs|backed|backing)\s+down\b",
+    r"\b(strike|strikes|struck)\s+down\b",
+    r"\bfalls?\s+below\b",
+    r"\btariffs?\b.*\bcuts?\b|\bcuts?\b.*\btariffs?\b",
+)
+# v5: proposizioni di CONTESTO temporale tolte prima delle guardie: «after the pause ends» dice
+# QUANDO, non che il rischio finisce («Will tariffs be raised again after the pause ends» conta).
+_POLI_DAZI_CONTESTO = r"\b(after|when|once|before|until)\s+(the\s+)?(\w+\s+){0,2}?(pause|suspension|truce|exemption|delay|deadline|freeze)\s+(ends|ended|expires|expired|lapses|lapsed|is\s+over)\b"
+# v5: le SOLE forme che contano (verbo di escalation ATTIVO prima di «tariff», o passivo di
+# escalation, o «tariffs ... rise/go up/increase/exceed», o l'avvio di una guerra commerciale).
+_POLI_DAZI_VERBI = r"(raise|impose|increase|hike|announce|put|slap|levy|introduce|expand|double|triple|add)"
+_POLI_DAZI_FORME = (
+    # «will <soggetto, max 5 parole> <verbo> ... tariff(s)»; niente negazioni prima del verbo
+    r"\bwill\s+((?!(not|never|no)\b)\S+\s+){1,5}?" + _POLI_DAZI_VERBI + r"\b[^?]*\btariffs?\b",
+    # passivo di escalation: «tariffs ... be/get raised|imposed|increased|hiked|expanded|doubled|tripled»
+    r"\btariffs?\b[^?]*\b(be|get|been)\s+(\w+\s+)?(raised|imposed|increased|hiked|expanded|doubled|tripled|levied|introduced)\b",
+    # «will tariffs (on X) rise / go up / exceed N%», anche «China tariffs rise above 60%»;
+    # «increase» qui no: «the tariff increase» e' la forma NOMINALE che si inverte
+    # subito dopo «tariff(s)» o dopo «tariffs on <oggetto>». v6: niente exceed/top, misurano un
+    # LIVELLO e non un'escalation («tariffs exceed 0%» al 97% valeva 3 punti)
+    r"\btariffs?\s+(on\s+[^?]*?\s+)?(rise|rises|go\s+up|goes\s+up)\b",
+    # «will tariffs (on X) increase» come VERBO: «the tariff increase take(s) effect» e' il nome
+    r"\bwill\s+(\S+\s+){0,1}?tariffs?\b(\s+on\s+\S+(\s+\S+)?)?\s+increase\b"
+    r"(?!\s+(take|takes|be|go|goes|come|comes|apply|applies|stay|stays|remain|remains|hold|holds|survive|survives))",
+    # guerra commerciale avviata o in escalation
+    # v6: «escalate» non preceduto da «de-»/«de» (il trattino fa scattare \bescalate dentro
+    # «de-escalate»)
+    r"(?<![a-z-])(start|starts|launch|launches|begin|begins|escalate|escalates)\s+(a\s+|the\s+|an?\s+)?(new\s+)?trade\s+war\b",
+    r"\btrade\s+war\b[^?]*(?<![a-z-])escalat\w*",
+)
+# LIMITE DICHIARATO (v5): falsi negativi accettati (n.d. dichiarato), inversioni no. La riga
+# dello score lo dice: «dazi: contati solo mercati di escalation esplicita».
+_POLI_DAZI_NOTA = "contati solo mercati di escalation esplicita"
+
+
+def _poli_dazi_ok(q):
+    """True solo se la domanda (minuscola) ha una FORMA di escalation dei dazi e nessuna forma
+    di allentamento/risoluzione (v5, whitelist di forma)."""
+    import re as _re
+    q = _re.sub(_POLI_DAZI_CONTESTO, " ", q)
+    if _poli_risoluzione(q):
+        return False
+    if any(_re.search(x, q) for x in _POLI_DAZI_ALLENTAMENTO):
+        return False
+    return any(_re.search(x, q) for x in _POLI_DAZI_FORME)
 # v2 10/10 (Opus 5.5, revisione MEDIO 5): «lower/reduce/lift» sono di pace solo se il loro
 # oggetto e' una misura di guerra commerciale o una sanzione («lower tariffs», «lift
 # sanctions»). Nudi rendevano «pace» anche «Will the Fed lower rates as the US enters
@@ -2543,6 +2650,10 @@ def _poli_risoluzione(question):
     v2: False se la domanda e' di ESCALATION (v. _POLI_ESCALATION), anche con parole di pace."""
     import re as _re
     q = str(question or "").lower()
+    # v3: «strike down» (annullamento giudiziario) non e' un attacco: va deciso PRIMA della
+    # regola di escalation, che leggerebbe «will ... strike» come verbo militare
+    if _re.search(r"\b(strikes?|struck)\s+down\b", q):
+        return True
     if _poli_escalation(q):
         return False
     q = _re.sub(r"\b(by\s+)?(the\s+)?end\s+of\b|\byear[- ]end\b|\bend[- ]of[- ]year\b", " ", q)
@@ -2559,6 +2670,8 @@ def _poli_termini_ok(question, alternative):
     q = str(question or "").lower()
     if any(_re.search(r"\b" + w + r"\b", q) for w in _POLI_MENZIONE):
         return False
+    if alternative is _POLI_TERMINI.get("dazi"):
+        return _poli_dazi_ok(q)   # v5: whitelist di forma (contesto temporale tolto prima)
     if _poli_risoluzione(q):
         return False
     if not alternative:
@@ -2710,12 +2823,14 @@ def politics_score(events_by_topic=None):
         pct = pr * 100
         s1, s2, s3 = _POLI_SOGLIE.get(label, _POLI_SOGLIE_DEFAULT)
         p = 0 if pct < s1 else 1 if pct < s2 else 2 if pct < s3 else 3
-        lines.append((label, "{:.0f}% (soglie {}/{}/{})".format(pct, s1, s2, s3), p)); pts.append(p)
+        lines.append((label, "{:.0f}% (soglie {}/{}/{}){}".format(
+            pct, s1, s2, s3, (" [" + _POLI_DAZI_NOTA + "]") if label == "dazi" else ""), p)); pts.append(p)
     # temi senza mercato: riga DICHIARATA senza punti e fuori dal massimo (regola 14/07).
     # fix 09/10: punti None, non 0 — uno 0 si stampava «0 punti (ok)» come un tema misurato calmo
     for label, motivo in non_calc.items():
         lab = label + " (n.d.)"
-        lines.append((lab, motivo[:60], None)); unscored.append(lab)
+        lines.append((lab, motivo[:60] + ((" [" + _POLI_DAZI_NOTA + "]") if label == "dazi" else ""), None))
+        unscored.append(lab)
     score = sum(pts); max_score = len(pts) * 3
     verdict = _verdict_bands(score, max_score, [_t("RISCHIO GEOPOL. BASSO"), _t("RISCHIO MODERATO"),
                                                 _t("RISCHIO ELEVATO"), _t("RISCHIO ACUTO")])
@@ -3002,7 +3117,7 @@ def format_scoreboard(cache):
          _t("Indice 0-100 = score/massimo (piu' alto = piu' rischio). CONFRONTA i domini SOLO "
          "sull'indice: il massimo grezzo cambia col numero di metriche disponibili per "
          "specialista (9/18 e 8/21 valgono 50 e 38, non 'quasi uguale'). "
-         "Bande: <25 basso, 25-50 medio, 50-72 elevato, >=72 critico.")]
+         "Bande: <25 basso, 25-50 medio, 50-75 elevato, >=75 critico.")]
     for r in rows:
         mx = r.get("max_score") or 0
         idx = "{:.0f}/100".format(100.0 * r["score"] / mx) if mx else "n.d."

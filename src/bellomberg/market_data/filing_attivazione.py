@@ -381,7 +381,11 @@ _PAROLE_DOCUMENTO = frozenset((
     "a an by per pour fur "
     # v2 (prova reale: relazione del revisore «To the Shareholders and Board of Directors of <Registrante> Ltd.»
     # nel 6-K dell'emittente, presa per un'altra entita'): destinatari della relazione, non ragioni sociali
-    "board directors supervisory consiglio amministrazione").split())
+    "board directors supervisory consiglio amministrazione "
+    # v4 (Opus 5.5, audit di generalita' punto 7): organi e documenti in tedesco, francese, spagnolo e la MD&A
+    # («Management Discussion and Analysis of <Registrante>»): titoli di documento, mai ragioni sociali
+    "vorstand aufsichtsrat conseil administration consejo administracion management discussion analysis "
+    "md&a").split())
 def _prefisso_da_documento(n, x):
     """L'entita' normalizzata `n` finisce con l'alias `x` e prima ha solo parole da documento."""
     if not x:
@@ -762,7 +766,8 @@ def _prova_scelte(ticker, nome, trovato, *, dopo=None, lei=None, isin=None, scar
     if alias is None:  # alias dichiarati dell'emittente (main 07/10): fonti in errore dichiarate
         alias, avvisi_alias = alias_emittente(ticker, nome, lei=lei, proposta=proposta)
     for _ in range(MAX_TENTATIVI_SITO):
-        scelta = esef_sito.scegli_pdf(pdf, prime_pagine=trovato.get("prime_pagine"), dominio=dominio, dopo=dopo)
+        scelta = esef_sito.scegli_pdf(pdf, prime_pagine=trovato.get("prime_pagine"), dominio=dominio, dopo=dopo,
+                                      chiusura_esercizio=esef_sito.chiusura_voce(trovato))
         if not scelta:
             break
         prima = prima or scelta
@@ -802,8 +807,11 @@ def _attiva_sito(store, ticker, nome, proposta, motivo_base, *, trovato=None, sc
     if accesso.get("stato") != "ok":
         return _senza_fonte(ticker, proposta, f"{motivo_base}; sito dell'emittente: {accesso.get('motivo')}")
     dominio = esef_sito.domini_voce(trovato)
-    if not esef_sito.scegli_pdf(trovato.get("pdf"), prime_pagine=trovato.get("prime_pagine"), dominio=dominio):
-        perche = (esef_sito.riepilogo_scarti(trovato["pdf"], prime_pagine=trovato.get("prime_pagine"), dominio=dominio)
+    chiusura = esef_sito.chiusura_voce(trovato)  # esercizio dell'emittente (GENERALITA' UE, Opus 5.5)
+    if not esef_sito.scegli_pdf(trovato.get("pdf"), prime_pagine=trovato.get("prime_pagine"), dominio=dominio,
+                                chiusura_esercizio=chiusura):
+        perche = (esef_sito.riepilogo_scarti(trovato["pdf"], prime_pagine=trovato.get("prime_pagine"), dominio=dominio,
+                                             chiusura_esercizio=chiusura)
                   if trovato.get("pdf") else "nessun PDF di relazioni periodiche sul sito dell'emittente")
         return _senza_fonte(ticker, proposta, f"{motivo_base}; {perche}")
     if not nome:
@@ -853,7 +861,8 @@ def aggiorna_dal_sito(store, ticker, *, scopri_fn=None, scarica_fn=None, riscont
         return {"ticker": ticker, "esito": "errore", "motivo": f"sito dell'emittente: {accesso.get('motivo')}"}
     attuale = profilo.get("periodo_sito")
     if not attuale:
-        doc = esef_sito.classifica_pdf({"url": (profilo.get("ir_urls") or [""])[0], "testo": ""})
+        doc = esef_sito.classifica_pdf({"url": (profilo.get("ir_urls") or [""])[0], "testo": ""},
+                                       chiusura_esercizio=esef_sito.chiusura_voce(trovato))
         attuale = doc.get("periodo")
     if not attuale:
         return {"ticker": ticker, "esito": "errore",

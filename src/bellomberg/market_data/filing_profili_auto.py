@@ -63,10 +63,12 @@ def sonda_tipo_6k(testo):
     period ended» e i trattini tipografici; «six-month period ended» e' semestrale (prima: None); «twelve-month
     period» e l'esercizio restano None (non sono una relazione infrannuale)."""
     t = (testo or "").lower()
-    if re.search(rf"(?<![\w{_TRATTINI}])three(?:\s+and\s+(?:six|nine))?[\s{_TRATTINI}]+months?(?:\s+periods?)?"
-                 r"\s+ended\b|\bquarter\s+ended\b", t):
+    # v4 (Opus 5.5, audit di generalita' punto 7): anche «3-month», «ending», «semester ended»
+    if re.search(rf"(?<![\w{_TRATTINI}])(?:three|3)(?:\s+and\s+(?:six|nine))?[\s{_TRATTINI}]+months?(?:\s+periods?)?"
+                 r"\s+end(?:ed|ing)\b|\bquarter\s+end(?:ed|ing)\b", t):
         return "trimestrale"
-    if re.search(rf"(?<![\w{_TRATTINI}])six[\s{_TRATTINI}]+months?(?:\s+periods?)?\s+ended\b|\bhalf[-\s]year\b", t):
+    if re.search(rf"(?<![\w{_TRATTINI}])(?:six|6)[\s{_TRATTINI}]+months?(?:\s+periods?)?\s+end(?:ed|ing)\b|\bhalf[-\s]year\b"
+                 r"|\bsemester\s+end(?:ed|ing)\b", t):
         return "semestrale"
     return None
 

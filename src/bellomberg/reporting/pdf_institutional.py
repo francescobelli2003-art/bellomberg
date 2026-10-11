@@ -43,6 +43,13 @@ INK=C.HexColor("#262626") if RL else None
 GREEN=C.HexColor("#507B32") if RL else None    # era #548235: 4.54 su bianco ma 4.12 su LGREY FAIL -> 4.98/4.52
 ORANGE=C.HexColor("#B65310") if RL else None   # era #ED7D31 = 2.77/2.51, il PEGGIORE del memo -> 4.96/4.50
 RED=C.HexColor("#C00000") if RL else None      # 6.48/5.88 gia' conforme
+
+
+def colore_banda(frac):
+    """Colore del cruscotto per la frazione score/massimo: verde, oro, arancio, rosso sulle
+    bande comuni (core/soglie_score.banda, 10/10: una sola fonte con i verdetti)."""
+    from bellomberg.core.soglie_score import banda
+    return (GREEN, GOLD_TXT, ORANGE, RED)[banda(frac)]
 # Tema app "OBSIDIAN" (match UI Electron): fascia cover nera + wordmark ambra
 OBSIDIAN=C.HexColor("#050608") if RL else None
 AMBER=C.HexColor("#FFA51E") if RL else None
@@ -654,8 +661,8 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
                 # Il grezzo NON e' confrontabile fra domini: il max cambia col numero di
                 # metriche disponibili (9/18 e 8/21 sembrano simili ma valgono 50 e 38).
                 # Si mostra l'indice NORMALIZZATO 0-100 — la grandezza su cui gli scorer
-                # tarano davvero le bande (0-25 basso / 25-50 medio / 50-72 elevato /
-                # 72+ critico) — e si tiene il grezzo accanto per tracciabilita'.
+                # tarano davvero le bande (core/soglie_score.BANDE_INDICE, 10/10: 25/50/75)
+                # — e si tiene il grezzo accanto per tracciabilita'.
                 data=[[_t("Dominio"),_t("Verdetto"),_t("Rischio\n0-100"),_t("Score\ngrezzo")]]
                 # Opus 5.5 09/10: le celle stringa NON vanno a capo da sole e il verdetto con i
                 # buchi dichiarati (256-395 pt misurati) usciva dalla colonna (7.4 cm = 209.8 pt,
@@ -707,7 +714,8 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
                         sty.append(("TEXTCOLOR",(1,i),(2,i),GREY))
                         continue
                     frac=r["score"]/r["max_score"]
-                    col=GREEN if frac<0.25 else (GOLD_TXT if frac<0.5 else (ORANGE if frac<0.72 else RED))
+                    # stessa banda dei verdetti (una sola fonte: core/soglie_score.banda)
+                    col=colore_banda(frac)
                     if col is GREEN and r.get("componente_nd"):
                         # v2 10/10 (Opus 5.5): una componente n.d. (Event Desk senza news) non si
                         # colora "rischio basso": il verde rassicura su una meta' non misurata.
@@ -720,7 +728,7 @@ def build_institutional_memo(memo_markdown, portfolio_data=None, risk_data=None,
                     _t("Indice 0-100 = score grezzo rapportato al suo massimo (piu' alto = piu' "
                     "rischio). E' l'unica colonna confrontabile fra domini: il massimo grezzo "
                     "varia col numero di metriche disponibili per ciascuno specialista. "
-                    "Bande: &lt;25 basso · 25-50 medio · 50-72 elevato · &ge;72 critico."), small))
+                    "Bande: &lt;25 basso · 25-50 medio · 50-75 elevato · &ge;75 critico."), small))
                 story.append(Spacer(1,0.4*cm))
         except Exception as _e:
             # Opus 5.5 09/10: il cruscotto che fallisce si DICHIARA (prima `pass`: la
