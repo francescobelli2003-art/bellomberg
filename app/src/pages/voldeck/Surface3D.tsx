@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { t as tr } from '@/i18n/t';
 import { linguaCorrente } from '@/i18n/lingua';
 import { finite, ivText, numText, pickFromPoint, priceText, type SurfaceModel } from '@/lib/vol-deck';
@@ -29,6 +29,11 @@ import type { AxisMode } from './SliceCharts';
      quando un'ala estrema schiaccerebbe il resto (valori veri in lettura, taglio dichiarato sotto il grafico);
    - un cambio di selezione (scadenza / K/S) aggiorna con `Plotly.restyle` SOLO le tre tracce di
      selezione; `react` dell'intera figura solo se cambiano dati, asse o tema.
+   - larghezza (11/10, bug PM «grafico a meta' pagina»): Plotly fissa la larghezza al PRIMO disegno e
+     `responsive` segue solo la finestra. Misurato sull'harness: sotto-pagina montata nascosta = svg 700 px
+     in un contenitore di 1100; contenitore che si allarga dopo il disegno = svg fermo a 600. Ora un
+     ResizeObserver sul contenitore chiama `Plotly.Plots.resize` (debounce rAF, camera viva scritta prima);
+     con larghezza 0 il primo disegno si rimanda al primo resize con dimensioni vere.
    ========================================================================== */
 declare global { interface Window { Plotly?: any } }
 
@@ -332,6 +337,9 @@ const readPalette = (node: HTMLElement, dark: boolean): Palette => {
     wall: v('--vdn-wall', dark ? '#141418' : '#f4f4f7'), wire: dark ? 'rgba(0,0,0,.32)' : 'rgba(15,23,42,.2)', scale: SCALE_VOL };
 };
 
+/** Larghezza vera del contenitore (0 se nascosto: `hidden`/display:none). */
+const widthOf = (node: HTMLElement): number => { try { return node.getBoundingClientRect?.().width || 0; } catch { return 0; } };
+
 /** Oltre questo spostamento (px) fra pressione e rilascio il gesto e' una rotazione, non un clic. */
 export const DRAG_PX = 4;
 type PlotNode = HTMLDivElement & { _fullLayout?: any; on?: Function; __vdnBound?: boolean };
@@ -364,6 +372,9 @@ export default function Surface3D({ model, axis, expiry, column, dark, onPick, o
   const drawn = useRef<{ model: SurfaceModel; axis: AxisMode; dark: boolean; extras: FigureExtras; selIndex: number[] } | null>(null);
   const press = useRef<{ x: number; y: number; moved: number } | null>(null);
   const pending = useRef<{ expiry: string; column: number } | null>(null);
+  // primo disegno rimandato (contenitore largo 0): il ResizeObserver lo risveglia con dimensioni vere
+  const waiting = useRef(false);
+  const [wake, setWake] = useState(0);
 
   // camera viva -> layout: se la vista differisce da quella scritta, la si scrive (nessun salto: e' la stessa)
   const syncCamera = (Plotly: any, node: PlotNode): Promise<unknown> => {
@@ -388,6 +399,9 @@ export default function Surface3D({ model, axis, expiry, column, dark, onPick, o
       const draw = queue.current.catch(() => undefined).then(async () => {
         if (!active || !ref.current) return;
         const t0 = performance.now();
+        // contenitore nascosto (largo 0): Plotly disegnerebbe ai 700 px di default; si aspetta il resize
+        if (!node._fullLayout && !(widthOf(node) > 0)) { waiting.current = true; mark(node, 'data-vdn-draw', 'deferred'); return; }
+        waiting.current = false;
         const last = drawn.current;
         if (node._fullLayout && last && last.model === model && last.axis === axis && last.dark === dark && last.extras === extras) {
           // solo la selezione e' cambiata: restyle delle tre tracce di selezione, la superficie non si tocca
@@ -424,7 +438,40 @@ export default function Surface3D({ model, axis, expiry, column, dark, onPick, o
       }
     }).catch(e => { if (active) onError(e instanceof Error ? e.message : String(e)); });
     return () => { active = false; };
-  }, [model, axis, expiry, column, dark, extras]);
+  }, [model, axis, expiry, column, dark, extras, wake]);
+
+  // larghezza del contenitore (11/10): il contenitore cambia senza che la finestra cambi (sotto-pagina che torna
+  // visibile, pannello laterale, avvisi, altezza che si assesta). Debounce di un frame; la camera VIVA va nel
+  // layout prima del resize, cosi' il ridisegno non riporta indietro la vista.
+  useEffect(() => {
+    const node = ref.current;
+    const RO = (globalThis as any).ResizeObserver;
+    if (!node || typeof RO !== 'function') return;
+    const raf = (fn: () => void): number => typeof window.requestAnimationFrame === 'function' ? window.requestAnimationFrame(fn) : (setTimeout(fn, 16) as unknown as number);
+    const unraf = (id: number) => { if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(id); else clearTimeout(id); };
+    let frame: number | null = null, alive = true;
+    const onSize = () => {
+      frame = null;
+      if (!alive) return;
+      const w = widthOf(node);
+      if (!(w > 0)) return;                                   // ancora nascosto: niente
+      if (!node._fullLayout) { if (waiting.current) { waiting.current = false; setWake(n => n + 1); } return; }
+      const Plotly = window.Plotly;
+      if (!Plotly?.Plots?.resize || Math.abs((node._fullLayout.width ?? 0) - w) < 1) return;
+      queue.current = queue.current.catch(() => undefined).then(async () => {
+        if (!alive || !node._fullLayout) return;
+        await syncCamera(Plotly, node);
+        await Plotly.Plots.resize(node);
+        // Plots.resize toglie l'altezza esplicita: si rimette quella scelta dalla pagina
+        if (alive && typeof node._fullLayout?.height === 'number' && node._fullLayout.height !== heightRef.current)
+          await Plotly.relayout(node, { height: heightRef.current });
+        mark(node, 'data-vdn-resize', String(Math.round(w)));
+      }).catch(() => undefined);
+    };
+    const observer = new RO(() => { if (frame != null) unraf(frame); frame = raf(onSize); });
+    observer.observe(node);
+    return () => { alive = false; if (frame != null) unraf(frame); observer.disconnect(); };
+  }, []);
 
   // rilascio del drag OVUNQUE (anche fuori dal canvas, sul pannello accanto): la vista viva va nel layout
   useEffect(() => {

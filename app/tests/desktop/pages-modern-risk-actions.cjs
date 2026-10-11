@@ -303,7 +303,7 @@ async function run(q) {
     await q.setValue('#va-ticker', 'SYNV');
     await q.click(await markButton(q, { root: 'main [data-page="vol"] form.va-ticker', pattern: 'catalog' }));
     await q.waitFor(() => !!document.querySelector('main [data-page="vol"] .vd-catalog-summary'), 'synthetic expiry catalog', 5000);
-    await q.click(await markButton(q, { root: 'main [data-page="vol"] .vd-catalog', pattern: 'load chain and surface' }));
+    await q.click(await markButton(q, { root: 'main [data-page="vol"] .vd-catalog', pattern: 'download \d+ expir' }));
     await q.waitFor(() => !!document.querySelector('main [data-page="vol"] .va-provenance'), 'completed fixture acquisition renders surface', 10000);
     assert.equal(await q.js(() => document.querySelector('main [data-page="vol"] .va-provenance strong')?.innerText), 'SYNV');
     await q.waitFor(() => {
@@ -605,7 +605,7 @@ async function run(q) {
     await q.toggle('classic'); await q.visit('/vol'); await q.setValue('#va-ticker', 'SYNV');
     await q.click(await markButton(q, { root: 'main [data-page="vol"] form.va-ticker', pattern: 'catalog' }));
     await q.waitFor(() => !!document.querySelector('main [data-page="vol"] .vd-catalog-summary'), 'pause/resume catalog fixture');
-    const start = await markButton(q, { root: 'main [data-page="vol"] .vd-catalog', pattern: 'load chain and surface' });
+    const start = await markButton(q, { root: 'main [data-page="vol"] .vd-catalog', pattern: 'download \d+ expir' });
     const beforeStart = await q.counts(); await q.click(start);
     await waitForCount(q, 'POST /options/download/SYNV', (beforeStart['POST /options/download/SYNV'] || 0) + 1);
     await q.waitFor(() => [...document.querySelectorAll('main [data-page="vol"] .vd-download button')].some(button => /pause/i.test(button.innerText)),
@@ -925,7 +925,7 @@ async function run(q) {
     await q.visit('/vol'); await q.setValue('#va-ticker', 'SYNV');
     await q.click(await markButton(q, { root: 'main [data-page="vol"] form.va-ticker', pattern: 'catalog' }));
     await q.waitFor(() => !!document.querySelector('main [data-page="vol"] .vd-catalog-summary'), 'catalogue for empty chain test');
-    await q.click(await markButton(q, { root: 'main [data-page="vol"] .vd-catalog', pattern: 'load chain and surface' }));
+    await q.click(await markButton(q, { root: 'main [data-page="vol"] .vd-catalog', pattern: 'download \d+ expir' }));
     await waitForCount(q, 'POST /options/download/SYNV', (beforeReads['POST /options/download/SYNV'] || 0) + 1);
     await q.waitFor(() => !!document.querySelector('main [data-page="vol"] .va-provenance'), 'fixture completed acquisition before chain empty state', 9000);
     await q.click('main [data-page="vol"] button[data-vol-workspace="chain"]');

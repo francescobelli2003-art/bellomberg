@@ -1,0 +1,175 @@
+/* Acquisizione dell'Atlante della volatilità in stile Nuova (palette consumer --bbn-*, stessa
+   grammatica di Fattori e Mercati di Andrea). 11/10/2026 — Opus 5.5.
+   Una domanda per vista (fin dove guardare), un protagonista (quante scadenze e dove cadono),
+   un'azione che dice cosa fa. Ambito: .vacq dentro .vol-workbench.
+   Il prefisso :is(...) porta la specificità sopra vol-workbench.css, vol-atlas.css,
+   risk-modern.css e pages-modern.css, che vestono i .vd-* e ogni bottone delle pagine moderne. */
+
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq {
+  display: grid; gap: 18px; min-width: 0; padding: 24px 28px 26px;
+  border: 0; border-radius: 22px; overflow: visible;
+  background: var(--bbn-card); color: var(--bbn-text); box-shadow: var(--bbn-shadow);
+  font-family: 'Manrope Variable', Manrope, system-ui, sans-serif; font-size: 14px; line-height: 1.45;
+  font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased;
+}
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq[hidden] { display: none; }
+.vacq .num { font-variant-numeric: tabular-nums; }
+
+/* bottoni: pages-modern.css li veste tutti (bordo, padding, accento su aria-pressed) — qui si azzera */
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq button {
+  min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; color: inherit;
+  font: inherit; line-height: inherit; letter-spacing: normal; text-transform: none; box-shadow: none; cursor: pointer;
+}
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq button:disabled { opacity: .5; cursor: not-allowed; }
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq :is(button, select, summary):focus-visible {
+  outline: 2px solid var(--bbn-accent); outline-offset: 2px;
+}
+
+/* ── domanda ─────────────────────────────────────────────────────── */
+.vacq-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq h2 {
+  margin: 0; color: var(--bbn-text); font-family: inherit; font-size: 22px; font-weight: 800; letter-spacing: -.01em; line-height: 1.25; text-transform: none;
+}
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq-head p {
+  margin: 4px 0 0; max-width: 70ch; color: var(--bbn-muted); font-size: 14px; font-weight: 600;
+}
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq button.vacq-icon {
+  display: inline-grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 50%;
+  background: var(--bbn-raised); color: var(--bbn-muted);
+}
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq button.vacq-icon:hover:not(:disabled) { color: var(--bbn-text); }
+
+/* ── stato del calendario: compatto, con avanzamento ─────────────── */
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-status {
+  position: relative; overflow: hidden; display: flex; align-items: center; gap: 14px;
+  margin: 0 !important; padding: 11px 16px 13px; border: 0; border-radius: 14px;
+  background: var(--bbn-accent-soft); color: var(--bbn-text) !important; font-size: 13px; font-weight: 600;
+}
+.vacq-status-txt { flex: 1 1 auto; min-width: 0; }
+.vacq-indeterminate { position: absolute; left: 0; bottom: 0; width: 28%; height: 3px; border-radius: 3px; background: var(--bbn-accent); animation: vacq-slide 1.3s ease-in-out infinite; }
+@keyframes vacq-slide { from { transform: translateX(-100%); } to { transform: translateX(360%); } }
+@media (prefers-reduced-motion: reduce) { .vacq-indeterminate { animation: none; width: 100%; opacity: .5; } }
+
+.vacq-note { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 14px; font-size: 13px; font-weight: 600; }
+.vacq-note > span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.vacq-note.is-warn { background: var(--bbn-warn-soft); color: var(--bbn-warn); }
+.vacq-note.is-bad { background: var(--bbn-bad-soft); color: var(--bbn-bad); }
+.vacq-note.is-plain { background: var(--bbn-raised); color: var(--bbn-muted); }
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq button.vacq-link {
+  flex: none; color: var(--bbn-accent); font-size: 13px; font-weight: 700; white-space: nowrap;
+}
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq button.vacq-link:hover:not(:disabled) { text-decoration: underline; }
+.vacq-note :is(.vacq-link) { color: inherit; }
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-note button.vacq-link { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+
+/* ── scelta: orizzonti rapidi oppure una data esatta ─────────────── */
+.vacq-pick { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; }
+.vacq-presets { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--bbn-raised); }
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-presets button {
+  padding: 8px 18px; border-radius: 999px; color: var(--bbn-muted); font-size: 14px; font-weight: 700; line-height: 1.2; white-space: nowrap;
+}
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-presets button.is-on {
+  background: var(--bbn-seg-on); color: var(--bbn-text); box-shadow: 0 1px 3px rgba(0, 0, 0, .12);
+}
+.vacq-exact { display: inline-flex; align-items: center; gap: 10px; }
+.vacq-exact > span { color: var(--bbn-muted); font-size: 13px; font-weight: 600; white-space: nowrap; }
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-exact select {
+  height: 40px; min-height: 40px; max-width: 100%; padding: 0 12px 0 16px; border: 1.5px solid transparent; border-radius: 999px;
+  background: var(--bbn-raised); color: var(--bbn-text); font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-exact select:hover { border-color: var(--bbn-line); }
+
+/* ── anteprima: il protagonista ──────────────────────────────────── */
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-preview {
+  display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 22px 36px;
+  padding: 20px 26px 16px; border-radius: 18px; background: var(--bbn-raised); color: var(--bbn-text); font-size: 14px;
+}
+.vacq-figure { display: flex; flex-direction: column; min-width: 7ch; }
+.vacq-figure b { font-size: 56px; font-weight: 700; letter-spacing: -.035em; line-height: 1; }
+.vacq-figure span { margin-top: 6px; color: var(--bbn-muted); font-size: 13px; font-weight: 600; }
+.vacq-range { display: grid; gap: 10px; margin: 0; }
+.vacq-range div { display: grid; gap: 1px; }
+.vacq-range dt { color: var(--bbn-muted); font-size: 12px; font-weight: 700; }
+.vacq-range dd { margin: 0; font-size: 16px; font-weight: 700; white-space: nowrap; }
+.vacq-empty { margin: 0; color: var(--bbn-warn); font-size: 13px; font-weight: 600; max-width: 26ch; }
+
+.vacq-tl { position: relative; min-width: 0; padding: 0 14px 0 10px; }
+.vacq-tl-plot { position: relative; height: 36px; }
+.vacq-tl-track { position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; border-radius: 2px; background: var(--bbn-line); }
+:root[data-bb-theme="dark"] .vacq-tl-track { background: #3a3a40; }
+.vacq-tl-band { position: absolute; left: -8px; top: 50%; height: 18px; margin-top: -9px; padding-right: 16px; box-sizing: content-box; border-radius: 999px; background: var(--bbn-accent-soft); }
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-dot {
+  position: absolute; top: 50%; display: block; width: 12px; height: 12px; min-width: 0; margin: 0; padding: 0;
+  border: 0; border-radius: 50%; transform: translate(-50%, -50%);
+  background: var(--bbn-raised); box-shadow: inset 0 0 0 2px var(--bbn-muted);
+}
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-dot.selected { background: var(--bbn-accent); box-shadow: 0 0 0 2px var(--bbn-raised); }
+/* 0–1 DTE: in chain ma fuori dalla superficie — anello ambra, pieno se nell'orizzonte */
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-dot.is-short { box-shadow: inset 0 0 0 2px var(--bbn-warn); background: var(--bbn-raised); }
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-dot.is-short.selected { background: var(--bbn-warn); box-shadow: 0 0 0 2px var(--bbn-raised); }
+/* lacuna di copertura dell'ultima superficie: tacca ambra sotto il punto */
+.vacq-dot:is(.partial, .error, .excluded)::after { content: ''; position: absolute; left: 1px; right: 1px; top: 16px; height: 3px; border-radius: 2px; background: var(--bbn-warn); }
+.vacq-dot.error::after { background: var(--bbn-bad); }
+.vacq-tl-axis { position: relative; height: 16px; margin-top: 4px; }
+.vacq-tl-axis span { position: absolute; top: 0; transform: translateX(-50%); color: var(--bbn-muted); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.vacq-tl-axis span:first-child { transform: translateX(-10px); }
+
+.vacq-aside { margin: 0; color: var(--bbn-muted); font-size: 13px; font-weight: 600; }
+.vacq-preview + .vacq-aside { margin-top: -6px; color: var(--bbn-warn); }
+
+/* ── azione ──────────────────────────────────────────────────────── */
+.vacq-go { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; }
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq button.vacq-primary {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 24px; border-radius: 999px;
+  background: var(--bbn-accent-fill); color: var(--bbn-on-accent); font-size: 15px; font-weight: 700; line-height: 1; white-space: nowrap;
+}
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq button.vacq-btn {
+  display: inline-flex; align-items: center; min-height: 38px; padding: 0 16px; border-radius: 999px;
+  background: var(--bbn-raised); color: var(--bbn-text); font-size: 14px; font-weight: 700; line-height: 1; white-space: nowrap;
+}
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq :is(button.vacq-primary, button.vacq-btn):hover:not(:disabled) { filter: brightness(1.06); }
+
+/* ── download ────────────────────────────────────────────────────── */
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-dl {
+  display: grid; gap: 12px; padding: 18px 0 0; border-top: 1px solid var(--bbn-line);
+}
+.vacq-dl-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 16px; }
+.vacq-dl-head b { font-size: 16px; font-weight: 700; }
+.vacq-dl-head > span:not(.vacq-pill) { color: var(--bbn-muted); font-size: 13px; font-weight: 600; }
+.vacq-pill { align-self: center; display: inline-flex; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.vacq-pill.is-good { color: var(--bbn-good); background: var(--bbn-good-soft); }
+.vacq-pill.is-warn { color: var(--bbn-warn); background: var(--bbn-warn-soft); }
+.vacq-pill.is-run { color: var(--bbn-accent); background: var(--bbn-accent-soft); }
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-dl progress {
+  display: block; width: 100%; height: 6px; border: 0; border-radius: 999px; overflow: hidden; appearance: none; -webkit-appearance: none;
+  background: var(--bbn-raised); accent-color: var(--bbn-accent);
+}
+.vacq-dl progress::-webkit-progress-bar { background: var(--bbn-raised); border-radius: 999px; }
+.vacq-dl progress::-webkit-progress-value { background: var(--bbn-accent); border-radius: 999px; }
+.vacq-dl progress::-moz-progress-bar { background: var(--bbn-accent); border-radius: 999px; }
+.vacq-dl-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.vacq-more summary, .vacq-coverage summary { width: fit-content; color: var(--bbn-muted); font-size: 13px; font-weight: 700; cursor: pointer; }
+.vacq-more ul { display: grid; gap: 3px; margin: 8px 0 0; padding: 0 0 0 2px; list-style: none; color: var(--bbn-muted); font-size: 12.5px; font-weight: 600; }
+
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-coverage {
+  padding: 14px 18px; border: 0; border-radius: 16px; background: var(--bbn-raised); color: var(--bbn-text);
+}
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-coverage summary { color: var(--bbn-text); }
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-coverage ul { display: grid; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-coverage li {
+  display: grid; grid-template-columns: 110px 80px minmax(0, 1fr); gap: 12px; color: var(--bbn-muted); font-size: 13px; font-weight: 600;
+}
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-coverage li b { color: var(--bbn-warn); font-weight: 700; }
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-coverage li.loaded b { color: var(--bbn-good); }
+:is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-coverage li.error b { color: var(--bbn-bad); }
+
+/* ── larghezze strette ───────────────────────────────────────────── */
+@container bellomberg-content (max-width: 900px) {
+  :is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-preview { grid-template-columns: auto minmax(0, 1fr); }
+  .vacq-tl { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) {
+  :is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq { padding: 18px 16px 20px; }
+  :is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-preview { grid-template-columns: 1fr; padding: 16px; }
+  :is(.vol-workbench, .bb-page.bb-page-modern[data-page] .vol-workbench) .vacq.vacq .vacq-coverage li { grid-template-columns: 1fr 1fr; }
+}

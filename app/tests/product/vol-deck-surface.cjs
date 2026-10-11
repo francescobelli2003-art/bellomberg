@@ -1115,3 +1115,64 @@ test('v2: the 3D height follows the page (relayout only) and a camera from plotl
     assert.equal(react[3].height, 812, 'the redraw uses the live height');
   } finally { await view.unmount(); }
 });
+
+// 11/10 (Opus 5.5, bug PM «grafico a meta' pagina»): Plotly fissa la larghezza al primo disegno. Misurato su
+// harness con Plotly vero: sotto-pagina montata nascosta = svg 700 px in 1100; contenitore allargato dopo = 600 in 1100.
+test('11/10 width: hidden container (width 0) does not draw; a container resize calls Plots.resize and keeps the live camera; observer disconnected', async () => {
+  languages.impostaLinguaCorrente('en');
+  const S3 = load('pages/voldeck/Surface3D.tsx');
+  const m = vd.surfaceModel({ spot_est: 200, moneyness_grid: [0.9, 1, 1.1],
+    slices: [{ expiry: '2035-02-01', days: 30, iv_grid: [0.3, 0.28, 0.27] }, { expiry: '2035-03-01', days: 60, iv_grid: [0.29, 0.26, 0.27] }] });
+  const props = { model: m, axis: 'moneyness', expiry: '2035-02-01', column: 0, dark: false, resetKey: 0, onPick() {}, onError() {}, height: 560 };
+  const plotly = fakePlotly();
+  // Plots.resize come il vero: adatta la larghezza al contenitore e toglie l'altezza esplicita (autosize)
+  plotly.Plots = { resize(node) { plotly.calls.push(['Plots.resize', node]); node._fullLayout.width = node.getBoundingClientRect().width;
+    node._fullLayout.height = 450; plotly.scene.shown = JSON.parse(JSON.stringify(plotly.scene.written)); return Promise.resolve(node); } };
+  const observers = [];
+  const savedRO = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class { constructor(cb) { this.cb = cb; this.targets = []; this.off = false; observers.push(this); }
+    observe(t) { this.targets.push(t); } disconnect() { this.off = true; this.targets = []; } };
+  const view = await mount(React.createElement('div'));
+  globalThis.window.Plotly = plotly;
+  globalThis.window.addEventListener = () => {}; globalThis.window.removeEventListener = () => {};
+  globalThis.window.requestAnimationFrame = fn => setTimeout(fn, 0); globalThis.window.cancelAnimationFrame = id => clearTimeout(id);
+  const fire = async () => { for (const o of observers) if (!o.off) o.cb([]); await view.settle(); };
+  const names = () => plotly.calls.map(c => c[0]);
+  try {
+    view.dom.document.defaultRect = { left: 0, top: 0, width: 0, height: 0 };   // sotto-pagina nascosta (hidden)
+    await view.rerender(React.createElement(S3.default, props));
+    const node = view.container.byAttr('data-vol-3d')[0];
+    assert.deepEqual(names(), [], 'width 0: nothing is drawn (Plotly would fall back to its 700 px default)');
+    assert.equal(node.getAttribute('data-vdn-draw'), 'deferred');
+    assert.equal(observers.length, 1); assert.equal(observers[0].targets[0], node, 'the observer watches the plot container');
+    await fire();
+    assert.deepEqual(names(), [], 'a resize that is still 0 wide does not draw either');
+    node.rect = { left: 0, top: 0, width: 1100, height: 560 };                  // la sotto-pagina torna visibile
+    await fire();
+    assert.deepEqual(names(), ['newPlot'], 'the first real size wakes the deferred draw');
+    // il contenitore si allarga dopo il primo disegno, con una rotazione dell'utente non ancora scritta nel layout
+    const rotated = { eye: { x: -2.4, y: -0.4, z: 0.4 }, up: { x: 0, y: 0, z: 1 }, center: { x: 0, y: 0, z: 0 } };
+    plotly.rotate(rotated);
+    node._fullLayout.width = 1100; node._fullLayout.height = 560;
+    node.rect = { left: 0, top: 0, width: 1400, height: 560 };
+    const before = plotly.calls.length;
+    await fire();
+    const after = plotly.calls.slice(before);
+    assert.deepEqual(after.map(c => c[0]), ['relayout', 'Plots.resize', 'relayout'], 'live camera written, then Plots.resize, then the page height back');
+    assert.deepEqual(plain(after[0][2]['scene.camera']), rotated, 'the live camera goes into the layout before the resize');
+    assert.equal(after[1][1], node);
+    assert.deepEqual(plain(after[2][2]), { height: 560 }, 'the height chosen by the page survives Plots.resize');
+    assert.deepEqual(plain(plotly.scene.shown), rotated, 'after the resize the user still sees the rotated view');
+    assert.equal(node._fullLayout.width, 1400);
+    assert.ok(!after.some(c => c[0] === 'react' || c[0] === 'newPlot'), 'a resize never redraws the figure');
+    // stessa larghezza: nessun resize
+    const n2 = plotly.calls.length;
+    await fire();
+    assert.equal(plotly.calls.length, n2, 'same width: no Plots.resize');
+    await view.rerender(React.createElement('div'));
+    assert.equal(observers[0].off, true, 'the observer is disconnected on unmount');
+  } finally {
+    await view.unmount();
+    if (savedRO === undefined) delete globalThis.ResizeObserver; else globalThis.ResizeObserver = savedRO;
+  }
+});

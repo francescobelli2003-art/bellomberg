@@ -4,7 +4,7 @@ import { useLingua } from '@/i18n/provider';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import NewInterfaceBoundary from '@/components/NewInterfaceBoundary';
-import { Check, ChevronDown, Layers3, Plus, RefreshCw } from 'lucide-react';
+import { Plus, RefreshCw } from 'lucide-react';
 import {
   daysToExpiry, expiriesThrough, horizonDate, volNumber, volRequest, watchDownload,
   type ChainPage, type Coverage, type DownloadStatus, type ExpiryCatalog, type OptionContract,
@@ -12,6 +12,7 @@ import {
 import OptionBuilder from '@/components/option-builder/OptionBuilder';
 import { optionLeg, type BuilderLeg } from '@/lib/option-builder';
 import './vol-workbench.css';
+import './vol-acquisition.css';
 import { localizePayload } from '@/lib/api-presentation';
 import type { VolWorkspace } from '@/lib/vol-atlas';
 
@@ -35,12 +36,47 @@ export function CoverageNoticeLines({ mode, catalogError, download, downloadStal
   </div>;
 }
 
+const dayText = (e: string, month: 'short' | 'long' = 'short') =>
+  new Date(e + 'T12:00:00Z').toLocaleDateString(localeDi(linguaCorrente()), { day: 'numeric', month, year: 'numeric', timeZone: 'UTC' });
+
+/* Mini calendario delle scadenze (11/10/2026, Opus 5.5): ogni data e' un punto sull'asse dei giorni
+   (scala a radice quadrata, cosi' le settimanali vicine non si schiacciano e le LEAPS restano in pagina);
+   la fascia piena e' l'orizzonte scelto. Tacche = gli orizzonti rapidi. 0–1 DTE e lacune di copertura
+   hanno un segno proprio e la ragione nel title; il testo in pagina li dichiara a parte. */
+function ExpiryTimeline({ dates, selected, coverage, complete }: { dates: string[]; selected: string[]; coverage?: Coverage; complete: boolean }) {
+  if (!dates.length) return null;
+  const days = dates.map(e => Math.max(0, daysToExpiry(e)));
+  const span = Math.max(30, ...days);
+  const at = (d: number) => `${(Math.sqrt(Math.max(0, d) / span) * 100).toFixed(2)}%`;
+  const ticks = ([[0, tr('voldeck.acq_tick_today')], [30, tr('voldeck.ui_1_month_125')], [91, tr('voldeck.ui_3_months_126')], [182, tr('voldeck.ui_6_months_127')],
+    [365, tr('voldeck.ui_1_year_128')], [730, tr('voldeck.acq_tick_2y')]] as const).filter(([d]) => d <= span);
+  const chosen = new Set(selected);
+  const lastDays = selected.length ? Math.max(0, daysToExpiry(selected[selected.length - 1])) : -1;
+  const label = tr(complete ? 'voldeck.acq_tl_label' : 'voldeck.acq_tl_label_partial', { n: dates.length, k: selected.length,
+    a: dayText(dates[0]), b: dayText(dates[dates.length - 1]) });
+  return <div className="vacq-tl" role="img" aria-label={label}>
+    <div className="vacq-tl-plot">
+      <i className="vacq-tl-track" />
+      {lastDays >= 0 && <i className="vacq-tl-band" style={{ width: at(lastDays) }} />}
+      {dates.map((e, i) => {
+        const status = coverage?.rows.find(r => r.expiry === e);
+        const isSelected = chosen.has(e); const short = days[i] < 2;
+        const why = short ? tr('voldeck.fmt__a_available_in_the_chain_excluded_from_the_dte__6', { a: dayText(e) })
+          : `${dayText(e)} · ${days[i]}${tr('voldeck.short_days')}${status?.reason ? ': ' + status.reason : ''}`;
+        return <span key={e} className={'vd-date vacq-dot' + (isSelected ? ' selected' : '') + (short ? ' is-short' : '') + (status ? ' ' + status.status : '')}
+          data-selected={isSelected} style={{ left: at(days[i]) }} title={why} />;
+      })}
+    </div>
+    <div className="vacq-tl-axis" aria-hidden>{ticks.map(([d, text]) => <span key={d} style={{ left: at(d) }}>{text}</span>)}</div>
+  </div>;
+}
+
 type Props = { ticker: string; mode: Mode; coverage?: Coverage; surfaceBusy: boolean;
   onSurface: (result: any, expiries: string[]) => void; onLaboratory: () => void; onAcquisition: () => void };
 
 function DeferredVolWorkbenchView({ render }: { render: () => ReactNode }) { return render(); }
 
-export default function VolWorkbench({ ticker, mode, coverage, surfaceBusy, onSurface, onLaboratory, onAcquisition }: Props) {
+export default function VolWorkbench({ ticker, mode, coverage, surfaceBusy, onSurface, onAcquisition }: Props) {
   const language = useLingua();
   const [rawCatalog, setCatalog] = useState<ExpiryCatalog | null>(null);
   const catalog = useMemo(() => localizePayload(rawCatalog, language), [rawCatalog, language]);
@@ -203,11 +239,6 @@ export default function VolWorkbench({ ticker, mode, coverage, surfaceBusy, onSu
     return () => { clearTimeout(timer); chainRequest.current?.abort(); };
   }, [download?.id, download?.state, chainExpiry, filter, strikeSearch]);
 
-  const months = useMemo(() => {
-    const groups = new Map<string, string[]>();
-    for (const e of catalog?.expirations || []) groups.set(e.slice(0, 7), [...(groups.get(e.slice(0, 7)) || []), e]);
-    return [...groups];
-  }, [catalog]);
   const visibleRows = chain?.chain || [];
   const selected = expiriesThrough(catalog?.expirations || [], finalExpiry);
   const downloadBusy = downloadAction || !!download && ['queued', 'running'].includes(download.state);
@@ -217,6 +248,11 @@ export default function VolWorkbench({ ticker, mode, coverage, surfaceBusy, onSu
   // 13/09: every workspace but Acquisition hides the acquisition section; its gaps and errors are declared there too.
   const coverageGaps = coverage?.rows.filter(row => row.status !== 'loaded') || [];
   const toolsNotice = !!catalogError || !!downloadError || !!download?.error || (!!download && !download.download_complete) || downloadStale || (!!coverage && !coverage.complete);
+
+  // Acquisizione: orizzonti rapidi (un solo controllo con la data esatta) e scadenze 0–1 DTE nell'orizzonte.
+  const horizonPresets: [string, string][] = [[horizonDate(1), tr('voldeck.ui_1_month_125')], [horizonDate(3), tr('voldeck.ui_3_months_126')],
+    [horizonDate(6), tr('voldeck.ui_6_months_127')], [horizonDate(12), tr('voldeck.ui_1_year_128')], ['', tr('voldeck.acq_all')]];
+  const shortSelected = selected.filter(e => daysToExpiry(e) < 2);
 
   const addContract = (row: OptionContract, side: 'buy' | 'sell') => {
     if (legs.length >= 12 || row.adjusted || row.strike == null || !['call', 'put'].includes(row.type)) return;
@@ -249,70 +285,95 @@ export default function VolWorkbench({ ticker, mode, coverage, surfaceBusy, onSu
 
   return <NewInterfaceBoundary language={language}>
   <DeferredVolWorkbenchView render={() => (<div className="vol-workbench">
-    <section className="vd-catalog" aria-labelledby="vd-calendar-title" hidden={mode !== 'acquisition'}>
-      <div className="vd-section-head"><div><h2 id="vd-calendar-title">{tr('voldeck.ui_how_far_ahead_do_you_want_to_look_110')}</h2>
-        <p>{ticker ? tr('voldeck.fmt__a_choose_the_final_expiry_all_available_earlier_4', {a: ticker}) : tr('voldeck.ui_enter_a_ticker_to_explore_expiries_the_laboratory_also_111')}</p></div>
-        {ticker && <button className="vd-icon-button" disabled={catalogBusy} onClick={() => loadCatalog(false)} title={tr('voldeck.ui_reload_catalogue_112')}><RefreshCw size={16} /><span>{tr('voldeck.ui_reload_113')}</span></button>}
-      </div>
-      {catalogBusy && <p className="vd-loading" role="status">{tr('voldeck.ui_reading_all_available_expiries_114')}{' '}<button className="vd-secondary" onClick={() => { catalogRequest.current?.abort(); setCatalogBusy(false); }}>{tr('voldeck.ui_pause_catalogue_115')}</button></p>}
-      {catalogError && <p className="vd-error" role="alert">{catalogError}{catalog?.expirations.length ? tr('voldeck.ui_received_dates_remain_visible_catalogue_incomplete_116') : ''}</p>}
-      {catalog && <>
-        <div className="vd-catalog-summary"><span className={catalog.complete ? 'vd-ok' : 'vd-amber'}>{catalog.complete ? <Check size={14} /> : <Layers3 size={14} />}
-          {catalog.expirations.length} {' '}{tr('voldeck.ui_dates_received_117')}{' '}{catalog.complete ? tr('voldeck.ui_catalogue_end_confirmed_by_provider_118') : tr('voldeck.ui_catalogue_still_incomplete_119')}</span>
-          <span>{selected.length} {' '}{tr('voldeck.ui_dates_in_the_selected_horizon_120')}</span>
-          <span>{catalog.requests_used} {' '}{tr('voldeck.ui_catalogue_requests_121')}</span></div>
-        <div className="vd-horizon">
-          <label className="vd-field"><span>{tr('voldeck.ui_final_expiry_122')}</span><select aria-label={tr('voldeck.ui_final_expiry_122')} value={finalExpiry} onChange={e => setFinalExpiry(e.target.value)}>
-            <option value="">{tr('voldeck.ui_full_chain_all_expiries_123')}</option>
-            {finalExpiry && !catalog.expirations.includes(finalExpiry) && <option value={finalExpiry}>{tr('voldeck.ui_by_124')}{' '}{new Date(finalExpiry + 'T12:00:00Z').toLocaleDateString(localeDi(linguaCorrente()))}</option>}
-            {catalog.expirations.map(e => <option key={e} value={e}>{new Date(e + 'T12:00:00Z').toLocaleDateString(localeDi(linguaCorrente()), { day: 'numeric', month: 'long', year: 'numeric' })} · {daysToExpiry(e)}{tr('voldeck.short_days')}</option>)}
-          </select></label>
-          <div className="vd-actions">{([[1, tr('voldeck.ui_1_month_125')], [3, tr('voldeck.ui_3_months_126')], [6, tr('voldeck.ui_6_months_127')], [12, tr('voldeck.ui_1_year_128')]] as const).map(([months, label]) => <button className="vd-secondary" key={months} aria-pressed={finalExpiry === horizonDate(months)} onClick={() => setFinalExpiry(horizonDate(months))}>{label}</button>)}
-            <button className="vd-secondary" aria-pressed={!finalExpiry} onClick={() => setFinalExpiry('')}>{tr('voldeck.ui_full_chain_129')}</button>
-          </div>
-          <p>{selected.length ? tr('voldeck.fmt_from_the_first_available_date_to_a_b_expiries_5', {a: new Date(selected[selected.length - 1] + 'T12:00:00Z').toLocaleDateString(localeDi(linguaCorrente())), b: selected.length}) : tr('voldeck.ui_no_expiries_available_within_this_horizon_130')}{!catalog.complete ? tr('voldeck.ui_catalogue_loading_131') : ''}</p>
+    {/* Acquisizione in stile Nuova (11/10/2026, Opus 5.5): una domanda (fin dove guardare), un solo
+        modo di sceglierla (orizzonti rapidi + data esatta), l'anteprima di cosa si scarica (quante
+        scadenze, prima e ultima, dove cadono sull'asse del tempo) e un'azione che dice cosa fa.
+        Catalogo incompleto, errori, 0–1 DTE e lacune di copertura restano dichiarati. */}
+    <section className="vd-catalog vacq" aria-labelledby="vd-calendar-title" hidden={mode !== 'acquisition'}>
+      <header className="vacq-head">
+        <div>
+          <h2 id="vd-calendar-title">{ticker ? tr('voldeck.acq_title', { t: ticker }) : tr('voldeck.ui_how_far_ahead_do_you_want_to_look_110')}</h2>
+          {!ticker && <p>{tr('voldeck.ui_enter_a_ticker_to_explore_expiries_the_laboratory_also_111')}</p>}
         </div>
-        <details className="vd-expiry-list"><summary>{tr('voldeck.ui_expiry_list_and_coverage_132')}</summary>
-        <div className="vd-months">{months.map(([month, dates]) => <div className="vd-month" key={month}>
-          <h3>{new Date(month + '-01T12:00:00Z').toLocaleDateString(localeDi(linguaCorrente()), { month: 'long', year: 'numeric' })}</h3>
-          <div>{dates.map(e => { const days = daysToExpiry(e); const isSelected = selected.includes(e); const status = coverage?.rows.find(r => r.expiry === e);
-            return <span key={e} className={'vd-date ' + (isSelected ? 'selected ' : '') + (status?.status || '')}
-              data-selected={isSelected}
-              title={days < 2 ? tr('voldeck.fmt__a_available_in_the_chain_excluded_from_the_dte__6', {a: e}) : `${e}${status?.reason ? ': ' + status.reason : ''}`}
-              ><b>{e.slice(8)}</b><small>{days}{tr('voldeck.short_days')}</small>{isSelected && <Check size={11} />}</span>;
-        })}</div>
-        </div>)}</div></details>
-        <div className="vd-actions">
-          {!catalog.complete && !catalogBusy && <button className="vd-secondary" onClick={() => loadCatalog(true)}><ChevronDown size={14} />{tr('voldeck.ui_resume_catalogue_133')}</button>}
-          <button className="vd-primary" disabled={!selected.length || catalogBusy || !catalog.complete || downloadBusy || surfaceBusy} onClick={() => startDownload(finalExpiry ? selected : undefined)}>{tr('voldeck.ui_load_chain_and_surface_134')}</button>
-          <button className="vd-secondary" onClick={onLaboratory}>{tr('voldeck.ui_chain_greeks_and_strategies_135')}</button>
-          <small>{tr('voldeck.ui_the_full_chain_includes_all_provider_dates_and_contrac_136')}</small>
+        {ticker && <button type="button" className="vacq-icon" disabled={catalogBusy} onClick={() => loadCatalog(false)}
+          aria-label={tr('voldeck.ui_reload_catalogue_112')} title={tr('voldeck.ui_reload_catalogue_112')}><RefreshCw size={15} aria-hidden /></button>}
+      </header>
+
+      {catalogBusy && <div className="vd-loading vacq-status" role="status" title={catalog ? `${catalog.requests_used} ${tr('voldeck.ui_catalogue_requests_121')}` : undefined}>
+        <span className="vacq-status-txt">{tr('voldeck.acq_reading', { n: catalog?.expirations.length || 0 })}</span>
+        <button type="button" className="vacq-link" onClick={() => { catalogRequest.current?.abort(); setCatalogBusy(false); }}>{tr('voldeck.acq_stop')}</button>
+        <i className="vacq-indeterminate" aria-hidden />
+      </div>}
+      {catalogError && <div className="vacq-note is-bad" role="alert"><span>{catalogError}{catalog?.expirations.length ? tr('voldeck.ui_received_dates_remain_visible_catalogue_incomplete_116') : ''}</span>
+        {catalog && !catalog.complete && !catalogBusy && <button type="button" className="vacq-link" onClick={() => loadCatalog(true)}>{tr('voldeck.acq_continue')}</button>}</div>}
+      {catalog && !catalog.complete && !catalogBusy && !catalogError && <div className="vacq-note is-warn" role="status">
+        <span>{tr('voldeck.acq_incomplete', { n: catalog.expirations.length })}</span>
+        <button type="button" className="vacq-link" onClick={() => loadCatalog(true)}>{tr('voldeck.acq_continue')}</button></div>}
+
+      {catalog && <>
+        <div className="vacq-pick">
+          <div className="bbn-seg is-large vacq-presets" role="group" aria-label={tr('voldeck.acq_horizon')}>
+            {horizonPresets.map(([value, label]) => <button type="button" key={label} aria-pressed={finalExpiry === value}
+              className={finalExpiry === value ? 'is-on' : undefined} onClick={() => setFinalExpiry(value)}>{label}</button>)}
+          </div>
+          <label className="vacq-exact"><span>{tr('voldeck.acq_exact')}</span>
+            <select aria-label={tr('voldeck.ui_final_expiry_122')} value={catalog.expirations.includes(finalExpiry) ? finalExpiry : ''} onChange={e => setFinalExpiry(e.target.value)}>
+              <option value="" disabled>{tr('voldeck.ui_choose_a_date_179')}</option>
+              {catalog.expirations.map(e => <option key={e} value={e}>{dayText(e, 'long')} · {daysToExpiry(e)}{tr('voldeck.short_days')}</option>)}
+            </select></label>
+        </div>
+
+        <div className="vd-catalog-summary vacq-preview">
+          <div className="vacq-figure"><b className="num">{selected.length}</b><span>{selected.length === 1 ? tr('voldeck.acq_unit_one') : tr('voldeck.acq_unit_many')}</span></div>
+          {selected.length > 0 ? <dl className="vacq-range">
+            <div><dt>{tr('voldeck.acq_first')}</dt><dd className="num">{dayText(selected[0])}</dd></div>
+            <div><dt>{tr('voldeck.acq_last')}</dt><dd className="num">{dayText(selected[selected.length - 1])}</dd></div>
+          </dl> : <p className="vacq-empty">{tr('voldeck.ui_no_expiries_available_within_this_horizon_130')}</p>}
+          <ExpiryTimeline dates={catalog.expirations} selected={selected} coverage={coverage} complete={catalog.complete} />
+        </div>
+
+        {shortSelected.length > 0 && <p className="vacq-aside">{tr(shortSelected.length === 1 ? 'voldeck.acq_short_one' : 'voldeck.acq_short_many', { n: shortSelected.length })}</p>}
+
+        <div className="vacq-go">
+          <button type="button" className="vacq-primary" data-acq-download disabled={!selected.length || catalogBusy || !catalog.complete || downloadBusy || surfaceBusy}
+            onClick={() => startDownload(finalExpiry ? selected : undefined)}>{tr(selected.length === 1 ? 'voldeck.acq_download_one' : 'voldeck.acq_download_many', { n: selected.length })}</button>
+          {!catalog.complete ? <span className="vacq-aside">{tr('voldeck.acq_wait_catalog')}</span>
+            : downloadBusy ? <span className="vacq-aside">{tr('voldeck.acq_busy')}</span> : null}
         </div>
       </>}
-      {downloadError && <p className="vd-error" role="alert">{downloadError}</p>}
-      {download && <div className="vd-download" aria-label={tr('voldeck.ui_chain_download_progress_137')}>
-        <div className="vd-catalog-summary" role="status">
-          <strong className={download.download_complete && !downloadStale ? 'vd-ok' : 'vd-amber'}>{downloadLabel}</strong>
-          {downloadStale && <span className="vd-amber">{tr('voldeck.ui_stale_acquisition_started_more_than_144')}{' '}{Math.round(download.cache_ttl_seconds / 60)} {' '}{tr('voldeck.ui_minutes_ago_145')}</span>}
-          {download.pause_requested && download.state === 'running' && <span>{tr('voldeck.ui_pause_requested_the_in_flight_response_will_be_retaine_146')}</span>}
-          <span>{download.n_contracts.toLocaleString(localeDi(linguaCorrente()))} {' '}{tr('voldeck.ui_contracts_147')}{' '}{download.pages_received} {' '}{tr('voldeck.ui_pages_148')}</span>
-          <span>{download.completed_expiries}/{download.expirations.length} {' '}{tr('voldeck.ui_expiries_downloaded_149')}{!download.catalog_complete ? tr('voldeck.ui_catalogue_still_open_150') : ''}</span>
-          <span>{download.scope === 'all' ? tr('voldeck.ui_whole_catalogue_151') : tr('voldeck.ui_requested_dates_only_152')}{download.current_expiry ? ` · ${download.current_expiry}` : ''}</span>
-          {!!download.page_revisions && <span>{download.page_revisions} {' '}{tr('voldeck.ui_responses_refreshed_during_resume_153')}{' '}{download.superseded_contracts || 0} {' '}{tr('voldeck.ui_superseded_rows_excluded_154')}</span>}
+
+      {downloadError && <div className="vacq-note is-bad" role="alert"><span>{downloadError}</span></div>}
+      {download && <div className="vd-download vacq-dl" aria-label={tr('voldeck.ui_chain_download_progress_137')}>
+        <div className="vacq-dl-head" role="status">
+          <span className={'vacq-pill ' + (download.download_complete && !downloadStale ? 'is-good' : downloadBusy ? 'is-run' : 'is-warn')}>{downloadLabel}</span>
+          <b className="num">{tr('voldeck.acq_dl_progress', { a: download.completed_expiries, b: download.expirations.length })}</b>
+          <span className="num">{tr('voldeck.acq_dl_contracts', { n: download.n_contracts.toLocaleString(localeDi(linguaCorrente())) })}</span>
+          {download.current_expiry && downloadBusy && <span className="num">{tr('voldeck.acq_dl_now', { e: dayText(download.current_expiry) })}</span>}
         </div>
-        <progress aria-label={tr('voldeck.ui_downloaded_expiries_155')} value={download.completed_expiries} max={Math.max(1, download.expirations.length)} style={{ width: '100%' }} />
-        {download.error && <p className="vd-error" role="alert">{download.error} {' '}{tr('voldeck.ui_received_contracts_remain_available_156')}</p>}
-        {download.spot_error && <p className="vd-stale">Spot: {download.spot_error}</p>}
-        <div className="vd-actions">
-          {['queued', 'running'].includes(download.state) && <button className="vd-secondary" disabled={downloadAction} onClick={() => controlDownload('pause')}>{tr('voldeck.ui_pause_download_157')}</button>}
-          {['paused', 'error'].includes(download.state) && <button className="vd-primary" disabled={downloadAction || (download.state === 'error' && !download.retryable)} onClick={() => controlDownload('resume')}>{tr('voldeck.ui_resume_download_158')}</button>}
-          <button className="vd-secondary" disabled={!download.n_contracts || sliceBusy || downloadAction} onClick={() => showSurface(download)}>{sliceBusy ? tr('voldeck.ui_building_surface_159') : tr('voldeck.ui_show_received_surface_160')}</button>
-          <small>{download.duplicates} {' '}{tr('voldeck.ui_duplicates_identified_161')}{' '}{download.malformed_contracts} {' '}{tr('voldeck.ui_unreadable_rows_download_162')}{' '}{new Date(download.updated_at).toLocaleString(localeDi(linguaCorrente()))}{tr('voldeck.ui_retained_for_163')}{' '}{Math.round(download.retention_seconds / 60)} {' '}{tr('voldeck.ui_minutes_of_inactivity_until_backend_restart_this_is_no_164')}</small>
+        <progress aria-label={tr('voldeck.ui_downloaded_expiries_155')} value={download.completed_expiries} max={Math.max(1, download.expirations.length)} />
+        {downloadStale && <div className="vacq-note is-warn"><span>{tr('voldeck.ui_stale_acquisition_started_more_than_144')}{' '}{Math.round(download.cache_ttl_seconds / 60)}{' '}{tr('voldeck.ui_minutes_ago_145')}</span></div>}
+        {!download.catalog_complete && <div className="vacq-note is-warn"><span>{tr('voldeck.acq_dl_catalog_open')}</span></div>}
+        {download.pause_requested && download.state === 'running' && <div className="vacq-note is-plain"><span>{tr('voldeck.ui_pause_requested_the_in_flight_response_will_be_retaine_146')}</span></div>}
+        {download.error && <div className="vacq-note is-bad" role="alert"><span>{download.error}{' '}{tr('voldeck.ui_received_contracts_remain_available_156')}</span></div>}
+        {download.spot_error && <div className="vacq-note is-warn"><span>Spot: {download.spot_error}</span></div>}
+        <div className="vacq-dl-actions">
+          {['queued', 'running'].includes(download.state) && <button type="button" className="vacq-btn" disabled={downloadAction} onClick={() => controlDownload('pause')}>{tr('voldeck.ui_pause_download_157')}</button>}
+          {['paused', 'error'].includes(download.state) && <button type="button" className="vacq-primary" disabled={downloadAction || (download.state === 'error' && !download.retryable)} onClick={() => controlDownload('resume')}>{tr('voldeck.ui_resume_download_158')}</button>}
+          <button type="button" className="vacq-btn" disabled={!download.n_contracts || sliceBusy || downloadAction} onClick={() => showSurface(download)}>{sliceBusy ? tr('voldeck.ui_building_surface_159') : tr('voldeck.ui_show_received_surface_160')}</button>
         </div>
+        <details className="vacq-more"><summary>{tr('voldeck.acq_dl_details')}</summary>
+          <ul>
+            <li>{download.scope === 'all' ? tr('voldeck.ui_whole_catalogue_151') : tr('voldeck.ui_requested_dates_only_152')}</li>
+            <li className="num">{download.pages_received} {tr('voldeck.ui_pages_148')}</li>
+            <li className="num">{tr('voldeck.acq_dl_quality', { d: download.duplicates, m: download.malformed_contracts })}</li>
+            {!!download.page_revisions && <li className="num">{download.page_revisions}{' '}{tr('voldeck.ui_responses_refreshed_during_resume_153')}{' '}{download.superseded_contracts || 0}{' '}{tr('voldeck.ui_superseded_rows_excluded_154')}</li>}
+            <li>{tr('voldeck.acq_dl_retention', { t: new Date(download.updated_at).toLocaleString(localeDi(linguaCorrente())), m: Math.round(download.retention_seconds / 60) })}</li>
+          </ul>
+        </details>
       </div>}
-      {coverage && <details className="vd-coverage" open={!coverage.complete}>
+      {coverage && <details className="vd-coverage vacq-coverage" open={!coverage.complete}>
         <summary>{tr('voldeck.ui_latest_surface_coverage_165')}{' '}{coverage.loaded.length}/{coverage.requested.length} {' '}{tr('voldeck.ui_curves_166')}{' '}{coverage.excluded.length} {' '}{tr('voldeck.ui_excluded_167')}{' '}{coverage.errors.length} {' '}{tr('voldeck.ui_errors_168')}{!coverage.complete ? tr('voldeck.ui_incomplete_mesh_169') : ''}{coverage.download_complete === true ? tr('voldeck.ui_all_data_downloaded_170') : ''}</summary>
-        <ul>{coverage.rows.map(row => <li key={row.expiry} className={row.status}><span>{row.expiry}</span><b>{coverageLabel[row.status]}</b><span>{row.reason || tr('voldeck.fmt__a_contracts_received_7', {a: row.n_contracts ?? tr('voldeck.ui_n_a_15')})}</span></li>)}</ul>
+        <ul>{coverage.rows.map(row => <li key={row.expiry} className={row.status}><span className="num">{dayText(row.expiry)}</span><b>{coverageLabel[row.status]}</b><span>{row.reason || tr('voldeck.fmt__a_contracts_received_7', {a: row.n_contracts ?? tr('voldeck.ui_n_a_15')})}</span></li>)}</ul>
       </details>}
     </section>
     {mode !== 'acquisition' && toolsNotice && <section className="va-context-action" aria-label={tr('voldeck.coverage_sources')} data-vol-coverage-notice>
